@@ -184,9 +184,9 @@ private:
             reinterpret_cast<IUnknown**>(compositionSurface_.ReleaseAndGetAddressOf()));
         LogResult(log_, L"CreateSurfaceFromHandle", hr);
         if (FAILED(hr)) Fail(log_, L"IDCompositionDevice::CreateSurfaceFromHandle", hr);
-        hr = presentationSurface_->SetAlphaMode(DXGI_ALPHA_MODE_IGNORE);
-        LogResult(log_, L"SetAlphaMode(IGNORE)", hr);
-        if (FAILED(hr)) Fail(log_, L"SetAlphaMode(IGNORE)", hr);
+        hr = presentationSurface_->SetAlphaMode(DXGI_ALPHA_MODE_PREMULTIPLIED);
+        LogResult(log_, L"SetAlphaMode(PREMULTIPLIED)", hr);
+        if (FAILED(hr)) Fail(log_, L"SetAlphaMode(PREMULTIPLIED)", hr);
 
         RECT sourceRect{ 0, 0, 520, 72 };
         hr = presentationSurface_->SetSourceRect(&sourceRect);
