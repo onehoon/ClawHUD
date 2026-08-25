@@ -2,8 +2,6 @@
 #include <d3d11.h>
 #include <dxgi1_6.h>
 #include <dcomp.h>
-#include <d2d1_3.h>
-#include <dwrite_3.h>
 #include <presentation.h>
 #include <wrl/client.h>
 
@@ -45,9 +43,23 @@ private:
 
 std::wstring HResult(HRESULT hr)
 {
+    const wchar_t* label = L"FAILED";
+    if (hr == S_OK)
+        label = L"S_OK";
+    else if (hr == S_FALSE)
+        label = L"S_FALSE";
+    else if (SUCCEEDED(hr))
+        label = L"SUCCEEDED";
+
     std::wstringstream result;
-    result << L"0x" << std::hex << std::uppercase << static_cast<unsigned long>(hr);
+    result << label << L" (0x"
+        << std::hex << std::uppercase << static_cast<unsigned long>(hr) << L")";
     return result.str();
+}
+
+void LogResult(Logger& log, const wchar_t* operation, HRESULT hr)
+{
+    log.Write(std::wstring(operation) + L": " + HResult(hr));
 }
 
 [[noreturn]] void Fail(Logger& log, const wchar_t* operation, HRESULT hr)
@@ -90,6 +102,7 @@ private:
         if (!hwnd_) Fail(log_, L"CreateWindowEx", HRESULT_FROM_WIN32(GetLastError()));
         if (!SetWindowPos(hwnd_, HWND_TOPMOST, 24, 24, 520, 72, SWP_NOACTIVATE))
             Fail(log_, L"SetWindowPos", HRESULT_FROM_WIN32(GetLastError()));
+        log_.Write(L"SetWindowPos(HWND_TOPMOST): success");
     }
 
     void CreateD3DDevice()
@@ -114,6 +127,29 @@ private:
         if (FAILED(hr)) Fail(log_, L"IDXGIAdapter::GetDesc", hr);
         log_.Write(std::wstring(L"Adapter: ") + desc.Description);
 
+        for (UINT index = 0;; ++index)
+        {
+            ComPtr<IDXGIOutput> output;
+            hr = adapter->EnumOutputs(index, &output);
+            if (hr == DXGI_ERROR_NOT_FOUND) break;
+            if (FAILED(hr)) Fail(log_, L"IDXGIAdapter::EnumOutputs", hr);
+
+            DXGI_OUTPUT_DESC outputDesc{};
+            hr = output->GetDesc(&outputDesc);
+            if (FAILED(hr)) Fail(log_, L"IDXGIOutput::GetDesc", hr);
+            if (!outputDesc.AttachedToDesktop) continue;
+
+            std::wstringstream outputLog;
+            outputLog << L"Output: " << outputDesc.DeviceName
+                << L"; Desktop: " << outputDesc.DesktopCoordinates.left << L","
+                << outputDesc.DesktopCoordinates.top << L" - "
+                << outputDesc.DesktopCoordinates.right << L","
+                << outputDesc.DesktopCoordinates.bottom
+                << L"; AttachedToDesktop: YES; Rotation: "
+                << static_cast<int>(outputDesc.Rotation);
+            log_.Write(outputLog.str());
+        }
+
         hr = DCompositionCreateDevice(dxgiDevice.Get(), __uuidof(IDCompositionDevice),
             reinterpret_cast<void**>(compositionDevice_.ReleaseAndGetAddressOf()));
         if (FAILED(hr)) Fail(log_, L"DCompositionCreateDevice", hr);
@@ -129,22 +165,44 @@ private:
     {
         HRESULT hr = CreatePresentationFactory(device_.Get(), __uuidof(IPresentationFactory),
             reinterpret_cast<void**>(factory_.ReleaseAndGetAddressOf()));
+        LogResult(log_, L"CreatePresentationFactory", hr);
         if (FAILED(hr)) Fail(log_, L"CreatePresentationFactory", hr);
         const BOOL supported = factory_->IsPresentationSupportedWithIndependentFlip();
         log_.Write(L"Composition Swapchain: initialized");
         log_.Write(std::wstring(L"Independent Flip Presentation Support: ") + (supported ? L"YES" : L"NO"));
         if (!supported) throw std::runtime_error("Independent flip presentation is not supported");
         hr = factory_->CreatePresentationManager(&manager_);
+        LogResult(log_, L"CreatePresentationManager", hr);
         if (FAILED(hr)) Fail(log_, L"IPresentationFactory::CreatePresentationManager", hr);
         hr = DCompositionCreateSurfaceHandle(COMPOSITIONOBJECT_ALL_ACCESS, nullptr, &surfaceHandle_);
+        LogResult(log_, L"DCompositionCreateSurfaceHandle", hr);
         if (FAILED(hr)) Fail(log_, L"DCompositionCreateSurfaceHandle", hr);
         hr = manager_->CreatePresentationSurface(surfaceHandle_, &presentationSurface_);
+        LogResult(log_, L"CreatePresentationSurface", hr);
         if (FAILED(hr)) Fail(log_, L"IPresentationManager::CreatePresentationSurface", hr);
         hr = compositionDevice_->CreateSurfaceFromHandle(surfaceHandle_,
             reinterpret_cast<IUnknown**>(compositionSurface_.ReleaseAndGetAddressOf()));
+        LogResult(log_, L"CreateSurfaceFromHandle", hr);
         if (FAILED(hr)) Fail(log_, L"IDCompositionDevice::CreateSurfaceFromHandle", hr);
-        hr = presentationSurface_->SetAlphaMode(DXGI_ALPHA_MODE_PREMULTIPLIED);
-        if (FAILED(hr)) Fail(log_, L"IPresentationSurface::SetAlphaMode", hr);
+        hr = presentationSurface_->SetAlphaMode(DXGI_ALPHA_MODE_IGNORE);
+        LogResult(log_, L"SetAlphaMode(IGNORE)", hr);
+        if (FAILED(hr)) Fail(log_, L"SetAlphaMode(IGNORE)", hr);
+
+        RECT sourceRect{ 0, 0, 520, 72 };
+        hr = presentationSurface_->SetSourceRect(&sourceRect);
+        LogResult(log_, L"SetSourceRect(0,0,520,72)", hr);
+        if (FAILED(hr)) Fail(log_, L"SetSourceRect", hr);
+
+        PresentationTransform transform{};
+        transform.M11 = 1.0f;
+        transform.M22 = 1.0f;
+        hr = presentationSurface_->SetTransform(&transform);
+        LogResult(log_, L"SetTransform(identity)", hr);
+        if (FAILED(hr)) Fail(log_, L"SetTransform", hr);
+
+        hr = presentationSurface_->SetLetterboxingMargins(0.0f, 0.0f, 0.0f, 0.0f);
+        LogResult(log_, L"SetLetterboxingMargins(0,0,0,0)", hr);
+        if (FAILED(hr)) Fail(log_, L"SetLetterboxingMargins", hr);
         log_.Write(L"Presentation manager: initialized");
     }
 
@@ -158,85 +216,70 @@ private:
         desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE |
             D3D11_RESOURCE_MISC_SHARED_DISPLAYABLE;
         HRESULT hr = device_->CreateTexture2D(&desc, nullptr, &texture_);
+        LogResult(log_, L"CreateTexture2D(displayable)", hr);
         if (FAILED(hr)) Fail(log_, L"ID3D11Device::CreateTexture2D(displayable)", hr);
         hr = device_->CreateRenderTargetView(texture_.Get(), nullptr, &renderTarget_);
+        LogResult(log_, L"CreateRenderTargetView", hr);
         if (FAILED(hr)) Fail(log_, L"ID3D11Device::CreateRenderTargetView", hr);
         hr = manager_->AddBufferFromResource(texture_.Get(), &buffer_);
+        LogResult(log_, L"AddBufferFromResource", hr);
         if (FAILED(hr)) Fail(log_, L"IPresentationManager::AddBufferFromResource", hr);
         hr = presentationSurface_->SetBuffer(buffer_.Get());
+        LogResult(log_, L"SetBuffer", hr);
         if (FAILED(hr)) Fail(log_, L"IPresentationSurface::SetBuffer", hr);
     }
 
     void RenderBuffer()
     {
-        const float clear[] = { 0.03f, 0.03f, 0.03f, 0.80f };
+        const float clear[] = { 1.0f, 0.0f, 0.0f, 1.0f };
         context_->ClearRenderTargetView(renderTarget_.Get(), clear);
         context_->OMSetRenderTargets(1, renderTarget_.GetAddressOf(), nullptr);
         D3D11_VIEWPORT viewport{ 0, 0, 520, 72, 0, 1 };
         context_->RSSetViewports(1, &viewport);
         context_->OMSetRenderTargets(0, nullptr, nullptr);
         context_->Flush();
-        DrawLabel();
+        log_.Write(L"Clear/Flush: OK (solid opaque red)");
         HRESULT hr = manager_->Present();
+        LogResult(log_, L"IPresentationManager::Present", hr);
         if (FAILED(hr)) Fail(log_, L"IPresentationManager::Present", hr);
-    }
-
-    void DrawLabel()
-    {
-        ComPtr<IDXGISurface> surface;
-        HRESULT hr = texture_.As(&surface);
-        if (FAILED(hr)) Fail(log_, L"ID3D11Texture2D::QueryInterface(IDXGISurface)", hr);
-
-        ComPtr<ID2D1Factory1> d2dFactory;
-        hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, __uuidof(ID2D1Factory1),
-            reinterpret_cast<void**>(d2dFactory.ReleaseAndGetAddressOf()));
-        if (FAILED(hr)) Fail(log_, L"D2D1CreateFactory", hr);
-        ComPtr<IDXGIDevice> dxgiDevice;
-        hr = device_.As(&dxgiDevice);
-        if (FAILED(hr)) Fail(log_, L"ID3D11Device::QueryInterface(IDXGIDevice)", hr);
-        ComPtr<ID2D1Device> d2dDevice;
-        hr = d2dFactory->CreateDevice(dxgiDevice.Get(), &d2dDevice);
-        if (FAILED(hr)) Fail(log_, L"ID2D1Factory1::CreateDevice", hr);
-        ComPtr<ID2D1DeviceContext> d2dContext;
-        hr = d2dDevice->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &d2dContext);
-        if (FAILED(hr)) Fail(log_, L"ID2D1Device::CreateDeviceContext", hr);
-
-        D2D1_BITMAP_PROPERTIES1 properties = D2D1::BitmapProperties1(
-            D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
-            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
-        ComPtr<ID2D1Bitmap1> bitmap;
-        hr = d2dContext->CreateBitmapFromDxgiSurface(surface.Get(), &properties, &bitmap);
-        if (FAILED(hr)) Fail(log_, L"ID2D1DeviceContext::CreateBitmapFromDxgiSurface", hr);
-        d2dContext->SetTarget(bitmap.Get());
-        d2dContext->BeginDraw();
-
-        ComPtr<IDWriteFactory> writeFactory;
-        hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
-            reinterpret_cast<IUnknown**>(writeFactory.ReleaseAndGetAddressOf()));
-        if (FAILED(hr)) Fail(log_, L"DWriteCreateFactory", hr);
-        ComPtr<IDWriteTextFormat> format;
-        hr = writeFactory->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD,
-            DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 18.0f, L"en-US", &format);
-        if (FAILED(hr)) Fail(log_, L"IDWriteFactory::CreateTextFormat", hr);
-        ComPtr<ID2D1SolidColorBrush> brush;
-        hr = d2dContext->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::White, 1.0f), &brush);
-        if (FAILED(hr)) Fail(log_, L"ID2D1DeviceContext::CreateSolidColorBrush", hr);
-        const D2D1_RECT_F textRect = D2D1::RectF(16.0f, 20.0f, 504.0f, 60.0f);
-        d2dContext->DrawText(L"ClawHUD VRR TEST", 16, format.Get(), textRect, brush.Get());
-        hr = d2dContext->EndDraw();
-        if (FAILED(hr)) Fail(log_, L"ID2D1DeviceContext::EndDraw", hr);
     }
 
     void SetHudVisible(bool visible)
     {
         if (!visible) ShowWindow(hwnd_, SW_HIDE);
         HRESULT hr = visual_->SetContent(visible ? compositionSurface_.Get() : nullptr);
+        LogResult(log_, visible ? L"Visual.SetContent(attach)" : L"Visual.SetContent(detach)", hr);
         if (FAILED(hr)) Fail(log_, L"IDCompositionVisual::SetContent", hr);
         hr = compositionDevice_->Commit();
+        LogResult(log_, L"DComposition.Commit", hr);
         if (FAILED(hr)) Fail(log_, L"IDCompositionDevice::Commit", hr);
-        if (visible) ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
+        if (visible)
+        {
+            ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
+            log_.Write(L"ShowWindow: called");
+            RECT rect{};
+            const BOOL valid = IsWindow(hwnd_);
+            const BOOL shown = IsWindowVisible(hwnd_);
+            const BOOL gotRect = GetWindowRect(hwnd_, &rect);
+            const LONG_PTR exStyle = GetWindowLongPtrW(hwnd_, GWL_EXSTYLE);
+            log_.Write(std::wstring(L"HWND valid: ") + (valid ? L"YES" : L"NO"));
+            log_.Write(std::wstring(L"HWND visible: ") + (shown ? L"YES" : L"NO"));
+            if (gotRect)
+            {
+                std::wstringstream windowLog;
+                windowLog << L"WindowRect: " << rect.left << L"," << rect.top << L" - "
+                    << rect.right << L"," << rect.bottom;
+                log_.Write(windowLog.str());
+            }
+            std::wstringstream styleLog;
+            styleLog << L"WindowExStyle: 0x" << std::hex << std::uppercase
+                << static_cast<unsigned long long>(exStyle);
+            log_.Write(styleLog.str());
+        }
         hudVisible_ = visible;
-        log_.Write(std::wstring(L"HUD: ") + (visible ? L"ON" : L"OFF"));
+        log_.Write(std::wstring(L"Visual attached: ") + (visible ? L"YES" : L"NO"));
+        log_.Write(std::wstring(L"Window shown: ") + (visible ? L"YES" : L"NO"));
+        log_.Write(L"Physical visibility: NOT VERIFIED");
     }
 
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
@@ -299,12 +342,9 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
         }
         log.Write(L"F8 = HUD ON/OFF; ESC = Exit");
         if (!RegisterHotKey(overlay.Window(), 1, MOD_NOREPEAT, VK_F8))
-            Fail(log, L"RegisterHotKey(F8)", HRESULT_FROM_WIN32(GetLastError()));
+            log.Write(L"RegisterHotKey(F8) unavailable; continuing without toggle");
         if (!RegisterHotKey(overlay.Window(), 2, MOD_NOREPEAT, VK_ESCAPE))
-        {
-            UnregisterHotKey(overlay.Window(), 1);
-            Fail(log, L"RegisterHotKey(ESC)", HRESULT_FROM_WIN32(GetLastError()));
-        }
+            log.Write(L"RegisterHotKey(ESC) unavailable; continuing without exit hotkey");
         MSG message{};
         while (GetMessageW(&message, nullptr, 0, 0) > 0)
         {
