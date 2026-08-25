@@ -1345,3 +1345,7 @@ DX11 60 FPS | CPU 36% 67°C | GPU 98% 72°C | TDP 18 W | FAN 3540 RPM | BAT 72%
 ```
 
 This section should be updated when real-device presentation, telemetry, and visual tests settle any of the remaining candidate choices.
+
+## Main application shell
+
+The production `ClawHUD.exe` is a lightweight tray-first native Win32 shell with lazy Settings creation. See [docs/MAIN-APP-SHELL.md](docs/MAIN-APP-SHELL.md) for the concrete startup, update, and tray lifecycle.
