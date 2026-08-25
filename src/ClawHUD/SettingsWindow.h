@@ -16,6 +16,7 @@ public:
     HWND Window() const { return window_; }
     void RequestClose() { if (window_) PostMessageW(window_, WM_CLOSE, 0, 0); }
     void UpdateGeneralControls();
+    void UpdateHudControls();
     void SetDiagnosticStatus(const std::wstring& status);
     void SetVrrStatus(const std::wstring& status);
 
@@ -34,6 +35,9 @@ private:
     HWND generalPanel_{};
     HWND startWithWindows_{};
     HWND hudPanel_{};
+    HWND enableHud_{};
+    HWND visibilityAlways_{};
+    HWND visibilityInGameOnly_{};
     HWND diagnosticsPanel_{};
     HWND tweaksPanel_{};
     HWND intelVrrToggle_{};

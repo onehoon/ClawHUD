@@ -25,6 +25,9 @@ constexpr int kBackgroundFull = 1204;
 constexpr int kBackgroundContent = 1205;
 constexpr int kOpacitySlider = 1206;
 constexpr int kIntelVrrToggle = 1301;
+constexpr int kEnableHud = 1207;
+constexpr int kVisibilityAlways = 1208;
+constexpr int kVisibilityInGameOnly = 1209;
 
 LRESULT CALLBACK ForwardPanelNotifications(HWND window, UINT message, WPARAM wParam,
     LPARAM lParam, UINT_PTR subclassId, DWORD_PTR)
@@ -98,24 +101,32 @@ void SettingsWindow::CreateTabs()
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kStartWithWindows)), instance_, nullptr);
     hudPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD, 24, 52, 940, 580, window_, nullptr, instance_, nullptr);
     if (hudPanel_) SetWindowSubclass(hudPanel_, ForwardPanelNotifications, 1, 0);
+    enableHud_ = CreateWindowW(L"BUTTON", L"Enable HUD", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+        0, 0, 180, 24, hudPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEnableHud)), instance_, nullptr);
+    CreateWindowW(L"STATIC", L"Visibility", WS_CHILD | WS_VISIBLE,
+        0, 34, 160, 22, hudPanel_, nullptr, instance_, nullptr);
+    visibilityAlways_ = CreateWindowW(L"BUTTON", L"Always", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | WS_GROUP,
+        0, 62, 90, 24, hudPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kVisibilityAlways)), instance_, nullptr);
+    visibilityInGameOnly_ = CreateWindowW(L"BUTTON", L"In Game Only", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON,
+        95, 62, 125, 24, hudPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kVisibilityInGameOnly)), instance_, nullptr);
     CreateWindowW(L"STATIC", L"Alignment", WS_CHILD | WS_VISIBLE,
-        0, 0, 160, 22, hudPanel_, nullptr, instance_, nullptr);
+        0, 100, 160, 22, hudPanel_, nullptr, instance_, nullptr);
     alignmentLeft_ = CreateWindowW(L"BUTTON", L"Left", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | WS_GROUP,
-        0, 28, 90, 24, hudPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAlignmentLeft)), instance_, nullptr);
+        0, 128, 90, 24, hudPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAlignmentLeft)), instance_, nullptr);
     alignmentCenter_ = CreateWindowW(L"BUTTON", L"Center", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON,
-        95, 28, 90, 24, hudPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAlignmentCenter)), instance_, nullptr);
+        95, 128, 90, 24, hudPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAlignmentCenter)), instance_, nullptr);
     alignmentRight_ = CreateWindowW(L"BUTTON", L"Right", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON,
-        190, 28, 90, 24, hudPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAlignmentRight)), instance_, nullptr);
+        190, 128, 90, 24, hudPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAlignmentRight)), instance_, nullptr);
     CreateWindowW(L"STATIC", L"Background Width", WS_CHILD | WS_VISIBLE,
-        0, 70, 180, 22, hudPanel_, nullptr, instance_, nullptr);
+        0, 170, 180, 22, hudPanel_, nullptr, instance_, nullptr);
     backgroundFull_ = CreateWindowW(L"BUTTON", L"Full Width", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | WS_GROUP,
-        0, 98, 110, 24, hudPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kBackgroundFull)), instance_, nullptr);
+        0, 198, 110, 24, hudPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kBackgroundFull)), instance_, nullptr);
     backgroundContent_ = CreateWindowW(L"BUTTON", L"Content Width", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON,
-        115, 98, 125, 24, hudPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kBackgroundContent)), instance_, nullptr);
+        115, 198, 125, 24, hudPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kBackgroundContent)), instance_, nullptr);
     CreateWindowW(L"STATIC", L"Background Opacity", WS_CHILD | WS_VISIBLE,
-        0, 140, 180, 22, hudPanel_, nullptr, instance_, nullptr);
+        0, 240, 180, 22, hudPanel_, nullptr, instance_, nullptr);
     opacitySlider_ = CreateWindowExW(0, TRACKBAR_CLASSW, L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | TBS_AUTOTICKS,
-        0, 168, 300, 32, hudPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOpacitySlider)), instance_, nullptr);
+        0, 268, 300, 32, hudPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOpacitySlider)), instance_, nullptr);
     SendMessageW(opacitySlider_, TBM_SETRANGE, TRUE, MAKELONG(0, 100));
     opacityLabel_ = CreateWindowW(L"STATIC", L"50%", WS_CHILD | WS_VISIBLE,
         310, 172, 60, 22, hudPanel_, nullptr, instance_, nullptr);
@@ -176,6 +187,12 @@ void SettingsWindow::UpdateHudControls()
         options.alignment == clawhud::HudAlignment::Center ? BST_CHECKED : BST_UNCHECKED, 0);
     if (alignmentRight_) SendMessageW(alignmentRight_, BM_SETCHECK,
         options.alignment == clawhud::HudAlignment::Right ? BST_CHECKED : BST_UNCHECKED, 0);
+    if (enableHud_) SendMessageW(enableHud_, BM_SETCHECK,
+        app_.MockHudEnabled() ? BST_CHECKED : BST_UNCHECKED, 0);
+    if (visibilityAlways_) SendMessageW(visibilityAlways_, BM_SETCHECK,
+        options.visibilityMode == clawhud::HudVisibilityMode::Always ? BST_CHECKED : BST_UNCHECKED, 0);
+    if (visibilityInGameOnly_) SendMessageW(visibilityInGameOnly_, BM_SETCHECK,
+        options.visibilityMode == clawhud::HudVisibilityMode::InGameOnly ? BST_CHECKED : BST_UNCHECKED, 0);
     if (backgroundFull_) SendMessageW(backgroundFull_, BM_SETCHECK,
         options.backgroundMode == clawhud::HudBackgroundMode::FullWidth ? BST_CHECKED : BST_UNCHECKED, 0);
     if (backgroundContent_) SendMessageW(backgroundContent_, BM_SETCHECK,
@@ -253,6 +270,19 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
         case kStartWithWindows:
             self->app_.SetStartWithWindows(
                 SendMessageW(reinterpret_cast<HWND>(lParam), BM_GETCHECK, 0, 0) == BST_CHECKED);
+            return 0;
+        case kEnableHud:
+            self->app_.SetHudEnabled(
+                SendMessageW(reinterpret_cast<HWND>(lParam), BM_GETCHECK, 0, 0) == BST_CHECKED);
+            self->UpdateHudControls();
+            return 0;
+        case kVisibilityAlways:
+            self->app_.SetHudVisibilityMode(clawhud::HudVisibilityMode::Always);
+            self->UpdateHudControls();
+            return 0;
+        case kVisibilityInGameOnly:
+            self->app_.SetHudVisibilityMode(clawhud::HudVisibilityMode::InGameOnly);
+            self->UpdateHudControls();
             return 0;
         case kAlignmentLeft: self->app_.SetHudAlignment(clawhud::HudAlignment::Left); return 0;
         case kAlignmentCenter: self->app_.SetHudAlignment(clawhud::HudAlignment::Center); return 0;

@@ -64,6 +64,7 @@ public:
     void TryGraphicsApiProbe();
     bool MockHudVisible() const noexcept;
     bool MockHudEnabled() const noexcept { return mockHudEnabled_; }
+    bool SetHudEnabled(bool enabled);
     const clawhud::HudLayoutOptions& HudOptions() const noexcept { return hudOptions_; }
     void SetHudAlignment(clawhud::HudAlignment alignment);
     void SetHudBackgroundMode(clawhud::HudBackgroundMode mode);

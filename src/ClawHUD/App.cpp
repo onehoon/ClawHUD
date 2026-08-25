@@ -277,6 +277,26 @@ void App::StopMockHud()
     ReconcileHudVisibility();
 }
 
+bool App::SetHudEnabled(bool enabled)
+{
+    if (VrrDiagnosticRunning())
+    {
+        Log(L"HUD enable change ignored while VRR diagnostic is running");
+        return false;
+    }
+    if (!enabled)
+    {
+        StopMockHud();
+        return true;
+    }
+    if (!EnsureMockHud()) return false;
+    mockHudEnabled_ = true;
+    mockFrameIndex_ = 0;
+    manualHudVisibilityOverride_.reset();
+    ReconcileHudVisibility();
+    return true;
+}
+
 void App::SetHudAlignment(clawhud::HudAlignment alignment)
 {
     if (VrrDiagnosticRunning())
@@ -608,6 +628,8 @@ void App::SetHudVisibilityMode(clawhud::HudVisibilityMode mode)
         return;
     }
     hudOptions_.visibilityMode = mode;
+    manualHudVisibilityOverride_.reset();
+    SaveHudSettings();
     ReconcileHudVisibility();
 }
 
@@ -637,6 +659,7 @@ void App::HandleHudToggleHotkey()
     }
     manualHudVisibilityOverride_ = !MockHudVisible();
     ReconcileHudVisibility();
+    if (settings_) settings_->UpdateHudControls();
 }
 
 HudVisibilityState App::CaptureHudVisibilityState() const noexcept
@@ -873,6 +896,9 @@ void App::LoadHudSettings()
     const auto background = ReadHudSetting(path, L"BackgroundWidth", L"FullWidth");
     if (background == L"ContentWidth") hudOptions_.backgroundMode = clawhud::HudBackgroundMode::ContentWidth;
     else if (background == L"FullWidth") hudOptions_.backgroundMode = clawhud::HudBackgroundMode::FullWidth;
+    const auto visibility = ReadHudSetting(path, L"VisibilityMode", L"InGameOnly");
+    if (visibility == L"Always") hudOptions_.visibilityMode = clawhud::HudVisibilityMode::Always;
+    else if (visibility == L"InGameOnly") hudOptions_.visibilityMode = clawhud::HudVisibilityMode::InGameOnly;
     const auto opacityText = ReadHudSetting(path, L"BackgroundOpacity", L"50");
     wchar_t* end{};
     const long parsed = std::wcstol(opacityText.c_str(), &end, 10);
@@ -893,11 +919,14 @@ void App::SaveHudSettings() const
         hudOptions_.alignment == clawhud::HudAlignment::Right ? L"Right" : L"Center";
     const wchar_t* background = hudOptions_.backgroundMode == clawhud::HudBackgroundMode::ContentWidth
         ? L"ContentWidth" : L"FullWidth";
+    const wchar_t* visibility = hudOptions_.visibilityMode == clawhud::HudVisibilityMode::Always
+        ? L"Always" : L"InGameOnly";
     wchar_t opacity[8]{};
     swprintf_s(opacity, L"%d", static_cast<int>(hudOptions_.backgroundOpacity * 100.0f + 0.5f));
     WritePrivateProfileStringW(L"HUD", L"Alignment", alignment, path.c_str());
     WritePrivateProfileStringW(L"HUD", L"BackgroundWidth", background, path.c_str());
     WritePrivateProfileStringW(L"HUD", L"BackgroundOpacity", opacity, path.c_str());
+    WritePrivateProfileStringW(L"HUD", L"VisibilityMode", visibility, path.c_str());
     WritePrivateProfileStringW(L"General", L"StartWithWindows", startWithWindows_ ? L"1" : L"0", path.c_str());
 }
 
