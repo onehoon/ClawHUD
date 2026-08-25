@@ -73,7 +73,7 @@ std::vector<HudUnitRange> FindHudUnitRangesImpl(const std::wstring& text)
     addToken(L"FPS", true);
     addToken(L"RPM", true);
     addToken(L"%", false);
-    addToken(L"°C", false);
+    addToken(L"\u00B0C", false);
     addToken(L"W", true);
     for (std::size_t i = 1; i < text.size(); ++i)
     {
@@ -148,7 +148,7 @@ const wchar_t* ValueExemplar(HudSegmentKind kind) noexcept
     {
     case HudSegmentKind::Graphics: return L"999 FPS";
     case HudSegmentKind::Cpu:
-    case HudSegmentKind::Gpu: return L"100% 100°C";
+    case HudSegmentKind::Gpu: return L"100% 100\u00B0C";
     case HudSegmentKind::Tdp:
     case HudSegmentKind::SystemPower: return L"99.9 W";
     case HudSegmentKind::Fan: return L"9999 RPM";
