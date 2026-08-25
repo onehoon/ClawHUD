@@ -16,7 +16,6 @@
 namespace
 {
 constexpr auto kCaptureDuration = std::chrono::seconds(28);
-constexpr auto kPocWatchdog = std::chrono::seconds(35);
 constexpr auto kCaptureWatchdog = std::chrono::seconds(35);
 constexpr auto kTargetWait = std::chrono::seconds(15);
 
@@ -66,7 +65,7 @@ std::optional<DWORD> ForegroundTarget()
     const bool ok = QueryFullProcessImageNameW(process, 0, path, &size) != FALSE; CloseHandle(process);
     if (!ok) return std::nullopt;
     std::wstring name(path, size); std::transform(name.begin(), name.end(), name.begin(), towlower);
-    if (name.ends_with(L"\\explorer.exe") || name.ends_with(L"\\clawhud.exe") || name.ends_with(L"\\clawhud.vrrpoc.exe")) return std::nullopt;
+    if (name.ends_with(L"\\explorer.exe") || name.ends_with(L"\\clawhud.exe")) return std::nullopt;
     return pid;
 }
 
@@ -75,8 +74,6 @@ bool Alive(DWORD pid)
     HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid); if (!process) return false;
     DWORD code{}; const bool alive = GetExitCodeProcess(process, &code) && code == STILL_ACTIVE; CloseHandle(process); return alive;
 }
-
-bool ExistingPocWindow() { return FindWindowW(L"ClawHUD.VrrPoc", nullptr) != nullptr; }
 
 std::wstring ProcessPath(DWORD pid)
 {
@@ -168,14 +165,43 @@ bool Launch(const std::wstring& command, PROCESS_INFORMATION& process)
 
 bool VrrDiagnostic::Start()
 {
-    if (running_.exchange(true)) return false; if (worker_.joinable()) worker_.join(); stop_ = false;
-    try { worker_ = std::thread(&VrrDiagnostic::Run, this); } catch (...) { running_ = false; throw; }
+    if (running_.exchange(true)) return false;
+    if (worker_.joinable()) worker_.join();
+    savedHudState_ = app_.CaptureHudVisibilityState();
+    hudStateSaved_ = true;
+    stop_ = false;
+    try { worker_ = std::thread(&VrrDiagnostic::Run, this); }
+    catch (...) { hudStateSaved_ = false; running_ = false; throw; }
     Status(L"Waiting for game"); return true;
 }
 
 void VrrDiagnostic::Stop()
 {
-    stop_ = true; if (worker_.joinable()) worker_.join(); running_ = false;
+    stop_ = true;
+    app_.CancelPendingHudVisibilityRequests();
+    if (worker_.joinable()) worker_.join();
+    if (hudStateSaved_)
+    {
+        if (app_.RestoreHudVisibilityState(savedHudState_))
+            hudStateSaved_ = false;
+        else
+            OutputDebugStringW(L"[ClawHUD] Failed to restore HUD state while stopping VRR diagnostic\n");
+    }
+    running_ = false;
+}
+
+void VrrDiagnostic::Run()
+{
+    RunImpl();
+    if (!stop_.load() && hudStateSaved_)
+    {
+        const bool restored = app_.RequestDiagnosticHudState(savedHudState_);
+        if (!restored)
+            OutputDebugStringW(L"[ClawHUD] Failed to restore HUD state after VRR diagnostic\n");
+        else if (!stop_.load())
+            hudStateSaved_ = false;
+    }
+    running_ = false;
 }
 
 void VrrDiagnostic::Status(const wchar_t* text) const
@@ -206,7 +232,7 @@ bool VrrDiagnostic::Capture(const std::filesystem::path& executable, DWORD pid, 
     return true;
 }
 
-void VrrDiagnostic::Run()
+void VrrDiagnostic::RunImpl()
 {
     std::wofstream log;
     clawhud::IntelVrrDiagnosticProbe igcl;
@@ -214,7 +240,7 @@ void VrrDiagnostic::Run()
     {
         const auto folder = LogFolder(app_); const auto stamp = Now(true); const auto txt = folder / (L"vrr-" + stamp + L".txt");
         const auto offCsv = folder / (L"vrr-" + stamp + L"-off.csv"); const auto onCsv = folder / (L"vrr-" + stamp + L"-on.csv"); log.open(txt);
-        if (!log.is_open()) { Status(L"Failed"); running_ = false; return; }
+        if (!log.is_open()) { Status(L"Failed"); return; }
         log << L"=== CLAWHUD VRR DIAGNOSTIC ===\nTimestamp: " << Now() << L"\nPresentMon: 2.5.1\n"
             << L"Display tracking: enabled (no --no_track_display)\n"
             << L"Pinned v2.5.1 console asset does not expose --write_display_metadata; standard display timing columns are retained.\n"
@@ -223,66 +249,60 @@ void VrrDiagnostic::Run()
         igcl.Initialize(log);
         igcl.LogState(log);
         const auto pm = std::filesystem::path(app_.ExecutablePath()).parent_path() / L"tools" / L"PresentMon.exe";
-        if (!std::filesystem::exists(pm)) { log << L"PresentMon: FAILED\nReason: tools\\PresentMon.exe not found\n"; Status(L"Failed"); running_ = false; return; }
+        if (!std::filesystem::exists(pm)) { log << L"PresentMon: FAILED\nReason: tools\\PresentMon.exe not found\n"; Status(L"Failed"); return; }
         std::this_thread::sleep_for(std::chrono::seconds(1)); std::optional<DWORD> target; const auto targetEnd = std::chrono::steady_clock::now() + kTargetWait;
         while (!stop_ && std::chrono::steady_clock::now() < targetEnd) { target = ForegroundTarget(); if (target) break; std::this_thread::sleep_for(std::chrono::milliseconds(250)); }
-        if (stop_) { log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); running_ = false; return; }
-        if (!target) { log << L"VRR TEST FAILED\nReason: No valid foreground target process\n"; Status(L"Failed"); running_ = false; return; }
-        if (ExistingPocWindow()) { log << L"VRR TEST FAILED\nReason: ClawHUD.VrrPoc is already running; HUD-OFF baseline is not valid\n"; Status(L"Failed"); running_ = false; return; }
+        if (stop_) { log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); return; }
+        if (!target) { log << L"VRR TEST FAILED\nReason: No valid foreground target process\n"; Status(L"Failed"); return; }
         log << L"Target Process: " << ProcessPath(*target) << L"\nPID: " << *target << L"\n\n";
         log << L"=== PHASE A - HUD OFF ===\nStart: " << Now() << L"\nCSV: " << offCsv.wstring() << L"\n"; Status(L"HUD OFF");
+        if (!app_.RequestDiagnosticHudVisibility(false))
+        {
+            log << L"Main HUD OFF: FAILED\nRESULT: Failed\n"; Status(L"Failed"); return;
+        }
+        log << L"Main HUD OFF: confirmed\n";
         const std::string sessionStamp = Narrow(stamp);
         std::this_thread::sleep_for(std::chrono::seconds(1)); igcl.StartSampling();
         const bool offOk = Capture(pm, *target, offCsv, "ClawHUD-VRR-" + std::to_string(*target) + "-OFF-" + sessionStamp, log);
         const auto offVblank = igcl.StopSampling(log, L"HUD OFF");
         std::this_thread::sleep_for(std::chrono::seconds(1)); log << L"End: " << Now() << L"\n"; const auto off = ParseCsv(offCsv); WriteSummary(log, L"PHASE A - HUD OFF", offCsv, off);
-        if (stop_) { log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); running_ = false; return; }
-        if (!offOk || !off.valid) { log << L"RESULT: Failed\nReason: HUD-OFF PresentMon CSV could not be summarized\n"; Status(L"Failed"); running_ = false; return; }
-        if (!Alive(*target)) { log << L"RESULT: Failed\nReason: Target process exited\n"; Status(L"Failed"); running_ = false; return; }
+        if (stop_) { log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); return; }
+        if (!offOk || !off.valid) { log << L"RESULT: Failed\nReason: HUD-OFF PresentMon CSV could not be summarized\n"; Status(L"Failed"); return; }
+        if (!Alive(*target)) { log << L"RESULT: Failed\nReason: Target process exited\n"; Status(L"Failed"); return; }
 
         log << L"=== PHASE B - HUD ON ===\nStart: " << Now() << L"\nCSV: " << onCsv.wstring() << L"\n"; Status(L"HUD ON");
-        const auto poc = std::filesystem::path(app_.ExecutablePath()).replace_filename(L"ClawHUD.VrrPoc.exe"); const std::wstring command = L"\"" + poc.wstring() + L"\" --diagnostic";
-        PROCESS_INFORMATION child{}; if (!Launch(command, child)) { log << L"PoC Launch: FAILED\nRESULT: Failed\n"; Status(L"Failed"); running_ = false; return; }
-        log << L"PoC Launch: OK\nPoC PID: " << child.dwProcessId << L"\n"; const auto visibleEnd = std::chrono::steady_clock::now() + std::chrono::seconds(5); bool visible = false;
-        while (!stop_ && std::chrono::steady_clock::now() < visibleEnd) { const HWND hwnd = FindWindowW(L"ClawHUD.VrrPoc", nullptr); if (hwnd && IsWindowVisible(hwnd)) { visible = true; break; } std::this_thread::sleep_for(std::chrono::milliseconds(100)); }
-        if (!visible)
+        if (!app_.RequestDiagnosticHudVisibility(true))
         {
-            const bool cancelled = stop_.load();
-            if (WaitForSingleObject(child.hProcess, 0) == WAIT_TIMEOUT) { TerminateProcess(child.hProcess, cancelled ? 2 : 3); WaitForSingleObject(child.hProcess, 5000); }
-            CloseHandle(child.hThread); CloseHandle(child.hProcess);
-            if (cancelled) { log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); }
-            else { log << L"PoC HUD: FAILED\nReason: PoC HUD did not become visible\nRESULT: Failed\n"; Status(L"Failed"); }
-            running_ = false; return;
+            log << L"Main HUD ON: FAILED\nRESULT: Failed\n"; Status(L"Failed"); return;
         }
+        log << L"Main HUD ON: confirmed\n";
+        std::this_thread::sleep_for(std::chrono::seconds(1));
         igcl.StartSampling();
         const bool onOk = Capture(pm, *target, onCsv, "ClawHUD-VRR-" + std::to_string(*target) + "-ON-" + sessionStamp, log);
         const auto onVblank = igcl.StopSampling(log, L"HUD ON");
         const bool targetAliveAfterCapture = Alive(*target);
+        const bool hudCoveredCapture = app_.RequestDiagnosticHudVisibilityMatches(true);
         if (onOk && !targetAliveAfterCapture)
         {
             log << L"PresentMon: FAILED\nReason: Target process exited before the HUD-ON capture completed\n";
         }
-        const bool pocAliveAfterCapture = WaitForSingleObject(child.hProcess, 0) == WAIT_TIMEOUT;
-        const HWND pocWindowAfterCapture = FindWindowW(L"ClawHUD.VrrPoc", nullptr);
-        const bool pocVisibleAfterCapture = pocWindowAfterCapture != nullptr && IsWindowVisible(pocWindowAfterCapture) != FALSE;
-        const bool pocCoveredCapture = pocAliveAfterCapture && pocVisibleAfterCapture;
-        if (onOk && !pocCoveredCapture)
+        if (onOk && !hudCoveredCapture)
         {
-            log << L"PresentMon: FAILED\nReason: PoC HUD ended before the HUD-ON capture was safely complete\n";
+            log << L"PresentMon: FAILED\nReason: Main HUD was not visible for the completed HUD-ON capture\n";
         }
-        bool pocTimeout = false; const auto pocEnd = std::chrono::steady_clock::now() + kPocWatchdog;
-        while (!stop_ && WaitForSingleObject(child.hProcess, 100) == WAIT_TIMEOUT && std::chrono::steady_clock::now() < pocEnd) {}
-        if ((stop_ || std::chrono::steady_clock::now() >= pocEnd) && WaitForSingleObject(child.hProcess, 0) == WAIT_TIMEOUT) { pocTimeout = true; TerminateProcess(child.hProcess, stop_ ? 2 : 3); WaitForSingleObject(child.hProcess, 5000); }
-        DWORD code = STILL_ACTIVE; GetExitCodeProcess(child.hProcess, &code); CloseHandle(child.hThread); CloseHandle(child.hProcess); const auto on = ParseCsv(onCsv); WriteSummary(log, L"PHASE B - HUD ON", onCsv, on);
+        const auto on = ParseCsv(onCsv); WriteSummary(log, L"PHASE B - HUD ON", onCsv, on);
         const auto offMedian = clawhud::UsableVblankMedian(offVblank);
         const auto onMedian = clawhud::UsableVblankMedian(onVblank);
-        log << L"PoC Exit: " << ((!pocTimeout && code == 0) ? L"OK (normal)" : L"FAILED") << L"\n=== COMPARISON ===\nPresentMode set changed: "
+        log << L"=== COMPARISON ===\nPresentMode set changed: "
             << ((!off.valid || !on.valid) ? L"unavailable" : (SamePresentModeSet(off.modes, on.modes) ? L"NO" : L"YES"))
             << L"\nHUD OFF VBlank median: " << (offMedian ? std::to_wstring(*offMedian) : L"Unavailable")
             << L" us\nHUD ON VBlank median: " << (onMedian ? std::to_wstring(*onMedian) : L"Unavailable")
             << L" us\nVBlank median difference: " << (offMedian && onMedian ? std::to_wstring(*onMedian - *offMedian) : L"Unavailable")
             << L" us\nVRR Analysis: NEEDS MANUAL REVIEW\nIGCL VBlank timing is diagnostic evidence only. It has not yet been validated as an authoritative VRR-active signal on MSI Claw hardware.\n";
-        const bool completed = !stop_ && off.valid && on.valid && offOk && onOk && targetAliveAfterCapture && pocCoveredCapture && !pocTimeout && code == 0; log << L"Result: " << (completed ? L"Completed" : L"Failed") << L"\n"; Status(stop_ ? L"Cancelled" : (completed ? L"Completed" : L"Failed")); running_ = false;
+        const bool completed = !stop_ && off.valid && on.valid && offOk && onOk &&
+            targetAliveAfterCapture && hudCoveredCapture;
+        log << L"Result: " << (completed ? L"Completed" : L"Failed") << L"\n";
+        Status(stop_ ? L"Cancelled" : (completed ? L"Completed" : L"Failed"));
     }
-    catch (...) { if (log.is_open()) log << L"RESULT: Failed\n"; Status(L"Failed"); running_ = false; }
+    catch (...) { if (log.is_open()) log << L"RESULT: Failed\n"; Status(L"Failed"); }
 }

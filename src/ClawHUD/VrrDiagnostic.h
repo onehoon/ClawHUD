@@ -5,10 +5,18 @@
 #include <atomic>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <string>
 #include <thread>
 
 class App;
+
+struct HudVisibilityState
+{
+    bool mockHudEnabled{};
+    std::optional<bool> manualOverride;
+    bool visible{};
+};
 
 class VrrDiagnostic
 {
@@ -21,6 +29,7 @@ public:
 
 private:
     void Run();
+    void RunImpl();
     void Status(const wchar_t* text) const;
     bool Capture(const std::filesystem::path& executable, DWORD pid, const std::filesystem::path& csv,
         const std::string& session, std::wofstream& log);
@@ -29,6 +38,8 @@ private:
     std::thread worker_;
     std::atomic_bool stop_{};
     std::atomic_bool running_{};
+    HudVisibilityState savedHudState_{};
+    bool hudStateSaved_{};
 };
 
 constexpr UINT kVrrDiagnosticStatus = WM_APP + 21;

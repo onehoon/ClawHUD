@@ -10,7 +10,7 @@ No `Set_*`, TDP, fan-control, charge-limit, or ownership operation is implemente
 
 ## VRR orchestration
 
-The Diagnostics tab also contains a user-started VRR / Presentation orchestration test. It waits a bounded period for a non-ClawHUD foreground process, records a 30-second HUD-OFF phase, then launches the separate `ClawHUD.VrrPoc.exe --diagnostic` child for a 35-second HUD-ON grace period. PresentMon samples 28 seconds inside that verified HUD lifetime; the child is owned by the test and is terminated during Stop or Exit if necessary.
+The Diagnostics tab also contains a user-started VRR / Presentation orchestration test. It waits a bounded period for a non-ClawHUD foreground process, then requests the existing main HUD to hide on the application message-loop thread for Phase A and to show for Phase B. PresentMon samples 28 seconds in each phase. No `ClawHUD.VrrPoc.exe` child, test overlay, or second presentation path is created; the prior main-HUD visibility state is restored after completion, failure, or cancellation.
 
 This PR records the same lifecycle evidence and adds raw PresentMon capture. The build pins the official `PresentMon-2.5.1-x64.exe` standalone asset and copies it to `tools/PresentMon.exe`; it does not download anything at runtime or request elevation. Each phase runs a 28-second PID-targeted capture with the default CSV schema, preserving the raw `-off.csv` and `-on.csv` files unchanged. The TXT report summarizes `PresentMode`, displayed versus non-displayed rows derived from default-schema `MsUntilDisplayed`, dominant swapchain, and `MsBetweenPresents` / `MsBetweenDisplayChange` statistics.
 
