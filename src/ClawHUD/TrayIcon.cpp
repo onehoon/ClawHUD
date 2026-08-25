@@ -129,6 +129,11 @@ LRESULT CALLBACK TrayIcon::WindowProc(HWND window, UINT message, WPARAM wParam, 
         self->AddIcon();
         return 0;
     }
+    if (message == WM_TIMER)
+    {
+        self->app_.RenderMockHud();
+        return 0;
+    }
     if (message == kTrayMessage && (lParam == WM_RBUTTONUP || lParam == WM_LBUTTONUP))
     {
         self->ShowMenu();

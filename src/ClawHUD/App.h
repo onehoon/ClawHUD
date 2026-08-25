@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include <memory>
+#include <cstddef>
 #include <string>
 
 #include "TrayIcon.h"
@@ -39,6 +40,7 @@ public:
     const std::wstring& VrrStatus() const { return vrrStatus_; }
     bool StartMockHud();
     void StopMockHud();
+    void RenderMockHud();
     bool MockHudVisible() const noexcept;
     bool MockHudEnabled() const noexcept { return mockHudEnabled_; }
     void TrackMockGameWindow(HWND window);
@@ -61,6 +63,7 @@ private:
     ForegroundTracker foregroundTracker_;
     clawhud::HudLayoutOptions hudOptions_{};
     bool mockHudEnabled_{};
+    std::size_t mockFrameIndex_{};
     std::unique_ptr<SettingsWindow> settings_;
     bool exiting_{};
     std::wstring ecStatus_{ L"Idle" };

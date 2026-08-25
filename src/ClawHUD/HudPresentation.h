@@ -10,6 +10,8 @@
 #include <presentation.h>
 #include <wrl/client.h>
 
+#include <array>
+#include <cstddef>
 #include <memory>
 
 namespace clawhud
@@ -24,15 +26,23 @@ public:
     HRESULT Show();
     HRESULT Hide();
     bool Visible() const noexcept { return visible_; }
-    bool ContentReady() const noexcept { return contentReady_; }
     void Shutdown() noexcept;
 
 private:
+    static constexpr std::size_t kHudBufferCount = 3;
+    struct HudFrameBuffer
+    {
+        Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;
+        Microsoft::WRL::ComPtr<IPresentationBuffer> presentationBuffer;
+        Microsoft::WRL::ComPtr<ID2D1Bitmap1> bitmapTarget;
+    };
+
     static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     HRESULT CreateWindowHost(HINSTANCE instance);
     HRESULT CreateGraphics();
     HRESULT CreatePresentationSurface();
-    HRESULT CreateBitmapTarget();
+    HRESULT CreateBitmapTargets();
+    HudFrameBuffer* TryAcquireAvailableBuffer() noexcept;
     HRESULT CommitVisibility(bool visible);
 
     HINSTANCE instance_{};
@@ -44,7 +54,6 @@ private:
     UINT heightPx_{};
     float dpi_{ 96.0f };
     bool visible_{};
-    bool contentReady_{};
     bool initialized_{};
 
     Microsoft::WRL::ComPtr<ID3D11Device> device_;
@@ -56,10 +65,8 @@ private:
     Microsoft::WRL::ComPtr<IPresentationFactory> presentationFactory_;
     Microsoft::WRL::ComPtr<IPresentationManager> presentationManager_;
     Microsoft::WRL::ComPtr<IPresentationSurface> presentationSurface_;
-    Microsoft::WRL::ComPtr<IPresentationBuffer> presentationBuffer_;
-    Microsoft::WRL::ComPtr<ID3D11Texture2D> texture_;
+    std::array<HudFrameBuffer, kHudBufferCount> buffers_{};
     Microsoft::WRL::ComPtr<ID2D1DeviceContext> d2dContext_;
-    Microsoft::WRL::ComPtr<ID2D1Bitmap1> bitmapTarget_;
     Microsoft::WRL::ComPtr<IDWriteFactory> writeFactory_;
     std::unique_ptr<HudRenderer> renderer_;
 };

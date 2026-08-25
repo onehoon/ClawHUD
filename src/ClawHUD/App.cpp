@@ -13,6 +13,8 @@ namespace
 {
 constexpr UINT kSettingsDestroyed = WM_APP + 1;
 constexpr UINT kForegroundChanged = WM_APP + 2;
+constexpr UINT_PTR kMockHudTimerId = 1;
+constexpr UINT kMockHudTimerIntervalMs = 100;
 constexpr wchar_t kInstanceMutexName[] = L"Local\\ClawHUD.SingleInstance";
 
 void Log(const std::wstring& message)
@@ -30,6 +32,7 @@ App::App(HINSTANCE instance) : instance_(instance), tray_(*this)
 
 App::~App()
 {
+    KillTimer(tray_.Window(), kMockHudTimerId);
     foregroundTracker_.Stop();
     hudPresentation_.reset();
     vrrDiagnostic_.reset();
@@ -81,6 +84,7 @@ bool App::StartMockHud()
 {
     if (!EnsureMockHud()) return false;
     mockHudEnabled_ = true;
+    mockFrameIndex_ = 0;
     ReconcileHudVisibility();
     return true;
 }
@@ -101,7 +105,23 @@ bool App::EnsureMockHud()
 void App::StopMockHud()
 {
     mockHudEnabled_ = false;
+    KillTimer(tray_.Window(), kMockHudTimerId);
     ReconcileHudVisibility();
+}
+
+void App::RenderMockHud()
+{
+    if (!mockHudEnabled_ || !hudPresentation_ || !hudPresentation_->Visible())
+        return;
+    auto snapshot = clawhud::MakeGameDcSample();
+    const auto frame = mockFrameIndex_++;
+    snapshot.renderFps = 58.0 + static_cast<double>(frame % 5);
+    snapshot.cpuUsagePercent = 30.0 + static_cast<double>(frame % 10);
+    snapshot.gpuUsagePercent = 90.0 + static_cast<double>(frame % 9);
+    clawhud::HudRenderOptions options{};
+    options.layout = hudOptions_;
+    const HRESULT hr = hudPresentation_->Render(snapshot, options);
+    if (FAILED(hr)) Log(L"Mock HUD redraw failed");
 }
 
 bool App::MockHudVisible() const noexcept
@@ -142,9 +162,18 @@ void App::ReconcileHudVisibility()
     const bool show = mockHudEnabled_ && clawhud::ShouldShowHud(
         hudOptions_.visibilityMode, foregroundTracker_.ForegroundIsTrackedProcess());
     if (show)
-        hudPresentation_->Show();
+    {
+        const HRESULT hr = hudPresentation_->Show();
+        if (SUCCEEDED(hr))
+            SetTimer(tray_.Window(), kMockHudTimerId, kMockHudTimerIntervalMs, nullptr);
+        else
+            Log(L"Mock HUD show failed");
+    }
     else
+    {
         hudPresentation_->Hide();
+        KillTimer(tray_.Window(), kMockHudTimerId);
+    }
 }
 
 bool App::AcquireSingleInstance()
@@ -213,6 +242,7 @@ void App::Exit()
 {
     if (exiting_) return;
     exiting_ = true;
+    KillTimer(tray_.Window(), kMockHudTimerId);
     foregroundTracker_.Stop();
     if (vrrDiagnostic_) vrrDiagnostic_->Stop();
     if (ecDiagnostic_) ecDiagnostic_->Stop();
