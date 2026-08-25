@@ -1,6 +1,7 @@
 #include "EcDiagnostic.h"
 
 #include "MsiEcReader.h"
+#include "Version.h"
 
 #include <shellapi.h>
 
@@ -79,7 +80,7 @@ void EcDiagnostic::Run()
     std::ofstream log(path, std::ios::binary);
     if (!log.is_open()) { Status(L"Failed"); running_ = false; return; }
     log << "=== CLAWHUD MSI EC DIAGNOSTIC ===\nTimestamp: " << Narrow(Now())
-        << "\nClawHUD Version: 0.1.0\nWindows Build: Unavailable\nProcess Elevated: "
+        << "\nClawHUD Version: " << Narrow(CLAWHUD_VERSION) << "\nWindows Build: Unavailable\nProcess Elevated: "
         << (Elevated() ? "YES" : "NO") << "\nBoard: Unavailable\nBIOS: Unavailable\n\n";
     log << "Read-only methods: Get_Temperature, Get_Fan, Get_Data\n";
     MsiEcReader reader;

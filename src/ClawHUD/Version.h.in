@@ -1,0 +1,3 @@
+#pragma once
+
+#define CLAWHUD_VERSION L"@CLAWHUD_VERSION@"

@@ -1,6 +1,7 @@
 #include "SettingsWindow.h"
 
 #include "App.h"
+#include "Version.h"
 
 #include <commctrl.h>
 
@@ -66,7 +67,7 @@ void SettingsWindow::CreateTabs()
         item.pszText = const_cast<wchar_t*>(labels[i]);
         TabCtrl_InsertItem(tabs_, i, &item);
     }
-    CreateWindowW(L"STATIC", L"ClawHUD\r\nVersion: 0.1.0", WS_CHILD | WS_VISIBLE,
+    CreateWindowW(L"STATIC", L"ClawHUD\r\nVersion: " CLAWHUD_VERSION, WS_CHILD | WS_VISIBLE,
         24, 52, 440, 100, window_, nullptr, instance_, nullptr);
     diagnosticsPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD, 24, 52, 440, 240, window_, nullptr, instance_, nullptr);
     CreateWindowW(L"STATIC", L"VRR / Presentation Test\r\nRuns HUD OFF / HUD ON phases for presentation validation.", WS_CHILD | WS_VISIBLE,

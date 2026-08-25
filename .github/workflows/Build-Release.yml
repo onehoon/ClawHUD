@@ -1,0 +1,158 @@
+name: Build Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: clawhud-release
+  cancel-in-progress: false
+
+env:
+  REPOSITORY_URL: https://github.com/onehoon/ClawHUD
+
+jobs:
+  release:
+    name: Build and publish ClawHUD release
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout all tags
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve next version
+        id: version
+        shell: pwsh
+        run: |
+          git fetch --tags --force
+          $patches = @(
+            git tag --list 'v0.1.*' |
+              ForEach-Object {
+                if ($_ -match '^v0\.1\.(0|[1-9][0-9]{0,2})$') {
+                  [int]$Matches[1]
+                }
+              }
+          )
+
+          $lastPatch = if ($patches.Count -eq 0) { -1 } else { ($patches | Measure-Object -Maximum).Maximum }
+          $nextPatch = $lastPatch + 1
+          if ($nextPatch -gt 999) {
+            throw 'ClawHUD 0.1.x release range is exhausted at 0.1.999.'
+          }
+
+          $version = "0.1.$nextPatch"
+          Write-Host "Next ClawHUD release: $version"
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Setup .NET for Velopack CLI
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install Velopack CLI
+        shell: pwsh
+        run: |
+          dotnet tool install --global vpk
+          $env:PATH = "$env:USERPROFILE\.dotnet\tools;$env:PATH"
+          "PATH=$env:PATH" >> $env:GITHUB_ENV
+
+      - name: Configure Release x64
+        shell: pwsh
+        run: >-
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          -DBUILD_TESTING=ON
+          "-DCLAWHUD_VERSION=${{ steps.version.outputs.version }}"
+
+      - name: Build Release x64
+        shell: pwsh
+        run: cmake --build build --config Release --parallel 2
+
+      - name: Run CTest Release
+        shell: pwsh
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Stage runtime
+        shell: pwsh
+        run: |
+          $stage = Join-Path $pwd 'stage'
+          Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path (Join-Path $stage 'tools') | Out-Null
+
+          $release = Join-Path $pwd 'build\Release'
+          Copy-Item (Join-Path $release 'ClawHUD.exe') $stage
+          Copy-Item (Join-Path $release 'ClawHUD.VrrPoc.exe') $stage
+          Copy-Item (Join-Path $release 'velopack_libc.dll') $stage
+          Copy-Item (Join-Path $release 'tools\PresentMon.exe') (Join-Path $stage 'tools')
+          Copy-Item (Join-Path $release 'tools\PresentMon-LICENSE.txt') (Join-Path $stage 'tools')
+
+          $required = @(
+            'ClawHUD.exe',
+            'ClawHUD.VrrPoc.exe',
+            'velopack_libc.dll',
+            'tools\PresentMon.exe',
+            'tools\PresentMon-LICENSE.txt'
+          )
+          foreach ($relative in $required) {
+            if (-not (Test-Path (Join-Path $stage $relative))) {
+              throw "Missing staged runtime file: $relative"
+            }
+          }
+
+          Get-ChildItem -Recurse -File $stage | Select-Object FullName,Length
+
+      - name: Pack Velopack release
+        shell: pwsh
+        run: |
+          Remove-Item -Recurse -Force release -ErrorAction SilentlyContinue
+          vpk pack `
+            --packId ClawHUD `
+            --packTitle ClawHUD `
+            --packVersion "${{ steps.version.outputs.version }}" `
+            --packDir .\stage\ `
+            --mainExe ClawHUD.exe `
+            --channel stable `
+            --outputDir .\release
+
+      - name: Upload GitHub Release
+        shell: pwsh
+        env:
+          VPK_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          vpk upload github `
+            --repoUrl $env:REPOSITORY_URL `
+            --channel stable `
+            --outputDir .\release `
+            --publish `
+            --tag "v${{ steps.version.outputs.version }}"
+
+      - name: Prune old ClawHUD releases and tags
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $releases = @(gh release list --repo $env:GITHUB_REPOSITORY --limit 1000 --json tagName,isDraft,isPrerelease | ConvertFrom-Json)
+          $candidates = @(
+            $releases |
+              ForEach-Object {
+                if ($_.isDraft -eq $false -and $_.isPrerelease -eq $false -and $_.tagName -match '^v0\.1\.(0|[1-9][0-9]?[0-9]?)$') {
+                  [pscustomobject]@{ Tag = $_.tagName; Patch = [int]$Matches[1] }
+                }
+              } |
+              Sort-Object Patch -Descending
+          )
+
+          $delete = if ($candidates.Count -gt 3) { $candidates | Select-Object -Skip 3 } else { @() }
+          foreach ($release in $delete) {
+            Write-Host "Deleting old ClawHUD release/tag $($release.Tag)"
+            gh release delete $release.Tag --repo $env:GITHUB_REPOSITORY --cleanup-tag --yes
+            if ($LASTEXITCODE -ne 0) {
+              throw "Failed to delete release/tag $($release.Tag)"
+            }
+          }
+
+          Write-Host 'Kept releases:'
+          $candidates | Select-Object -First 3 | Format-Table
