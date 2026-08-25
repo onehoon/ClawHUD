@@ -266,10 +266,12 @@ void App::LoadHudSettings()
     const auto background = ReadHudSetting(path, L"BackgroundWidth", L"FullWidth");
     if (background == L"ContentWidth") hudOptions_.backgroundMode = clawhud::HudBackgroundMode::ContentWidth;
     else if (background == L"FullWidth") hudOptions_.backgroundMode = clawhud::HudBackgroundMode::FullWidth;
-    const int rawPercent = static_cast<int>(GetPrivateProfileIntW(
-        L"HUD", L"BackgroundOpacity", 50, path.c_str()));
-    const int percent = std::clamp(rawPercent, 0, 100);
-    hudOptions_.backgroundOpacity = percent / 100.0f;
+    const auto opacityText = ReadHudSetting(path, L"BackgroundOpacity", L"50");
+    wchar_t* end{};
+    const long parsed = std::wcstol(opacityText.c_str(), &end, 10);
+    const bool valid = end != opacityText.c_str() && end && *end == L'\0';
+    const long percent = std::clamp(valid ? parsed : 50L, 0L, 100L);
+    hudOptions_.backgroundOpacity = static_cast<float>(percent) / 100.0f;
 }
 
 void App::SaveHudSettings() const

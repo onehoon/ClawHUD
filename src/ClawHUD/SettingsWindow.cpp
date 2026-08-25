@@ -22,6 +22,16 @@ constexpr int kAlignmentRight = 1203;
 constexpr int kBackgroundFull = 1204;
 constexpr int kBackgroundContent = 1205;
 constexpr int kOpacitySlider = 1206;
+
+LRESULT CALLBACK ForwardPanelNotifications(HWND window, UINT message, WPARAM wParam,
+    LPARAM lParam, UINT_PTR subclassId, DWORD_PTR)
+{
+    if (message == WM_COMMAND || message == WM_HSCROLL)
+        return SendMessageW(GetParent(window), message, wParam, lParam);
+    if (message == WM_NCDESTROY)
+        RemoveWindowSubclass(window, ForwardPanelNotifications, subclassId);
+    return DefSubclassProc(window, message, wParam, lParam);
+}
 }
 
 SettingsWindow::SettingsWindow(App& app) : app_(app)
@@ -38,8 +48,9 @@ bool SettingsWindow::Show(HINSTANCE instance)
     instance_ = instance;
     if (!window_)
     {
-        INITCOMMONCONTROLSEX controls{ sizeof(controls), ICC_TAB_CLASSES };
-        InitCommonControlsEx(&controls);
+        INITCOMMONCONTROLSEX controls{
+            sizeof(controls), ICC_TAB_CLASSES | ICC_BAR_CLASSES };
+        if (!InitCommonControlsEx(&controls)) return false;
         WNDCLASSW windowClass{};
         windowClass.lpfnWndProc = WindowProc;
         windowClass.hInstance = instance_;
@@ -77,6 +88,7 @@ void SettingsWindow::CreateTabs()
     generalPanel_ = CreateWindowW(L"STATIC", L"ClawHUD\r\nVersion: " CLAWHUD_VERSION,
         WS_CHILD | WS_VISIBLE, 24, 52, 440, 240, window_, nullptr, instance_, nullptr);
     hudPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD, 24, 52, 440, 240, window_, nullptr, instance_, nullptr);
+    if (hudPanel_) SetWindowSubclass(hudPanel_, ForwardPanelNotifications, 1, 0);
     CreateWindowW(L"STATIC", L"Alignment", WS_CHILD | WS_VISIBLE,
         0, 0, 160, 22, hudPanel_, nullptr, instance_, nullptr);
     alignmentLeft_ = CreateWindowW(L"BUTTON", L"Left", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | WS_GROUP,
@@ -99,6 +111,7 @@ void SettingsWindow::CreateTabs()
     opacityLabel_ = CreateWindowW(L"STATIC", L"50%", WS_CHILD | WS_VISIBLE,
         310, 172, 60, 22, hudPanel_, nullptr, instance_, nullptr);
     diagnosticsPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD, 24, 52, 440, 240, window_, nullptr, instance_, nullptr);
+    if (diagnosticsPanel_) SetWindowSubclass(diagnosticsPanel_, ForwardPanelNotifications, 2, 0);
     CreateWindowW(L"STATIC", L"VRR / Presentation Test\r\nRuns HUD OFF / HUD ON phases for presentation validation.", WS_CHILD | WS_VISIBLE,
         0, 0, 420, 35, diagnosticsPanel_, nullptr, instance_, nullptr);
     startVrrButton_ = CreateWindowW(L"BUTTON", L"Start VRR Test", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
