@@ -112,7 +112,7 @@ void SettingsWindow::CreateTabs()
         310, 172, 60, 22, hudPanel_, nullptr, instance_, nullptr);
     diagnosticsPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD, 24, 52, 440, 240, window_, nullptr, instance_, nullptr);
     if (diagnosticsPanel_) SetWindowSubclass(diagnosticsPanel_, ForwardPanelNotifications, 2, 0);
-    CreateWindowW(L"STATIC", L"VRR / Presentation Test\r\nRuns HUD OFF / HUD ON phases for presentation validation.", WS_CHILD | WS_VISIBLE,
+    CreateWindowW(L"STATIC", L"VRR / Presentation Test\r\nRuns HUD OFF / STATIC HUD / DYNAMIC HUD phases for presentation validation.", WS_CHILD | WS_VISIBLE,
         0, 0, 420, 35, diagnosticsPanel_, nullptr, instance_, nullptr);
     startVrrButton_ = CreateWindowW(L"BUTTON", L"Start VRR Test", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
         0, 42, 130, 28, diagnosticsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kStartVrr)), instance_, nullptr);

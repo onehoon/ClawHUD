@@ -276,7 +276,7 @@ The fallback is **NO-GO / project decision**.
 
 ## GO candidate
 
-A successful hardware result should show, with HUD OFF vs HUD ON:
+A successful hardware result should show, with HUD OFF vs STATIC HUD vs DYNAMIC HUD:
 
 ```text
 ✓ game remains functional
@@ -334,9 +334,11 @@ VRR ON
 ↓
 select test game + stable non-divisor cap
 ↓
-HUD OFF capture 30–60 s
+HUD OFF capture 28 s
 ↓
-HUD ON capture 30–60 s
+STATIC HUD capture 28 s
+↓
+DYNAMIC HUD capture 28 s at the existing 100 ms mock update cadence
 ↓
 compare presentation mode + display timing + pacing
 ↓
@@ -1344,7 +1346,7 @@ AC example:
 DX11 60 FPS | CPU 36% 67°C | GPU 98% 72°C | TDP 18 W | FAN 3540 RPM | BAT 72%
 ```
 
-This section should be updated when real-device presentation, telemetry, and visual tests settle any of the remaining candidate choices.
+STATIC isolates the presence of the main HUD composition surface, while DYNAMIC adds the existing repeated HUD render/present cadence. This remains evidence gathering; it does not produce an automatic VRR verdict. This section should be updated when real-device presentation, telemetry, and visual tests settle any of the remaining candidate choices.
 
 ## Main application shell
 
@@ -1354,4 +1356,4 @@ The production `ClawHUD.exe` is a lightweight tray-first native Win32 shell with
 
 The Diagnostics tab contains a user-started, bounded MSI EC read-only probe. It records ten samples from `Get_Temperature(0)`, `Get_Fan(0)`, `Get_Data(221)`, and the raw battery current/voltage selectors into `logs/diagnostics`. It does not initialize WMI at startup and never calls MSI write methods. See [docs/DIAGNOSTICS.md](docs/DIAGNOSTICS.md).
 
-The same tab provides a separate user-started VRR test: a 30-second HUD-OFF phase followed by a 35-second `ClawHUD.VrrPoc.exe --diagnostic` HUD-ON grace period. Each phase uses the pinned PresentMon 2.5.1 standalone console for a 28-second PID-targeted raw CSV capture, and the HUD-ON capture is accepted only while the PoC process and visible window remain alive. Capture data is evidence only; no automatic VRR verdict is emitted. PresentMon/ETW capture remains diagnostics-only and is not initialized at tray startup.
+The same tab provides a separate user-started VRR test using the real main HUD presentation path: HUD OFF, STATIC HUD (one frame with no periodic redraw), and DYNAMIC HUD (the existing 100 ms mock update cadence). Each phase uses the pinned PresentMon 2.5.1 standalone console for a 28-second PID-targeted raw CSV capture. Capture data is evidence only; no automatic VRR verdict is emitted. PresentMon/ETW capture remains diagnostics-only and is not initialized at tray startup.

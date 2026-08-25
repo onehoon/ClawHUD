@@ -24,7 +24,9 @@ struct HudVisibilityRequest
 {
     bool restore{};
     bool query{};
+    bool modeRequest{};
     bool visible{};
+    DiagnosticHudMode mode{ DiagnosticHudMode::Off };
     HudVisibilityState state{};
     HANDLE complete{};
     bool result{};
@@ -165,6 +167,11 @@ void App::StopMockHud()
 
 void App::SetHudAlignment(clawhud::HudAlignment alignment)
 {
+    if (VrrDiagnosticRunning())
+    {
+        Log(L"HUD alignment change ignored while VRR diagnostic is running");
+        return;
+    }
     if (hudOptions_.alignment == alignment)
         return;
     hudOptions_.alignment = alignment;
@@ -174,6 +181,11 @@ void App::SetHudAlignment(clawhud::HudAlignment alignment)
 
 void App::SetHudBackgroundMode(clawhud::HudBackgroundMode mode)
 {
+    if (VrrDiagnosticRunning())
+    {
+        Log(L"HUD background mode change ignored while VRR diagnostic is running");
+        return;
+    }
     if (hudOptions_.backgroundMode == mode)
         return;
     hudOptions_.backgroundMode = mode;
@@ -183,6 +195,11 @@ void App::SetHudBackgroundMode(clawhud::HudBackgroundMode mode)
 
 void App::SetHudBackgroundOpacity(float opacity, bool persist)
 {
+    if (VrrDiagnosticRunning())
+    {
+        Log(L"HUD background opacity change ignored while VRR diagnostic is running");
+        return;
+    }
     opacity = std::clamp(opacity, 0.0f, 1.0f);
     if (hudOptions_.backgroundOpacity == opacity)
     {
@@ -289,6 +306,7 @@ HudVisibilityState App::CaptureHudVisibilityState() const noexcept
 
 bool App::ApplyDiagnosticHudVisibility(bool visible)
 {
+    diagnosticHudMode_.reset();
     manualHudVisibilityOverride_ = visible;
     if (visible && !mockHudEnabled_)
     {
@@ -300,8 +318,25 @@ bool App::ApplyDiagnosticHudVisibility(bool visible)
     return MockHudVisible() == visible;
 }
 
+bool App::ApplyDiagnosticHudMode(DiagnosticHudMode mode)
+{
+    diagnosticHudMode_ = mode;
+    manualHudVisibilityOverride_ = mode == DiagnosticHudMode::Off
+        ? std::optional<bool>(false)
+        : std::optional<bool>(true);
+    if (mode != DiagnosticHudMode::Off)
+    {
+        if (!EnsureMockHud()) return false;
+        mockHudEnabled_ = true;
+        mockFrameIndex_ = 0;
+    }
+    ReconcileHudVisibility();
+    return MockHudVisible() == (mode != DiagnosticHudMode::Off);
+}
+
 bool App::RestoreHudVisibilityState(const HudVisibilityState& state)
 {
+    diagnosticHudMode_.reset();
     manualHudVisibilityOverride_ = state.manualOverride;
     if (state.mockHudEnabled)
     {
@@ -368,6 +403,26 @@ bool App::RequestDiagnosticHudVisibilityMatches(bool expected, DWORD timeoutMs)
     return completed && request->result;
 }
 
+bool App::RequestDiagnosticHudMode(DiagnosticHudMode mode, DWORD timeoutMs)
+{
+    if (!tray_.Window()) return false;
+    auto request = std::make_shared<HudVisibilityRequest>();
+    request->complete = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (!request->complete) return false;
+    request->modeRequest = true;
+    request->mode = mode;
+    auto* payload = new std::shared_ptr<HudVisibilityRequest>(request);
+    if (!PostMessageW(tray_.Window(), kHudVisibilityRequest,
+        reinterpret_cast<WPARAM>(payload), 0))
+    {
+        delete payload;
+        return false;
+    }
+    const bool completed = WaitForSingleObject(request->complete, timeoutMs) == WAIT_OBJECT_0;
+    if (!completed) request->cancelled = true;
+    return completed && request->result;
+}
+
 bool App::RequestDiagnosticHudState(const HudVisibilityState& state, DWORD timeoutMs)
 {
     return RequestHudOnUiThread(false, &state, timeoutMs);
@@ -406,7 +461,13 @@ void App::ReconcileHudVisibility()
     {
         const HRESULT hr = hudPresentation_->Show();
         if (SUCCEEDED(hr))
-            SetTimer(tray_.Window(), kMockHudTimerId, kMockHudTimerIntervalMs, nullptr);
+        {
+            if (!diagnosticHudMode_.has_value() ||
+                DiagnosticHudModeUsesPeriodicUpdates(*diagnosticHudMode_))
+                SetTimer(tray_.Window(), kMockHudTimerId, kMockHudTimerIntervalMs, nullptr);
+            else
+                KillTimer(tray_.Window(), kMockHudTimerId);
+        }
         else
             Log(L"Mock HUD show failed");
     }
@@ -501,6 +562,11 @@ void App::CheckForUpdates()
 
 void App::OpenSettings()
 {
+    if (VrrDiagnosticRunning())
+    {
+        Log(L"Open Settings ignored while VRR diagnostic is running");
+        return;
+    }
     if (settings_)
     {
         settings_->Show(instance_);
@@ -548,11 +614,13 @@ int App::ProcessMessages()
                 delete payload;
                 if (!request->cancelled.exchange(true))
                 {
-                    request->result = request->query
-                        ? MockHudVisible() == request->visible
-                        : request->restore
-                            ? RestoreHudVisibilityState(request->state)
-                            : ApplyDiagnosticHudVisibility(request->visible);
+                    request->result = request->modeRequest
+                        ? ApplyDiagnosticHudMode(request->mode)
+                        : request->query
+                            ? MockHudVisible() == request->visible
+                            : request->restore
+                                ? RestoreHudVisibilityState(request->state)
+                                : ApplyDiagnosticHudVisibility(request->visible);
                 }
                 SetEvent(request->complete);
             }
