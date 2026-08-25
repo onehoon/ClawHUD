@@ -5,10 +5,14 @@
 #include <iomanip>
 #include <windows.h>
 #include <algorithm>
+#include <cwchar>
 
 namespace clawhud
 {
-namespace { constexpr float NativeMin = 48.0f, NativeMax = 120.0f, Tolerance = 0.1f; bool Native(float min, float max) { return std::abs(min - NativeMin) <= Tolerance && std::abs(max - NativeMax) <= Tolerance; } std::string Range(float min, float max) { std::ostringstream s; s << min << "-" << max << " Hz"; return s.str(); } std::string NowUtc() { SYSTEMTIME t{}; GetSystemTime(&t); std::ostringstream s; s << std::setfill('0') << std::setw(4) << t.wYear << '-' << std::setw(2) << t.wMonth << '-' << std::setw(2) << t.wDay << 'T' << std::setw(2) << t.wHour << ':' << std::setw(2) << t.wMinute << ':' << std::setw(2) << t.wSecond << 'Z'; return s.str(); } }
+namespace { constexpr float NativeMin = 48.0f, NativeMax = 120.0f, Tolerance = 0.1f; bool Native(float min, float max) { return std::abs(min - NativeMin) <= Tolerance && std::abs(max - NativeMax) <= Tolerance; } std::string Range(float min, float max) { std::ostringstream s; s << min << "-" << max << " Hz"; return s.str(); } std::string NowUtc() { SYSTEMTIME t{}; GetSystemTime(&t); std::ostringstream s; s << std::setfill('0') << std::setw(4) << t.wYear << '-' << std::setw(2) << t.wMonth << '-' << std::setw(2) << t.wDay << 'T' << std::setw(2) << t.wHour << ':' << std::setw(2) << t.wMinute << ':' << std::setw(2) << t.wSecond << 'Z'; return s.str(); }
+bool ContainsInsensitive(const std::wstring& value, const std::wstring& needle) { if (needle.empty()) return true; for (std::size_t i = 0; i + needle.size() <= value.size(); ++i) if (_wcsnicmp(value.c_str() + i, needle.c_str(), needle.size()) == 0) return true; return false; }
+bool MatchesCorrelatingIdentity(const IntelDisplayOutput& output, const PanelIdentity& panel) { if (output.friendlyName.empty() || panel.panelName.empty()) return true; const std::wstring panelName(panel.panelName.begin(), panel.panelName.end()); return ContainsInsensitive(output.friendlyName, panelName) || ContainsInsensitive(panelName, output.friendlyName); }
+}
 IntelVrrRangeTweak::IntelVrrRangeTweak(ClientFactory clientFactory, PanelProvider panelProvider) : clientFactory_(std::move(clientFactory)), panelProvider_(std::move(panelProvider)) {}
 IntelVrrRunResult IntelVrrRangeTweak::Run(bool enabled)
 {
@@ -25,16 +29,26 @@ IntelVrrRunResult IntelVrrRangeTweak::Run(bool enabled)
     std::vector<std::pair<IntelDisplayOutput, IntelArcSyncCapability>> candidates; for (const auto& output : outputs) { IntelArcSyncCapability capability{}; const bool read = client->GetMonitorCapability(output, capability); flush(); log_.push_back("Capability: read=" + std::to_string(read) + ", supported=" + std::to_string(capability.supported) + ", range=" + Range(capability.minimumHz, capability.maximumHz)); if (read && capability.supported) candidates.push_back({ output, capability }); }
     if (candidates.empty()) { result.status = IntelVrrRunStatus::Unavailable; result.message = "Arc Sync is not available on this display."; return finish(result); }
     std::vector<std::pair<IntelDisplayOutput, IntelArcSyncCapability>> native; for (const auto& c : candidates) if (Native(c.second.minimumHz, c.second.maximumHz)) native.push_back(c);
-    if (candidates.size() > 1 && native.size() != 1) { result.status = IntelVrrRunStatus::AmbiguousDisplay; result.message = "Multiple displays matched; skipped to avoid changing the wrong one."; return finish(result); }
-    const auto& selected = candidates.size() == 1 ? candidates.front() : native.front(); if (!Native(selected.second.minimumHz, selected.second.maximumHz)) { result.status = IntelVrrRunStatus::UnsupportedPanel; result.message = "Display capability range does not match the expected panel class."; return finish(result); }
-    IntelArcSyncProfileState profile{}; if (!client->GetArcSyncProfile(selected.first, profile)) { flush(); result.status = IntelVrrRunStatus::Unavailable; result.message = "Could not read the current Arc Sync profile."; return finish(result); } flush(); result.rangeBefore = Range(profile.minimumHz, profile.maximumHz); log_.push_back(std::string("Current profile=") + IntelArcSyncProfileName(profile.profile) + ", range=" + result.rangeBefore);
+    const std::pair<IntelDisplayOutput, IntelArcSyncCapability>* selected = nullptr;
+    if (candidates.size() == 1)
+    {
+        if (!MatchesCorrelatingIdentity(candidates.front().first, *panel)) { result.status = IntelVrrRunStatus::AmbiguousDisplay; result.message = "Multiple displays matched; skipped to avoid changing the wrong one."; return finish(result); }
+        selected = &candidates.front();
+    }
+    else
+    {
+        if (native.size() != 1 || !MatchesCorrelatingIdentity(native.front().first, *panel)) { result.status = IntelVrrRunStatus::AmbiguousDisplay; result.message = "Multiple displays matched; skipped to avoid changing the wrong one."; return finish(result); }
+        selected = &native.front();
+    }
+    if (!Native(selected->second.minimumHz, selected->second.maximumHz)) { result.status = IntelVrrRunStatus::UnsupportedPanel; result.message = "Display capability range does not match the expected panel class."; return finish(result); }
+    IntelArcSyncProfileState profile{}; if (!client->GetArcSyncProfile(selected->first, profile)) { flush(); result.status = IntelVrrRunStatus::Unavailable; result.message = "Could not read the current Arc Sync profile."; return finish(result); } flush(); result.rangeBefore = Range(profile.minimumHz, profile.maximumHz); log_.push_back(std::string("Current profile=") + IntelArcSyncProfileName(profile.profile) + ", range=" + result.rangeBefore);
     if (profile.profile == IntelArcSyncProfile::Excellent && Native(profile.minimumHz, profile.maximumHz)) { result.status = IntelVrrRunStatus::AlreadyCorrect; result.message = "Already using the native VRR range."; result.rangeAfter = result.rangeBefore; return finish(result); }
     if (profile.profile == IntelArcSyncProfile::Custom || profile.profile == IntelArcSyncProfile::Off) { result.status = IntelVrrRunStatus::SkippedUserProfile; result.message = "Preserved existing user profile."; result.rangeAfter = result.rangeBefore; return finish(result); }
-    if ((profile.profile == IntelArcSyncProfile::Recommended || profile.profile == IntelArcSyncProfile::Good || profile.profile == IntelArcSyncProfile::Compatible || profile.profile == IntelArcSyncProfile::Vesa) && std::abs(profile.minimumHz - selected.second.minimumHz) <= Tolerance && std::abs(profile.maximumHz - selected.second.maximumHz) <= Tolerance) { result.status = IntelVrrRunStatus::AlreadyCorrect; result.message = "Current profile already reports the full native range; no mutation needed."; result.rangeAfter = result.rangeBefore; return finish(result); }
+    if ((profile.profile == IntelArcSyncProfile::Recommended || profile.profile == IntelArcSyncProfile::Good || profile.profile == IntelArcSyncProfile::Compatible || profile.profile == IntelArcSyncProfile::Vesa) && std::abs(profile.minimumHz - selected->second.minimumHz) <= Tolerance && std::abs(profile.maximumHz - selected->second.maximumHz) <= Tolerance) { result.status = IntelVrrRunStatus::AlreadyCorrect; result.message = "Current profile already reports the full native range; no mutation needed."; result.rangeAfter = result.rangeBefore; return finish(result); }
     if (profile.profile != IntelArcSyncProfile::Excellent && profile.profile != IntelArcSyncProfile::Recommended && profile.profile != IntelArcSyncProfile::Good && profile.profile != IntelArcSyncProfile::Compatible && profile.profile != IntelArcSyncProfile::Vesa)
     { result.status = IntelVrrRunStatus::UnsupportedPanel; result.message = "Unrecognized Arc Sync profile state."; return finish(result); }
-    std::string error; if (!client->SetArcSyncProfile(selected.first, IntelArcSyncProfile::Excellent, error)) { flush(); result.status = IntelVrrRunStatus::ApplyFailed; result.message = "Failed to apply profile: " + error; return finish(result); } flush();
-    IntelArcSyncProfileState verify{}; const bool verifiedRead = client->GetArcSyncProfile(selected.first, verify); flush(); if (!verifiedRead) { result.status = IntelVrrRunStatus::VerificationFailed; result.message = "Applied the profile but could not verify it took effect."; result.rangeAfter = "unknown"; return finish(result); } result.rangeAfter = Range(verify.minimumHz, verify.maximumHz);
+    std::string error; if (!client->SetArcSyncProfile(selected->first, IntelArcSyncProfile::Excellent, error)) { flush(); result.status = IntelVrrRunStatus::ApplyFailed; result.message = "Failed to apply profile: " + error; return finish(result); } flush();
+    IntelArcSyncProfileState verify{}; const bool verifiedRead = client->GetArcSyncProfile(selected->first, verify); flush(); if (!verifiedRead) { result.status = IntelVrrRunStatus::VerificationFailed; result.message = "Applied the profile but could not verify it took effect."; result.rangeAfter = "unknown"; return finish(result); } result.rangeAfter = Range(verify.minimumHz, verify.maximumHz);
     log_.push_back(std::string("Verify profile=") + IntelArcSyncProfileName(verify.profile) + ", range=" + result.rangeAfter);
     if (verify.profile != IntelArcSyncProfile::Excellent || !Native(verify.minimumHz, verify.maximumHz)) { result.status = IntelVrrRunStatus::VerificationFailed; result.message = "Applied the profile but could not verify it took effect."; return finish(result); }
     result.status = IntelVrrRunStatus::Applied; result.message = "Restored the native VRR range."; return finish(result);

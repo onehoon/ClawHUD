@@ -3,6 +3,7 @@
 #include "IntelVrr\IntelArcSyncClient.h"
 #include "IntelVrr\IntelVrrRangeTweak.h"
 #include "IntelVrr\IntelVrrRunLogger.h"
+#include <algorithm>
 #include <chrono>
 
 namespace clawhud
@@ -21,15 +22,23 @@ void TweakStartupCoordinator::Run(bool enabled)
     try
     {
     IntelVrrRunLogger::StartSession();
-    const int delays[] = { 2, 5, 15 };
-    for (int attempt = 0; attempt < 4; ++attempt)
-    {
-        if (stopping_) return;
-        IntelVrrRangeTweak tweak([] { return std::make_unique<IntelArcSyncClient>(); }, [] { return EnumeratePanelIdentities(); });
-        const auto result = tweak.Run(enabled); IntelVrrRunLogger::AppendAttempt(attempt + 1, tweak.LastLog());
-        if (result.status != IntelVrrRunStatus::Unavailable || !enabled) return;
-        if (attempt < 3) for (int i = 0; i < delays[attempt] * 10 && !stopping_; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
+    RunRetrySequence(
+        [&](int attemptNumber)
+        {
+            IntelVrrRangeTweak tweak([] { return std::make_unique<IntelArcSyncClient>(); }, [] { return EnumeratePanelIdentities(); });
+            const auto result = tweak.Run(enabled);
+            IntelVrrRunLogger::AppendAttempt(attemptNumber, tweak.LastLog());
+            return result;
+        },
+        [&](std::chrono::seconds delay)
+        {
+            for (auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(delay);
+                remaining.count() > 0 && !stopping_; remaining -= std::chrono::milliseconds(100))
+            {
+                std::this_thread::sleep_for(std::min(remaining, std::chrono::milliseconds(100)));
+            }
+            return !stopping_;
+        });
     }
     catch (...)
     {

@@ -13,10 +13,10 @@ bool Check(bool value, const char* message) { if (!value) std::cerr << "FAILED: 
 class FakeClient final : public IIntelArcSyncClient
 {
 public:
-    bool initialize{ true }; std::vector<IntelDisplayOutput> outputs{ { nullptr, nullptr, {} } }; IntelArcSyncCapability capability{ true, 48, 120, 0, 0 }; IntelArcSyncProfileState profile{}; bool setSuccess{ true }; bool validReadback{ true }; bool verificationReadSuccess{ true }; int profileReads{}; std::shared_ptr<int> setCalls{ std::make_shared<int>(0) };
+    bool initialize{ true }; std::vector<IntelDisplayOutput> outputs{ { nullptr, nullptr, {} } }; IntelArcSyncCapability capability{ true, 48, 120, 0, 0 }; IntelArcSyncProfileState profile{}; bool setSuccess{ true }; bool validReadback{ true }; bool verificationReadSuccess{ true }; bool secondOutputNarrow{}; int profileReads{}; std::shared_ptr<int> setCalls{ std::make_shared<int>(0) };
     bool Initialize() override { return initialize; }
     std::vector<IntelDisplayOutput> EnumerateDisplayOutputs() override { return outputs; }
-    bool GetMonitorCapability(const IntelDisplayOutput&, IntelArcSyncCapability& value) override { value = capability; return initialize; }
+    bool GetMonitorCapability(const IntelDisplayOutput& output, IntelArcSyncCapability& value) override { value = secondOutputNarrow && output.output == reinterpret_cast<void*>(1) ? IntelArcSyncCapability{ true, 48, 60, 0, 0 } : capability; return initialize; }
     bool GetArcSyncProfile(const IntelDisplayOutput&, IntelArcSyncProfileState& value) override { ++profileReads; if (profileReads > 1 && !verificationReadSuccess) { calls.push_back({ "ctlGetIntelArcSyncProfile", 0x40000007, "CTL_RESULT_ERROR_NOT_AVAILABLE", "verification" }); return false; } value = profile; return initialize; }
     bool SetArcSyncProfile(const IntelDisplayOutput&, IntelArcSyncProfile value, std::string&) override { ++*setCalls; if (setSuccess && validReadback) profile = { value, 48, 120, 0, 0 }; return setSuccess; }
     const std::vector<IntelArcSyncCall>& CallLog() const override { return calls; }
@@ -64,6 +64,14 @@ int main()
     {
         auto fake = std::make_shared<FakeClient>(); fake->outputs.push_back({ nullptr, reinterpret_cast<void*>(1), {} }); IntelVrrRangeTweak tweak([fake] { return std::unique_ptr<IIntelArcSyncClient>(new FakeClient(*fake)); }, [] { return std::vector<PanelIdentity>{ Affected() }; });
         auto result = tweak.Run(true); ok &= Check(result.status == IntelVrrRunStatus::AmbiguousDisplay && *fake->setCalls == 0, "ambiguous outputs perform no mutation");
+    }
+    {
+        auto fake = std::make_shared<FakeClient>(); fake->outputs[0].friendlyName = L"External Panel"; fake->profile = { IntelArcSyncProfile::Recommended, 48, 60, 0, 0 }; IntelVrrRangeTweak tweak([fake] { return std::unique_ptr<IIntelArcSyncClient>(new FakeClient(*fake)); }, [] { return std::vector<PanelIdentity>{ Affected() }; });
+        auto result = tweak.Run(true); ok &= Check(result.status == IntelVrrRunStatus::AmbiguousDisplay && *fake->setCalls == 0, "contradictory single-output identity performs no mutation");
+    }
+    {
+        auto fake = std::make_shared<FakeClient>(); fake->outputs[0].friendlyName = L"External Panel"; fake->outputs.push_back({ nullptr, reinterpret_cast<void*>(1), {} }); fake->secondOutputNarrow = true; fake->profile = { IntelArcSyncProfile::Recommended, 48, 60, 0, 0 }; IntelVrrRangeTweak tweak([fake] { return std::unique_ptr<IIntelArcSyncClient>(new FakeClient(*fake)); }, [] { return std::vector<PanelIdentity>{ Affected() }; });
+        auto result = tweak.Run(true); ok &= Check(result.status == IntelVrrRunStatus::AmbiguousDisplay && *fake->setCalls == 0, "contradictory native-fallback identity performs no mutation");
     }
     {
         auto fake = std::make_shared<FakeClient>(); fake->profile = { IntelArcSyncProfile::Recommended, 48, 60, 0, 0 }; fake->validReadback = false; IntelVrrRangeTweak tweak([fake] { return std::unique_ptr<IIntelArcSyncClient>(new FakeClient(*fake)); }, [] { return std::vector<PanelIdentity>{ Affected() }; });
