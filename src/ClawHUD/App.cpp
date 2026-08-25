@@ -126,7 +126,13 @@ bool App::EcDiagnosticRunning() const { return ecDiagnostic_ && ecDiagnostic_->R
 void App::OpenDiagnosticLogFolder() { if (ecDiagnostic_) ecDiagnostic_->OpenLogFolder(); }
 bool App::StartVrrDiagnostic()
 {
-    if (!vrrDiagnostic_ || EcDiagnosticRunning() || !vrrDiagnostic_->Start()) return false;
+    if (!vrrDiagnostic_ || EcDiagnosticRunning()) return false;
+    StopProductionEcSampling();
+    if (!vrrDiagnostic_->Start())
+    {
+        ReconcileHudVisibility();
+        return false;
+    }
     vrrStatus_ = L"Waiting for game";
     if (settings_) settings_->RequestClose();
     return true;
