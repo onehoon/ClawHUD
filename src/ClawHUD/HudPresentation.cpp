@@ -155,9 +155,10 @@ HRESULT HudPresentation::Render(const HudTelemetrySnapshot& snapshot, const HudR
 {
     if (!initialized_ || !renderer_)
         return E_UNEXPECTED;
-    auto* buffer = TryAcquireAvailableBuffer();
-    if (!buffer)
-        return S_FALSE;
+    HudFrameBuffer* buffer{};
+    HRESULT hr = TryAcquireAvailableBuffer(buffer);
+    if (FAILED(hr) || hr == S_FALSE)
+        return hr;
     HudRenderOptions effective = options;
     effective.dpi = dpi_;
     const auto runs = FormatHud(snapshot);
@@ -166,7 +167,7 @@ HRESULT HudPresentation::Render(const HudTelemetrySnapshot& snapshot, const HudR
     d2dContext_->SetTarget(buffer->bitmapTarget.Get());
     d2dContext_->BeginDraw();
     d2dContext_->Clear(D2D1::ColorF(0.0f, 0.0f));
-    HRESULT hr = runs.empty() ? S_OK : renderer_->Draw(d2dContext_.Get(), runs, effective,
+    hr = runs.empty() ? S_OK : renderer_->Draw(d2dContext_.Get(), runs, effective,
         D2D1::RectF(0, 0, widthDip, heightDip));
     const HRESULT endHr = d2dContext_->EndDraw();
     if (FAILED(hr)) return hr;
@@ -176,15 +177,22 @@ HRESULT HudPresentation::Render(const HudTelemetrySnapshot& snapshot, const HudR
     return presentationManager_->Present();
 }
 
-HudPresentation::HudFrameBuffer* HudPresentation::TryAcquireAvailableBuffer() noexcept
+HRESULT HudPresentation::TryAcquireAvailableBuffer(HudFrameBuffer*& selected) noexcept
 {
+    selected = nullptr;
     for (auto& buffer : buffers_)
     {
         BOOLEAN available{};
-        if (SUCCEEDED(buffer.presentationBuffer->IsAvailable(&available)) && available)
-            return &buffer;
+        const HRESULT hr = buffer.presentationBuffer->IsAvailable(&available);
+        if (FAILED(hr))
+            return hr;
+        if (available)
+        {
+            selected = &buffer;
+            return S_OK;
+        }
     }
-    return nullptr;
+    return S_FALSE;
 }
 
 HRESULT HudPresentation::CommitVisibility(bool visible)

@@ -42,7 +42,7 @@ private:
     HRESULT CreateGraphics();
     HRESULT CreatePresentationSurface();
     HRESULT CreateBitmapTargets();
-    HudFrameBuffer* TryAcquireAvailableBuffer() noexcept;
+    HRESULT TryAcquireAvailableBuffer(HudFrameBuffer*& selected) noexcept;
     HRESULT CommitVisibility(bool visible);
 
     HINSTANCE instance_{};
