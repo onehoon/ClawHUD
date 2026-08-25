@@ -45,5 +45,6 @@ private:
     std::thread worker_;
     std::atomic_bool stop_{};
     UpdateCallback callback_;
+    std::wstring sessionName_;
 };
 }

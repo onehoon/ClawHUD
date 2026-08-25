@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
+#include <evntrace.h>
 #include <utility>
 
 namespace clawhud
@@ -44,6 +46,24 @@ std::optional<std::size_t> Column(const std::vector<std::string>& headers,
 std::string Field(const std::vector<std::string>& row, std::optional<std::size_t> index)
 {
     return index && *index < row.size() ? row[*index] : std::string{};
+}
+
+struct TraceStopProperties
+{
+    EVENT_TRACE_PROPERTIES properties{};
+    wchar_t loggerName[128]{};
+};
+
+void StopTraceSession(const std::wstring& sessionName) noexcept
+{
+    if (sessionName.empty())
+        return;
+    TraceStopProperties buffer{};
+    buffer.properties.Wnode.BufferSize = sizeof(buffer);
+    buffer.properties.LoggerNameOffset =
+        static_cast<ULONG>(offsetof(TraceStopProperties, loggerName));
+    (void)ControlTraceW(0, sessionName.c_str(), &buffer.properties,
+        EVENT_TRACE_CONTROL_STOP);
 }
 }
 
@@ -111,12 +131,12 @@ bool PresentMonHudTelemetry::Start(const std::wstring& executable, DWORD process
         return false;
     SetHandleInformation(outputRead, HANDLE_FLAG_INHERIT, 0);
 
-    const std::wstring sessionName =
+    sessionName_ =
         L"ClawHUD-HUD-" + std::to_wstring(processId);
     std::wstring command = L"\"" + executable + L"\" --process_id " +
         std::to_wstring(processId) + L" --output_stdout --no_console_stats --qpc_time_ms" +
         L" --track_frame_type --terminate_on_proc_exit --session_name \"" +
-        sessionName + L"\"";
+        sessionName_ + L"\"";
     std::vector<wchar_t> commandLine(command.begin(), command.end());
     commandLine.push_back(L'\0');
     STARTUPINFOW startup{sizeof(startup)};
@@ -130,6 +150,7 @@ bool PresentMonHudTelemetry::Start(const std::wstring& executable, DWORD process
     if (!created)
     {
         CloseHandle(outputRead);
+        sessionName_.clear();
         return false;
     }
     CloseHandle(processInfo.hThread);
@@ -144,21 +165,30 @@ bool PresentMonHudTelemetry::Start(const std::wstring& executable, DWORD process
 void PresentMonHudTelemetry::Stop() noexcept
 {
     stop_ = true;
-    if (process_)
-        TerminateProcess(process_, 2);
+
+    if (process_ && WaitForSingleObject(process_, 0) == WAIT_TIMEOUT)
+    {
+        StopTraceSession(sessionName_);
+        if (WaitForSingleObject(process_, 3000) == WAIT_TIMEOUT)
+        {
+            TerminateProcess(process_, 2);
+            WaitForSingleObject(process_, 2000);
+        }
+    }
+
+    if (worker_.joinable())
+        worker_.join();
     if (output_)
     {
         CloseHandle(output_);
         output_ = nullptr;
     }
-    if (worker_.joinable())
-        worker_.join();
     if (process_)
     {
-        WaitForSingleObject(process_, 2000);
         CloseHandle(process_);
         process_ = nullptr;
     }
+    sessionName_.clear();
     callback_ = {};
 }
 
