@@ -274,11 +274,13 @@ void VrrDiagnostic::Run()
         while (!stop_ && WaitForSingleObject(child.hProcess, 100) == WAIT_TIMEOUT && std::chrono::steady_clock::now() < pocEnd) {}
         if ((stop_ || std::chrono::steady_clock::now() >= pocEnd) && WaitForSingleObject(child.hProcess, 0) == WAIT_TIMEOUT) { pocTimeout = true; TerminateProcess(child.hProcess, stop_ ? 2 : 3); WaitForSingleObject(child.hProcess, 5000); }
         DWORD code = STILL_ACTIVE; GetExitCodeProcess(child.hProcess, &code); CloseHandle(child.hThread); CloseHandle(child.hProcess); const auto on = ParseCsv(onCsv); WriteSummary(log, L"PHASE B - HUD ON", onCsv, on);
+        const auto offMedian = clawhud::UsableVblankMedian(offVblank);
+        const auto onMedian = clawhud::UsableVblankMedian(onVblank);
         log << L"PoC Exit: " << ((!pocTimeout && code == 0) ? L"OK (normal)" : L"FAILED") << L"\n=== COMPARISON ===\nPresentMode set changed: "
             << ((!off.valid || !on.valid) ? L"unavailable" : (SamePresentModeSet(off.modes, on.modes) ? L"NO" : L"YES"))
-            << L"\nHUD OFF VBlank median: " << (offVblank.size() == 1 ? std::to_wstring(offVblank.front().medianDeltaUs) : L"Unavailable")
-            << L" us\nHUD ON VBlank median: " << (onVblank.size() == 1 ? std::to_wstring(onVblank.front().medianDeltaUs) : L"Unavailable")
-            << L" us\nVBlank median difference: " << (offVblank.size() == 1 && onVblank.size() == 1 ? std::to_wstring(onVblank.front().medianDeltaUs - offVblank.front().medianDeltaUs) : L"Unavailable")
+            << L"\nHUD OFF VBlank median: " << (offMedian ? std::to_wstring(*offMedian) : L"Unavailable")
+            << L" us\nHUD ON VBlank median: " << (onMedian ? std::to_wstring(*onMedian) : L"Unavailable")
+            << L" us\nVBlank median difference: " << (offMedian && onMedian ? std::to_wstring(*onMedian - *offMedian) : L"Unavailable")
             << L" us\nVRR Analysis: NEEDS MANUAL REVIEW\nIGCL VBlank timing is diagnostic evidence only. It has not yet been validated as an authoritative VRR-active signal on MSI Claw hardware.\n";
         const bool completed = !stop_ && off.valid && on.valid && offOk && onOk && targetAliveAfterCapture && pocCoveredCapture && !pocTimeout && code == 0; log << L"Result: " << (completed ? L"Completed" : L"Failed") << L"\n"; Status(stop_ ? L"Cancelled" : (completed ? L"Completed" : L"Failed")); running_ = false;
     }

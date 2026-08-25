@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <fstream>
 #include <optional>
@@ -12,6 +13,8 @@
 
 namespace clawhud
 {
+inline constexpr auto kVblankPollInterval = std::chrono::milliseconds(1);
+
 struct VblankSeries
 {
     std::size_t output{};
@@ -35,6 +38,7 @@ struct VblankSummary
 
 void RecordVblankTimestamp(VblankSeries& series, std::uint64_t timestamp);
 VblankSummary SummarizeVblank(const VblankSeries& series);
+std::optional<double> UsableVblankMedian(const std::vector<VblankSummary>& summaries);
 std::string IntelCtlResultName(std::uint32_t result);
 
 class IntelVrrDiagnosticProbe

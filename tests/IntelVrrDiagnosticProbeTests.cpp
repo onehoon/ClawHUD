@@ -44,6 +44,8 @@ int main()
 
     VblankSeries empty{}; ok &= Check(!SummarizeVblank(empty).measuredHz, "empty is unavailable");
     VblankSeries one{}; RecordVblankTimestamp(one, 1); ok &= Check(!SummarizeVblank(one).measuredHz, "one timestamp is unavailable");
+    ok &= Check(!UsableVblankMedian({SummarizeVblank(one)}), "insufficient VBlank evidence stays unavailable in comparison");
+    ok &= Check(kVblankPollInterval <= std::chrono::milliseconds(1), "VBlank poll interval remains cadence-safe");
 
     VblankSeries output0{}; output0.output = 0; output0.target = 0;
     VblankSeries output1{}; output1.output = 1; output1.target = 0;

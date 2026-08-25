@@ -119,6 +119,13 @@ VblankSummary SummarizeVblank(const VblankSeries& series)
     return result;
 }
 
+std::optional<double> UsableVblankMedian(const std::vector<VblankSummary>& summaries)
+{
+    if (summaries.size() != 1 || summaries.front().validDeltas == 0 || !summaries.front().measuredHz)
+        return std::nullopt;
+    return summaries.front().medianDeltaUs;
+}
+
 std::string IntelCtlResultName(std::uint32_t result)
 {
     switch (result)
@@ -177,7 +184,10 @@ bool IntelVrrDiagnosticProbe::Initialize(std::wofstream& log)
     for (const auto device : devices)
     {
         std::uint32_t outputCount{}; enumerateResult = enumerateOutputs(device, &outputCount, nullptr); if (enumerateResult != kSuccess) { LogResult(log, L"ctlEnumerateDisplayOutputs", enumerateResult); continue; }
-        std::vector<OutputHandle> handles(outputCount); if (!outputCount || enumerateOutputs(device, &outputCount, handles.data()) != kSuccess) continue;
+        if (!outputCount) continue;
+        std::vector<OutputHandle> handles(outputCount);
+        const Result outputResult = enumerateOutputs(device, &outputCount, handles.data());
+        if (outputResult != kSuccess) { LogResult(log, L"ctlEnumerateDisplayOutputs", outputResult); continue; }
         for (const auto handle : handles) { Output output{}; output.handle = handle; output.index = outputs_.size(); outputs_.push_back(std::move(output)); }
     }
     log << L"Outputs: " << outputs_.size() << L"\n";
@@ -217,6 +227,11 @@ void IntelVrrDiagnosticProbe::StartSampling()
 void IntelVrrDiagnosticProbe::SampleLoop()
 {
     const auto vblank = Resolve<VblankFn>(library_, "ctlGetVblankTimestamp");
+    HANDLE timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
+        TIMER_MODIFY_STATE | SYNCHRONIZE);
+    LARGE_INTEGER due{}; due.QuadPart = -10'000;
+    const bool timerReady = timer != nullptr && SetWaitableTimer(timer, &due, 1, nullptr, nullptr, FALSE) != FALSE;
+    if (!timerReady && timer) { CloseHandle(timer); timer = nullptr; }
     while (sampling_)
     {
         for (auto& output : outputs_)
@@ -226,8 +241,10 @@ void IntelVrrDiagnosticProbe::SampleLoop()
             const auto count = std::min<std::size_t>(args.NumOfTargets, 16);
             for (std::size_t i = 0; i < count; ++i) RecordVblankTimestamp(output.series[i], args.VblankTS[i]);
         }
-        for (int i = 0; i < 10 && sampling_; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        if (timer) WaitForSingleObject(timer, 10);
+        else std::this_thread::sleep_for(kVblankPollInterval);
     }
+    if (timer) CloseHandle(timer);
 }
 
 std::vector<VblankSummary> IntelVrrDiagnosticProbe::StopSampling(std::wofstream& log, const wchar_t* phase)
