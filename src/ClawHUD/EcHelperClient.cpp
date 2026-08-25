@@ -24,7 +24,7 @@ bool CancelAndDrain(HANDLE handle, OVERLAPPED& overlap)
 std::wstring PipeName()
 {
     std::random_device random;
-    return L"\\.\\pipe\\ClawHUD.Ec." + std::to_wstring(GetCurrentProcessId()) + L"." +
+    return L"\\\\.\\pipe\\ClawHUD.Ec." + std::to_wstring(GetCurrentProcessId()) + L"." +
         std::to_wstring(static_cast<unsigned long long>(random()) ^ GetTickCount64());
 }
 }
