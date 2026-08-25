@@ -1,6 +1,7 @@
 #include "VrrDiagnostic.h"
 
 #include "App.h"
+#include "IntelVrrDiagnosticProbe.h"
 
 #include <algorithm>
 #include <chrono>
@@ -208,6 +209,7 @@ bool VrrDiagnostic::Capture(const std::filesystem::path& executable, DWORD pid, 
 void VrrDiagnostic::Run()
 {
     std::wofstream log;
+    clawhud::IntelVrrDiagnosticProbe igcl;
     try
     {
         const auto folder = LogFolder(app_); const auto stamp = Now(true); const auto txt = folder / (L"vrr-" + stamp + L".txt");
@@ -218,6 +220,8 @@ void VrrDiagnostic::Run()
             << L"Pinned v2.5.1 console asset does not expose --write_display_metadata; standard display timing columns are retained.\n"
             << L"VRR Analysis: NEEDS MANUAL REVIEW\nNOTE: PresentMon captures application presents and OS-visible display timing.\n"
             << L"Intel UMD XeFG-generated output frames may not all be observable here.\nDo not treat this capture as authoritative true XeFG displayed FPS.\n\n";
+        igcl.Initialize(log);
+        igcl.LogState(log);
         const auto pm = std::filesystem::path(app_.ExecutablePath()).parent_path() / L"tools" / L"PresentMon.exe";
         if (!std::filesystem::exists(pm)) { log << L"PresentMon: FAILED\nReason: tools\\PresentMon.exe not found\n"; Status(L"Failed"); running_ = false; return; }
         std::this_thread::sleep_for(std::chrono::seconds(1)); std::optional<DWORD> target; const auto targetEnd = std::chrono::steady_clock::now() + kTargetWait;
@@ -228,7 +232,9 @@ void VrrDiagnostic::Run()
         log << L"Target Process: " << ProcessPath(*target) << L"\nPID: " << *target << L"\n\n";
         log << L"=== PHASE A - HUD OFF ===\nStart: " << Now() << L"\nCSV: " << offCsv.wstring() << L"\n"; Status(L"HUD OFF");
         const std::string sessionStamp = Narrow(stamp);
-        std::this_thread::sleep_for(std::chrono::seconds(1)); const bool offOk = Capture(pm, *target, offCsv, "ClawHUD-VRR-" + std::to_string(*target) + "-OFF-" + sessionStamp, log);
+        std::this_thread::sleep_for(std::chrono::seconds(1)); igcl.StartSampling();
+        const bool offOk = Capture(pm, *target, offCsv, "ClawHUD-VRR-" + std::to_string(*target) + "-OFF-" + sessionStamp, log);
+        const auto offVblank = igcl.StopSampling(log, L"HUD OFF");
         std::this_thread::sleep_for(std::chrono::seconds(1)); log << L"End: " << Now() << L"\n"; const auto off = ParseCsv(offCsv); WriteSummary(log, L"PHASE A - HUD OFF", offCsv, off);
         if (stop_) { log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); running_ = false; return; }
         if (!offOk || !off.valid) { log << L"RESULT: Failed\nReason: HUD-OFF PresentMon CSV could not be summarized\n"; Status(L"Failed"); running_ = false; return; }
@@ -248,7 +254,9 @@ void VrrDiagnostic::Run()
             else { log << L"PoC HUD: FAILED\nReason: PoC HUD did not become visible\nRESULT: Failed\n"; Status(L"Failed"); }
             running_ = false; return;
         }
+        igcl.StartSampling();
         const bool onOk = Capture(pm, *target, onCsv, "ClawHUD-VRR-" + std::to_string(*target) + "-ON-" + sessionStamp, log);
+        const auto onVblank = igcl.StopSampling(log, L"HUD ON");
         const bool targetAliveAfterCapture = Alive(*target);
         if (onOk && !targetAliveAfterCapture)
         {
@@ -268,7 +276,10 @@ void VrrDiagnostic::Run()
         DWORD code = STILL_ACTIVE; GetExitCodeProcess(child.hProcess, &code); CloseHandle(child.hThread); CloseHandle(child.hProcess); const auto on = ParseCsv(onCsv); WriteSummary(log, L"PHASE B - HUD ON", onCsv, on);
         log << L"PoC Exit: " << ((!pocTimeout && code == 0) ? L"OK (normal)" : L"FAILED") << L"\n=== COMPARISON ===\nPresentMode set changed: "
             << ((!off.valid || !on.valid) ? L"unavailable" : (SamePresentModeSet(off.modes, on.modes) ? L"NO" : L"YES"))
-            << L"\nVRR Analysis: NEEDS MANUAL REVIEW\n";
+            << L"\nHUD OFF VBlank median: " << (offVblank.size() == 1 ? std::to_wstring(offVblank.front().medianDeltaUs) : L"Unavailable")
+            << L" us\nHUD ON VBlank median: " << (onVblank.size() == 1 ? std::to_wstring(onVblank.front().medianDeltaUs) : L"Unavailable")
+            << L" us\nVBlank median difference: " << (offVblank.size() == 1 && onVblank.size() == 1 ? std::to_wstring(onVblank.front().medianDeltaUs - offVblank.front().medianDeltaUs) : L"Unavailable")
+            << L" us\nVRR Analysis: NEEDS MANUAL REVIEW\nIGCL VBlank timing is diagnostic evidence only. It has not yet been validated as an authoritative VRR-active signal on MSI Claw hardware.\n";
         const bool completed = !stop_ && off.valid && on.valid && offOk && onOk && targetAliveAfterCapture && pocCoveredCapture && !pocTimeout && code == 0; log << L"Result: " << (completed ? L"Completed" : L"Failed") << L"\n"; Status(stop_ ? L"Cancelled" : (completed ? L"Completed" : L"Failed")); running_ = false;
     }
     catch (...) { if (log.is_open()) log << L"RESULT: Failed\n"; Status(L"Failed"); running_ = false; }
