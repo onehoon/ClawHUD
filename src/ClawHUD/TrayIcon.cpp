@@ -34,8 +34,9 @@ bool TrayIcon::Create(HINSTANCE instance)
     windowClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     RegisterClassW(&windowClass);
 
-    window_ = CreateWindowExW(0, kTrayClassName, L"ClawHUD", 0,
-        0, 0, 0, 0, HWND_MESSAGE, nullptr, instance_, this);
+    window_ = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+        kTrayClassName, L"ClawHUD", WS_POPUP,
+        0, 0, 0, 0, nullptr, nullptr, instance_, this);
     if (!window_) return false;
 
     notifyIcon_.cbSize = sizeof(notifyIcon_);
