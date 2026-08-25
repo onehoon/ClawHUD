@@ -83,7 +83,7 @@ factory hierarchies
 plugin frameworks
 epoch/barrier coordination
 multi-session authorities
-separate helper processes
+separate helper processes (except the narrowly scoped EC read helper required for the MSI privilege boundary)
 complex retry/reconcile state machines
 ```
 
@@ -551,7 +551,7 @@ Do not pull in:
 - `Set_Data(80/81)` TDP writes,
 - write-oriented lifecycle recovery.
 
-The first real-device EC test must also determine whether these read-only WMI methods work unelevated. Do not add an elevated helper until an actual supported Claw proves it necessary.
+The production application remains unelevated. MSI EC reads are performed only by the narrowly scoped `ClawHUD.EcHelper.exe` read-only helper, which is started with `runas` when an explicit EC diagnostic first needs it. This isolates the privilege boundary without elevating tray, Settings, HUD, PresentMon, or VRR diagnostics.
 
 ---
 

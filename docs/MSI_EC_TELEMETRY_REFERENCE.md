@@ -22,15 +22,16 @@ The required EC-backed values are:
 The intended production design is deliberately small:
 
 ```text
-MsiEcReader
-  -> MSI_ACPI WMI transport
+ClawHUD.EcHelper / MsiEcReader
+  -> private Named Pipe -> ClawHUD.EcHelperClient
+  -> MSI_ACPI WMI transport (helper only)
   -> validated raw payload
   -> small decode functions
   -> MsiEcSnapshot
   -> Diagnostics / TelemetrySnapshot / HUD
 ```
 
-Do not introduce a service host, provider registry, DI container, manager hierarchy, background helper, or second process unless an actual hardware requirement proves one is necessary.
+Do not introduce a service host, provider registry, DI container, manager hierarchy, or generic RPC framework. The approved second process is only `ClawHUD.EcHelper.exe`, a narrowly scoped elevated read-only transport for this EC boundary.
 
 ## 2. ClawHUD product constraints
 
@@ -43,7 +44,7 @@ These constraints are authoritative for EC integration:
 5. Startup is tray-first; the settings UI is not created until explicitly opened.
 6. Diagnostics must have approximately zero idle cost when the Diagnostics tab is not active.
 7. EC access is **read-only** for ClawHUD telemetry.
-8. Do not add an elevated helper preemptively. First prove whether the required `Get_*` calls fail unelevated on supported hardware.
+8. Keep the main application unelevated; the approved production transport uses a narrowly scoped elevated read-only helper only when the explicit EC diagnostic starts.
 9. Missing/invalid EC data means **Unavailable**, never a synthetic zero that looks like valid hardware data.
 10. No continuous retry/reconcile loop. A failed sample may be retried on the next normal sample.
 
@@ -860,15 +861,13 @@ $obj.Path.Path
 
 The method-call helper should follow the same object model used by SteamAddon: obtain the method parameters, populate the embedded `Data.Bytes` 32-byte package, invoke the method, and inspect the response success byte.
 
-A normal-user success means ClawHUD should remain a normal-user process for EC telemetry.
-
-If the method invocation returns `UnauthorizedAccessException` / access denied on supported hardware, record the exact failing stage and revisit the privilege boundary. Do **not** conclude that elevation is required merely because historical fan-control probes used an elevated writer.
+A normal-user success still means ClawHUD should remain a normal-user process. The production diagnostic transport now keeps that boundary explicit: `ClawHUD.exe` never calls MSI WMI directly, and `ClawHUD.EcHelper.exe` performs only the whitelisted read methods after verifying elevation. This helper is intentionally limited to the EC read path; it is not a service, writer, or generic WMI RPC endpoint.
 
 ---
 
 ## 16. Failure handling
 
-ClawHUD EC telemetry is read-only, so failure policy should stay very small.
+ClawHUD EC telemetry is read-only, so failure policy should stay very small. The helper is started only by an explicit EC diagnostic request, reused for that session, and terminates when the main process closes the private named pipe. UAC cancellation or a missing helper leaves the main app running and marks EC unavailable; it is not retried immediately.
 
 For each sample:
 
@@ -1115,7 +1114,7 @@ Exact discharge-current complement edge
 
 Unelevated read permission
     not yet independently proven on supported device;
-    must be tested before adding any elevated helper
+    must be tested separately from the helper transport on supported hardware
 ```
 
 ---
@@ -1131,7 +1130,7 @@ When an agent implements this document in ClawHUD:
 5. Validate payload length before indexing.
 6. Keep one simple WMI transport implementation.
 7. Keep one simple decode unit.
-8. Do not create an elevation helper until a normal-user hardware test proves it necessary.
+8. Do not elevate the main application. The EC helper is the only approved elevation boundary and must remain read-only and selector-whitelisted.
 9. Do not add fan/TDP writes to solve a telemetry problem.
 10. Add Diagnostics raw output before guessing at any unresolved byte interpretation.
 11. Update this document whenever a board-level test closes or changes an unresolved item.
@@ -1145,15 +1144,18 @@ Only create these when implementation actually begins:
 ```text
 src/ClawHUD/
   Telemetry/
-    MsiEcReader.h
-    MsiEcReader.cpp
+    ClawHUD.EcHelper/MsiEcReader.h
+    ClawHUD.EcHelper/MsiEcReader.cpp
+    ClawHUD/EcHelperClient.h
+    ClawHUD/EcHelperClient.cpp
+    shared/EcHelperProtocol.h
     MsiEcDecode.h
     MsiEcDecode.cpp
 ```
 
 If the project is still small, keeping decode helpers in `MsiEcReader.cpp` is also acceptable. Do not split files merely to satisfy the diagram.
 
-Diagnostics should reuse the same reader/decoders, not a second EC implementation.
+Diagnostics should reuse the helper/client transport and the same reader/decoders, not a second WMI implementation.
 
 ---
 
@@ -1174,4 +1176,4 @@ normal-user ClawHUD process
     -> HUD
 ```
 
-If normal-user reads work on supported Claw hardware, no helper/service/elevation boundary is justified for this feature.
+Regardless of hardware outcome, `ClawHUD.exe` remains unelevated. Hardware validation determines whether the helper's read methods work on the supported boards; it does not authorize adding writes, a service, or a broader elevation boundary.
