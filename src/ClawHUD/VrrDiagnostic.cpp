@@ -107,11 +107,20 @@ CsvSummary ParseCsv(const std::filesystem::path& path)
     const char* required[] = { "ProcessID", "SwapChainAddress", "PresentMode", "CPUStartQPCTime", "DisplayedTime", "MsBetweenPresents", "MsBetweenDisplayChange" };
     for (const auto name : required) if (!column.contains(name)) { result.reason = std::string("Required PresentMon column missing: ") + name; return result; }
     const auto field = [&](const std::vector<std::string>& row, const char* name) -> std::string { const auto i = column.at(name); return i < row.size() ? row[i] : std::string{}; };
-    std::map<std::string, std::size_t> swaps; double presentTotal{}, displayTotal{}; std::size_t presentCount{}, displayCount{};
+    std::map<std::string, std::size_t> swaps; std::vector<std::vector<std::string>> rows;
     while (std::getline(file, line))
     {
-        if (line.empty()) continue; const auto row = CsvLine(line); ++result.rows;
-        ++swaps[field(row, "SwapChainAddress")]; ++result.modes[field(row, "PresentMode")];
+        if (line.empty()) continue; auto row = CsvLine(line);
+        ++result.rows; ++swaps[field(row, "SwapChainAddress")]; rows.push_back(std::move(row));
+    }
+    if (!result.rows) { result.reason = "CSV has no data rows"; return result; }
+    for (const auto& [swap, count] : swaps) if (count > result.dominantRows) { result.dominantSwapChain = swap; result.dominantRows = count; }
+
+    double presentTotal{}, displayTotal{}; std::size_t presentCount{}, displayCount{};
+    for (const auto& row : rows)
+    {
+        if (field(row, "SwapChainAddress") != result.dominantSwapChain) continue;
+        ++result.modes[field(row, "PresentMode")];
         const auto displayed = field(row, "DisplayedTime");
         if (!displayed.empty() && displayed != "NA") ++result.displayed; else ++result.notDisplayed;
         try { const double value = std::stod(field(row, "MsBetweenPresents")); presentTotal += value; ++presentCount; } catch (...) {}
@@ -123,10 +132,16 @@ CsvSummary ParseCsv(const std::filesystem::path& path)
         }
         catch (...) {}
     }
-    if (!result.rows) { result.reason = "CSV has no data rows"; return result; }
-    for (const auto& [swap, count] : swaps) if (count > result.dominantRows) { result.dominantSwapChain = swap; result.dominantRows = count; }
     result.presentAverage = presentCount ? presentTotal / presentCount : 0.0;
     result.displayAverage = displayCount ? displayTotal / displayCount : 0.0; result.valid = true; return result;
+}
+
+bool SamePresentModeSet(const std::map<std::string, std::size_t>& a, const std::map<std::string, std::size_t>& b)
+{
+    if (a.size() != b.size()) return false;
+    auto left = a.begin(); auto right = b.begin();
+    for (; left != a.end(); ++left, ++right) if (left->first != right->first) return false;
+    return true;
 }
 
 void WriteSummary(std::wofstream& log, const wchar_t* phase, const std::filesystem::path& csv, const CsvSummary& summary)
@@ -157,10 +172,7 @@ bool VrrDiagnostic::Start()
 
 void VrrDiagnostic::Stop()
 {
-    stop_ = true;
-    if (const HANDLE capture = captureProcess_.load()) TerminateProcess(capture, 2);
-    if (const HANDLE poc = pocProcess_.load()) TerminateProcess(poc, 2);
-    if (worker_.joinable()) worker_.join(); running_ = false;
+    stop_ = true; if (worker_.joinable()) worker_.join(); running_ = false;
 }
 
 void VrrDiagnostic::Status(const wchar_t* text) const
@@ -176,14 +188,14 @@ bool VrrDiagnostic::Capture(const std::filesystem::path& executable, DWORD pid, 
         L" --output_file \"" + csv.wstring() + L"\" --timed " + std::to_wstring(kCaptureDuration.count()) +
         L" --terminate_after_timed --no_console_stats --qpc_time_ms --session_name " + std::wstring(session.begin(), session.end());
     PROCESS_INFORMATION process{}; if (!Launch(command, process)) { log << L"PresentMon: FAILED\nReason: CreateProcess failed\n"; return false; }
-    captureProcess_ = process.hProcess; const auto deadline = std::chrono::steady_clock::now() + kCaptureWatchdog; bool timeout = false;
+    const auto deadline = std::chrono::steady_clock::now() + kCaptureWatchdog; bool timeout = false;
     while (!stop_)
     {
         const DWORD wait = WaitForSingleObject(process.hProcess, 100); if (wait == WAIT_OBJECT_0) break;
         if (wait == WAIT_FAILED || std::chrono::steady_clock::now() >= deadline) { timeout = true; break; }
     }
     if ((stop_ || timeout) && WaitForSingleObject(process.hProcess, 0) == WAIT_TIMEOUT) { TerminateProcess(process.hProcess, stop_ ? 2 : 3); WaitForSingleObject(process.hProcess, 5000); }
-    DWORD code = STILL_ACTIVE; GetExitCodeProcess(process.hProcess, &code); captureProcess_ = nullptr; CloseHandle(process.hThread); CloseHandle(process.hProcess);
+    DWORD code = STILL_ACTIVE; GetExitCodeProcess(process.hProcess, &code); CloseHandle(process.hThread); CloseHandle(process.hProcess);
     const bool csvCreated = std::filesystem::exists(csv) && std::filesystem::file_size(csv) != 0;
     log << L"PresentMon Exit Code: " << code << L"\nCapture CSV Created: " << (csvCreated ? L"YES" : L"NO") << L"\n";
     if (stop_) { log << L"PresentMon: Cancelled\n"; return false; }
@@ -217,22 +229,24 @@ void VrrDiagnostic::Run()
         std::this_thread::sleep_for(std::chrono::seconds(1)); const bool offOk = Capture(pm, *target, offCsv, "ClawHUD-VRR-" + std::to_string(*target) + "-OFF-" + sessionStamp, log);
         std::this_thread::sleep_for(std::chrono::seconds(1)); log << L"End: " << Now() << L"\n"; const auto off = ParseCsv(offCsv); WriteSummary(log, L"PHASE A - HUD OFF", offCsv, off);
         if (stop_) { log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); running_ = false; return; }
-        if (!offOk || !Alive(*target)) { log << L"RESULT: Failed\n"; Status(L"Failed"); running_ = false; return; }
+        if (!offOk || !off.valid) { log << L"RESULT: Failed\nReason: HUD-OFF PresentMon CSV could not be summarized\n"; Status(L"Failed"); running_ = false; return; }
+        if (!Alive(*target)) { log << L"RESULT: Failed\nReason: Target process exited\n"; Status(L"Failed"); running_ = false; return; }
 
         log << L"=== PHASE B - HUD ON ===\nStart: " << Now() << L"\nCSV: " << onCsv.wstring() << L"\n"; Status(L"HUD ON");
         const auto poc = std::filesystem::path(app_.ExecutablePath()).replace_filename(L"ClawHUD.VrrPoc.exe"); const std::wstring command = L"\"" + poc.wstring() + L"\" --diagnostic";
         PROCESS_INFORMATION child{}; if (!Launch(command, child)) { log << L"PoC Launch: FAILED\nRESULT: Failed\n"; Status(L"Failed"); running_ = false; return; }
-        pocProcess_ = child.hProcess;
         log << L"PoC Launch: OK\nPoC PID: " << child.dwProcessId << L"\n"; const auto visibleEnd = std::chrono::steady_clock::now() + std::chrono::seconds(5); bool visible = false;
         while (!stop_ && std::chrono::steady_clock::now() < visibleEnd) { const HWND hwnd = FindWindowW(L"ClawHUD.VrrPoc", nullptr); if (hwnd && IsWindowVisible(hwnd)) { visible = true; break; } std::this_thread::sleep_for(std::chrono::milliseconds(100)); }
-        if (!visible) { if (WaitForSingleObject(child.hProcess, 0) == WAIT_TIMEOUT) { TerminateProcess(child.hProcess, 3); WaitForSingleObject(child.hProcess, 5000); } pocProcess_ = nullptr; CloseHandle(child.hThread); CloseHandle(child.hProcess); log << L"PoC HUD: FAILED\nReason: PoC HUD did not become visible\nRESULT: Failed\n"; Status(L"Failed"); running_ = false; return; }
+        if (!visible) { if (WaitForSingleObject(child.hProcess, 0) == WAIT_TIMEOUT) { TerminateProcess(child.hProcess, 3); WaitForSingleObject(child.hProcess, 5000); } CloseHandle(child.hThread); CloseHandle(child.hProcess); log << L"PoC HUD: FAILED\nReason: PoC HUD did not become visible\nRESULT: Failed\n"; Status(L"Failed"); running_ = false; return; }
         const bool onOk = Capture(pm, *target, onCsv, "ClawHUD-VRR-" + std::to_string(*target) + "-ON-" + sessionStamp, log);
         bool pocTimeout = false; const auto pocEnd = std::chrono::steady_clock::now() + kPocWatchdog;
         while (!stop_ && WaitForSingleObject(child.hProcess, 100) == WAIT_TIMEOUT && std::chrono::steady_clock::now() < pocEnd) {}
         if ((stop_ || std::chrono::steady_clock::now() >= pocEnd) && WaitForSingleObject(child.hProcess, 0) == WAIT_TIMEOUT) { pocTimeout = true; TerminateProcess(child.hProcess, stop_ ? 2 : 3); WaitForSingleObject(child.hProcess, 5000); }
-        DWORD code = STILL_ACTIVE; GetExitCodeProcess(child.hProcess, &code); pocProcess_ = nullptr; CloseHandle(child.hThread); CloseHandle(child.hProcess); const auto on = ParseCsv(onCsv); WriteSummary(log, L"PHASE B - HUD ON", onCsv, on);
-        log << L"PoC Exit: " << ((!pocTimeout && code == 0) ? L"OK (normal)" : L"FAILED") << L"\n=== COMPARISON ===\nPresentMode changed: " << ((off.modes != on.modes) ? L"YES" : L"NO") << L"\nVRR Analysis: NEEDS MANUAL REVIEW\n";
-        const bool completed = !stop_ && onOk && !pocTimeout && code == 0; log << L"Result: " << (completed ? L"Completed" : L"Failed") << L"\n"; Status(stop_ ? L"Cancelled" : (completed ? L"Completed" : L"Failed")); running_ = false;
+        DWORD code = STILL_ACTIVE; GetExitCodeProcess(child.hProcess, &code); CloseHandle(child.hThread); CloseHandle(child.hProcess); const auto on = ParseCsv(onCsv); WriteSummary(log, L"PHASE B - HUD ON", onCsv, on);
+        log << L"PoC Exit: " << ((!pocTimeout && code == 0) ? L"OK (normal)" : L"FAILED") << L"\n=== COMPARISON ===\nPresentMode set changed: "
+            << ((!off.valid || !on.valid) ? L"unavailable" : (SamePresentModeSet(off.modes, on.modes) ? L"NO" : L"YES"))
+            << L"\nVRR Analysis: NEEDS MANUAL REVIEW\n";
+        const bool completed = !stop_ && off.valid && on.valid && offOk && onOk && !pocTimeout && code == 0; log << L"Result: " << (completed ? L"Completed" : L"Failed") << L"\n"; Status(stop_ ? L"Cancelled" : (completed ? L"Completed" : L"Failed")); running_ = false;
     }
     catch (...) { if (log.is_open()) log << L"RESULT: Failed\n"; Status(L"Failed"); running_ = false; }
 }

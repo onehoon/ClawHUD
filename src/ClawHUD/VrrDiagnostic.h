@@ -29,8 +29,6 @@ private:
     std::thread worker_;
     std::atomic_bool stop_{};
     std::atomic_bool running_{};
-    std::atomic<HANDLE> captureProcess_{ nullptr };
-    std::atomic<HANDLE> pocProcess_{ nullptr };
 };
 
 constexpr UINT kVrrDiagnosticStatus = WM_APP + 21;
