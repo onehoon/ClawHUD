@@ -66,6 +66,19 @@ void Log(const std::wstring& message)
     OutputDebugStringW((L"[ClawHUD] " + message + L"\n").c_str());
 }
 
+bool ProcessAlive(DWORD processId)
+{
+    if (!processId)
+        return false;
+    HANDLE process = OpenProcess(
+        SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
+    if (!process)
+        return false;
+    const bool alive = WaitForSingleObject(process, 0) == WAIT_TIMEOUT;
+    CloseHandle(process);
+    return alive;
+}
+
 }
 
 App::App(HINSTANCE instance) : instance_(instance), tray_(*this)
@@ -382,7 +395,7 @@ void App::StartProductionPresentMonSampling()
     if (diagnosticHudMode_.has_value() || !mockHudEnabled_ || !MockHudVisible())
         return;
     const DWORD processId = foregroundTracker_.TrackedProcessId();
-    if (!processId)
+    if (!processId || !ProcessAlive(processId))
     {
         StopProductionPresentMonSampling();
         return;
@@ -427,6 +440,8 @@ void App::HandlePresentMonHudUpdate(DWORD processId,
         return;
     latestPresentMonDisplayedFps_ = displayedFps;
     RenderProductionHud();
+    if (!displayedFps)
+        StopProductionPresentMonSampling();
 }
 
 bool App::MockHudVisible() const noexcept

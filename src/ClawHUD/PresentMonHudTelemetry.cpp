@@ -1,9 +1,8 @@
 #include "PresentMonHudTelemetry.h"
 
 #include <algorithm>
-#include <chrono>
+#include <array>
 #include <cmath>
-#include <deque>
 #include <utility>
 
 namespace clawhud
@@ -77,6 +76,23 @@ std::optional<double> CalculateDisplayedFps(
     return static_cast<double>(displayedFrameCount) / elapsedSeconds;
 }
 
+std::optional<double> CalculateDisplayedFpsFromIntervals(
+    const std::vector<double>& displayIntervalsMs)
+{
+    constexpr double kFpsWindowMs = 500.0;
+    double elapsedMs{};
+    for (const double interval : displayIntervalsMs)
+    {
+        if (!std::isfinite(interval) || interval <= 0.0)
+            return std::nullopt;
+        elapsedMs += interval;
+    }
+    if (elapsedMs < kFpsWindowMs)
+        return std::nullopt;
+    return CalculateDisplayedFps(
+        displayIntervalsMs.size(), elapsedMs / 1000.0);
+}
+
 PresentMonHudTelemetry::~PresentMonHudTelemetry()
 {
     Stop();
@@ -95,8 +111,12 @@ bool PresentMonHudTelemetry::Start(const std::wstring& executable, DWORD process
         return false;
     SetHandleInformation(outputRead, HANDLE_FLAG_INHERIT, 0);
 
+    const std::wstring sessionName =
+        L"ClawHUD-HUD-" + std::to_wstring(processId);
     std::wstring command = L"\"" + executable + L"\" --process_id " +
-        std::to_wstring(processId) + L" --output_stdout --no_console_stats --qpc_time_ms";
+        std::to_wstring(processId) + L" --output_stdout --no_console_stats --qpc_time_ms" +
+        L" --track_frame_type --terminate_on_proc_exit --session_name \"" +
+        sessionName + L"\"";
     std::vector<wchar_t> commandLine(command.begin(), command.end());
     commandLine.push_back(L'\0');
     STARTUPINFOW startup{sizeof(startup)};
@@ -145,49 +165,58 @@ void PresentMonHudTelemetry::Stop() noexcept
 void PresentMonHudTelemetry::ReadLoop()
 {
     const HANDLE output = output_;
-    std::string line;
     std::vector<std::string> headers;
-    constexpr auto kFpsSamplingPeriod = std::chrono::milliseconds(500);
-    const auto fpsWindowStart = std::chrono::steady_clock::now();
-    auto windowStart = fpsWindowStart;
     std::size_t displayedFrameCount{};
-    char character{};
-    while (!stop_)
+    double displayedElapsedMs{};
+    std::string pending;
+    auto consumeLine = [&](std::string line)
     {
-        DWORD read{};
-        if (!ReadFile(output, &character, 1, &read, nullptr) || !read)
-            break;
-        if (character != '\n')
-        {
-            if (character != '\r') line += character;
-            continue;
-        }
         if (headers.empty())
         {
-            std::string headerLine = line;
-            if (headerLine.size() >= 3 &&
-                static_cast<unsigned char>(headerLine[0]) == 0xEF &&
-                static_cast<unsigned char>(headerLine[1]) == 0xBB &&
-                static_cast<unsigned char>(headerLine[2]) == 0xBF)
-                headerLine.erase(0, 3);
-            const auto candidate = CsvLine(headerLine);
+            if (line.size() >= 3 &&
+                static_cast<unsigned char>(line[0]) == 0xEF &&
+                static_cast<unsigned char>(line[1]) == 0xBB &&
+                static_cast<unsigned char>(line[2]) == 0xBF)
+                line.erase(0, 3);
+            const auto candidate = CsvLine(line);
             if (Column(candidate, "DisplayedTime") &&
                 Column(candidate, "MsBetweenDisplayChange"))
                 headers = candidate;
-            line.clear();
-            continue;
+            return;
         }
+
         const auto frame = ParseDisplayedFrame(headers, CsvLine(line));
-        line.clear();
-        if (!frame) continue;
-        const auto now = std::chrono::steady_clock::now();
+        if (!frame)
+            return;
         ++displayedFrameCount;
-        const std::chrono::duration<double> elapsed = now - windowStart;
-        if (elapsed >= kFpsSamplingPeriod && callback_)
+        displayedElapsedMs += frame->msBetweenDisplayChange;
+        if (displayedElapsedMs < 500.0 || !callback_)
+            return;
+        callback_(CalculateDisplayedFps(
+            displayedFrameCount, displayedElapsedMs / 1000.0));
+        displayedFrameCount = 0;
+        displayedElapsedMs = 0.0;
+    };
+
+    std::array<char, 8192> buffer{};
+    while (!stop_)
+    {
+        DWORD bytesRead{};
+        if (!ReadFile(output, buffer.data(), static_cast<DWORD>(buffer.size()),
+            &bytesRead, nullptr) || !bytesRead)
+            break;
+        pending.append(buffer.data(), bytesRead);
+        for (;;)
         {
-            callback_(CalculateDisplayedFps(displayedFrameCount, elapsed.count()));
-            displayedFrameCount = 0;
-            windowStart = now;
+            const auto newline = pending.find('\n');
+            if (newline == std::string::npos)
+                break;
+            std::string line = pending.substr(0, newline);
+            pending.erase(0, newline + 1);
+            if (!line.empty() && line.back() == '\r')
+                line.pop_back();
+            if (!line.empty())
+                consumeLine(std::move(line));
         }
     }
     if (!stop_ && callback_)

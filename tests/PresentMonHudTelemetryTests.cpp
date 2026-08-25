@@ -28,6 +28,12 @@ int main()
         "actual elapsed bucket");
     ok &= Check(!CalculateDisplayedFps(0, 0.500), "empty window unavailable");
     ok &= Check(!CalculateDisplayedFps(20, 0.0), "invalid elapsed window unavailable");
+    ok &= Check(Near(CalculateDisplayedFpsFromIntervals({250.0, 250.0}).value(), 4.0),
+        "display-timeline 500ms bucket");
+    ok &= Check(!CalculateDisplayedFpsFromIntervals({100.0, 200.0}),
+        "incomplete display-timeline bucket unavailable");
+    ok &= Check(!CalculateDisplayedFpsFromIntervals({250.0, -1.0}),
+        "invalid display interval unavailable");
 
     const std::vector<std::string> headers{
         "DisplayedTime", "MsBetweenDisplayChange", "FrameType"};
