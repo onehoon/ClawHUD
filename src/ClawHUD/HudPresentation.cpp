@@ -45,7 +45,7 @@ HRESULT HudPresentation::Initialize(HINSTANCE instance, const HudRenderOptions& 
     if (dpi_ <= 0.0f) dpi_ = 96.0f;
     if (FAILED(hr = CreateGraphics())) { Shutdown(); return hr; }
     if (FAILED(hr = CreatePresentationSurface())) { Shutdown(); return hr; }
-    if (FAILED(hr = CreateBitmapTarget())) { Shutdown(); return hr; }
+    if (FAILED(hr = CreateBitmapTargets())) { Shutdown(); return hr; }
     initialized_ = true;
     return S_OK;
 }
@@ -124,47 +124,75 @@ HRESULT HudPresentation::CreatePresentationSurface()
     description.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
     description.MiscFlags = D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE |
         D3D11_RESOURCE_MISC_SHARED_DISPLAYABLE;
-    if (FAILED(hr = device_->CreateTexture2D(&description, nullptr, &texture_))) return hr;
-    if (FAILED(hr = presentationManager_->AddBufferFromResource(texture_.Get(), &presentationBuffer_))) return hr;
-    return presentationSurface_->SetBuffer(presentationBuffer_.Get());
+    for (auto& buffer : buffers_)
+    {
+        if (FAILED(hr = device_->CreateTexture2D(&description, nullptr, &buffer.texture))) return hr;
+        if (FAILED(hr = presentationManager_->AddBufferFromResource(
+            buffer.texture.Get(), &buffer.presentationBuffer))) return hr;
+    }
+    return S_OK;
 }
 
-HRESULT HudPresentation::CreateBitmapTarget()
+HRESULT HudPresentation::CreateBitmapTargets()
 {
-    ComPtr<IDXGISurface> surface;
-    HRESULT hr = texture_.As(&surface);
-    if (FAILED(hr)) return hr;
     d2dContext_->SetDpi(dpi_, dpi_);
     const auto properties = D2D1::BitmapProperties1(
         D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
         D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
         dpi_, dpi_);
-    return d2dContext_->CreateBitmapFromDxgiSurface(surface.Get(), &properties, &bitmapTarget_);
+    for (auto& buffer : buffers_)
+    {
+        ComPtr<IDXGISurface> surface;
+        HRESULT hr = buffer.texture.As(&surface);
+        if (FAILED(hr)) return hr;
+        if (FAILED(hr = d2dContext_->CreateBitmapFromDxgiSurface(
+            surface.Get(), &properties, &buffer.bitmapTarget))) return hr;
+    }
+    return S_OK;
 }
 
 HRESULT HudPresentation::Render(const HudTelemetrySnapshot& snapshot, const HudRenderOptions& options)
 {
     if (!initialized_ || !renderer_)
         return E_UNEXPECTED;
-    if (contentReady_)
-        return S_OK;
+    HudFrameBuffer* buffer{};
+    HRESULT hr = TryAcquireAvailableBuffer(buffer);
+    if (FAILED(hr) || hr == S_FALSE)
+        return hr;
     HudRenderOptions effective = options;
     effective.dpi = dpi_;
     const auto runs = FormatHud(snapshot);
     const float widthDip = DipFromPhysicalPixels(static_cast<float>(widthPx_), dpi_);
     const float heightDip = DipFromPhysicalPixels(static_cast<float>(heightPx_), dpi_);
-    d2dContext_->SetTarget(bitmapTarget_.Get());
+    d2dContext_->SetTarget(buffer->bitmapTarget.Get());
     d2dContext_->BeginDraw();
     d2dContext_->Clear(D2D1::ColorF(0.0f, 0.0f));
-    HRESULT hr = runs.empty() ? S_OK : renderer_->Draw(d2dContext_.Get(), runs, effective,
+    hr = runs.empty() ? S_OK : renderer_->Draw(d2dContext_.Get(), runs, effective,
         D2D1::RectF(0, 0, widthDip, heightDip));
     const HRESULT endHr = d2dContext_->EndDraw();
     if (FAILED(hr)) return hr;
     if (FAILED(endHr)) return endHr;
     deviceContext_->Flush();
-    hr = presentationManager_->Present();
-    if (SUCCEEDED(hr)) contentReady_ = true;
-    return hr;
+    if (FAILED(hr = presentationSurface_->SetBuffer(buffer->presentationBuffer.Get()))) return hr;
+    return presentationManager_->Present();
+}
+
+HRESULT HudPresentation::TryAcquireAvailableBuffer(HudFrameBuffer*& selected) noexcept
+{
+    selected = nullptr;
+    for (auto& buffer : buffers_)
+    {
+        BOOLEAN available{};
+        const HRESULT hr = buffer.presentationBuffer->IsAvailable(&available);
+        if (FAILED(hr))
+            return hr;
+        if (available)
+        {
+            selected = &buffer;
+            return S_OK;
+        }
+    }
+    return S_FALSE;
 }
 
 HRESULT HudPresentation::CommitVisibility(bool visible)
@@ -203,12 +231,17 @@ void HudPresentation::Shutdown() noexcept
         compositionDevice_->Commit();
     }
     visible_ = false;
-    contentReady_ = false;
     renderer_.reset();
-    bitmapTarget_.Reset(); d2dContext_.Reset(); writeFactory_.Reset();
-    presentationBuffer_.Reset(); presentationSurface_.Reset(); presentationManager_.Reset();
-    presentationFactory_.Reset(); compositionSurface_.Reset(); visual_.Reset(); compositionTarget_.Reset();
-    compositionDevice_.Reset(); texture_.Reset(); deviceContext_.Reset(); device_.Reset();
+    for (auto& buffer : buffers_)
+    {
+        buffer.bitmapTarget.Reset();
+        buffer.presentationBuffer.Reset();
+        buffer.texture.Reset();
+    }
+    d2dContext_.Reset(); writeFactory_.Reset();
+    presentationSurface_.Reset(); presentationManager_.Reset(); presentationFactory_.Reset();
+    compositionSurface_.Reset(); visual_.Reset(); compositionTarget_.Reset();
+    compositionDevice_.Reset(); deviceContext_.Reset(); device_.Reset();
     if (surfaceHandle_ != INVALID_HANDLE_VALUE)
     {
         CloseHandle(surfaceHandle_);
