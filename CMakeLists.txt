@@ -55,6 +55,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/EcDiagnostic.cpp
     src/ClawHUD/MsiEcReader.cpp
     src/ClawHUD/VrrDiagnostic.cpp
+    src/ClawHUD/IntelVrrDiagnosticProbe.cpp
     src/ClawHUD/HudModel.cpp
     src/ClawHUD/HudRenderer.cpp
     src/ClawHUD/HudPresentation.cpp
@@ -109,4 +110,13 @@ if(BUILD_TESTING)
     target_link_libraries(ClawHUD.ForegroundTrackerTests PRIVATE user32)
     set_target_properties(ClawHUD.ForegroundTrackerTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.ForegroundTrackerTests COMMAND ClawHUD.ForegroundTrackerTests)
+
+    add_executable(ClawHUD.IntelVrrDiagnosticProbeTests
+        tests/IntelVrrDiagnosticProbeTests.cpp
+        src/ClawHUD/IntelVrrDiagnosticProbe.cpp)
+    target_compile_features(ClawHUD.IntelVrrDiagnosticProbeTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.IntelVrrDiagnosticProbeTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.IntelVrrDiagnosticProbeTests PRIVATE src/ClawHUD)
+    set_target_properties(ClawHUD.IntelVrrDiagnosticProbeTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.IntelVrrDiagnosticProbeTests COMMAND ClawHUD.IntelVrrDiagnosticProbeTests)
 endif()
