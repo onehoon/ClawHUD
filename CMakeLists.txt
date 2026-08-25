@@ -35,7 +35,8 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/SettingsWindow.cpp
     src/ClawHUD/EcDiagnostic.cpp
     src/ClawHUD/MsiEcReader.cpp
-    src/ClawHUD/VrrDiagnostic.cpp)
+    src/ClawHUD/VrrDiagnostic.cpp
+    src/ClawHUD/HudModel.cpp)
 target_compile_features(ClawHUD PRIVATE cxx_std_20)
 target_compile_definitions(ClawHUD PRIVATE
     UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX
@@ -48,3 +49,14 @@ add_custom_command(TARGET ClawHUD POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${VELOPACK_ROOT}/lib/velopack_libc_win_x64_msvc.dll"
         "$<TARGET_FILE_DIR:ClawHUD>/velopack_libc.dll")
+
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(ClawHUD.HudModelTests
+        tests/HudModelTests.cpp
+        src/ClawHUD/HudModel.cpp)
+    target_compile_features(ClawHUD.HudModelTests PRIVATE cxx_std_20)
+    target_include_directories(ClawHUD.HudModelTests PRIVATE src/ClawHUD)
+    set_target_properties(ClawHUD.HudModelTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.HudModelTests COMMAND ClawHUD.HudModelTests)
+endif()
