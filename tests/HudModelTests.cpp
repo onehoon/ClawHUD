@@ -34,6 +34,7 @@ int main()
         L"CPU 36% 67°C | GPU 98% 72°C | TDP 18 W | SYS 24 W | FAN 3540 RPM | BAT 72% 2.5h", "no-game formatting");
     ok &= Check(ShouldShowHud(HudVisibilityMode::Always, false), "always visibility");
     ok &= Check(!ShouldShowHud(HudVisibilityMode::InGameOnly, false), "in-game-only visibility");
+    ok &= Check(ShouldShowHud(HudVisibilityMode::InGameOnly, true), "foreground game visibility");
 
     HudTelemetrySnapshot missing{};
     missing.graphicsApi = L"DX12";

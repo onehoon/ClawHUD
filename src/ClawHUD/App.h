@@ -8,6 +8,8 @@
 #include "TrayIcon.h"
 #include "EcDiagnostic.h"
 #include "VrrDiagnostic.h"
+#include "HudModel.h"
+#include "ForegroundTracker.h"
 
 class SettingsWindow;
 namespace clawhud { class HudPresentation; }
@@ -38,11 +40,16 @@ public:
     bool StartMockHud();
     void StopMockHud();
     bool MockHudVisible() const noexcept;
+    void TrackMockGameWindow(HWND window);
+    void SetHudVisibilityMode(clawhud::HudVisibilityMode mode);
+    bool IsHudAlwaysVisible() const noexcept;
 
 private:
     bool AcquireSingleInstance();
     void CheckForUpdates();
     int ProcessMessages();
+    bool EnsureMockHud();
+    void ReconcileHudVisibility();
 
     HINSTANCE instance_{};
     HANDLE instanceMutex_{};
@@ -50,6 +57,9 @@ private:
     std::unique_ptr<EcDiagnostic> ecDiagnostic_;
     std::unique_ptr<VrrDiagnostic> vrrDiagnostic_;
     std::unique_ptr<clawhud::HudPresentation> hudPresentation_;
+    ForegroundTracker foregroundTracker_;
+    clawhud::HudLayoutOptions hudOptions_{};
+    bool mockHudEnabled_{};
     std::unique_ptr<SettingsWindow> settings_;
     bool exiting_{};
     std::wstring ecStatus_{ L"Idle" };

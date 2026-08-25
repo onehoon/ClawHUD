@@ -57,7 +57,8 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/VrrDiagnostic.cpp
     src/ClawHUD/HudModel.cpp
     src/ClawHUD/HudRenderer.cpp
-    src/ClawHUD/HudPresentation.cpp)
+    src/ClawHUD/HudPresentation.cpp
+    src/ClawHUD/ForegroundTracker.cpp)
 target_compile_features(ClawHUD PRIVATE cxx_std_20)
 target_compile_definitions(ClawHUD PRIVATE
     UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX
@@ -98,4 +99,14 @@ if(BUILD_TESTING)
     target_link_libraries(ClawHUD.HudRendererTests PRIVATE d2d1 dwrite)
     set_target_properties(ClawHUD.HudRendererTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.HudRendererTests COMMAND ClawHUD.HudRendererTests)
+
+    add_executable(ClawHUD.ForegroundTrackerTests
+        tests/ForegroundTrackerTests.cpp
+        src/ClawHUD/ForegroundTracker.cpp)
+    target_compile_features(ClawHUD.ForegroundTrackerTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.ForegroundTrackerTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.ForegroundTrackerTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.ForegroundTrackerTests PRIVATE user32)
+    set_target_properties(ClawHUD.ForegroundTrackerTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.ForegroundTrackerTests COMMAND ClawHUD.ForegroundTrackerTests)
 endif()
