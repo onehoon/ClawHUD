@@ -3,6 +3,10 @@
 #include "App.h"
 #include "IntelVrrDiagnosticProbe.h"
 
+#include <d3d11.h>
+#include <dxgi1_6.h>
+#include <wrl/client.h>
+
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
@@ -15,6 +19,7 @@
 
 namespace
 {
+using Microsoft::WRL::ComPtr;
 constexpr auto kCaptureDuration = std::chrono::seconds(28);
 constexpr auto kCaptureWatchdog = std::chrono::seconds(35);
 constexpr auto kTargetWait = std::chrono::seconds(15);
@@ -156,6 +161,75 @@ void WriteSummary(std::wofstream& log, const wchar_t* phase, const std::filesyst
         << L"\nDisplayed frames: " << summary.displayed << L"\nNot-displayed frames: " << summary.notDisplayed << L"\n";
 }
 
+void LogMpoCapability(std::wofstream& log)
+{
+    log << L"=== MPO / HARDWARE COMPOSITION CAPABILITY ===\n"
+        << L"Capability evidence only; this does not prove runtime MPO usage.\n";
+    ComPtr<ID3D11Device> device;
+    D3D_FEATURE_LEVEL level{};
+    const HRESULT deviceHr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
+        D3D11_CREATE_DEVICE_BGRA_SUPPORT, nullptr, 0, D3D11_SDK_VERSION, &device, &level, nullptr);
+    if (FAILED(deviceHr))
+    {
+        log << L"DXGI capability: Unavailable\nHRESULT: 0x" << std::hex
+            << static_cast<unsigned long>(deviceHr) << std::dec << L"\n"
+            << L"D3DKMT MPO plane caps: unavailable / deferred\n\n";
+        return;
+    }
+    ComPtr<IDXGIDevice> dxgiDevice;
+    ComPtr<IDXGIAdapter> adapter;
+    ComPtr<IDXGIOutput> output;
+    if (FAILED(device.As(&dxgiDevice)) || FAILED(dxgiDevice->GetAdapter(&adapter)) ||
+        FAILED(adapter->EnumOutputs(0, &output)))
+    {
+        log << L"DXGI output: Unavailable\nD3DKMT MPO plane caps: unavailable / deferred\n\n";
+        return;
+    }
+
+    ComPtr<IDXGIOutput3> output3;
+    if (SUCCEEDED(output.As(&output3)))
+    {
+        UINT flags{};
+        const HRESULT hr = output3->CheckOverlaySupport(DXGI_FORMAT_B8G8R8A8_UNORM,
+            device.Get(), &flags);
+        if (SUCCEEDED(hr))
+        {
+            log << L"DXGI Overlay Support (BGRA8):\n"
+                << L"  DIRECT: " << ((flags & DXGI_OVERLAY_SUPPORT_FLAG_DIRECT) ? L"YES" : L"NO") << L"\n"
+                << L"  SCALING: " << ((flags & DXGI_OVERLAY_SUPPORT_FLAG_SCALING) ? L"YES" : L"NO") << L"\n"
+                << L"  Raw: 0x" << std::hex << static_cast<unsigned long>(flags) << std::dec << L"\n";
+        }
+        else
+        {
+            log << L"DXGI Overlay Support (BGRA8): Unavailable\nHRESULT: 0x" << std::hex
+                << static_cast<unsigned long>(hr) << std::dec << L"\n";
+        }
+    }
+    else
+        log << L"DXGI Overlay Support (BGRA8): Unavailable\n";
+
+    ComPtr<IDXGIOutput6> output6;
+    if (SUCCEEDED(output.As(&output6)))
+    {
+        UINT flags{};
+        const HRESULT hr = output6->CheckHardwareCompositionSupport(&flags);
+        if (SUCCEEDED(hr))
+        {
+            log << L"DXGI Hardware Composition Support:\n"
+                << L"  FULLSCREEN: " << ((flags & DXGI_HARDWARE_COMPOSITION_SUPPORT_FLAG_FULLSCREEN) ? L"YES" : L"NO") << L"\n"
+                << L"  WINDOWED: " << ((flags & DXGI_HARDWARE_COMPOSITION_SUPPORT_FLAG_WINDOWED) ? L"YES" : L"NO") << L"\n"
+                << L"  CURSOR_STRETCHED: " << ((flags & DXGI_HARDWARE_COMPOSITION_SUPPORT_FLAG_CURSOR_STRETCHED) ? L"YES" : L"NO") << L"\n"
+                << L"  Raw: 0x" << std::hex << static_cast<unsigned long>(flags) << std::dec << L"\n";
+        }
+        else
+            log << L"DXGI Hardware Composition Support: Unavailable\nHRESULT: 0x" << std::hex
+                << static_cast<unsigned long>(hr) << std::dec << L"\n";
+    }
+    else
+        log << L"DXGI Hardware Composition Support: Unavailable\n";
+    log << L"D3DKMT MPO plane caps: unavailable / deferred\n\n";
+}
+
 bool Launch(const std::wstring& command, PROCESS_INFORMATION& process)
 {
     std::vector<wchar_t> line(command.begin(), command.end()); line.push_back(L'\0'); STARTUPINFOW startup{ sizeof(startup) };
@@ -239,13 +313,16 @@ void VrrDiagnostic::RunImpl()
     try
     {
         const auto folder = LogFolder(app_); const auto stamp = Now(true); const auto txt = folder / (L"vrr-" + stamp + L".txt");
-        const auto offCsv = folder / (L"vrr-" + stamp + L"-off.csv"); const auto onCsv = folder / (L"vrr-" + stamp + L"-on.csv"); log.open(txt);
+        const auto offCsv = folder / (L"vrr-" + stamp + L"-off.csv");
+        const auto staticCsv = folder / (L"vrr-" + stamp + L"-static.csv");
+        const auto dynamicCsv = folder / (L"vrr-" + stamp + L"-dynamic.csv"); log.open(txt);
         if (!log.is_open()) { Status(L"Failed"); return; }
         log << L"=== CLAWHUD VRR DIAGNOSTIC ===\nTimestamp: " << Now() << L"\nPresentMon: 2.5.1\n"
             << L"Display tracking: enabled (no --no_track_display)\n"
             << L"Pinned v2.5.1 console asset does not expose --write_display_metadata; standard display timing columns are retained.\n"
             << L"VRR Analysis: NEEDS MANUAL REVIEW\nNOTE: PresentMon captures application presents and OS-visible display timing.\n"
             << L"Intel UMD XeFG-generated output frames may not all be observable here.\nDo not treat this capture as authoritative true XeFG displayed FPS.\n\n";
+        LogMpoCapability(log);
         igcl.Initialize(log);
         igcl.LogState(log);
         const auto pm = std::filesystem::path(app_.ExecutablePath()).parent_path() / L"tools" / L"PresentMon.exe";
@@ -255,52 +332,71 @@ void VrrDiagnostic::RunImpl()
         if (stop_) { log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); return; }
         if (!target) { log << L"VRR TEST FAILED\nReason: No valid foreground target process\n"; Status(L"Failed"); return; }
         log << L"Target Process: " << ProcessPath(*target) << L"\nPID: " << *target << L"\n\n";
-        log << L"=== PHASE A - HUD OFF ===\nStart: " << Now() << L"\nCSV: " << offCsv.wstring() << L"\n"; Status(L"HUD OFF");
-        if (!app_.RequestDiagnosticHudVisibility(false))
-        {
-            log << L"Main HUD OFF: FAILED\nRESULT: Failed\n"; Status(L"Failed"); return;
-        }
-        log << L"Main HUD OFF: confirmed\n";
         const std::string sessionStamp = Narrow(stamp);
-        std::this_thread::sleep_for(std::chrono::seconds(1)); igcl.StartSampling();
-        const bool offOk = Capture(pm, *target, offCsv, "ClawHUD-VRR-" + std::to_string(*target) + "-OFF-" + sessionStamp, log);
-        const auto offVblank = igcl.StopSampling(log, L"HUD OFF");
-        std::this_thread::sleep_for(std::chrono::seconds(1)); log << L"End: " << Now() << L"\n"; const auto off = ParseCsv(offCsv); WriteSummary(log, L"PHASE A - HUD OFF", offCsv, off);
-        if (stop_) { log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); return; }
-        if (!offOk || !off.valid) { log << L"RESULT: Failed\nReason: HUD-OFF PresentMon CSV could not be summarized\n"; Status(L"Failed"); return; }
-        if (!Alive(*target)) { log << L"RESULT: Failed\nReason: Target process exited\n"; Status(L"Failed"); return; }
+        struct PhaseResult { CsvSummary csv; std::vector<clawhud::VblankSummary> vblank; bool captureOk{}; bool targetAlive{}; bool hudVisible{}; };
+        auto runPhase = [&](const wchar_t* title, const wchar_t* status, DiagnosticHudMode mode,
+            const std::filesystem::path& csvPath, const char* sessionMode, PhaseResult& result) -> bool
+        {
+            log << L"=== " << title << L" ===\nStart: " << Now() << L"\nCSV: " << csvPath.wstring() << L"\n";
+            Status(status);
+            if (!app_.RequestDiagnosticHudMode(mode))
+            {
+                log << L"Main HUD mode request: FAILED\n";
+                return false;
+            }
+            const bool expectedVisible = mode != DiagnosticHudMode::Off;
+            result.hudVisible = app_.RequestDiagnosticHudVisibilityMatches(expectedVisible);
+            if (!result.hudVisible)
+            {
+                log << L"Main HUD visibility: FAILED\n";
+                return false;
+            }
+            log << L"Main HUD mode: confirmed\n";
+            if (stop_) return false;
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            igcl.StartSampling();
+            result.captureOk = Capture(pm, *target, csvPath,
+                "ClawHUD-VRR-" + std::to_string(*target) + "-" + sessionMode + "-" + sessionStamp, log);
+            result.vblank = igcl.StopSampling(log, title);
+            result.targetAlive = Alive(*target);
+            result.hudVisible = app_.RequestDiagnosticHudVisibilityMatches(expectedVisible);
+            result.csv = ParseCsv(csvPath);
+            WriteSummary(log, title, csvPath, result.csv);
+            log << L"End: " << Now() << L"\n";
+            if (!result.targetAlive) log << L"Reason: Target process exited\n";
+            if (!result.hudVisible) log << L"Reason: Main HUD visibility did not match phase\n";
+            return !stop_ && result.captureOk && result.csv.valid && result.targetAlive && result.hudVisible;
+        };
 
-        log << L"=== PHASE B - HUD ON ===\nStart: " << Now() << L"\nCSV: " << onCsv.wstring() << L"\n"; Status(L"HUD ON");
-        if (!app_.RequestDiagnosticHudVisibility(true))
+        PhaseResult off, staticHud, dynamicHud;
+        const bool offOk = runPhase(L"PHASE A - HUD OFF", L"HUD OFF", DiagnosticHudMode::Off, offCsv, "OFF", off);
+        if (stop_) { log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); return; }
+        if (!offOk) { log << L"RESULT: Failed\nReason: HUD-OFF phase failed\n"; Status(L"Failed"); return; }
+        const bool staticOk = runPhase(L"PHASE B - STATIC HUD", L"STATIC HUD", DiagnosticHudMode::Static, staticCsv, "STATIC", staticHud);
+        if (stop_) { log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); return; }
+        if (!staticOk) { log << L"RESULT: Failed\nReason: STATIC HUD phase failed\n"; Status(L"Failed"); return; }
+        const bool dynamicOk = runPhase(L"PHASE C - DYNAMIC HUD", L"DYNAMIC HUD", DiagnosticHudMode::Dynamic, dynamicCsv, "DYNAMIC", dynamicHud);
+        if (stop_) { log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); return; }
+        auto writeComparison = [&](const wchar_t* name, const PhaseResult& left, const PhaseResult& right)
         {
-            log << L"Main HUD ON: FAILED\nRESULT: Failed\n"; Status(L"Failed"); return;
-        }
-        log << L"Main HUD ON: confirmed\n";
-        std::this_thread::sleep_for(std::chrono::seconds(1));
-        igcl.StartSampling();
-        const bool onOk = Capture(pm, *target, onCsv, "ClawHUD-VRR-" + std::to_string(*target) + "-ON-" + sessionStamp, log);
-        const auto onVblank = igcl.StopSampling(log, L"HUD ON");
-        const bool targetAliveAfterCapture = Alive(*target);
-        const bool hudCoveredCapture = app_.RequestDiagnosticHudVisibilityMatches(true);
-        if (onOk && !targetAliveAfterCapture)
-        {
-            log << L"PresentMon: FAILED\nReason: Target process exited before the HUD-ON capture completed\n";
-        }
-        if (onOk && !hudCoveredCapture)
-        {
-            log << L"PresentMon: FAILED\nReason: Main HUD was not visible for the completed HUD-ON capture\n";
-        }
-        const auto on = ParseCsv(onCsv); WriteSummary(log, L"PHASE B - HUD ON", onCsv, on);
-        const auto offMedian = clawhud::UsableVblankMedian(offVblank);
-        const auto onMedian = clawhud::UsableVblankMedian(onVblank);
-        log << L"=== COMPARISON ===\nPresentMode set changed: "
-            << ((!off.valid || !on.valid) ? L"unavailable" : (SamePresentModeSet(off.modes, on.modes) ? L"NO" : L"YES"))
-            << L"\nHUD OFF VBlank median: " << (offMedian ? std::to_wstring(*offMedian) : L"Unavailable")
-            << L" us\nHUD ON VBlank median: " << (onMedian ? std::to_wstring(*onMedian) : L"Unavailable")
-            << L" us\nVBlank median difference: " << (offMedian && onMedian ? std::to_wstring(*onMedian - *offMedian) : L"Unavailable")
-            << L" us\nVRR Analysis: NEEDS MANUAL REVIEW\nIGCL VBlank timing is diagnostic evidence only. It has not yet been validated as an authoritative VRR-active signal on MSI Claw hardware.\n";
-        const bool completed = !stop_ && off.valid && on.valid && offOk && onOk &&
-            targetAliveAfterCapture && hudCoveredCapture;
+            const auto leftMedian = clawhud::UsableVblankMedian(left.vblank);
+            const auto rightMedian = clawhud::UsableVblankMedian(right.vblank);
+            log << name << L"\nPresentMode set changed: "
+                << ((!left.csv.valid || !right.csv.valid) ? L"unavailable" : (SamePresentModeSet(left.csv.modes, right.csv.modes) ? L"NO" : L"YES"))
+                << L"\nAverage MsBetweenDisplayChange: " << left.csv.displayAverage << L" vs " << right.csv.displayAverage
+                << L"\nMin/Max MsBetweenDisplayChange: " << left.csv.displayMin << L"/" << left.csv.displayMax
+                << L" vs " << right.csv.displayMin << L"/" << right.csv.displayMax
+                << L"\nDisplayed / not-displayed: " << left.csv.displayed << L"/" << left.csv.notDisplayed
+                << L" vs " << right.csv.displayed << L"/" << right.csv.notDisplayed
+                << L"\nVBlank median: " << (leftMedian ? std::to_wstring(*leftMedian) : L"Unavailable")
+                << L" us vs " << (rightMedian ? std::to_wstring(*rightMedian) : L"Unavailable") << L" us\n\n";
+        };
+        log << L"=== COMPARISON ===\n";
+        writeComparison(L"OFF vs STATIC", off, staticHud);
+        writeComparison(L"STATIC vs DYNAMIC", staticHud, dynamicHud);
+        writeComparison(L"OFF vs DYNAMIC", off, dynamicHud);
+        log << L"VRR Analysis: NEEDS MANUAL REVIEW\nIGCL VBlank timing is diagnostic evidence only. It has not yet been validated as an authoritative VRR-active signal on MSI Claw hardware.\n";
+        const bool completed = !stop_ && offOk && staticOk && dynamicOk;
         log << L"Result: " << (completed ? L"Completed" : L"Failed") << L"\n";
         Status(stop_ ? L"Cancelled" : (completed ? L"Completed" : L"Failed"));
     }

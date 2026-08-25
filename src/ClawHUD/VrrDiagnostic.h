@@ -18,6 +18,18 @@ struct HudVisibilityState
     bool visible{};
 };
 
+enum class DiagnosticHudMode
+{
+    Off,
+    Static,
+    Dynamic,
+};
+
+constexpr bool DiagnosticHudModeUsesPeriodicUpdates(DiagnosticHudMode mode) noexcept
+{
+    return mode == DiagnosticHudMode::Dynamic;
+}
+
 class VrrDiagnostic
 {
 public:

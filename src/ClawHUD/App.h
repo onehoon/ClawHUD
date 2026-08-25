@@ -58,6 +58,7 @@ public:
     bool RestoreHudVisibilityState(const HudVisibilityState& state);
     bool RequestDiagnosticHudVisibility(bool visible, DWORD timeoutMs = 5000);
     bool RequestDiagnosticHudVisibilityMatches(bool expected, DWORD timeoutMs = 5000);
+    bool RequestDiagnosticHudMode(DiagnosticHudMode mode, DWORD timeoutMs = 5000);
     bool RequestDiagnosticHudState(const HudVisibilityState& state, DWORD timeoutMs = 5000);
     void CancelPendingHudVisibilityRequests();
 
@@ -71,6 +72,7 @@ private:
     bool EnsureMockHud();
     void ReconcileHudVisibility();
     bool ApplyDiagnosticHudVisibility(bool visible);
+    bool ApplyDiagnosticHudMode(DiagnosticHudMode mode);
     bool RequestHudOnUiThread(bool visible, const HudVisibilityState* restore, DWORD timeoutMs);
     void DiscardPendingHudVisibilityRequests();
 
@@ -83,6 +85,7 @@ private:
     ForegroundTracker foregroundTracker_;
     clawhud::HudLayoutOptions hudOptions_{};
     std::optional<bool> manualHudVisibilityOverride_;
+    std::optional<DiagnosticHudMode> diagnosticHudMode_;
     bool mockHudEnabled_{};
     std::size_t mockFrameIndex_{};
     std::unique_ptr<SettingsWindow> settings_;

@@ -10,9 +10,15 @@ No `Set_*`, TDP, fan-control, charge-limit, or ownership operation is implemente
 
 ## VRR orchestration
 
-The Diagnostics tab also contains a user-started VRR / Presentation orchestration test. It waits a bounded period for a non-ClawHUD foreground process, then requests the existing main HUD to hide on the application message-loop thread for Phase A and to show for Phase B. PresentMon samples 28 seconds in each phase. No `ClawHUD.VrrPoc.exe` child, test overlay, or second presentation path is created; the prior main-HUD visibility state is restored after completion, failure, or cancellation.
+The Diagnostics tab also contains a user-started VRR / Presentation orchestration test. It waits a bounded period for a non-ClawHUD foreground process, fixes that PID for the complete test, and uses the real main `ClawHUD.exe` presentation path for three phases:
 
-This PR records the same lifecycle evidence and adds raw PresentMon capture. The build pins the official `PresentMon-2.5.1-x64.exe` standalone asset and copies it to `tools/PresentMon.exe`; it does not download anything at runtime or request elevation. Each phase runs a 28-second PID-targeted capture with the default CSV schema, preserving the raw `-off.csv` and `-on.csv` files unchanged. The TXT report summarizes `PresentMode`, displayed versus non-displayed rows derived from default-schema `MsUntilDisplayed`, dominant swapchain, and `MsBetweenPresents` / `MsBetweenDisplayChange` statistics.
+1. **HUD OFF** — the main HUD is hidden and its update timer is stopped.
+2. **STATIC HUD** — one deterministic HUD frame is rendered and shown; the 100 ms update timer is not started and no periodic redraw is issued.
+3. **DYNAMIC HUD** — the same `HudPresentation` instance is kept visible and the existing 100 ms mock update path is resumed.
+
+PresentMon samples 28 seconds in each phase. No `ClawHUD.VrrPoc.exe` child, test overlay, or second presentation path is created; the prior main-HUD visibility state is restored after completion, failure, or cancellation.
+
+This PR records the same lifecycle evidence and adds raw PresentMon capture. The build pins the official `PresentMon-2.5.1-x64.exe` standalone asset and copies it to `tools/PresentMon.exe`; it does not download anything at runtime or request elevation. Each phase runs a 28-second PID-targeted capture with the default CSV schema, preserving the raw `-off.csv`, `-static.csv`, and `-dynamic.csv` files unchanged. The TXT report summarizes `PresentMode`, displayed versus non-displayed rows derived from default-schema `MsUntilDisplayed`, dominant swapchain, and `MsBetweenPresents` / `MsBetweenDisplayChange` statistics, plus OFF/STATIC/DYNAMIC comparisons.
 
 The capture command does not use `--v1_metrics`, `--v2_metrics`, `--track_frame_type`, `--no_track_display`, `--exclude_dropped`, or PresentMon overlay options. The pinned v2.5.1 release executable does not expose `--write_display_metadata` in its actual console help, so display tracking is left enabled by default while the standard display-timing columns are retained. This compatibility detail is recorded in each diagnostic log.
 
@@ -27,3 +33,7 @@ PresentMon remains the application/presentation evidence path. IGCL is supplemen
 The IGCL path is read-only. No Arc Sync profile is changed. IGCL initialization, missing symbols, unsupported outputs, and VBlank read failures do not fail the existing PresentMon diagnostic; they are recorded as unavailable evidence. Neither PresentMon nor IGCL alone proves that VRR is active. XeFG-generated output frames may not all be observable through PresentMon, so the measured VBlank rate is not authoritative true displayed FPS.
 
 No LFC heuristic or automatic VRR PASS/FAIL decision is implemented. The final result remains `VRR Analysis: NEEDS MANUAL REVIEW`, pending MSI Claw hardware validation with HUD OFF/ON and OptiScaler/XeFG conditions.
+
+### MPO and hardware-composition capability evidence
+
+Each explicitly started VRR test also records read-only DXGI capability information for the primary output and the current BGRA8 HUD format: `IDXGIOutput3::CheckOverlaySupport` and `IDXGIOutput6::CheckHardwareCompositionSupport`, including symbolic flags and raw values. D3DKMT MPO plane caps remain deferred when collecting them would require additional plumbing. These values mean only that a path may be supported by the adapter/output; they do not prove that the running game and ClawHUD are using an MPO plane or hardware composition at runtime. The report therefore remains `VRR Analysis: NEEDS MANUAL REVIEW`.
