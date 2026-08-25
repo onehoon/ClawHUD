@@ -10,6 +10,7 @@
 #include "VrrDiagnostic.h"
 
 class SettingsWindow;
+namespace clawhud { class HudPresentation; }
 
 class App
 {
@@ -34,6 +35,9 @@ public:
     bool DiagnosticRunning() const;
     void StopDiagnostic();
     const std::wstring& VrrStatus() const { return vrrStatus_; }
+    bool StartMockHud();
+    void StopMockHud();
+    bool MockHudVisible() const noexcept;
 
 private:
     bool AcquireSingleInstance();
@@ -45,6 +49,7 @@ private:
     TrayIcon tray_;
     std::unique_ptr<EcDiagnostic> ecDiagnostic_;
     std::unique_ptr<VrrDiagnostic> vrrDiagnostic_;
+    std::unique_ptr<clawhud::HudPresentation> hudPresentation_;
     std::unique_ptr<SettingsWindow> settings_;
     bool exiting_{};
     std::wstring ecStatus_{ L"Idle" };

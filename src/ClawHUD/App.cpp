@@ -1,6 +1,7 @@
 #include "App.h"
 
 #include "SettingsWindow.h"
+#include "HudPresentation.h"
 
 #include <Velopack.hpp>
 
@@ -28,6 +29,7 @@ App::App(HINSTANCE instance) : instance_(instance), tray_(*this)
 
 App::~App()
 {
+    hudPresentation_.reset();
     vrrDiagnostic_.reset();
     ecDiagnostic_.reset();
     settings_.reset();
@@ -69,6 +71,28 @@ void App::StopVrrDiagnostic() { if (vrrDiagnostic_) vrrDiagnostic_->Stop(); }
 bool App::VrrDiagnosticRunning() const { return vrrDiagnostic_ && vrrDiagnostic_->Running(); }
 bool App::DiagnosticRunning() const { return EcDiagnosticRunning() || VrrDiagnosticRunning(); }
 void App::StopDiagnostic() { StopVrrDiagnostic(); StopEcDiagnostic(); }
+
+bool App::StartMockHud()
+{
+    if (!hudPresentation_)
+        hudPresentation_ = std::make_unique<clawhud::HudPresentation>();
+    clawhud::HudRenderOptions options{};
+    HRESULT hr = hudPresentation_->Initialize(instance_, options);
+    if (FAILED(hr)) return false;
+    hr = hudPresentation_->Render(clawhud::MakeGameDcSample(), options);
+    if (FAILED(hr)) return false;
+    return SUCCEEDED(hudPresentation_->Show());
+}
+
+void App::StopMockHud()
+{
+    if (hudPresentation_) hudPresentation_->Hide();
+}
+
+bool App::MockHudVisible() const noexcept
+{
+    return hudPresentation_ && hudPresentation_->Visible();
+}
 
 bool App::AcquireSingleInstance()
 {
