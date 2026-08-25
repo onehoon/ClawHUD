@@ -29,6 +29,7 @@ HRESULT HudPresentation::Initialize(HINSTANCE instance, const HudRenderOptions& 
         return E_INVALIDARG;
 
     instance_ = instance;
+    barPixelHeight_ = options.barPixelHeight;
     MONITORINFO monitor{ sizeof(monitor) };
     if (!GetMonitorInfoW(MonitorFromPoint(POINT{ 0, 0 }, MONITOR_DEFAULTTOPRIMARY), &monitor))
         return LastErrorResult();
@@ -46,6 +47,7 @@ HRESULT HudPresentation::Initialize(HINSTANCE instance, const HudRenderOptions& 
     if (FAILED(hr = CreateGraphics())) { Shutdown(); return hr; }
     if (FAILED(hr = CreatePresentationSurface())) { Shutdown(); return hr; }
     if (FAILED(hr = CreateBitmapTargets())) { Shutdown(); return hr; }
+    displayChangePending_ = false;
     initialized_ = true;
     return S_OK;
 }
@@ -155,8 +157,11 @@ HRESULT HudPresentation::Render(const HudTelemetrySnapshot& snapshot, const HudR
 {
     if (!initialized_ || !renderer_)
         return E_UNEXPECTED;
+    HRESULT hr = RefreshDisplayIfNeeded();
+    if (FAILED(hr))
+        return hr;
     HudFrameBuffer* buffer{};
-    HRESULT hr = TryAcquireAvailableBuffer(buffer);
+    hr = TryAcquireAvailableBuffer(buffer);
     if (FAILED(hr) || hr == S_FALSE)
         return hr;
     HudRenderOptions effective = options;
@@ -175,6 +180,27 @@ HRESULT HudPresentation::Render(const HudTelemetrySnapshot& snapshot, const HudR
     deviceContext_->Flush();
     if (FAILED(hr = presentationSurface_->SetBuffer(buffer->presentationBuffer.Get()))) return hr;
     return presentationManager_->Present();
+}
+
+HRESULT HudPresentation::RefreshDisplayIfNeeded()
+{
+    if (!displayChangePending_)
+        return S_OK;
+    displayChangePending_ = false;
+    const bool wasVisible = visible_;
+    const HINSTANCE instance = instance_;
+    Shutdown();
+    HudRenderOptions options{};
+    options.barPixelHeight = barPixelHeight_;
+    HRESULT hr = Initialize(instance, options);
+    if (FAILED(hr) || !wasVisible)
+        return hr;
+    hr = CommitVisibility(true);
+    if (FAILED(hr))
+        return hr;
+    ShowWindow(window_, SW_SHOWNOACTIVATE);
+    visible_ = true;
+    return S_OK;
 }
 
 HRESULT HudPresentation::TryAcquireAvailableBuffer(HudFrameBuffer*& selected) noexcept
@@ -205,8 +231,10 @@ HRESULT HudPresentation::CommitVisibility(bool visible)
 HRESULT HudPresentation::Show()
 {
     if (!initialized_) return E_UNEXPECTED;
+    HRESULT hr = RefreshDisplayIfNeeded();
+    if (FAILED(hr)) return hr;
     if (visible_) return S_OK;
-    HRESULT hr = CommitVisibility(true);
+    hr = CommitVisibility(true);
     if (FAILED(hr)) return hr;
     ShowWindow(window_, SW_SHOWNOACTIVATE);
     visible_ = true;
@@ -253,6 +281,7 @@ void HudPresentation::Shutdown() noexcept
         window_ = nullptr;
     }
     initialized_ = false;
+    displayChangePending_ = false;
 }
 
 LRESULT CALLBACK HudPresentation::WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
@@ -261,6 +290,12 @@ LRESULT CALLBACK HudPresentation::WindowProc(HWND window, UINT message, WPARAM w
     {
         const auto* create = reinterpret_cast<CREATESTRUCTW*>(lParam);
         SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(create->lpCreateParams));
+    }
+    auto* self = reinterpret_cast<HudPresentation*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+    if (message == WM_DISPLAYCHANGE || message == WM_DPICHANGED)
+    {
+        if (self) self->displayChangePending_ = true;
+        return 0;
     }
     if (message == WM_NCHITTEST) return HTTRANSPARENT;
     if (message == WM_MOUSEACTIVATE) return MA_NOACTIVATE;

@@ -43,6 +43,7 @@ private:
     HRESULT CreatePresentationSurface();
     HRESULT CreateBitmapTargets();
     HRESULT TryAcquireAvailableBuffer(HudFrameBuffer*& selected) noexcept;
+    HRESULT RefreshDisplayIfNeeded();
     HRESULT CommitVisibility(bool visible);
 
     HINSTANCE instance_{};
@@ -53,8 +54,10 @@ private:
     UINT widthPx_{};
     UINT heightPx_{};
     float dpi_{ 96.0f };
+    float barPixelHeight_{ 30.0f };
     bool visible_{};
     bool initialized_{};
+    bool displayChangePending_{};
 
     Microsoft::WRL::ComPtr<ID3D11Device> device_;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> deviceContext_;
