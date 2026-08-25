@@ -60,7 +60,7 @@ bool SettingsWindow::Show(HINSTANCE instance)
         RegisterClassW(&windowClass);
         window_ = CreateWindowExW(0, kSettingsClassName, L"ClawHUD Settings",
             WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-            CW_USEDEFAULT, CW_USEDEFAULT, 520, 360, nullptr, nullptr, instance_, this);
+            CW_USEDEFAULT, CW_USEDEFAULT, 1040, 720, nullptr, nullptr, instance_, this);
         if (!window_) return false;
         CreateTabs();
     }
@@ -76,7 +76,7 @@ void SettingsWindow::CreateTabs()
 {
     tabs_ = CreateWindowExW(0, WC_TABCONTROLW, L"",
         WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
-        8, 8, 488, 300, window_, nullptr, instance_, nullptr);
+        8, 8, 1008, 660, window_, nullptr, instance_, nullptr);
     const wchar_t* labels[kTabCount] = { L"General", L"HUD", L"Diagnostics" };
     for (int i = 0; i < kTabCount; ++i)
     {
@@ -86,8 +86,8 @@ void SettingsWindow::CreateTabs()
         TabCtrl_InsertItem(tabs_, i, &item);
     }
     generalPanel_ = CreateWindowW(L"STATIC", L"ClawHUD\r\nVersion: " CLAWHUD_VERSION,
-        WS_CHILD | WS_VISIBLE, 24, 52, 440, 240, window_, nullptr, instance_, nullptr);
-    hudPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD, 24, 52, 440, 240, window_, nullptr, instance_, nullptr);
+        WS_CHILD | WS_VISIBLE, 24, 52, 940, 580, window_, nullptr, instance_, nullptr);
+    hudPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD, 24, 52, 940, 580, window_, nullptr, instance_, nullptr);
     if (hudPanel_) SetWindowSubclass(hudPanel_, ForwardPanelNotifications, 1, 0);
     CreateWindowW(L"STATIC", L"Alignment", WS_CHILD | WS_VISIBLE,
         0, 0, 160, 22, hudPanel_, nullptr, instance_, nullptr);
@@ -110,24 +110,24 @@ void SettingsWindow::CreateTabs()
     SendMessageW(opacitySlider_, TBM_SETRANGE, TRUE, MAKELONG(0, 100));
     opacityLabel_ = CreateWindowW(L"STATIC", L"50%", WS_CHILD | WS_VISIBLE,
         310, 172, 60, 22, hudPanel_, nullptr, instance_, nullptr);
-    diagnosticsPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD, 24, 52, 440, 240, window_, nullptr, instance_, nullptr);
+    diagnosticsPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD, 24, 52, 940, 580, window_, nullptr, instance_, nullptr);
     if (diagnosticsPanel_) SetWindowSubclass(diagnosticsPanel_, ForwardPanelNotifications, 2, 0);
     CreateWindowW(L"STATIC", L"VRR / Presentation Test\r\nRuns HUD OFF / STATIC HUD / DYNAMIC HUD phases for presentation validation.", WS_CHILD | WS_VISIBLE,
-        0, 0, 420, 35, diagnosticsPanel_, nullptr, instance_, nullptr);
+        0, 0, 900, 35, diagnosticsPanel_, nullptr, instance_, nullptr);
     startVrrButton_ = CreateWindowW(L"BUTTON", L"Start VRR Test", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
         0, 42, 130, 28, diagnosticsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kStartVrr)), instance_, nullptr);
     stopVrrButton_ = CreateWindowW(L"BUTTON", L"Stop", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
         145, 42, 80, 28, diagnosticsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kStopVrr)), instance_, nullptr);
     vrrStatus_ = CreateWindowW(L"STATIC", L"Status: Idle", WS_CHILD | WS_VISIBLE,
-        0, 74, 420, 24, diagnosticsPanel_, nullptr, instance_, nullptr);
+        0, 74, 900, 24, diagnosticsPanel_, nullptr, instance_, nullptr);
     CreateWindowW(L"STATIC", L"MSI EC Read Test\r\nReads MSI Claw telemetry without changing hardware state.", WS_CHILD | WS_VISIBLE,
-        0, 106, 420, 35, diagnosticsPanel_, nullptr, instance_, nullptr);
+        0, 106, 900, 35, diagnosticsPanel_, nullptr, instance_, nullptr);
     startEcButton_ = CreateWindowW(L"BUTTON", L"Start EC Test", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
         0, 147, 130, 28, diagnosticsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kStartEc)), instance_, nullptr);
     openLogsButton_ = CreateWindowW(L"BUTTON", L"Open Log Folder", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
         145, 147, 135, 28, diagnosticsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOpenLogs)), instance_, nullptr);
     diagnosticStatus_ = CreateWindowW(L"STATIC", L"Status: Idle", WS_CHILD | WS_VISIBLE,
-        0, 179, 420, 24, diagnosticsPanel_, nullptr, instance_, nullptr);
+        0, 179, 900, 24, diagnosticsPanel_, nullptr, instance_, nullptr);
     ShowTab(kTabGeneral);
     UpdateHudControls();
 }
