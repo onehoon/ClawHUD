@@ -36,13 +36,14 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/EcDiagnostic.cpp
     src/ClawHUD/MsiEcReader.cpp
     src/ClawHUD/VrrDiagnostic.cpp
-    src/ClawHUD/HudModel.cpp)
+    src/ClawHUD/HudModel.cpp
+    src/ClawHUD/HudRenderer.cpp)
 target_compile_features(ClawHUD PRIVATE cxx_std_20)
 target_compile_definitions(ClawHUD PRIVATE
     UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX
     CLAWHUD_UPDATE_REPOSITORY=\"https://github.com/onehoon/ClawHUD\")
 target_include_directories(ClawHUD PRIVATE src/ClawHUD)
-target_link_libraries(ClawHUD PRIVATE ClawHUD.Velopack comctl32 shell32 delayimp)
+target_link_libraries(ClawHUD PRIVATE ClawHUD.Velopack comctl32 shell32 delayimp d2d1 dwrite)
 target_link_options(ClawHUD PRIVATE "/DELAYLOAD:velopack_libc.dll")
 set_target_properties(ClawHUD PROPERTIES CXX_EXTENSIONS OFF)
 add_custom_command(TARGET ClawHUD POST_BUILD
@@ -59,4 +60,15 @@ if(BUILD_TESTING)
     target_include_directories(ClawHUD.HudModelTests PRIVATE src/ClawHUD)
     set_target_properties(ClawHUD.HudModelTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.HudModelTests COMMAND ClawHUD.HudModelTests)
+
+    add_executable(ClawHUD.HudRendererTests
+        tests/HudRendererTests.cpp
+        src/ClawHUD/HudRenderer.cpp
+        src/ClawHUD/HudModel.cpp)
+    target_compile_features(ClawHUD.HudRendererTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.HudRendererTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.HudRendererTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.HudRendererTests PRIVATE d2d1 dwrite)
+    set_target_properties(ClawHUD.HudRendererTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.HudRendererTests COMMAND ClawHUD.HudRendererTests)
 endif()
