@@ -29,6 +29,34 @@ void Add(std::vector<HudTextRun>& runs, HudSegmentKind kind,
 {
     runs.push_back({kind, std::move(label), std::move(value)});
 }
+
+std::wstring CpuValue(const HudTelemetrySnapshot& snapshot)
+{
+    std::wstring value;
+    if (snapshot.cpuUsagePercent)
+        value = Integer(*snapshot.cpuUsagePercent) + L"%";
+    if (snapshot.cpuTemperatureC)
+    {
+        if (!value.empty())
+            value += L" ";
+        value += std::to_wstring(*snapshot.cpuTemperatureC) + L"°C";
+    }
+    return value;
+}
+
+std::wstring GpuValue(const HudTelemetrySnapshot& snapshot)
+{
+    std::wstring value;
+    if (snapshot.gpuUsagePercent)
+        value = Integer(*snapshot.gpuUsagePercent) + L"%";
+    if (snapshot.gpuTemperatureC)
+    {
+        if (!value.empty())
+            value += L" ";
+        value += std::to_wstring(*snapshot.gpuTemperatureC) + L"°C";
+    }
+    return value;
+}
 }
 
 bool ShouldShowHud(HudVisibilityMode mode, bool foregroundGameActive) noexcept
@@ -44,15 +72,13 @@ std::vector<HudTextRun> FormatHud(const HudTelemetrySnapshot& snapshot)
         Add(runs, HudSegmentKind::Graphics, *snapshot.graphicsApi,
             Integer(*snapshot.renderFps) + L" FPS");
 
-    if (snapshot.cpuUsagePercent && snapshot.cpuTemperatureC)
-        Add(runs, HudSegmentKind::Cpu, L"CPU",
-            Integer(*snapshot.cpuUsagePercent) + L"% " +
-                std::to_wstring(*snapshot.cpuTemperatureC) + L"°C");
+    const auto cpu = CpuValue(snapshot);
+    if (!cpu.empty())
+        Add(runs, HudSegmentKind::Cpu, L"CPU", cpu);
 
-    if (snapshot.gpuUsagePercent && snapshot.gpuTemperatureC)
-        Add(runs, HudSegmentKind::Gpu, L"GPU",
-            Integer(*snapshot.gpuUsagePercent) + L"% " +
-                std::to_wstring(*snapshot.gpuTemperatureC) + L"°C");
+    const auto gpu = GpuValue(snapshot);
+    if (!gpu.empty())
+        Add(runs, HudSegmentKind::Gpu, L"GPU", gpu);
 
     if (snapshot.cpuPackagePowerW)
         Add(runs, HudSegmentKind::Tdp, L"TDP", Number(*snapshot.cpuPackagePowerW) + L" W");
