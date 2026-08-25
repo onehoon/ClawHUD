@@ -91,8 +91,15 @@ void TrayIcon::ShowMenu()
     const UINT command = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_NONOTIFY,
         point.x, point.y, 0, window_, nullptr);
     DestroyMenu(menu);
-    if (command == kSettingsCommand) app_.OpenSettings();
-    if (command == kExitCommand) app_.Exit();
+    switch (command)
+    {
+    case kSettingsCommand: app_.OpenSettings(); break;
+    case kStopDiagnosticCommand: app_.StopDiagnostic(); break;
+    case kShowMockHudCommand: app_.StartMockHud(); break;
+    case kHideMockHudCommand: app_.StopMockHud(); break;
+    case kExitCommand: app_.Exit(); break;
+    default: break;
+    }
 }
 
 LRESULT CALLBACK TrayIcon::WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
@@ -115,14 +122,6 @@ LRESULT CALLBACK TrayIcon::WindowProc(HWND window, UINT message, WPARAM wParam, 
     {
         self->ShowMenu();
         return 0;
-    }
-    if (message == WM_COMMAND)
-    {
-        if (LOWORD(wParam) == kSettingsCommand) self->app_.OpenSettings();
-        if (LOWORD(wParam) == kExitCommand) self->app_.Exit();
-        if (LOWORD(wParam) == kStopDiagnosticCommand) self->app_.StopDiagnostic();
-        if (LOWORD(wParam) == kShowMockHudCommand) self->app_.StartMockHud();
-        if (LOWORD(wParam) == kHideMockHudCommand) self->app_.StopMockHud();
     }
     return DefWindowProcW(window, message, wParam, lParam);
 }

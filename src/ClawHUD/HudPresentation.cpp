@@ -146,6 +146,8 @@ HRESULT HudPresentation::Render(const HudTelemetrySnapshot& snapshot, const HudR
 {
     if (!initialized_ || !renderer_)
         return E_UNEXPECTED;
+    if (contentReady_)
+        return S_OK;
     HudRenderOptions effective = options;
     effective.dpi = dpi_;
     const auto runs = FormatHud(snapshot);
@@ -160,7 +162,9 @@ HRESULT HudPresentation::Render(const HudTelemetrySnapshot& snapshot, const HudR
     if (FAILED(hr)) return hr;
     if (FAILED(endHr)) return endHr;
     deviceContext_->Flush();
-    return presentationManager_->Present();
+    hr = presentationManager_->Present();
+    if (SUCCEEDED(hr)) contentReady_ = true;
+    return hr;
 }
 
 HRESULT HudPresentation::CommitVisibility(bool visible)
@@ -199,6 +203,7 @@ void HudPresentation::Shutdown() noexcept
         compositionDevice_->Commit();
     }
     visible_ = false;
+    contentReady_ = false;
     renderer_.reset();
     bitmapTarget_.Reset(); d2dContext_.Reset(); writeFactory_.Reset();
     presentationBuffer_.Reset(); presentationSurface_.Reset(); presentationManager_.Reset();

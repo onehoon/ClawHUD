@@ -24,6 +24,7 @@ public:
     HRESULT Show();
     HRESULT Hide();
     bool Visible() const noexcept { return visible_; }
+    bool ContentReady() const noexcept { return contentReady_; }
     void Shutdown() noexcept;
 
 private:
@@ -43,6 +44,7 @@ private:
     UINT heightPx_{};
     float dpi_{ 96.0f };
     bool visible_{};
+    bool contentReady_{};
     bool initialized_{};
 
     Microsoft::WRL::ComPtr<ID3D11Device> device_;
