@@ -72,29 +72,28 @@ void MsiEcReader::Shutdown()
 
 bool MsiEcReader::BuildInput(const wchar_t* method, std::uint8_t selector, ComPtr<IWbemClassObject>& input)
 {
-    ComPtr<IWbemClassObject> signature, data;
+    ComPtr<IWbemClassObject> signature, targetInput, data;
     HRESULT hr = classObject_->GetMethod(const_cast<BSTR>(method), 0, &signature, nullptr);
-    if (SUCCEEDED(hr) && signature) hr = signature->SpawnInstance(0, &input);
-    if (SUCCEEDED(hr) && input) data = DataObject(input.Get());
+    if (FAILED(hr) || !signature) { error_ = FAILED(hr) ? hr : E_FAIL; return false; }
+    hr = signature->SpawnInstance(0, &targetInput);
+    if (FAILED(hr) || !targetInput) { error_ = FAILED(hr) ? hr : E_FAIL; return false; }
+    data = DataObject(targetInput.Get());
     if (!data)
     {
-        // Compatibility fallback used by the known SteamAddon MSI transport:
-        // invoke Get_WMI without input parameters and reuse its returned Data.
-        input.Reset();
+        // Get_WMI supplies only a compatible embedded Data template.
+        ComPtr<IWbemClassObject> templateOutput;
         BSTR instance = SysAllocString(kInstance), operation = SysAllocString(L"Get_WMI");
-        hr = services_->ExecMethod(instance, operation, 0, nullptr, nullptr, &input, nullptr);
+        hr = services_->ExecMethod(instance, operation, 0, nullptr, nullptr, &templateOutput, nullptr);
         SysFreeString(instance); SysFreeString(operation);
-        data = SUCCEEDED(hr) && input ? DataObject(input.Get()) : nullptr;
+        if (FAILED(hr) || !templateOutput) { error_ = FAILED(hr) ? hr : E_FAIL; return false; }
+        data = DataObject(templateOutput.Get());
     }
-    if (!input)
-    {
-        hr = classObject_->GetMethod(const_cast<BSTR>(method), 0, &signature, nullptr);
-        if (SUCCEEDED(hr) && signature) hr = signature->SpawnInstance(0, &input);
-    }
-    if (!input || !data || !PutPackage(data.Get(), selector)) { error_ = FAILED(hr) ? hr : E_INVALIDARG; return false; }
+    if (!data || !PutPackage(data.Get(), selector)) { error_ = FAILED(hr) ? hr : E_INVALIDARG; return false; }
     VARIANT replacement{}; V_VT(&replacement) = VT_UNKNOWN;
     if (FAILED(data.CopyTo(&V_UNKNOWN(&replacement)))) { error_ = E_NOINTERFACE; return false; }
-    hr = input->Put(L"Data", 0, &replacement, 0); VariantClear(&replacement);
+    hr = targetInput->Put(L"Data", 0, &replacement, 0); VariantClear(&replacement);
+    if (FAILED(hr)) { error_ = hr; return false; }
+    input = std::move(targetInput);
     error_ = hr; return SUCCEEDED(hr);
 }
 
