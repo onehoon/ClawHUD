@@ -536,7 +536,7 @@ private:
 
 constexpr UINT_PTR kAutomaticTimerId = 1;
 constexpr UINT kAutomaticToggleMs = 5000;
-constexpr std::chrono::seconds kCaptureDuration{ 60 };
+constexpr std::chrono::seconds kCaptureWatchdog{ 70 };
 
 void LogHudState(Logger& log, const PresentationOverlay& overlay)
 {
@@ -646,11 +646,11 @@ bool RunAutomaticTest(Logger& log, PresentationOverlay& overlay, const TargetPro
         }
 
         log.Write(L"F8 ignored while automatic VRR test is running");
-        const auto deadline = std::chrono::steady_clock::now() + kCaptureDuration;
+        const auto watchdog = std::chrono::steady_clock::now() + kCaptureWatchdog;
         bool success = true;
         bool cancelled = false;
         MSG message{};
-        while (std::chrono::steady_clock::now() < deadline)
+        for (;;)
         {
             while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE))
             {
@@ -690,10 +690,13 @@ bool RunAutomaticTest(Logger& log, PresentationOverlay& overlay, const TargetPro
                 success = false;
                 break;
             }
-            if (WaitForSingleObject(presentMon.hProcess, 0) == WAIT_OBJECT_0)
+            const DWORD presentMonWait = WaitForSingleObject(presentMon.hProcess, 0);
+            if (presentMonWait == WAIT_OBJECT_0)
+                break;
+            if (presentMonWait == WAIT_FAILED || std::chrono::steady_clock::now() >= watchdog)
             {
                 log.Write(L"TEST FAILED");
-                log.Write(L"Reason: PresentMon exited before capture ended");
+                log.Write(L"Reason: PresentMon capture watchdog expired");
                 success = false;
                 break;
             }
