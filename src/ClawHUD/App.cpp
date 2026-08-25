@@ -281,13 +281,12 @@ void App::RenderProductionHud()
         diagnosticHudMode_.has_value())
         return;
 
-    const auto ec = ReadHudEcTelemetry();
     clawhud::HudTelemetrySnapshot snapshot{};
-    snapshot.cpuTemperatureC = ec.cpuTempC;
-    snapshot.cpuPackagePowerW = ec.cpuPackagePowerW
-        ? std::optional<double>(*ec.cpuPackagePowerW) : std::nullopt;
-    snapshot.fan1Rpm = ec.fan1Rpm;
-    snapshot.fan2Rpm = ec.fan2Rpm;
+    snapshot.cpuTemperatureC = ecHudTelemetry_.cpuTempC;
+    snapshot.cpuPackagePowerW = ecHudTelemetry_.cpuPackagePowerW
+        ? std::optional<double>(*ecHudTelemetry_.cpuPackagePowerW) : std::nullopt;
+    snapshot.fan1Rpm = ecHudTelemetry_.fan1Rpm;
+    snapshot.fan2Rpm = ecHudTelemetry_.fan2Rpm;
 
     clawhud::HudRenderOptions options{};
     options.layout = hudOptions_;
@@ -295,12 +294,21 @@ void App::RenderProductionHud()
     if (FAILED(hr)) Log(L"Production EC HUD redraw failed");
 }
 
+void App::SampleProductionEcTelemetry()
+{
+    if (!mockHudEnabled_ || !hudPresentation_ || !hudPresentation_->Visible() ||
+        diagnosticHudMode_.has_value())
+        return;
+    ecHudTelemetry_ = ReadHudEcTelemetry();
+    RenderProductionHud();
+}
+
 void App::StartProductionEcSampling()
 {
     if (ecHudSamplingActive_ || diagnosticHudMode_.has_value() || !MockHudVisible())
         return;
     ecHudSamplingActive_ = true;
-    RenderProductionHud();
+    SampleProductionEcTelemetry();
     SetTimer(tray_.Window(), kEcHudTimerId, kEcHudTimerIntervalMs, nullptr);
 }
 
@@ -312,6 +320,7 @@ void App::StopProductionEcSampling()
         ecHudClient_->Close();
         ecHudClient_.reset();
     }
+    ecHudTelemetry_ = {};
     ecHudSamplingActive_ = false;
 }
 

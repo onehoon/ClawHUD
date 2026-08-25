@@ -48,6 +48,7 @@ public:
     bool StartMockHud();
     void StopMockHud();
     void RenderMockHud();
+    void SampleProductionEcTelemetry();
     void RenderProductionHud();
     bool MockHudVisible() const noexcept;
     bool MockHudEnabled() const noexcept { return mockHudEnabled_; }
@@ -91,6 +92,7 @@ private:
     std::unique_ptr<VrrDiagnostic> vrrDiagnostic_;
     std::unique_ptr<clawhud::HudPresentation> hudPresentation_;
     std::unique_ptr<EcHelperClient> ecHudClient_;
+    clawhud::MsiEcHudTelemetry ecHudTelemetry_{};
     ForegroundTracker foregroundTracker_;
     clawhud::HudLayoutOptions hudOptions_{};
     std::optional<bool> manualHudVisibilityOverride_;

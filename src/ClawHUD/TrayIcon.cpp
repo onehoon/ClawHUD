@@ -120,8 +120,8 @@ LRESULT CALLBACK TrayIcon::WindowProc(HWND window, UINT message, WPARAM wParam, 
     if (message == WM_TIMER)
     {
         if (wParam == kEcHudTimerId)
-            self->app_.RenderProductionHud();
-        else
+            self->app_.SampleProductionEcTelemetry();
+        else if (wParam == kMockHudTimerId)
             self->app_.RenderMockHud();
         return 0;
     }
