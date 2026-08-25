@@ -12,6 +12,7 @@
 namespace
 {
 constexpr UINT kSettingsDestroyed = WM_APP + 1;
+constexpr UINT kForegroundChanged = WM_APP + 2;
 constexpr wchar_t kInstanceMutexName[] = L"Local\\ClawHUD.SingleInstance";
 
 void Log(const std::wstring& message)
@@ -29,6 +30,7 @@ App::App(HINSTANCE instance) : instance_(instance), tray_(*this)
 
 App::~App()
 {
+    foregroundTracker_.Stop();
     hudPresentation_.reset();
     vrrDiagnostic_.reset();
     ecDiagnostic_.reset();
@@ -48,6 +50,9 @@ int App::Run()
     if (!tray_.Create(instance_)) return 1;
     ecDiagnostic_ = std::make_unique<EcDiagnostic>(tray_.Window());
     vrrDiagnostic_ = std::make_unique<VrrDiagnostic>(*this, tray_.Window());
+    if (!foregroundTracker_.Start(tray_.Window(), kForegroundChanged,
+        [this](bool) { ReconcileHudVisibility(); }))
+        return 1;
     return ProcessMessages();
 }
 
@@ -74,24 +79,72 @@ void App::StopDiagnostic() { StopVrrDiagnostic(); StopEcDiagnostic(); }
 
 bool App::StartMockHud()
 {
+    if (!EnsureMockHud()) return false;
+    mockHudEnabled_ = true;
+    ReconcileHudVisibility();
+    return true;
+}
+
+bool App::EnsureMockHud()
+{
     if (!hudPresentation_)
         hudPresentation_ = std::make_unique<clawhud::HudPresentation>();
     clawhud::HudRenderOptions options{};
+    options.layout = hudOptions_;
     HRESULT hr = hudPresentation_->Initialize(instance_, options);
     if (FAILED(hr)) return false;
     hr = hudPresentation_->Render(clawhud::MakeGameDcSample(), options);
     if (FAILED(hr)) return false;
-    return SUCCEEDED(hudPresentation_->Show());
+    return true;
 }
 
 void App::StopMockHud()
 {
-    if (hudPresentation_) hudPresentation_->Hide();
+    mockHudEnabled_ = false;
+    ReconcileHudVisibility();
 }
 
 bool App::MockHudVisible() const noexcept
 {
     return hudPresentation_ && hudPresentation_->Visible();
+}
+
+void App::TrackMockGameWindow(HWND window)
+{
+    DWORD processId{};
+    if (window)
+        GetWindowThreadProcessId(window, &processId);
+    if (!processId)
+        return;
+    foregroundTracker_.SetTrackedProcessId(processId);
+    if (EnsureMockHud())
+    {
+        mockHudEnabled_ = true;
+        ReconcileHudVisibility();
+    }
+}
+
+void App::SetHudVisibilityMode(clawhud::HudVisibilityMode mode)
+{
+    hudOptions_.visibilityMode = mode;
+    ReconcileHudVisibility();
+}
+
+bool App::IsHudAlwaysVisible() const noexcept
+{
+    return hudOptions_.visibilityMode == clawhud::HudVisibilityMode::Always;
+}
+
+void App::ReconcileHudVisibility()
+{
+    if (!hudPresentation_)
+        return;
+    const bool show = mockHudEnabled_ && clawhud::ShouldShowHud(
+        hudOptions_.visibilityMode, foregroundTracker_.ForegroundIsTrackedProcess());
+    if (show)
+        hudPresentation_->Show();
+    else
+        hudPresentation_->Hide();
 }
 
 bool App::AcquireSingleInstance()
@@ -160,6 +213,7 @@ void App::Exit()
 {
     if (exiting_) return;
     exiting_ = true;
+    foregroundTracker_.Stop();
     if (vrrDiagnostic_) vrrDiagnostic_->Stop();
     if (ecDiagnostic_) ecDiagnostic_->Stop();
     settings_.reset();
@@ -175,6 +229,11 @@ int App::ProcessMessages()
         if (message.message == kSettingsDestroyed)
         {
             SettingsDestroyed();
+            continue;
+        }
+        if (message.message == kForegroundChanged)
+        {
+            foregroundTracker_.Reconcile();
             continue;
         }
         if (message.message == kEcDiagnosticStatus)
