@@ -43,8 +43,16 @@ private:
 
 std::wstring HResult(HRESULT hr)
 {
+    const wchar_t* label = L"FAILED";
+    if (hr == S_OK)
+        label = L"S_OK";
+    else if (hr == S_FALSE)
+        label = L"S_FALSE";
+    else if (SUCCEEDED(hr))
+        label = L"SUCCEEDED";
+
     std::wstringstream result;
-    result << (SUCCEEDED(hr) ? L"S_OK" : L"FAILED") << L" (0x"
+    result << label << L" (0x"
         << std::hex << std::uppercase << static_cast<unsigned long>(hr) << L")";
     return result.str();
 }
