@@ -15,7 +15,7 @@ The tray menu contains:
 - Settings
 - Exit
 
-Settings is created only when selected. It contains the placeholder General, HUD, and Diagnostics tabs. Closing it calls `DestroyWindow`; the owning `unique_ptr` is released after the destroy notification. Selecting Settings again creates a fresh window.
+Settings is created only when selected. It contains the General, HUD, and Diagnostics tabs. The Diagnostics tab only creates its bounded MSI EC worker after **Start EC Test** is selected. Closing it calls `DestroyWindow`; the owning `unique_ptr` is released after the destroy notification. Selecting Settings again creates a fresh window.
 
 ## Build
 
@@ -28,4 +28,4 @@ cmake --build build --config Release
 
 CMake downloads the pinned Velopack C/C++ 1.2.0 library and verifies its SHA-256 before extracting it into the build directory. The update feed is the ClawHUD GitHub repository; until a Velopack release feed exists, the check fails or reports no update and startup continues without a notification or popup.
 
-This PR intentionally does not add telemetry, game detection, settings persistence, startup-with-Windows, VRR measurement, Composition Swapchain production HUD rendering, or hardware diagnostics.
+The EC diagnostic probe is user-started and read-only; it does not add production telemetry polling. VRR measurement, PresentMon, game detection, settings persistence, startup-with-Windows, and Composition Swapchain production HUD rendering remain out of scope.
