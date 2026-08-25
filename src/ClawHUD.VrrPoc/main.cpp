@@ -94,7 +94,9 @@ private:
 
     void CreateD3DDevice()
     {
-        UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
+        UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT |
+            D3D11_CREATE_DEVICE_SINGLETHREADED |
+            D3D11_CREATE_DEVICE_PREVENT_INTERNAL_THREADING_OPTIMIZATIONS;
         D3D_FEATURE_LEVEL levels[] = { D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0 };
         D3D_FEATURE_LEVEL selected{};
         HRESULT hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, flags,
@@ -267,6 +269,9 @@ private:
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
 {
     Logger log;
+    if (!SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2))
+        Fail(log, L"SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2)",
+            HRESULT_FROM_WIN32(GetLastError()));
     log.Write(L"ClawHUD VRR PoC");
     log.Write(L"OS: Windows 11 (required; no compatibility fallback)");
     try
