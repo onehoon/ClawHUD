@@ -53,7 +53,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/TrayIcon.cpp
     src/ClawHUD/SettingsWindow.cpp
     src/ClawHUD/EcDiagnostic.cpp
-    src/ClawHUD/MsiEcReader.cpp
+    src/ClawHUD/EcHelperClient.cpp
     src/ClawHUD/VrrDiagnostic.cpp
     src/ClawHUD/IntelVrrDiagnosticProbe.cpp
     src/ClawHUD/HudModel.cpp
@@ -68,6 +68,15 @@ target_include_directories(ClawHUD PRIVATE src/ClawHUD "${CMAKE_BINARY_DIR}/gene
 target_link_libraries(ClawHUD PRIVATE ClawHUD.Velopack comctl32 shell32 delayimp d3d11 dxgi dcomp d2d1 dwrite)
 target_link_options(ClawHUD PRIVATE "/DELAYLOAD:velopack_libc.dll")
 set_target_properties(ClawHUD PROPERTIES CXX_EXTENSIONS OFF)
+
+add_executable(ClawHUD.EcHelper WIN32
+    src/ClawHUD.EcHelper/main.cpp
+    src/ClawHUD.EcHelper/MsiEcReader.cpp)
+target_compile_features(ClawHUD.EcHelper PRIVATE cxx_std_20)
+target_compile_definitions(ClawHUD.EcHelper PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_include_directories(ClawHUD.EcHelper PRIVATE src/ClawHUD.EcHelper src/shared)
+target_link_libraries(ClawHUD.EcHelper PRIVATE wbemuuid ole32 oleaut32)
+set_target_properties(ClawHUD.EcHelper PROPERTIES CXX_EXTENSIONS OFF)
 add_custom_command(TARGET ClawHUD POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:ClawHUD>/tools"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -78,7 +87,10 @@ add_custom_command(TARGET ClawHUD POST_BUILD
         "$<TARGET_FILE_DIR:ClawHUD>/tools/PresentMon-LICENSE.txt"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${VELOPACK_ROOT}/lib/velopack_libc_win_x64_msvc.dll"
-        "$<TARGET_FILE_DIR:ClawHUD>/velopack_libc.dll")
+        "$<TARGET_FILE_DIR:ClawHUD>/velopack_libc.dll"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:ClawHUD.EcHelper>"
+        "$<TARGET_FILE_DIR:ClawHUD>/ClawHUD.EcHelper.exe")
 
 include(CTest)
 if(BUILD_TESTING)
@@ -126,4 +138,10 @@ if(BUILD_TESTING)
     target_include_directories(ClawHUD.DiagnosticHudModeTests PRIVATE src/ClawHUD)
     set_target_properties(ClawHUD.DiagnosticHudModeTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.DiagnosticHudModeTests COMMAND ClawHUD.DiagnosticHudModeTests)
+
+    add_executable(ClawHUD.EcHelperProtocolTests tests/EcHelperProtocolTests.cpp)
+    target_compile_features(ClawHUD.EcHelperProtocolTests PRIVATE cxx_std_20)
+    target_include_directories(ClawHUD.EcHelperProtocolTests PRIVATE src/shared)
+    set_target_properties(ClawHUD.EcHelperProtocolTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.EcHelperProtocolTests COMMAND ClawHUD.EcHelperProtocolTests)
 endif()
