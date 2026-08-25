@@ -3,6 +3,7 @@
 #include <dxgi1_6.h>
 #include <dcomp.h>
 #include <d2d1_3.h>
+#include <dwrite.h>
 #include <presentation.h>
 #include <wrl/client.h>
 
@@ -263,6 +264,30 @@ private:
         log_.Write(L"D2D BeginDraw: OK");
         d2dContext->Clear(D2D1::ColorF(1.0f, 0.0f, 0.0f, 1.0f));
         log_.Write(L"D2D Clear: OK (solid opaque red)");
+
+        ComPtr<IDWriteFactory> writeFactory;
+        hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
+            reinterpret_cast<IUnknown**>(writeFactory.ReleaseAndGetAddressOf()));
+        LogResult(log_, L"CreateDWriteFactory", hr);
+        if (FAILED(hr)) Fail(log_, L"DWriteCreateFactory", hr);
+
+        ComPtr<IDWriteTextFormat> textFormat;
+        hr = writeFactory->CreateTextFormat(
+            L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+            DWRITE_FONT_STRETCH_NORMAL, 28.0f, L"", &textFormat);
+        LogResult(log_, L"CreateTextFormat", hr);
+        if (FAILED(hr)) Fail(log_, L"IDWriteFactory::CreateTextFormat", hr);
+
+        ComPtr<ID2D1SolidColorBrush> textBrush;
+        hr = d2dContext->CreateSolidColorBrush(
+            D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), &textBrush);
+        LogResult(log_, L"CreateTextBrush", hr);
+        if (FAILED(hr)) Fail(log_, L"ID2D1DeviceContext::CreateSolidColorBrush", hr);
+
+        constexpr wchar_t text[] = L"ClawHUD";
+        const D2D1_RECT_F textRect = D2D1::RectF(20.0f, 10.0f, 500.0f, 65.0f);
+        d2dContext->DrawText(text, ARRAYSIZE(text) - 1, textFormat.Get(), textRect, textBrush.Get());
+        log_.Write(L"DirectWrite DrawText: issued (\"ClawHUD\")");
         hr = d2dContext->EndDraw();
         LogResult(log_, L"D2D EndDraw", hr);
         if (FAILED(hr)) Fail(log_, L"ID2D1DeviceContext::EndDraw", hr);
