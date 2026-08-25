@@ -182,8 +182,10 @@ void VrrDiagnostic::Stop()
     if (worker_.joinable()) worker_.join();
     if (hudStateSaved_)
     {
-        app_.RestoreHudVisibilityState(savedHudState_);
-        hudStateSaved_ = false;
+        if (app_.RestoreHudVisibilityState(savedHudState_))
+            hudStateSaved_ = false;
+        else
+            OutputDebugStringW(L"[ClawHUD] Failed to restore HUD state while stopping VRR diagnostic\n");
     }
     running_ = false;
 }

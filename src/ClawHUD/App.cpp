@@ -313,7 +313,13 @@ bool App::RestoreHudVisibilityState(const HudVisibilityState& state)
         mockHudEnabled_ = false;
     }
     ReconcileHudVisibility();
-    return MockHudVisible() == state.visible;
+    const bool expectedVisible = state.mockHudEnabled &&
+        (state.manualOverride.has_value()
+            ? *state.manualOverride
+            : clawhud::ShouldShowHud(
+                hudOptions_.visibilityMode,
+                foregroundTracker_.ForegroundIsTrackedProcess()));
+    return MockHudVisible() == expectedVisible;
 }
 
 bool App::RequestHudOnUiThread(bool visible, const HudVisibilityState* restore, DWORD timeoutMs)
