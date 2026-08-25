@@ -60,7 +60,7 @@ HRESULT HudPresentation::CreateWindowHost(HINSTANCE instance)
     windowClass.lpszClassName = kWindowClass;
     RegisterClassW(&windowClass);
     constexpr DWORD exStyle = WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW |
-        WS_EX_TRANSPARENT | WS_EX_NOREDIRECTIONBITMAP;
+        WS_EX_TRANSPARENT | WS_EX_NOREDIRECTIONBITMAP | WS_EX_TOPMOST;
     window_ = CreateWindowExW(exStyle, kWindowClass, L"ClawHUD Mock HUD", WS_POPUP,
         xPx_, yPx_, static_cast<int>(widthPx_), static_cast<int>(heightPx_),
         nullptr, nullptr, instance, this);
@@ -116,6 +116,13 @@ HRESULT HudPresentation::CreatePresentationSurface()
     if (FAILED(hr = compositionDevice_->CreateSurfaceFromHandle(surfaceHandle_,
         reinterpret_cast<IUnknown**>(compositionSurface_.ReleaseAndGetAddressOf())))) return hr;
     if (FAILED(hr = presentationSurface_->SetAlphaMode(DXGI_ALPHA_MODE_PREMULTIPLIED))) return hr;
+    RECT sourceRect{ 0, 0, static_cast<LONG>(widthPx_), static_cast<LONG>(heightPx_) };
+    if (FAILED(hr = presentationSurface_->SetSourceRect(&sourceRect))) return hr;
+    PresentationTransform transform{};
+    transform.M11 = 1.0f;
+    transform.M22 = 1.0f;
+    if (FAILED(hr = presentationSurface_->SetTransform(&transform))) return hr;
+    if (FAILED(hr = presentationSurface_->SetLetterboxingMargins(0.0f, 0.0f, 0.0f, 0.0f))) return hr;
 
     D3D11_TEXTURE2D_DESC description{};
     description.Width = widthPx_; description.Height = heightPx_;
@@ -236,6 +243,9 @@ HRESULT HudPresentation::Show()
     if (visible_) return S_OK;
     hr = CommitVisibility(true);
     if (FAILED(hr)) return hr;
+    if (!SetWindowPos(window_, HWND_TOPMOST, 0, 0, 0, 0,
+        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW))
+        return LastErrorResult();
     ShowWindow(window_, SW_SHOWNOACTIVATE);
     visible_ = true;
     return S_OK;
