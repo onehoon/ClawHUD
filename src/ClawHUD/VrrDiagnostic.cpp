@@ -179,12 +179,37 @@ void LogMpoCapability(std::wofstream& log)
     ComPtr<IDXGIDevice> dxgiDevice;
     ComPtr<IDXGIAdapter> adapter;
     ComPtr<IDXGIOutput> output;
-    if (FAILED(device.As(&dxgiDevice)) || FAILED(dxgiDevice->GetAdapter(&adapter)) ||
-        FAILED(adapter->EnumOutputs(0, &output)))
+    if (FAILED(device.As(&dxgiDevice)) || FAILED(dxgiDevice->GetAdapter(&adapter)))
     {
         log << L"DXGI output: Unavailable\nD3DKMT MPO plane caps: unavailable / deferred\n\n";
         return;
     }
+
+    const HMONITOR primaryMonitor = MonitorFromPoint(
+        POINT{ 0, 0 }, MONITOR_DEFAULTTOPRIMARY);
+    DXGI_OUTPUT_DESC outputDescription{};
+    for (UINT index = 0; ; ++index)
+    {
+        ComPtr<IDXGIOutput> candidate;
+        const HRESULT enumHr = adapter->EnumOutputs(index, &candidate);
+        if (enumHr == DXGI_ERROR_NOT_FOUND) break;
+        if (FAILED(enumHr)) break;
+        DXGI_OUTPUT_DESC candidateDescription{};
+        if (SUCCEEDED(candidate->GetDesc(&candidateDescription)) &&
+            candidateDescription.Monitor == primaryMonitor)
+        {
+            output = candidate;
+            outputDescription = candidateDescription;
+            break;
+        }
+    }
+    if (!output)
+    {
+        log << L"DXGI primary output: Unavailable\n"
+            << L"D3DKMT MPO plane caps: unavailable / deferred\n\n";
+        return;
+    }
+    log << L"DXGI primary output: " << outputDescription.DeviceName << L"\n";
 
     ComPtr<IDXGIOutput3> output3;
     if (SUCCEEDED(output.As(&output3)))
@@ -382,13 +407,20 @@ void VrrDiagnostic::RunImpl()
             const auto leftMedian = clawhud::UsableVblankMedian(left.vblank);
             const auto rightMedian = clawhud::UsableVblankMedian(right.vblank);
             log << name << L"\nPresentMode set changed: "
-                << ((!left.csv.valid || !right.csv.valid) ? L"unavailable" : (SamePresentModeSet(left.csv.modes, right.csv.modes) ? L"NO" : L"YES"))
-                << L"\nAverage MsBetweenDisplayChange: " << left.csv.displayAverage << L" vs " << right.csv.displayAverage
-                << L"\nMin/Max MsBetweenDisplayChange: " << left.csv.displayMin << L"/" << left.csv.displayMax
-                << L" vs " << right.csv.displayMin << L"/" << right.csv.displayMax
-                << L"\nDisplayed / not-displayed: " << left.csv.displayed << L"/" << left.csv.notDisplayed
-                << L" vs " << right.csv.displayed << L"/" << right.csv.notDisplayed
-                << L"\nVBlank median: " << (leftMedian ? std::to_wstring(*leftMedian) : L"Unavailable")
+                << ((!left.csv.valid || !right.csv.valid) ? L"Unavailable" :
+                    (SamePresentModeSet(left.csv.modes, right.csv.modes) ? L"NO" : L"YES"))
+                << L"\n";
+            if (left.csv.valid && right.csv.valid)
+            {
+                log << L"Average MsBetweenDisplayChange: " << left.csv.displayAverage << L" vs " << right.csv.displayAverage
+                    << L"\nMin/Max MsBetweenDisplayChange: " << left.csv.displayMin << L"/" << left.csv.displayMax
+                    << L" vs " << right.csv.displayMin << L"/" << right.csv.displayMax
+                    << L"\nDisplayed / not-displayed: " << left.csv.displayed << L"/" << left.csv.notDisplayed
+                    << L" vs " << right.csv.displayed << L"/" << right.csv.notDisplayed << L"\n";
+            }
+            else
+                log << L"PresentMon timing comparison: Unavailable\n";
+            log << L"VBlank median: " << (leftMedian ? std::to_wstring(*leftMedian) : L"Unavailable")
                 << L" us vs " << (rightMedian ? std::to_wstring(*rightMedian) : L"Unavailable") << L" us\n\n";
         };
         log << L"=== COMPARISON ===\n";

@@ -167,6 +167,11 @@ void App::StopMockHud()
 
 void App::SetHudAlignment(clawhud::HudAlignment alignment)
 {
+    if (VrrDiagnosticRunning())
+    {
+        Log(L"HUD alignment change ignored while VRR diagnostic is running");
+        return;
+    }
     if (hudOptions_.alignment == alignment)
         return;
     hudOptions_.alignment = alignment;
@@ -176,6 +181,11 @@ void App::SetHudAlignment(clawhud::HudAlignment alignment)
 
 void App::SetHudBackgroundMode(clawhud::HudBackgroundMode mode)
 {
+    if (VrrDiagnosticRunning())
+    {
+        Log(L"HUD background mode change ignored while VRR diagnostic is running");
+        return;
+    }
     if (hudOptions_.backgroundMode == mode)
         return;
     hudOptions_.backgroundMode = mode;
@@ -185,6 +195,11 @@ void App::SetHudBackgroundMode(clawhud::HudBackgroundMode mode)
 
 void App::SetHudBackgroundOpacity(float opacity, bool persist)
 {
+    if (VrrDiagnosticRunning())
+    {
+        Log(L"HUD background opacity change ignored while VRR diagnostic is running");
+        return;
+    }
     opacity = std::clamp(opacity, 0.0f, 1.0f);
     if (hudOptions_.backgroundOpacity == opacity)
     {
@@ -547,6 +562,11 @@ void App::CheckForUpdates()
 
 void App::OpenSettings()
 {
+    if (VrrDiagnosticRunning())
+    {
+        Log(L"Open Settings ignored while VRR diagnostic is running");
+        return;
+    }
     if (settings_)
     {
         settings_->Show(instance_);
