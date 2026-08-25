@@ -15,6 +15,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 using Microsoft::WRL::ComPtr;
@@ -108,47 +109,62 @@ bool IsExcludedTarget(const std::wstring& path)
     return lowered.ends_with(L"\\explorer.exe") || lowered.ends_with(L"\\clawhud.vrrpoc.exe");
 }
 
-bool AcquireTarget(Logger& log, TargetProcess& target)
+DWORD ForegroundPid()
 {
     const HWND window = GetForegroundWindow();
     DWORD pid{};
-    if (!window || !GetWindowThreadProcessId(window, &pid) || !pid || pid == GetCurrentProcessId())
-    {
-        log.Write(L"TEST FAILED");
-        log.Write(L"Reason: No valid foreground target process");
-        return false;
-    }
+    if (!window || !GetWindowThreadProcessId(window, &pid)) return 0;
+    return pid;
+}
+
+bool TryOpenTarget(DWORD pid, TargetProcess& target)
+{
+    if (!pid || pid == GetCurrentProcessId()) return false;
 
     HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, pid);
-    if (!process)
-    {
-        log.Write(L"TEST FAILED");
-        log.Write(L"Reason: OpenProcess failed for foreground target");
-        return false;
-    }
+    if (!process) return false;
 
     std::wstring path(32768, L'\0');
     DWORD length = static_cast<DWORD>(path.size());
     if (!QueryFullProcessImageNameW(process, 0, path.data(), &length))
     {
         CloseHandle(process);
-        log.Write(L"TEST FAILED");
-        log.Write(L"Reason: QueryFullProcessImageNameW failed");
         return false;
     }
     path.resize(length);
     if (IsExcludedTarget(path))
     {
         CloseHandle(process);
-        log.Write(L"TEST FAILED");
-        log.Write(L"Reason: Foreground process is excluded");
         return false;
     }
 
-    target = TargetProcess{ pid, process, path };
-    log.Write(L"Target Process: " + target.path);
-    log.Write(L"Target PID: " + std::to_wstring(target.pid));
+    target = TargetProcess{ pid, process, std::move(path) };
     return true;
+}
+
+bool AcquireTarget(Logger& log, TargetProcess& target)
+{
+    constexpr auto kTargetWait = std::chrono::seconds(15);
+    constexpr auto kPollInterval = std::chrono::milliseconds(250);
+    const DWORD launcherForegroundPid = ForegroundPid();
+    const auto deadline = std::chrono::steady_clock::now() + kTargetWait;
+
+    log.Write(L"Waiting for foreground game; switch back to the game now");
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        const DWORD pid = ForegroundPid();
+        if (pid && pid != launcherForegroundPid && TryOpenTarget(pid, target))
+        {
+            log.Write(L"Target Process: " + target.path);
+            log.Write(L"Target PID: " + std::to_wstring(target.pid));
+            return true;
+        }
+        Sleep(static_cast<DWORD>(kPollInterval.count()));
+    }
+
+    log.Write(L"TEST FAILED");
+    log.Write(L"Reason: No valid foreground target within 15 seconds");
+    return false;
 }
 
 std::wstring HResult(HRESULT hr)
@@ -719,6 +735,8 @@ bool RunAutomaticTest(Logger& log, PresentationOverlay& overlay, const TargetPro
         log.Write(L"PresentMon captures application presents and OS-visible display timing.");
         log.Write(L"Intel UMD XeFG-generated output frames may not all be observable.");
         log.Write(L"Do not treat PresentMon capture as authoritative true XeFG displayed FPS.");
+        overlay.SetVisible(false);
+        log.Write(L"Automatic test completed. PoC exiting.");
         return success;
     }
     catch (...)
