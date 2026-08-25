@@ -46,13 +46,14 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/MsiEcReader.cpp
     src/ClawHUD/VrrDiagnostic.cpp
     src/ClawHUD/HudModel.cpp
-    src/ClawHUD/HudRenderer.cpp)
+    src/ClawHUD/HudRenderer.cpp
+    src/ClawHUD/HudPresentation.cpp)
 target_compile_features(ClawHUD PRIVATE cxx_std_20)
 target_compile_definitions(ClawHUD PRIVATE
     UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX
     CLAWHUD_UPDATE_REPOSITORY=\"https://github.com/onehoon/ClawHUD\")
 target_include_directories(ClawHUD PRIVATE src/ClawHUD)
-target_link_libraries(ClawHUD PRIVATE ClawHUD.Velopack comctl32 shell32 delayimp d2d1 dwrite)
+target_link_libraries(ClawHUD PRIVATE ClawHUD.Velopack comctl32 shell32 delayimp d3d11 dxgi dcomp d2d1 dwrite)
 target_link_options(ClawHUD PRIVATE "/DELAYLOAD:velopack_libc.dll")
 set_target_properties(ClawHUD PROPERTIES CXX_EXTENSIONS OFF)
 add_custom_command(TARGET ClawHUD POST_BUILD

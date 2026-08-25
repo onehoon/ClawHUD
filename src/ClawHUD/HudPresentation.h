@@ -1,0 +1,64 @@
+#pragma once
+
+#include "HudRenderer.h"
+
+#include <windows.h>
+#include <d2d1_1.h>
+#include <d3d11.h>
+#include <dcomp.h>
+#include <dxgi1_6.h>
+#include <presentation.h>
+#include <wrl/client.h>
+
+#include <memory>
+
+namespace clawhud
+{
+class HudPresentation
+{
+public:
+    ~HudPresentation();
+
+    HRESULT Initialize(HINSTANCE instance, const HudRenderOptions& options = {});
+    HRESULT Render(const HudTelemetrySnapshot& snapshot, const HudRenderOptions& options);
+    HRESULT Show();
+    HRESULT Hide();
+    bool Visible() const noexcept { return visible_; }
+    void Shutdown() noexcept;
+
+private:
+    static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
+    HRESULT CreateWindowHost(HINSTANCE instance);
+    HRESULT CreateGraphics();
+    HRESULT CreatePresentationSurface();
+    HRESULT CreateBitmapTarget();
+    HRESULT CommitVisibility(bool visible);
+
+    HINSTANCE instance_{};
+    HWND window_{};
+    HANDLE surfaceHandle_{ INVALID_HANDLE_VALUE };
+    int xPx_{};
+    int yPx_{};
+    UINT widthPx_{};
+    UINT heightPx_{};
+    float dpi_{ 96.0f };
+    bool visible_{};
+    bool initialized_{};
+
+    Microsoft::WRL::ComPtr<ID3D11Device> device_;
+    Microsoft::WRL::ComPtr<ID3D11DeviceContext> deviceContext_;
+    Microsoft::WRL::ComPtr<IDCompositionDevice> compositionDevice_;
+    Microsoft::WRL::ComPtr<IDCompositionTarget> compositionTarget_;
+    Microsoft::WRL::ComPtr<IDCompositionVisual> visual_;
+    Microsoft::WRL::ComPtr<IDCompositionSurface> compositionSurface_;
+    Microsoft::WRL::ComPtr<IPresentationFactory> presentationFactory_;
+    Microsoft::WRL::ComPtr<IPresentationManager> presentationManager_;
+    Microsoft::WRL::ComPtr<IPresentationSurface> presentationSurface_;
+    Microsoft::WRL::ComPtr<IPresentationBuffer> presentationBuffer_;
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> texture_;
+    Microsoft::WRL::ComPtr<ID2D1DeviceContext> d2dContext_;
+    Microsoft::WRL::ComPtr<ID2D1Bitmap1> bitmapTarget_;
+    Microsoft::WRL::ComPtr<IDWriteFactory> writeFactory_;
+    std::unique_ptr<HudRenderer> renderer_;
+};
+}

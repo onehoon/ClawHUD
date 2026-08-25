@@ -10,6 +10,8 @@ constexpr UINT kTrayMessage = WM_APP + 10;
 constexpr UINT kSettingsCommand = 1001;
 constexpr UINT kExitCommand = 1002;
 constexpr UINT kStopDiagnosticCommand = 1003;
+constexpr UINT kShowMockHudCommand = 1004;
+constexpr UINT kHideMockHudCommand = 1005;
 constexpr wchar_t kTrayClassName[] = L"ClawHUD.TrayMessageWindow";
 }
 
@@ -80,6 +82,8 @@ void TrayIcon::ShowMenu()
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, kSettingsCommand, L"Settings");
     if (app_.DiagnosticRunning()) AppendMenuW(menu, MF_STRING, kStopDiagnosticCommand, L"Stop Diagnostic Test");
+    AppendMenuW(menu, MF_STRING, app_.MockHudVisible() ? kHideMockHudCommand : kShowMockHudCommand,
+        app_.MockHudVisible() ? L"Hide Mock HUD" : L"Show Mock HUD");
     AppendMenuW(menu, MF_STRING, kExitCommand, L"Exit");
     POINT point{};
     GetCursorPos(&point);
@@ -117,6 +121,8 @@ LRESULT CALLBACK TrayIcon::WindowProc(HWND window, UINT message, WPARAM wParam, 
         if (LOWORD(wParam) == kSettingsCommand) self->app_.OpenSettings();
         if (LOWORD(wParam) == kExitCommand) self->app_.Exit();
         if (LOWORD(wParam) == kStopDiagnosticCommand) self->app_.StopDiagnostic();
+        if (LOWORD(wParam) == kShowMockHudCommand) self->app_.StartMockHud();
+        if (LOWORD(wParam) == kHideMockHudCommand) self->app_.StopMockHud();
     }
     return DefWindowProcW(window, message, wParam, lParam);
 }
