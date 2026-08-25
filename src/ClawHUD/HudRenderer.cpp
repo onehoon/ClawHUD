@@ -78,6 +78,42 @@ float Width(IDWriteTextLayout* layout) noexcept
     return SUCCEEDED(layout->GetMetrics(&metrics)) ? metrics.widthIncludingTrailingWhitespace : 0.0f;
 }
 
+const wchar_t* ValueExemplar(HudSegmentKind kind) noexcept
+{
+    switch (kind)
+    {
+    case HudSegmentKind::Graphics: return L"999 FPS";
+    case HudSegmentKind::Cpu:
+    case HudSegmentKind::Gpu: return L"100% 100°C";
+    case HudSegmentKind::Tdp:
+    case HudSegmentKind::SystemPower: return L"99.9 W";
+    case HudSegmentKind::Fan: return L"9999 RPM";
+    case HudSegmentKind::Battery: return L"100% 9.9h";
+    }
+    return L"";
+}
+
+HRESULT ReservedValueWidth(IDWriteFactory* factory, IDWriteTextFormat* format,
+    HudSegmentKind kind, float& width)
+{
+    ComPtr<IDWriteTextLayout> exemplar;
+    HRESULT hr = CreateLayout(factory, format, ValueExemplar(kind), true, exemplar);
+    if (FAILED(hr))
+        return hr;
+    width = Width(exemplar.Get());
+    return S_OK;
+}
+
+HRESULT ValueExtent(IDWriteFactory* factory, IDWriteTextFormat* format,
+    HudSegmentKind kind, IDWriteTextLayout* actual, float& width)
+{
+    HRESULT hr = ReservedValueWidth(factory, format, kind, width);
+    if (FAILED(hr))
+        return hr;
+    width = std::max(width, Width(actual));
+    return S_OK;
+}
+
 HRESULT RunWidth(IDWriteFactory* factory, IDWriteTextFormat* format,
     const HudTextRun& run, const HudRenderOptions& options, float& width)
 {
@@ -89,7 +125,11 @@ HRESULT RunWidth(IDWriteFactory* factory, IDWriteTextFormat* format,
     hr = CreateLayout(factory, format, run.value, true, value);
     if (FAILED(hr))
         return hr;
-    width = Width(label.Get()) + SegmentGap(options) + Width(value.Get());
+    float valueWidth{};
+    hr = ValueExtent(factory, format, run.kind, value.Get(), valueWidth);
+    if (FAILED(hr))
+        return hr;
+    width = Width(label.Get()) + SegmentGap(options) + valueWidth;
     return S_OK;
 }
 
@@ -233,6 +273,9 @@ HRESULT HudRenderer::Draw(ID2D1DeviceContext* context,
         if (FAILED(hr)) return hr;
         hr = CreateLayout(factory_, format.Get(), runs[i].value, true, value);
         if (FAILED(hr)) return hr;
+        float valueWidth{};
+        hr = ValueExtent(factory_, format.Get(), runs[i].kind, value.Get(), valueWidth);
+        if (FAILED(hr)) return hr;
 
         ComPtr<ID2D1SolidColorBrush> labelBrush;
         hr = context->CreateSolidColorBrush(LabelColor(runs[i].kind), &labelBrush);
@@ -240,7 +283,7 @@ HRESULT HudRenderer::Draw(ID2D1DeviceContext* context,
         context->DrawTextLayout(D2D1::Point2F(x, geometry.textOrigin.y), label.Get(), labelBrush.Get());
         x += Width(label.Get()) + SegmentGap(options);
         context->DrawTextLayout(D2D1::Point2F(x, geometry.textOrigin.y), value.Get(), white.Get());
-        x += Width(value.Get());
+        x += valueWidth;
         if (i + 1 < runs.size())
         {
             x += SeparatorGap(options);

@@ -23,6 +23,13 @@ bool Near(float actual, float expected)
 {
     return std::abs(actual - expected) < 0.01f;
 }
+
+float MeasureWidth(HudRenderer& renderer, const std::vector<HudTextRun>& runs,
+    const HudRenderOptions& options)
+{
+    HudMeasureResult result{};
+    return SUCCEEDED(renderer.Measure(runs, options, result)) ? result.contentWidth : -1.0f;
+}
 }
 
 int main()
@@ -81,6 +88,30 @@ int main()
             "measure sample runs");
         ok &= Check(renderer.Measure({}, options, measured) == S_OK && measured.contentWidth > 0,
             "measure empty runs");
+
+        const HudRenderOptions stableOptions{};
+        const auto width = [&](HudSegmentKind kind, const wchar_t* value)
+        {
+            const wchar_t* label = kind == HudSegmentKind::Fan ? L"FAN" :
+                kind == HudSegmentKind::Graphics ? L"DX11" : L"GPU";
+            return MeasureWidth(renderer, {{kind, label, value}}, stableOptions);
+        };
+        ok &= Check(Near(width(HudSegmentKind::Graphics, L"99 FPS"),
+            width(HudSegmentKind::Graphics, L"100 FPS")), "stable FPS slot");
+        ok &= Check(Near(width(HudSegmentKind::Gpu, L"99%"),
+            width(HudSegmentKind::Gpu, L"100%")), "stable percentage slot");
+        ok &= Check(Near(width(HudSegmentKind::Tdp, L"9.8 W"),
+            width(HudSegmentKind::Tdp, L"10.1 W")), "stable power slot");
+        ok &= Check(Near(width(HudSegmentKind::Fan, L"999 RPM"),
+            width(HudSegmentKind::Fan, L"1000 RPM")), "stable fan slot");
+        ok &= Check(width(HudSegmentKind::Fan, L"10000 RPM") > width(HudSegmentKind::Fan, L"999 RPM"),
+            "fan overflow expands");
+
+        const std::vector<HudTextRun> gpu{{HudSegmentKind::Gpu, L"GPU", L"99%"}};
+        const std::vector<HudTextRun> gpuAndCpu{
+            {HudSegmentKind::Gpu, L"GPU", L"99%"}, {HudSegmentKind::Cpu, L"CPU", L"36%"}};
+        ok &= Check(MeasureWidth(renderer, gpuAndCpu, stableOptions) >
+            MeasureWidth(renderer, gpu, stableOptions), "missing run compacts");
     }
     return ok ? 0 : 1;
 }

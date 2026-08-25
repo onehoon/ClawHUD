@@ -115,9 +115,14 @@ void App::RenderMockHud()
         return;
     auto snapshot = clawhud::MakeGameDcSample();
     const auto frame = mockFrameIndex_++;
-    snapshot.renderFps = 58.0 + static_cast<double>(frame % 5);
-    snapshot.cpuUsagePercent = 30.0 + static_cast<double>(frame % 10);
-    snapshot.gpuUsagePercent = 90.0 + static_cast<double>(frame % 9);
+    const auto phase = frame % 3;
+    snapshot.renderFps = phase == 1 ? 100.0 : 99.0;
+    snapshot.cpuUsagePercent = phase == 0 ? 9.0 : phase == 1 ? 10.0 : 100.0;
+    snapshot.gpuUsagePercent = phase == 1 ? 100.0 : 99.0;
+    snapshot.cpuPackagePowerW = phase == 1 ? 10.1 : 9.8;
+    snapshot.fan1Rpm = phase == 1 ? 1000 : 999;
+    snapshot.fan2Rpm = phase == 1 ? 1000 : 999;
+    snapshot.batteryPercent = phase == 0 ? 9 : phase == 1 ? 10 : 100;
     clawhud::HudRenderOptions options{};
     options.layout = hudOptions_;
     const HRESULT hr = hudPresentation_->Render(snapshot, options);
