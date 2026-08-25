@@ -17,6 +17,7 @@
 #include "PresentMonHudTelemetry.h"
 #include "WindowsPowerTelemetry.h"
 #include "WindowsUsageTelemetry.h"
+#include "IntelGraphicsApiProbe.h"
 
 class SettingsWindow;
 namespace clawhud { class HudPresentation; }
@@ -25,6 +26,7 @@ constexpr int kHudToggleHotkeyId = 1;
 constexpr UINT_PTR kMockHudTimerId = 1;
 constexpr UINT_PTR kEcHudTimerId = 2;
 constexpr UINT_PTR kBatteryHudTimerId = 3;
+constexpr UINT_PTR kGraphicsApiRetryTimerId = 4;
 
 class App
 {
@@ -55,6 +57,7 @@ public:
     void SampleProductionTelemetry();
     void SampleProductionBatteryTelemetry();
     void RenderProductionHud();
+    void TryGraphicsApiProbe();
     bool MockHudVisible() const noexcept;
     bool MockHudEnabled() const noexcept { return mockHudEnabled_; }
     const clawhud::HudLayoutOptions& HudOptions() const noexcept { return hudOptions_; }
@@ -90,6 +93,8 @@ private:
     void StartProductionPresentMonSampling();
     void StopProductionPresentMonSampling();
     void HandlePresentMonHudUpdate(DWORD processId, std::optional<double> displayedFps);
+    void StartGraphicsApiProbe(DWORD processId);
+    void StopGraphicsApiProbe();
     bool RequestHudOnUiThread(bool visible, const HudVisibilityState* restore, DWORD timeoutMs);
     void DiscardPendingHudVisibilityRequests();
     void DiscardPendingPresentMonHudUpdates();
@@ -108,6 +113,10 @@ private:
     std::optional<clawhud::WindowsPowerTelemetry> latestPowerTelemetry_;
     clawhud::WindowsUsageSampler usageSampler_;
     std::optional<clawhud::WindowsUsageTelemetry> latestUsageTelemetry_;
+    clawhud::IntelGraphicsApiProbe graphicsApiProbe_;
+    std::optional<std::wstring> latestGraphicsApi_;
+    DWORD graphicsApiProcessId_{};
+    unsigned graphicsApiAttempts_{};
     ForegroundTracker foregroundTracker_;
     clawhud::HudLayoutOptions hudOptions_{};
     std::optional<bool> manualHudVisibilityOverride_;

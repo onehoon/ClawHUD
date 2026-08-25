@@ -66,6 +66,17 @@ int main()
     displayed.presentMonDisplayedFps = 120.0;
     ok &= Check(JoinHudRuns(FormatHud(displayed)) == L"FPS 120",
         "PresentMon displayed FPS formatting");
+    displayed.graphicsApi = L"DX12";
+    ok &= Check(JoinHudRuns(FormatHud(displayed)) == L"DX12 120 FPS",
+        "graphics API and displayed FPS formatting");
+
+    HudTelemetrySnapshot unavailableApi{};
+    unavailableApi.presentMonDisplayedFps = 120.0;
+    unavailableApi.cpuUsagePercent = 33.0;
+    unavailableApi.gpuUsagePercent = 44.0;
+    ok &= Check(JoinHudRuns(FormatHud(unavailableApi)) ==
+        L"FPS 120 | CPU 33% | GPU 44%",
+        "missing graphics API preserves other telemetry");
 
     return ok ? 0 : 1;
 }

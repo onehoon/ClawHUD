@@ -123,6 +123,8 @@ LRESULT CALLBACK TrayIcon::WindowProc(HWND window, UINT message, WPARAM wParam, 
             self->app_.SampleProductionTelemetry();
         else if (wParam == kBatteryHudTimerId)
             self->app_.SampleProductionBatteryTelemetry();
+        else if (wParam == kGraphicsApiRetryTimerId)
+            self->app_.TryGraphicsApiProbe();
         else if (wParam == kMockHudTimerId)
             self->app_.RenderMockHud();
         return 0;

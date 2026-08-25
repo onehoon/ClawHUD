@@ -21,6 +21,8 @@ constexpr UINT kPresentMonHudUpdate = WM_APP + 4;
 constexpr UINT kMockHudTimerIntervalMs = 100;
 constexpr UINT kUsageSamplingIntervalMs = 1000;
 constexpr UINT kBatteryHudTimerIntervalMs = 5000;
+constexpr UINT kGraphicsApiRetryIntervalMs = 500;
+constexpr unsigned kGraphicsApiMaxAttempts = 5;
 constexpr wchar_t kInstanceMutexName[] = L"Local\\ClawHUD.SingleInstance";
 
 struct HudVisibilityRequest
@@ -92,6 +94,7 @@ App::~App()
 {
     KillTimer(tray_.Window(), kMockHudTimerId);
     StopProductionEcSampling();
+    StopGraphicsApiProbe();
     foregroundTracker_.Stop();
     if (vrrDiagnostic_) vrrDiagnostic_->Stop();
     DiscardPendingHudVisibilityRequests();
@@ -166,6 +169,8 @@ bool App::StartMockHud()
     if (!EnsureMockHud()) return false;
     mockHudEnabled_ = true;
     mockFrameIndex_ = 0;
+    if (const DWORD processId = foregroundTracker_.TrackedProcessId())
+        StartGraphicsApiProbe(processId);
     ReconcileHudVisibility();
     return true;
 }
@@ -197,6 +202,7 @@ void App::StopMockHud()
     manualHudVisibilityOverride_.reset();
     KillTimer(tray_.Window(), kMockHudTimerId);
     StopProductionEcSampling();
+    StopGraphicsApiProbe();
     ReconcileHudVisibility();
 }
 
@@ -317,6 +323,7 @@ void App::RenderProductionHud()
         ? std::optional<double>(*ecHudTelemetry_.cpuPackagePowerW) : std::nullopt;
     snapshot.fan1Rpm = ecHudTelemetry_.fan1Rpm;
     snapshot.fan2Rpm = ecHudTelemetry_.fan2Rpm;
+    snapshot.graphicsApi = latestGraphicsApi_;
     snapshot.presentMonDisplayedFps = latestPresentMonDisplayedFps_;
     if (latestUsageTelemetry_)
     {
@@ -342,6 +349,8 @@ void App::SampleProductionTelemetry()
     if (!mockHudEnabled_ || !hudPresentation_ || !hudPresentation_->Visible() ||
         diagnosticHudMode_.has_value())
         return;
+    if (graphicsApiProcessId_ && !ProcessAlive(graphicsApiProcessId_))
+        StopGraphicsApiProbe();
     ecHudTelemetry_ = ReadHudEcTelemetry();
     if (!usageSampler_.Initialized())
     {
@@ -405,6 +414,7 @@ void App::StartProductionPresentMonSampling()
     if (!processId || !ProcessAlive(processId))
     {
         StopProductionPresentMonSampling();
+        StopGraphicsApiProbe();
         return;
     }
     if (presentMonHudTelemetry_ && presentMonProcessId_ == processId &&
@@ -439,12 +449,50 @@ void App::StopProductionPresentMonSampling()
     latestPresentMonDisplayedFps_.reset();
 }
 
+void App::StartGraphicsApiProbe(DWORD processId)
+{
+    StopGraphicsApiProbe();
+    graphicsApiProcessId_ = processId;
+    TryGraphicsApiProbe();
+}
+
+void App::StopGraphicsApiProbe()
+{
+    KillTimer(tray_.Window(), kGraphicsApiRetryTimerId);
+    graphicsApiProcessId_ = 0;
+    graphicsApiAttempts_ = 0;
+    latestGraphicsApi_.reset();
+}
+
+void App::TryGraphicsApiProbe()
+{
+    if (!graphicsApiProcessId_ || !ProcessAlive(graphicsApiProcessId_))
+    {
+        StopGraphicsApiProbe();
+        return;
+    }
+    ++graphicsApiAttempts_;
+    latestGraphicsApi_ = graphicsApiProbe_.Query(graphicsApiProcessId_);
+    if (latestGraphicsApi_ || graphicsApiAttempts_ >= kGraphicsApiMaxAttempts)
+    {
+        KillTimer(tray_.Window(), kGraphicsApiRetryTimerId);
+        if (!latestGraphicsApi_)
+            Log(L"IGCL Graphics API unresolved after bounded retries");
+        RenderProductionHud();
+        return;
+    }
+    SetTimer(tray_.Window(), kGraphicsApiRetryTimerId,
+        kGraphicsApiRetryIntervalMs, nullptr);
+}
+
 void App::HandlePresentMonHudUpdate(DWORD processId,
     std::optional<double> displayedFps)
 {
     if (diagnosticHudMode_.has_value() || !presentMonHudTelemetry_ ||
         presentMonProcessId_ != processId || !MockHudVisible())
         return;
+    if (!ProcessAlive(processId))
+        StopGraphicsApiProbe();
     latestPresentMonDisplayedFps_ = displayedFps;
     RenderProductionHud();
     if (!displayedFps)
@@ -471,6 +519,7 @@ void App::TrackMockGameWindow(HWND window)
     foregroundTracker_.SetTrackedProcessId(processId);
     usageSampler_.Reset();
     latestUsageTelemetry_.reset();
+    StartGraphicsApiProbe(processId);
     if (EnsureMockHud())
     {
         mockHudEnabled_ = true;
@@ -510,6 +559,8 @@ void App::HandleHudToggleHotkey()
         }
         mockHudEnabled_ = true;
         mockFrameIndex_ = 0;
+        if (const DWORD processId = foregroundTracker_.TrackedProcessId())
+            StartGraphicsApiProbe(processId);
     }
     manualHudVisibilityOverride_ = !MockHudVisible();
     ReconcileHudVisibility();
@@ -680,6 +731,8 @@ void App::ReconcileHudVisibility()
 {
     if (!hudPresentation_)
         return;
+    if (graphicsApiProcessId_ && !ProcessAlive(graphicsApiProcessId_))
+        StopGraphicsApiProbe();
     const bool resolvedShow = mockHudEnabled_ && (manualHudVisibilityOverride_.has_value()
         ? *manualHudVisibilityOverride_
         : clawhud::ShouldShowHud(hudOptions_.visibilityMode,
@@ -819,6 +872,7 @@ void App::Exit()
     exiting_ = true;
     KillTimer(tray_.Window(), kMockHudTimerId);
     StopProductionEcSampling();
+    StopGraphicsApiProbe();
     foregroundTracker_.Stop();
     if (vrrDiagnostic_) vrrDiagnostic_->Stop();
     if (ecDiagnostic_) ecDiagnostic_->Stop();
