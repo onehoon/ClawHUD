@@ -5,8 +5,10 @@
 
 #include <Velopack.hpp>
 
+#include <algorithm>
 #include <cstdlib>
 #include <memory>
+#include <shlobj.h>
 #include <string>
 
 namespace
@@ -16,6 +18,24 @@ constexpr UINT kForegroundChanged = WM_APP + 2;
 constexpr UINT_PTR kMockHudTimerId = 1;
 constexpr UINT kMockHudTimerIntervalMs = 100;
 constexpr wchar_t kInstanceMutexName[] = L"Local\\ClawHUD.SingleInstance";
+
+std::wstring HudSettingsPath()
+{
+    PWSTR localAppData{};
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, &localAppData)))
+        return {};
+    std::wstring path(localAppData);
+    CoTaskMemFree(localAppData);
+    return path + L"\\ClawHUD\\settings.ini";
+}
+
+std::wstring ReadHudSetting(const std::wstring& path, const wchar_t* key,
+    const wchar_t* fallback)
+{
+    wchar_t value[64]{};
+    GetPrivateProfileStringW(L"HUD", key, fallback, value, ARRAYSIZE(value), path.c_str());
+    return value;
+}
 
 void Log(const std::wstring& message)
 {
@@ -28,6 +48,7 @@ App::App(HINSTANCE instance) : instance_(instance), tray_(*this)
 {
     wchar_t path[MAX_PATH]{}; const DWORD length = GetModuleFileNameW(instance_, path, ARRAYSIZE(path));
     executablePath_.assign(path, length);
+    LoadHudSettings();
 }
 
 App::~App()
@@ -107,6 +128,43 @@ void App::StopMockHud()
     mockHudEnabled_ = false;
     KillTimer(tray_.Window(), kMockHudTimerId);
     ReconcileHudVisibility();
+}
+
+void App::SetHudAlignment(clawhud::HudAlignment alignment)
+{
+    if (hudOptions_.alignment == alignment)
+        return;
+    hudOptions_.alignment = alignment;
+    SaveHudSettings();
+    RefreshMockHud();
+}
+
+void App::SetHudBackgroundMode(clawhud::HudBackgroundMode mode)
+{
+    if (hudOptions_.backgroundMode == mode)
+        return;
+    hudOptions_.backgroundMode = mode;
+    SaveHudSettings();
+    RefreshMockHud();
+}
+
+void App::SetHudBackgroundOpacity(float opacity, bool persist)
+{
+    opacity = std::clamp(opacity, 0.0f, 1.0f);
+    if (hudOptions_.backgroundOpacity == opacity)
+    {
+        if (persist) SaveHudSettings();
+        return;
+    }
+    hudOptions_.backgroundOpacity = opacity;
+    if (persist) SaveHudSettings();
+    RefreshMockHud();
+}
+
+void App::RefreshMockHud()
+{
+    if (mockHudEnabled_ && hudPresentation_ && hudPresentation_->Visible())
+        RenderMockHud();
 }
 
 void App::RenderMockHud()
@@ -196,6 +254,40 @@ bool App::AcquireSingleInstance()
         return false;
     }
     return true;
+}
+
+void App::LoadHudSettings()
+{
+    const auto path = HudSettingsPath();
+    if (path.empty()) return;
+    const auto alignment = ReadHudSetting(path, L"Alignment", L"Center");
+    if (alignment == L"Left") hudOptions_.alignment = clawhud::HudAlignment::Left;
+    else if (alignment == L"Right") hudOptions_.alignment = clawhud::HudAlignment::Right;
+    const auto background = ReadHudSetting(path, L"BackgroundWidth", L"FullWidth");
+    if (background == L"ContentWidth") hudOptions_.backgroundMode = clawhud::HudBackgroundMode::ContentWidth;
+    else if (background == L"FullWidth") hudOptions_.backgroundMode = clawhud::HudBackgroundMode::FullWidth;
+    const int rawPercent = static_cast<int>(GetPrivateProfileIntW(
+        L"HUD", L"BackgroundOpacity", 50, path.c_str()));
+    const int percent = std::clamp(rawPercent, 0, 100);
+    hudOptions_.backgroundOpacity = percent / 100.0f;
+}
+
+void App::SaveHudSettings() const
+{
+    const auto path = HudSettingsPath();
+    if (path.empty()) return;
+    const auto separator = path.find_last_of(L'\\');
+    if (separator != std::wstring::npos)
+        CreateDirectoryW(path.substr(0, separator).c_str(), nullptr);
+    const wchar_t* alignment = hudOptions_.alignment == clawhud::HudAlignment::Left ? L"Left" :
+        hudOptions_.alignment == clawhud::HudAlignment::Right ? L"Right" : L"Center";
+    const wchar_t* background = hudOptions_.backgroundMode == clawhud::HudBackgroundMode::ContentWidth
+        ? L"ContentWidth" : L"FullWidth";
+    wchar_t opacity[8]{};
+    swprintf_s(opacity, L"%d", static_cast<int>(hudOptions_.backgroundOpacity * 100.0f + 0.5f));
+    WritePrivateProfileStringW(L"HUD", L"Alignment", alignment, path.c_str());
+    WritePrivateProfileStringW(L"HUD", L"BackgroundWidth", background, path.c_str());
+    WritePrivateProfileStringW(L"HUD", L"BackgroundOpacity", opacity, path.c_str());
 }
 
 void App::CheckForUpdates()

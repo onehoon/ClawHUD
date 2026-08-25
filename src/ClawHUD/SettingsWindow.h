@@ -22,13 +22,23 @@ private:
     static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     void CreateTabs();
     void ShowTab(int index);
+    void UpdateHudControls();
     void UpdateDiagnosticButtons();
 
     App& app_;
     HINSTANCE instance_{};
     HWND window_{};
     HWND tabs_{};
+    HWND generalPanel_{};
+    HWND hudPanel_{};
     HWND diagnosticsPanel_{};
+    HWND alignmentLeft_{};
+    HWND alignmentCenter_{};
+    HWND alignmentRight_{};
+    HWND backgroundFull_{};
+    HWND backgroundContent_{};
+    HWND opacitySlider_{};
+    HWND opacityLabel_{};
     HWND startEcButton_{};
     HWND openLogsButton_{};
     HWND diagnosticStatus_{};
