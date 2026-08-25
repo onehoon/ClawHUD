@@ -239,6 +239,14 @@ void VrrDiagnostic::Run()
         while (!stop_ && std::chrono::steady_clock::now() < visibleEnd) { const HWND hwnd = FindWindowW(L"ClawHUD.VrrPoc", nullptr); if (hwnd && IsWindowVisible(hwnd)) { visible = true; break; } std::this_thread::sleep_for(std::chrono::milliseconds(100)); }
         if (!visible) { if (WaitForSingleObject(child.hProcess, 0) == WAIT_TIMEOUT) { TerminateProcess(child.hProcess, 3); WaitForSingleObject(child.hProcess, 5000); } CloseHandle(child.hThread); CloseHandle(child.hProcess); log << L"PoC HUD: FAILED\nReason: PoC HUD did not become visible\nRESULT: Failed\n"; Status(L"Failed"); running_ = false; return; }
         const bool onOk = Capture(pm, *target, onCsv, "ClawHUD-VRR-" + std::to_string(*target) + "-ON-" + sessionStamp, log);
+        const bool pocAliveAfterCapture = WaitForSingleObject(child.hProcess, 0) == WAIT_TIMEOUT;
+        const HWND pocWindowAfterCapture = FindWindowW(L"ClawHUD.VrrPoc", nullptr);
+        const bool pocVisibleAfterCapture = pocWindowAfterCapture != nullptr && IsWindowVisible(pocWindowAfterCapture) != FALSE;
+        const bool pocCoveredCapture = pocAliveAfterCapture && pocVisibleAfterCapture;
+        if (onOk && !pocCoveredCapture)
+        {
+            log << L"PresentMon: FAILED\nReason: PoC HUD ended before the HUD-ON capture was safely complete\n";
+        }
         bool pocTimeout = false; const auto pocEnd = std::chrono::steady_clock::now() + kPocWatchdog;
         while (!stop_ && WaitForSingleObject(child.hProcess, 100) == WAIT_TIMEOUT && std::chrono::steady_clock::now() < pocEnd) {}
         if ((stop_ || std::chrono::steady_clock::now() >= pocEnd) && WaitForSingleObject(child.hProcess, 0) == WAIT_TIMEOUT) { pocTimeout = true; TerminateProcess(child.hProcess, stop_ ? 2 : 3); WaitForSingleObject(child.hProcess, 5000); }
@@ -246,7 +254,7 @@ void VrrDiagnostic::Run()
         log << L"PoC Exit: " << ((!pocTimeout && code == 0) ? L"OK (normal)" : L"FAILED") << L"\n=== COMPARISON ===\nPresentMode set changed: "
             << ((!off.valid || !on.valid) ? L"unavailable" : (SamePresentModeSet(off.modes, on.modes) ? L"NO" : L"YES"))
             << L"\nVRR Analysis: NEEDS MANUAL REVIEW\n";
-        const bool completed = !stop_ && off.valid && on.valid && offOk && onOk && !pocTimeout && code == 0; log << L"Result: " << (completed ? L"Completed" : L"Failed") << L"\n"; Status(stop_ ? L"Cancelled" : (completed ? L"Completed" : L"Failed")); running_ = false;
+        const bool completed = !stop_ && off.valid && on.valid && offOk && onOk && pocCoveredCapture && !pocTimeout && code == 0; log << L"Result: " << (completed ? L"Completed" : L"Failed") << L"\n"; Status(stop_ ? L"Cancelled" : (completed ? L"Completed" : L"Failed")); running_ = false;
     }
     catch (...) { if (log.is_open()) log << L"RESULT: Failed\n"; Status(L"Failed"); running_ = false; }
 }

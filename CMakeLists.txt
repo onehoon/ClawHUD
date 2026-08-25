@@ -24,6 +24,7 @@ file(ARCHIVE_EXTRACT INPUT "${VELOPACK_ARCHIVE}" DESTINATION "${VELOPACK_ROOT}")
 
 set(PRESENTMON_VERSION "2.5.1")
 set(PRESENTMON_EXE "${CMAKE_BINARY_DIR}/_deps/PresentMon-${PRESENTMON_VERSION}-x64.exe")
+set(PRESENTMON_LICENSE "${CMAKE_SOURCE_DIR}/third_party/PresentMon-LICENSE.txt")
 file(DOWNLOAD
     "https://github.com/GameTechDev/PresentMon/releases/download/v${PRESENTMON_VERSION}/PresentMon-${PRESENTMON_VERSION}-x64.exe"
     "${PRESENTMON_EXE}"
@@ -57,6 +58,9 @@ add_custom_command(TARGET ClawHUD POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${PRESENTMON_EXE}"
         "$<TARGET_FILE_DIR:ClawHUD>/tools/PresentMon.exe"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${PRESENTMON_LICENSE}"
+        "$<TARGET_FILE_DIR:ClawHUD>/tools/PresentMon-LICENSE.txt"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${VELOPACK_ROOT}/lib/velopack_libc_win_x64_msvc.dll"
         "$<TARGET_FILE_DIR:ClawHUD>/velopack_libc.dll")
