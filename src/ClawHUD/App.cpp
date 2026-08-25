@@ -5,7 +5,6 @@
 #include <Velopack.hpp>
 
 #include <cstdlib>
-#include <filesystem>
 #include <memory>
 #include <string>
 
@@ -19,13 +18,6 @@ void Log(const std::wstring& message)
     OutputDebugStringW((L"[ClawHUD] " + message + L"\n").c_str());
 }
 
-bool IsVelopackInstalled()
-{
-    wchar_t path[MAX_PATH]{};
-    const DWORD length = GetModuleFileNameW(nullptr, path, ARRAYSIZE(path));
-    if (length == 0 || length == ARRAYSIZE(path)) return false;
-    return std::filesystem::exists(std::filesystem::path(path).parent_path() / L"Update.exe");
-}
 }
 
 App::App(HINSTANCE instance) : instance_(instance), tray_(*this)
@@ -70,11 +62,6 @@ bool App::AcquireSingleInstance()
 
 void App::CheckForUpdates()
 {
-    if (!IsVelopackInstalled())
-    {
-        Log(L"Velopack: development executable is portable; no feed check");
-        return;
-    }
     try
     {
         Velopack::UpdateManager manager(std::make_unique<Velopack::GithubSource>(CLAWHUD_UPDATE_REPOSITORY));

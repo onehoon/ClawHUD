@@ -4,9 +4,9 @@
 
 ## Startup lifecycle
 
-For an installed Velopack layout, the native entry point runs the official Velopack C/C++ startup hook first, then acquires a per-user named mutex. A second instance exits without opening or activating the first instance. The normal path performs a silent Velopack GitHub update check, download, and apply/restart when available; errors are logged through `OutputDebugString` and continue with the installed executable. The Velopack DLL is delay-loaded so direct development builds do not load it before startup.
+The native entry point runs the official Velopack C/C++ startup hook first, then acquires a per-user named mutex. A second instance exits without opening or activating the first instance. The normal path performs a silent Velopack GitHub update check, download, and apply/restart when available; errors are logged through `OutputDebugString` and continue with the current executable. The Velopack DLL is delay-loaded so it is not imported before the entry point.
 
-A direct CMake/Visual Studio build has no adjacent `Update.exe`, so it is treated as a portable development executable and skips the network feed check. This keeps local lifecycle testing deterministic; the installed Velopack path remains compiled and available for packaged validation.
+On a direct CMake/Visual Studio build, Velopack startup/update exceptions are caught and the app continues silently. A packaged Velopack layout uses the same entry point and official hook handling without a custom `Update.exe` path probe.
 
 After update handling, startup creates only a message-only tray window and a tray icon. No Settings window, taskbar window, D3D device, DirectComposition object, PresentMon session, WMI/EC polling, IGCL object, or diagnostics service is created.
 
