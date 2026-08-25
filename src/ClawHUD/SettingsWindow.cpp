@@ -129,7 +129,7 @@ void SettingsWindow::CreateTabs()
         0, 268, 300, 32, hudPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOpacitySlider)), instance_, nullptr);
     SendMessageW(opacitySlider_, TBM_SETRANGE, TRUE, MAKELONG(0, 100));
     opacityLabel_ = CreateWindowW(L"STATIC", L"50%", WS_CHILD | WS_VISIBLE,
-        310, 172, 60, 22, hudPanel_, nullptr, instance_, nullptr);
+        310, 272, 60, 22, hudPanel_, nullptr, instance_, nullptr);
     tweaksPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD, 24, 52, 940, 580, window_, nullptr, instance_, nullptr);
     if (tweaksPanel_) SetWindowSubclass(tweaksPanel_, ForwardPanelNotifications, 3, 0);
     CreateWindowW(L"STATIC", L"Intel VRR Range Fix", WS_CHILD | WS_VISIBLE, 0, 0, 300, 24, tweaksPanel_, nullptr, instance_, nullptr);
@@ -268,9 +268,14 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
         switch (LOWORD(wParam))
         {
         case kStartWithWindows:
+        {
+            const bool requested =
+                SendMessageW(reinterpret_cast<HWND>(lParam), BM_GETCHECK, 0, 0) == BST_CHECKED;
             self->app_.SetStartWithWindows(
-                SendMessageW(reinterpret_cast<HWND>(lParam), BM_GETCHECK, 0, 0) == BST_CHECKED);
+                requested);
+            self->UpdateGeneralControls();
             return 0;
+        }
         case kEnableHud:
             self->app_.SetHudEnabled(
                 SendMessageW(reinterpret_cast<HWND>(lParam), BM_GETCHECK, 0, 0) == BST_CHECKED);

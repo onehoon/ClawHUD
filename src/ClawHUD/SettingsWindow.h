@@ -24,7 +24,6 @@ private:
     static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     void CreateTabs();
     void ShowTab(int index);
-    void UpdateHudControls();
     void UpdateTweaksControls();
     void UpdateDiagnosticButtons();
 
