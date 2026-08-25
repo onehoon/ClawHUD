@@ -61,6 +61,13 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/IntelGraphicsApiProbe.cpp
     src/ClawHUD/VrrDiagnostic.cpp
     src/ClawHUD/IntelVrrDiagnosticProbe.cpp
+    src/ClawHUD/Tweaks/TweakStartupCoordinator.cpp
+    src/ClawHUD/Tweaks/IntelVrr/AffectedPanelDetector.cpp
+    src/ClawHUD/Tweaks/IntelVrr/IntelArcSyncClient.cpp
+    src/ClawHUD/Tweaks/IntelVrr/IntelVrrRangeTweak.cpp
+    src/ClawHUD/Tweaks/IntelVrr/IntelVrrRunResult.cpp
+    src/ClawHUD/Tweaks/IntelVrr/IntelVrrResultStore.cpp
+    src/ClawHUD/Tweaks/IntelVrr/IntelVrrRunLogger.cpp
     src/ClawHUD/HudModel.cpp
     src/ClawHUD/HudRenderer.cpp
     src/ClawHUD/HudPresentation.cpp
@@ -70,7 +77,7 @@ target_compile_definitions(ClawHUD PRIVATE
     UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX
     CLAWHUD_UPDATE_REPOSITORY=\"https://github.com/onehoon/ClawHUD\")
 target_include_directories(ClawHUD PRIVATE src/ClawHUD "${CMAKE_BINARY_DIR}/generated")
-target_link_libraries(ClawHUD PRIVATE ClawHUD.Velopack comctl32 shell32 delayimp d3d11 dxgi dcomp d2d1 dwrite pdh advapi32)
+target_link_libraries(ClawHUD PRIVATE ClawHUD.Velopack comctl32 shell32 delayimp d3d11 dxgi dcomp d2d1 dwrite pdh advapi32 wbemuuid ole32 oleaut32)
 target_link_options(ClawHUD PRIVATE "/DELAYLOAD:velopack_libc.dll")
 set_target_properties(ClawHUD PROPERTIES CXX_EXTENSIONS OFF)
 
@@ -136,6 +143,26 @@ if(BUILD_TESTING)
     target_include_directories(ClawHUD.IntelVrrDiagnosticProbeTests PRIVATE src/ClawHUD)
     set_target_properties(ClawHUD.IntelVrrDiagnosticProbeTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.IntelVrrDiagnosticProbeTests COMMAND ClawHUD.IntelVrrDiagnosticProbeTests)
+
+    add_executable(ClawHUD.IntelVrrRangeTweakTests
+        tests/IntelVrrRangeTweakTests.cpp
+        src/ClawHUD/Tweaks/IntelVrr/AffectedPanelDetector.cpp
+        src/ClawHUD/Tweaks/IntelVrr/IntelVrrRangeTweak.cpp
+        src/ClawHUD/Tweaks/IntelVrr/IntelArcSyncClient.cpp
+        src/ClawHUD/Tweaks/IntelVrr/IntelVrrResultStore.cpp
+        src/ClawHUD/Tweaks/IntelVrr/IntelVrrRunResult.cpp)
+    target_compile_features(ClawHUD.IntelVrrRangeTweakTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.IntelVrrRangeTweakTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.IntelVrrRangeTweakTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.IntelVrrRangeTweakTests PRIVATE wbemuuid ole32 oleaut32 shell32)
+    set_target_properties(ClawHUD.IntelVrrRangeTweakTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.IntelVrrRangeTweakTests COMMAND ClawHUD.IntelVrrRangeTweakTests)
+
+    add_executable(ClawHUD.TweakStartupCoordinatorTests tests/TweakStartupCoordinatorTests.cpp)
+    target_compile_features(ClawHUD.TweakStartupCoordinatorTests PRIVATE cxx_std_20)
+    target_include_directories(ClawHUD.TweakStartupCoordinatorTests PRIVATE src/ClawHUD)
+    set_target_properties(ClawHUD.TweakStartupCoordinatorTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.TweakStartupCoordinatorTests COMMAND ClawHUD.TweakStartupCoordinatorTests)
 
     add_executable(ClawHUD.DiagnosticHudModeTests tests/DiagnosticHudModeTests.cpp)
     target_compile_features(ClawHUD.DiagnosticHudModeTests PRIVATE cxx_std_20)

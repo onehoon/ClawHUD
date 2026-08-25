@@ -26,7 +26,7 @@ The report always says `VRR Analysis: NEEDS MANUAL REVIEW`. `AllowsTearing`, Ind
 
 ### Intel IGCL supplementary evidence
 
-During an explicitly started VRR test, ClawHUD also attempts to load the driver-installed `ControlLib.dll` dynamically. It does not bundle the IGCL runtime, add a package download, or initialize IGCL at startup, tray idle, Settings creation, or HUD startup.
+During an explicitly started VRR test, ClawHUD also attempts to load the driver-installed `ControlLib.dll` dynamically for read-only evidence. This diagnostic path does not bundle the IGCL runtime or add a package download. The separate Intel VRR Range Fix may load the same driver-installed DLL during its independent bounded startup tweak; that path is mutation-capable only under its own conservative policy and is not part of Diagnostics.
 
 PresentMon remains the application/presentation evidence path. IGCL is supplementary evidence for Intel Arc Sync capability/current profile and per-output/target VBlank timestamps during the same HUD-OFF, STATIC HUD, and DYNAMIC HUD capture windows. Duplicate timestamps are excluded and non-monotonic resets are recorded. IGCL result codes are retained with their symbolic name and raw hexadecimal value.
 

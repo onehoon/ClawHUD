@@ -23,6 +23,7 @@ private:
     void CreateTabs();
     void ShowTab(int index);
     void UpdateHudControls();
+    void UpdateTweaksControls();
     void UpdateDiagnosticButtons();
 
     App& app_;
@@ -32,6 +33,11 @@ private:
     HWND generalPanel_{};
     HWND hudPanel_{};
     HWND diagnosticsPanel_{};
+    HWND tweaksPanel_{};
+    HWND intelVrrToggle_{};
+    HWND intelVrrPanel_{};
+    HWND intelVrrRange_{};
+    HWND intelVrrResult_{};
     HWND alignmentLeft_{};
     HWND alignmentCenter_{};
     HWND alignmentRight_{};

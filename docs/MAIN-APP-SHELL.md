@@ -8,14 +8,14 @@ The native entry point runs the official Velopack C/C++ startup hook first, then
 
 On a direct CMake/Visual Studio build, Velopack startup/update exceptions are caught and the app continues silently. A packaged Velopack layout uses the same entry point and official hook handling without a custom `Update.exe` path probe.
 
-After update handling, startup creates only a tray window and a tray icon. No Settings window, taskbar window, D3D device, DirectComposition object, PresentMon session, WMI/EC polling, IGCL object, or diagnostics worker is created.
+After update handling, startup creates only a tray window and a tray icon. No Settings window, taskbar window, D3D device, DirectComposition object, PresentMon session, WMI/EC polling, or diagnostics worker is created. After the core tray/runtime is ready, the independent Intel VRR Range Fix may perform one bounded WMI/IGCL startup sequence; its failure never blocks the tray or other runtime paths.
 
 The tray menu contains:
 
 - Settings
 - Exit
 
-Settings is created only when selected. It contains the General, HUD, and Diagnostics tabs. The Diagnostics tab only creates its bounded MSI EC worker after **Start EC Test** is selected. Closing it calls `DestroyWindow`; the owning `unique_ptr` is released after the destroy notification. Selecting Settings again creates a fresh window.
+Settings is created only when selected. It contains the General, HUD, Tweaks, and Diagnostics tabs. The Diagnostics tab only creates its bounded MSI EC worker after **Start EC Test** is selected. The Tweaks tab only persists the Intel VRR Range Fix startup toggle and displays its last result; it never applies a profile from the UI. Closing it calls `DestroyWindow`; the owning `unique_ptr` is released after the destroy notification. Selecting Settings again creates a fresh window.
 
 ## Build
 

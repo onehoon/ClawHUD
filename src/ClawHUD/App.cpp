@@ -2,6 +2,7 @@
 
 #include "SettingsWindow.h"
 #include "HudPresentation.h"
+#include "Tweaks/IntelVrr/IntelVrrResultStore.h"
 
 #include <Velopack.hpp>
 
@@ -61,6 +62,13 @@ std::wstring ReadHudSetting(const std::wstring& path, const wchar_t* key,
     wchar_t value[64]{};
     GetPrivateProfileStringW(L"HUD", key, fallback, value, ARRAYSIZE(value), path.c_str());
     return value;
+}
+
+bool ReadBoolSetting(const std::wstring& path, const wchar_t* section, const wchar_t* key, bool fallback)
+{
+    wchar_t value[16]{};
+    GetPrivateProfileStringW(section, key, fallback ? L"1" : L"0", value, ARRAYSIZE(value), path.c_str());
+    return wcstol(value, nullptr, 10) != 0;
 }
 
 void Log(const std::wstring& message)
@@ -129,7 +137,23 @@ int App::Run()
     if (!foregroundTracker_.Start(tray_.Window(), kForegroundChanged,
         [this](bool) { ReconcileHudVisibility(); }))
         return 1;
+    tweakStartupCoordinator_.Start(intelVrrRangeFixEnabled_);
     return ProcessMessages();
+}
+
+void App::SetIntelVrrRangeFixEnabled(bool enabled)
+{
+    intelVrrRangeFixEnabled_ = enabled;
+    const auto path = HudSettingsPath();
+    if (path.empty()) return;
+    const auto separator = path.find_last_of(L'\\');
+    if (separator != std::wstring::npos) CreateDirectoryW(path.substr(0, separator).c_str(), nullptr);
+    WritePrivateProfileStringW(L"Tweaks", L"IntelVrrRangeFixEnabled", enabled ? L"1" : L"0", path.c_str());
+}
+
+std::optional<clawhud::IntelVrrRunResult> App::IntelVrrLastResult() const
+{
+    return clawhud::IntelVrrResultStore::Load();
 }
 
 bool App::StartEcDiagnostic()
@@ -808,6 +832,7 @@ void App::LoadHudSettings()
     const bool valid = end != opacityText.c_str() && end && *end == L'\0';
     const long percent = std::clamp(valid ? parsed : 50L, 0L, 100L);
     hudOptions_.backgroundOpacity = static_cast<float>(percent) / 100.0f;
+    intelVrrRangeFixEnabled_ = ReadBoolSetting(path, L"Tweaks", L"IntelVrrRangeFixEnabled", true);
 }
 
 void App::SaveHudSettings() const
