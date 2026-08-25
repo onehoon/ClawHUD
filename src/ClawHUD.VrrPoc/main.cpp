@@ -7,6 +7,7 @@
 #include <presentation.h>
 #include <wrl/client.h>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -14,6 +15,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 using Microsoft::WRL::ComPtr;
 
@@ -29,7 +31,11 @@ public:
         std::tm local{};
         localtime_s(&local, &now);
         std::wstringstream name;
-        name << L"logs/vrr-poc-" << std::put_time(&local, L"%Y%m%d-%H%M%S") << L".log";
+        name << std::put_time(&local, L"%Y%m%d-%H%M%S");
+        stamp_ = name.str();
+        name.str(L"");
+        name.clear();
+        name << L"logs/vrr-poc-" << stamp_ << L".log";
         file_.open(name.str(), std::ios::out | std::ios::app);
     }
 
@@ -39,9 +45,111 @@ public:
         if (file_.is_open()) file_ << line << L'\n' << std::flush;
     }
 
+    const std::wstring& Stamp() const { return stamp_; }
+    std::filesystem::path CsvPath() const
+    {
+        return std::filesystem::path(L"logs") / (L"vrr-poc-" + stamp_ + L".csv");
+    }
+
 private:
     std::wofstream file_;
+    std::wstring stamp_;
 };
+
+std::wstring WallClock()
+{
+    SYSTEMTIME time{};
+    GetLocalTime(&time);
+    std::wstringstream value;
+    value << std::setfill(L'0') << std::setw(4) << time.wYear << L'-'
+        << std::setw(2) << time.wMonth << L'-' << std::setw(2) << time.wDay << L' '
+        << std::setw(2) << time.wHour << L':' << std::setw(2) << time.wMinute << L':'
+        << std::setw(2) << time.wSecond << L'.' << std::setw(3) << time.wMilliseconds;
+    return value.str();
+}
+
+double QpcMilliseconds()
+{
+    LARGE_INTEGER counter{}, frequency{};
+    QueryPerformanceCounter(&counter);
+    QueryPerformanceFrequency(&frequency);
+    return static_cast<double>(counter.QuadPart) * 1000.0 /
+        static_cast<double>(frequency.QuadPart);
+}
+
+struct TargetProcess
+{
+    DWORD pid{};
+    HANDLE handle{};
+    std::wstring path;
+};
+
+void CloseTarget(TargetProcess& target)
+{
+    if (target.handle)
+    {
+        CloseHandle(target.handle);
+        target.handle = nullptr;
+    }
+}
+
+bool TargetAlive(const TargetProcess& target)
+{
+    DWORD exitCode{};
+    return target.handle && GetExitCodeProcess(target.handle, &exitCode) != FALSE &&
+        exitCode == STILL_ACTIVE;
+}
+
+bool IsExcludedTarget(const std::wstring& path)
+{
+    std::wstring lowered = path;
+    std::transform(lowered.begin(), lowered.end(), lowered.begin(),
+        [](wchar_t value) { return static_cast<wchar_t>(towlower(value)); });
+    return lowered.ends_with(L"\\explorer.exe") || lowered.ends_with(L"\\clawhud.vrrpoc.exe");
+}
+
+bool AcquireTarget(Logger& log, TargetProcess& target)
+{
+    const HWND window = GetForegroundWindow();
+    DWORD pid{};
+    if (!window || !GetWindowThreadProcessId(window, &pid) || !pid || pid == GetCurrentProcessId())
+    {
+        log.Write(L"TEST FAILED");
+        log.Write(L"Reason: No valid foreground target process");
+        return false;
+    }
+
+    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, pid);
+    if (!process)
+    {
+        log.Write(L"TEST FAILED");
+        log.Write(L"Reason: OpenProcess failed for foreground target");
+        return false;
+    }
+
+    std::wstring path(32768, L'\0');
+    DWORD length = static_cast<DWORD>(path.size());
+    if (!QueryFullProcessImageNameW(process, 0, path.data(), &length))
+    {
+        CloseHandle(process);
+        log.Write(L"TEST FAILED");
+        log.Write(L"Reason: QueryFullProcessImageNameW failed");
+        return false;
+    }
+    path.resize(length);
+    if (IsExcludedTarget(path))
+    {
+        CloseHandle(process);
+        log.Write(L"TEST FAILED");
+        log.Write(L"Reason: Foreground process is excluded");
+        return false;
+    }
+
+    target = TargetProcess{ pid, process, path };
+    log.Write(L"Target Process: " + target.path);
+    log.Write(L"Target PID: " + std::to_wstring(target.pid));
+    return true;
+}
 
 std::wstring HResult(HRESULT hr)
 {
@@ -86,6 +194,8 @@ public:
     }
 
     void Toggle() { SetHudVisible(!hudVisible_); }
+    void SetVisible(bool visible) { SetHudVisible(visible); }
+    bool Visible() const { return hudVisible_; }
     HWND Window() const { return hwnd_; }
 
 private:
@@ -140,6 +250,7 @@ private:
             hr = output->GetDesc(&outputDesc);
             if (FAILED(hr)) Fail(log_, L"IDXGIOutput::GetDesc", hr);
             if (!outputDesc.AttachedToDesktop) continue;
+            if (!output_) output_ = output;
 
             std::wstringstream outputLog;
             outputLog << L"Output: " << outputDesc.DeviceName
@@ -161,6 +272,54 @@ private:
         if (FAILED(hr)) Fail(log_, L"IDCompositionDevice::CreateVisual", hr);
         hr = target_->SetRoot(visual_.Get());
         if (FAILED(hr)) Fail(log_, L"IDCompositionTarget::SetRoot", hr);
+        LogMpoCapability();
+    }
+
+    void LogMpoCapability()
+    {
+        log_.Write(L"=== MPO / HARDWARE COMPOSITION CAPABILITY ===");
+        ComPtr<IDXGIOutput3> output3;
+        if (output_ && SUCCEEDED(output_.As(&output3)))
+        {
+            UINT flags{};
+            const HRESULT hr = output3->CheckOverlaySupport(
+                DXGI_FORMAT_B8G8R8A8_UNORM, device_.Get(), &flags);
+            LogResult(log_, L"CheckOverlaySupport(BGRA8)", hr);
+            if (SUCCEEDED(hr))
+            {
+                log_.Write(std::wstring(L"  DIRECT: ") +
+                    ((flags & DXGI_OVERLAY_SUPPORT_FLAG_DIRECT) ? L"YES" : L"NO"));
+                log_.Write(std::wstring(L"  SCALING: ") +
+                    ((flags & DXGI_OVERLAY_SUPPORT_FLAG_SCALING) ? L"YES" : L"NO"));
+            }
+        }
+        else
+        {
+            log_.Write(L"DXGI Overlay Support (BGRA8): Unavailable");
+        }
+
+        ComPtr<IDXGIOutput6> output6;
+        if (output_ && SUCCEEDED(output_.As(&output6)))
+        {
+            UINT flags{};
+            const HRESULT hr = output6->CheckHardwareCompositionSupport(&flags);
+            LogResult(log_, L"CheckHardwareCompositionSupport", hr);
+            if (SUCCEEDED(hr))
+            {
+                log_.Write(std::wstring(L"  FULLSCREEN: ") +
+                    ((flags & DXGI_HARDWARE_COMPOSITION_SUPPORT_FLAG_FULLSCREEN) ? L"YES" : L"NO"));
+                log_.Write(std::wstring(L"  WINDOWED: ") +
+                    ((flags & DXGI_HARDWARE_COMPOSITION_SUPPORT_FLAG_WINDOWED) ? L"YES" : L"NO"));
+                log_.Write(std::wstring(L"  CURSOR_STRETCHED: ") +
+                    ((flags & DXGI_HARDWARE_COMPOSITION_SUPPORT_FLAG_CURSOR_STRETCHED) ? L"YES" : L"NO"));
+            }
+        }
+        else
+        {
+            log_.Write(L"DXGI Hardware Composition Support: Unavailable");
+        }
+        log_.Write(L"MPO capability: SUPPORTING EVIDENCE ONLY");
+        log_.Write(L"Actual MPO plane assignment: NOT DIRECTLY OBSERVABLE");
     }
 
     void CreatePresentation()
@@ -361,6 +520,7 @@ private:
     bool hudVisible_{};
     ComPtr<ID3D11Device> device_;
     ComPtr<ID3D11DeviceContext> context_;
+    ComPtr<IDXGIOutput> output_;
     ComPtr<IDCompositionDevice> compositionDevice_;
     ComPtr<IDCompositionTarget> target_;
     ComPtr<IDCompositionVisual> visual_;
@@ -374,6 +534,198 @@ private:
 };
 }
 
+constexpr UINT_PTR kAutomaticTimerId = 1;
+constexpr UINT kAutomaticToggleMs = 5000;
+constexpr std::chrono::seconds kCaptureDuration{ 60 };
+
+void LogHudState(Logger& log, const PresentationOverlay& overlay)
+{
+    log.Write(L"=== HUD STATE ===");
+    log.Write(L"Wall Time: " + WallClock());
+    log.Write(L"QPC_MS: " + std::to_wstring(QpcMilliseconds()));
+    log.Write(std::wstring(L"HUD: ") + (overlay.Visible() ? L"ON" : L"OFF"));
+    log.Write(std::wstring(L"Visual attached: ") + (overlay.Visible() ? L"YES" : L"NO"));
+    log.Write(std::wstring(L"HWND visible: ") +
+        (IsWindowVisible(overlay.Window()) ? L"YES" : L"NO"));
+}
+
+std::filesystem::path ExecutableDirectory()
+{
+    std::wstring path(32768, L'\0');
+    const DWORD length = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
+    if (!length) return {};
+    path.resize(length);
+    return std::filesystem::path(path).parent_path();
+}
+
+struct PresentMonResult
+{
+    DWORD exitCode{ STILL_ACTIVE };
+    bool csvCreated{};
+};
+
+bool StartPresentMon(Logger& log, const TargetProcess& target, PROCESS_INFORMATION& process)
+{
+    const auto presentMon = ExecutableDirectory() / L"PresentMon.exe";
+    const auto csv = std::filesystem::absolute(log.CsvPath());
+    log.Write(L"PresentMon path: " + presentMon.wstring());
+    log.Write(L"PresentMon version expected: 2.5.1");
+    log.Write(L"CSV path: " + csv.wstring());
+    if (!std::filesystem::exists(presentMon))
+    {
+        log.Write(L"PresentMon: FAILED");
+        log.Write(L"Reason: PresentMon.exe not found beside ClawHUD.VrrPoc.exe");
+        return false;
+    }
+
+    const std::wstring session = L"ClawHUD-VrrPoc-" + std::to_wstring(target.pid) + L"-" + log.Stamp();
+    const std::wstring command = L"\"" + presentMon.wstring() + L"\" --process_id " +
+        std::to_wstring(target.pid) + L" --output_file \"" + csv.wstring() +
+        L"\" --timed 60 --terminate_after_timed --no_console_stats --qpc_time_ms --session_name " + session;
+    std::vector<wchar_t> commandLine(command.begin(), command.end());
+    commandLine.push_back(L'\0');
+    STARTUPINFOW startup{ sizeof(startup) };
+    if (!CreateProcessW(presentMon.c_str(), commandLine.data(), nullptr, nullptr, FALSE,
+        CREATE_NO_WINDOW, nullptr, presentMon.parent_path().c_str(), &startup, &process))
+    {
+        log.Write(L"PresentMon: FAILED");
+        log.Write(L"Reason: CreateProcessW failed");
+        return false;
+    }
+    CloseHandle(process.hThread);
+    process.hThread = nullptr;
+    log.Write(L"PresentMon: started");
+    return true;
+}
+
+PresentMonResult FinishPresentMon(Logger& log, PROCESS_INFORMATION& process,
+    const std::filesystem::path& csv, bool terminate)
+{
+    if (!process.hProcess) return {};
+    if (terminate && WaitForSingleObject(process.hProcess, 0) == WAIT_TIMEOUT)
+    {
+        TerminateProcess(process.hProcess, 3);
+    }
+    if (WaitForSingleObject(process.hProcess, 10000) == WAIT_TIMEOUT)
+    {
+        TerminateProcess(process.hProcess, 4);
+        WaitForSingleObject(process.hProcess, 5000);
+    }
+
+    PresentMonResult result{};
+    GetExitCodeProcess(process.hProcess, &result.exitCode);
+    result.csvCreated = std::filesystem::exists(csv) && std::filesystem::file_size(csv) > 0;
+    log.Write(L"PresentMon Exit Code: " + std::to_wstring(result.exitCode));
+    log.Write(std::wstring(L"Capture CSV Created: ") + (result.csvCreated ? L"YES" : L"NO"));
+    CloseHandle(process.hProcess);
+    process.hProcess = nullptr;
+    return result;
+}
+
+bool RunAutomaticTest(Logger& log, PresentationOverlay& overlay, const TargetProcess& target)
+{
+    const auto csv = std::filesystem::absolute(log.CsvPath());
+    overlay.SetVisible(false);
+    LogHudState(log, overlay);
+
+    PROCESS_INFORMATION presentMon{};
+    if (!StartPresentMon(log, target, presentMon)) return false;
+
+    try
+    {
+        log.Write(L"=== TEST START ===");
+        log.Write(L"Wall Time: " + WallClock());
+        log.Write(L"QPC_MS: " + std::to_wstring(QpcMilliseconds()));
+
+        if (!SetTimer(overlay.Window(), kAutomaticTimerId, kAutomaticToggleMs, nullptr))
+        {
+            log.Write(L"TEST FAILED");
+            log.Write(L"Reason: SetTimer failed");
+            FinishPresentMon(log, presentMon, csv, true);
+            return false;
+        }
+
+        log.Write(L"F8 ignored while automatic VRR test is running");
+        const auto deadline = std::chrono::steady_clock::now() + kCaptureDuration;
+        bool success = true;
+        bool cancelled = false;
+        MSG message{};
+        while (std::chrono::steady_clock::now() < deadline)
+        {
+            while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE))
+            {
+            if (message.message == WM_QUIT)
+            {
+                cancelled = true;
+                success = false;
+                break;
+            }
+            if (message.message == WM_HOTKEY && message.wParam == 2)
+            {
+                PostQuitMessage(0);
+                continue;
+            }
+            if (message.message == WM_TIMER && message.hwnd == overlay.Window() &&
+                message.wParam == kAutomaticTimerId)
+            {
+                if (!TargetAlive(target))
+                {
+                    log.Write(L"TEST FAILED");
+                    log.Write(L"Reason: Target process exited");
+                    success = false;
+                    break;
+                }
+                overlay.SetVisible(!overlay.Visible());
+                LogHudState(log, overlay);
+                continue;
+            }
+            TranslateMessage(&message);
+            DispatchMessageW(&message);
+            }
+            if (!success) break;
+            if (!TargetAlive(target))
+            {
+                log.Write(L"TEST FAILED");
+                log.Write(L"Reason: Target process exited");
+                success = false;
+                break;
+            }
+            if (WaitForSingleObject(presentMon.hProcess, 0) == WAIT_OBJECT_0)
+            {
+                log.Write(L"TEST FAILED");
+                log.Write(L"Reason: PresentMon exited before capture ended");
+                success = false;
+                break;
+            }
+            Sleep(20);
+        }
+        KillTimer(overlay.Window(), kAutomaticTimerId);
+        if (cancelled) log.Write(L"TEST CANCELLED");
+
+        const PresentMonResult result = FinishPresentMon(log, presentMon, csv, !success);
+        const bool targetAlive = TargetAlive(target);
+        log.Write(std::wstring(L"Target still alive: ") + (targetAlive ? L"YES" : L"NO"));
+        if (!targetAlive) success = false;
+        if (result.exitCode != 0 || !result.csvCreated) success = false;
+
+        log.Write(L"=== TEST END ===");
+        log.Write(L"Wall Time: " + WallClock());
+        log.Write(L"QPC_MS: " + std::to_wstring(QpcMilliseconds()));
+        log.Write(L"VRR Analysis: NEEDS MANUAL REVIEW");
+        log.Write(L"NOTE:");
+        log.Write(L"PresentMon captures application presents and OS-visible display timing.");
+        log.Write(L"Intel UMD XeFG-generated output frames may not all be observable.");
+        log.Write(L"Do not treat PresentMon capture as authoritative true XeFG displayed FPS.");
+        return success;
+    }
+    catch (...)
+    {
+        KillTimer(overlay.Window(), kAutomaticTimerId);
+        FinishPresentMon(log, presentMon, csv, true);
+        throw;
+    }
+}
+
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
 {
     Logger log;
@@ -382,48 +734,23 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
             HRESULT_FROM_WIN32(GetLastError()));
     log.Write(L"ClawHUD VRR PoC");
     log.Write(L"OS: Windows 11 (required; no compatibility fallback)");
+    log.Write(L"Test mode: PresentMon 60-second static HUD ON/OFF comparison");
+    TargetProcess target{};
+    if (!AcquireTarget(log, target)) return 1;
     try
     {
         PresentationOverlay overlay(log);
         overlay.Initialize();
-        const bool diagnostic = GetCommandLineW() && wcsstr(GetCommandLineW(), L"--diagnostic") != nullptr;
-        if (diagnostic)
-        {
-            log.Write(L"Diagnostic mode: HUD ON for 35 seconds");
-            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(35);
-            MSG message{};
-            while (std::chrono::steady_clock::now() < deadline)
-            {
-                while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE))
-                {
-                    if (message.message == WM_QUIT) return 0;
-                    TranslateMessage(&message);
-                    DispatchMessageW(&message);
-                }
-                Sleep(50);
-            }
-            log.Write(L"Diagnostic mode: normal exit");
-            return 0;
-        }
-        log.Write(L"F8 = HUD ON/OFF; ESC = Exit");
-        if (!RegisterHotKey(overlay.Window(), 1, MOD_NOREPEAT, VK_F8))
-            log.Write(L"RegisterHotKey(F8) unavailable; continuing without toggle");
         if (!RegisterHotKey(overlay.Window(), 2, MOD_NOREPEAT, VK_ESCAPE))
             log.Write(L"RegisterHotKey(ESC) unavailable; continuing without exit hotkey");
-        MSG message{};
-        while (GetMessageW(&message, nullptr, 0, 0) > 0)
-        {
-            if (message.message == WM_HOTKEY && message.wParam == 1) overlay.Toggle();
-            if (message.message == WM_HOTKEY && message.wParam == 2) PostQuitMessage(0);
-            TranslateMessage(&message);
-            DispatchMessageW(&message);
-        }
-        UnregisterHotKey(overlay.Window(), 1);
+        const bool success = RunAutomaticTest(log, overlay, target);
         UnregisterHotKey(overlay.Window(), 2);
-        return 0;
+        CloseTarget(target);
+        return success ? 0 : 1;
     }
     catch (const std::exception&)
     {
+        CloseTarget(target);
         MessageBoxW(nullptr, L"ClawHUD VRR PoC initialization failed. See console/logs for HRESULT.",
             L"ClawHUD", MB_OK | MB_ICONERROR);
         return 1;
