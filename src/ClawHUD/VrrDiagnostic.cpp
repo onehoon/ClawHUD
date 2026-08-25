@@ -14,6 +14,7 @@
 namespace
 {
 constexpr auto kPhaseDuration = std::chrono::seconds(30);
+constexpr auto kPocWatchdog = std::chrono::seconds(35);
 constexpr auto kTargetWait = std::chrono::seconds(15);
 
 std::wstring Now(bool fileName = false)
@@ -49,6 +50,11 @@ bool Alive(DWORD pid)
     HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
     if (!process) return false; DWORD code{}; const bool alive = GetExitCodeProcess(process, &code) && code == STILL_ACTIVE;
     CloseHandle(process); return alive;
+}
+
+bool ExistingPocWindow()
+{
+    return FindWindowW(L"ClawHUD.VrrPoc", nullptr) != nullptr;
 }
 
 std::wstring ProcessPath(DWORD pid)
@@ -98,6 +104,11 @@ void VrrDiagnostic::Run()
         }
         if (stop_) { log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); running_ = false; return; }
         if (!target) { log << L"VRR TEST FAILED\nReason: No valid foreground target process\n"; Status(L"Failed"); running_ = false; return; }
+        if (ExistingPocWindow())
+        {
+            log << L"VRR TEST FAILED\nReason: ClawHUD.VrrPoc is already running; HUD-OFF baseline is not valid\n";
+            Status(L"Failed"); running_ = false; return;
+        }
         log << L"Target Process: " << ProcessPath(*target) << L"\nPID: " << *target << L"\n\n";
 
         log << L"=== PHASE A - HUD OFF ===\nStart: " << Now() << L"\nTarget: " << ProcessPath(*target)
@@ -119,15 +130,26 @@ void VrrDiagnostic::Run()
             log << L"PoC Launch: FAILED\nResult: Failed\n"; Status(L"Failed"); running_ = false; return;
         }
         log << L"PoC Launch: OK\nPoC PID: " << child.dwProcessId << L"\n";
-        const auto childEnd = std::chrono::steady_clock::now() + kPhaseDuration;
-        while (!stop_ && std::chrono::steady_clock::now() < childEnd && WaitForSingleObject(child.hProcess, 100) == WAIT_TIMEOUT) {}
-        if (stop_ && WaitForSingleObject(child.hProcess, 0) == WAIT_TIMEOUT) TerminateProcess(child.hProcess, 2);
-        if (!stop_ && WaitForSingleObject(child.hProcess, 0) == WAIT_TIMEOUT) TerminateProcess(child.hProcess, 0);
-        DWORD code{}; GetExitCodeProcess(child.hProcess, &code); CloseHandle(child.hThread); CloseHandle(child.hProcess);
-        log << L"End: " << Now() << L"\nPoC Exit: " << (code == 0 ? L"OK" : L"FAILED") << L"\n";
-        log << L"=== RESULT ===\nOrchestration: " << (stop_ ? L"Cancelled" : (code == 0 ? L"Completed" : L"Failed"))
+        const auto watchdogEnd = std::chrono::steady_clock::now() + kPocWatchdog; bool timedOut = false;
+        while (!stop_)
+        {
+            const DWORD wait = WaitForSingleObject(child.hProcess, 100);
+            if (wait == WAIT_OBJECT_0) break;
+            if (wait == WAIT_FAILED || std::chrono::steady_clock::now() >= watchdogEnd) { timedOut = true; break; }
+        }
+        if ((stop_ || timedOut) && WaitForSingleObject(child.hProcess, 0) == WAIT_TIMEOUT)
+        {
+            TerminateProcess(child.hProcess, stop_ ? 2 : 3);
+            WaitForSingleObject(child.hProcess, 5000);
+        }
+        DWORD code = STILL_ACTIVE; GetExitCodeProcess(child.hProcess, &code);
+        CloseHandle(child.hThread); CloseHandle(child.hProcess);
+        const bool completed = !stop_ && !timedOut && code == 0;
+        log << L"End: " << Now() << L"\nPoC Exit: "
+            << (stop_ ? L"Cancelled" : (completed ? L"OK (normal)" : L"FAILED")) << L"\n";
+        log << L"=== RESULT ===\nOrchestration: " << (stop_ ? L"Cancelled" : (completed ? L"Completed" : L"Failed"))
             << L"\nVRR Analysis: Not performed\n";
-        Status(stop_ ? L"Cancelled" : (code == 0 ? L"Completed" : L"Failed")); running_ = false;
+        Status(stop_ ? L"Cancelled" : (completed ? L"Completed" : L"Failed")); running_ = false;
     }
     catch (...) { if (log.is_open()) log << L"RESULT: Failed\n"; Status(L"Failed"); running_ = false; }
 }
