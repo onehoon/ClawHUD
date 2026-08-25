@@ -11,7 +11,6 @@ namespace
 using Microsoft::WRL::ComPtr;
 
 constexpr float kMaxLayoutDimension = 100000.0f;
-constexpr float kUnitRaisePhysicalPixels = 2.0f;
 constexpr wchar_t kFontName[] = L"Segoe UI Variable";
 
 float Padding(const HudRenderOptions& options) noexcept
@@ -188,7 +187,6 @@ HRESULT DrawValue(ID2D1DeviceContext* context, IDWriteFactory* factory,
     ComPtr<IDWriteTextFormat> unitFormat;
     HRESULT hr = CreateTextFormat(factory, options, unitFormat, true);
     if (FAILED(hr)) return hr;
-    const float unitY = y - DipFromPhysicalPixels(kUnitRaisePhysicalPixels, options.dpi);
     std::size_t cursor = 0;
     for (const auto& range : FindHudUnitRangesImpl(text))
     {
@@ -205,7 +203,7 @@ HRESULT DrawValue(ID2D1DeviceContext* context, IDWriteFactory* factory,
         const std::wstring unitText = text.substr(range.start, range.length);
         hr = CreateLayout(factory, unitFormat.Get(), unitText, options, true, false, unit);
         if (FAILED(hr)) return hr;
-        context->DrawTextLayout(D2D1::Point2F(x, unitY), unit.Get(), brush);
+        context->DrawTextLayout(D2D1::Point2F(x, y), unit.Get(), brush);
         x += Width(unit.Get());
         cursor = range.start + range.length;
     }
