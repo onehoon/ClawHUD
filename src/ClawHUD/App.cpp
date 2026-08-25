@@ -20,9 +20,7 @@ void Log(const std::wstring& message)
 
 }
 
-App::App(HINSTANCE instance) : instance_(instance), tray_(*this)
-{
-}
+App::App(HINSTANCE instance) : instance_(instance), tray_(*this) {}
 
 App::~App()
 {
@@ -40,8 +38,17 @@ int App::Run()
     if (!AcquireSingleInstance()) return 0;
     CheckForUpdates();
     if (!tray_.Create(instance_)) return 1;
+    ecDiagnostic_ = std::make_unique<EcDiagnostic>(tray_.Window());
     return ProcessMessages();
 }
+
+void App::StartEcDiagnostic()
+{
+    if (ecDiagnostic_ && ecDiagnostic_->Start()) ecStatus_ = L"Running";
+}
+void App::StopEcDiagnostic() { if (ecDiagnostic_) ecDiagnostic_->Stop(); }
+bool App::EcDiagnosticRunning() const { return ecDiagnostic_ && ecDiagnostic_->Running(); }
+void App::OpenDiagnosticLogFolder() { if (ecDiagnostic_) ecDiagnostic_->OpenLogFolder(); }
 
 bool App::AcquireSingleInstance()
 {
@@ -109,6 +116,7 @@ void App::Exit()
 {
     if (exiting_) return;
     exiting_ = true;
+    if (ecDiagnostic_) ecDiagnostic_->Stop();
     settings_.reset();
     tray_.Destroy();
     PostQuitMessage(0);
@@ -122,6 +130,13 @@ int App::ProcessMessages()
         if (message.message == kSettingsDestroyed)
         {
             SettingsDestroyed();
+            continue;
+        }
+        if (message.message == kEcDiagnosticStatus)
+        {
+            auto* status = reinterpret_cast<std::wstring*>(message.wParam);
+            if (status) { ecStatus_ = *status; if (settings_) settings_->SetDiagnosticStatus(*status); }
+            delete status;
             continue;
         }
         TranslateMessage(&message);

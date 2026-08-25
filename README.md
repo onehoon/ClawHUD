@@ -1349,3 +1349,7 @@ This section should be updated when real-device presentation, telemetry, and vis
 ## Main application shell
 
 The production `ClawHUD.exe` is a lightweight tray-first native Win32 shell with lazy Settings creation. See [docs/MAIN-APP-SHELL.md](docs/MAIN-APP-SHELL.md) for the concrete startup, update, and tray lifecycle.
+
+## EC diagnostics
+
+The Diagnostics tab contains a user-started, bounded MSI EC read-only probe. It records ten samples from `Get_Temperature(0)`, `Get_Fan(0)`, `Get_Data(221)`, and the raw battery current/voltage selectors into `logs/diagnostics`. It does not initialize WMI at startup and never calls MSI write methods. See [docs/DIAGNOSTICS.md](docs/DIAGNOSTICS.md).

@@ -11,6 +11,8 @@ constexpr int kTabGeneral = 0;
 constexpr int kTabHud = 1;
 constexpr int kTabDiagnostics = 2;
 constexpr int kTabCount = 3;
+constexpr int kStartEc = 1101;
+constexpr int kOpenLogs = 1102;
 }
 
 SettingsWindow::SettingsWindow(App& app) : app_(app)
@@ -45,6 +47,7 @@ bool SettingsWindow::Show(HINSTANCE instance)
     ShowWindow(window_, SW_SHOWNORMAL);
     UpdateWindow(window_);
     SetForegroundWindow(window_);
+    SetDiagnosticStatus(app_.EcStatus());
     return true;
 }
 
@@ -61,8 +64,29 @@ void SettingsWindow::CreateTabs()
         item.pszText = const_cast<wchar_t*>(labels[i]);
         TabCtrl_InsertItem(tabs_, i, &item);
     }
-    CreateWindowW(L"STATIC", L"ClawHUD\r\nVersion: 0.1.0\r\n\r\nSelect a tab for its Phase 0 placeholder.",
-        WS_CHILD | WS_VISIBLE, 24, 52, 440, 100, window_, nullptr, instance_, nullptr);
+    CreateWindowW(L"STATIC", L"ClawHUD\r\nVersion: 0.1.0", WS_CHILD | WS_VISIBLE,
+        24, 52, 440, 100, window_, nullptr, instance_, nullptr);
+    diagnosticsPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD, 24, 52, 440, 190, window_, nullptr, instance_, nullptr);
+    CreateWindowW(L"STATIC", L"MSI EC Read Test\r\nReads MSI Claw telemetry without changing hardware state.", WS_CHILD | WS_VISIBLE,
+        0, 0, 420, 45, diagnosticsPanel_, nullptr, instance_, nullptr);
+    startEcButton_ = CreateWindowW(L"BUTTON", L"Start EC Test", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+        0, 58, 130, 28, diagnosticsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kStartEc)), instance_, nullptr);
+    openLogsButton_ = CreateWindowW(L"BUTTON", L"Open Log Folder", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+        145, 58, 135, 28, diagnosticsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOpenLogs)), instance_, nullptr);
+    diagnosticStatus_ = CreateWindowW(L"STATIC", L"Status: Idle", WS_CHILD | WS_VISIBLE,
+        0, 100, 420, 24, diagnosticsPanel_, nullptr, instance_, nullptr);
+    ShowTab(kTabGeneral);
+}
+
+void SettingsWindow::ShowTab(int index)
+{
+    if (diagnosticsPanel_) ShowWindow(diagnosticsPanel_, index == kTabDiagnostics ? SW_SHOW : SW_HIDE);
+}
+
+void SettingsWindow::SetDiagnosticStatus(const std::wstring& status)
+{
+    if (diagnosticStatus_) SetWindowTextW(diagnosticStatus_, (L"Status: " + status).c_str());
+    if (startEcButton_) EnableWindow(startEcButton_, status != L"Running");
 }
 
 LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
@@ -75,6 +99,18 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
         SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
     }
     if (!self) return DefWindowProcW(window, message, wParam, lParam);
+    if (message == WM_COMMAND && LOWORD(wParam) == kStartEc)
+    {
+        self->app_.StartEcDiagnostic(); self->SetDiagnosticStatus(L"Running"); return 0;
+    }
+    if (message == WM_COMMAND && LOWORD(wParam) == kOpenLogs)
+    {
+        self->app_.OpenDiagnosticLogFolder(); return 0;
+    }
+    if (message == WM_NOTIFY && reinterpret_cast<NMHDR*>(lParam)->code == TCN_SELCHANGE)
+    {
+        self->ShowTab(TabCtrl_GetCurSel(self->tabs_)); return 0;
+    }
     if (message == WM_CLOSE)
     {
         DestroyWindow(window);
