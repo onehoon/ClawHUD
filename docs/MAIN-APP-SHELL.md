@@ -28,4 +28,4 @@ cmake --build build --config Release
 
 CMake downloads the pinned Velopack C/C++ 1.2.0 library and verifies its SHA-256 before extracting it into the build directory. The update feed is the ClawHUD GitHub repository; until a Velopack release feed exists, the check fails or reports no update and startup continues without a notification or popup.
 
-The EC diagnostic probe is user-started and read-only; it does not add production telemetry polling. VRR measurement, PresentMon, game detection, settings persistence, startup-with-Windows, and Composition Swapchain production HUD rendering remain out of scope.
+The EC diagnostic probe is user-started and read-only; it does not add production telemetry polling. VRR/PresentMon capture is also diagnostics-only and starts only from the Diagnostics tab; it does not create a startup session or production telemetry loop. Game detection, settings persistence, startup-with-Windows, and Composition Swapchain production HUD rendering remain out of scope.

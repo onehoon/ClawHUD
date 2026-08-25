@@ -281,8 +281,8 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
         const bool diagnostic = GetCommandLineW() && wcsstr(GetCommandLineW(), L"--diagnostic") != nullptr;
         if (diagnostic)
         {
-            log.Write(L"Diagnostic mode: HUD ON for 30 seconds");
-            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+            log.Write(L"Diagnostic mode: HUD ON for 35 seconds");
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(35);
             MSG message{};
             while (std::chrono::steady_clock::now() < deadline)
             {
