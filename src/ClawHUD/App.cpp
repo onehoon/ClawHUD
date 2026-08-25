@@ -20,6 +20,7 @@ constexpr UINT kHudVisibilityRequest = WM_APP + 3;
 constexpr UINT kPresentMonHudUpdate = WM_APP + 4;
 constexpr UINT kMockHudTimerIntervalMs = 100;
 constexpr UINT kEcHudTimerIntervalMs = 1000;
+constexpr UINT kBatteryHudTimerIntervalMs = 5000;
 constexpr wchar_t kInstanceMutexName[] = L"Local\\ClawHUD.SingleInstance";
 
 struct HudVisibilityRequest
@@ -304,6 +305,13 @@ void App::RenderProductionHud()
     snapshot.fan1Rpm = ecHudTelemetry_.fan1Rpm;
     snapshot.fan2Rpm = ecHudTelemetry_.fan2Rpm;
     snapshot.presentMonDisplayedFps = latestPresentMonDisplayedFps_;
+    if (latestPowerTelemetry_)
+    {
+        snapshot.batteryPercent = latestPowerTelemetry_->batteryPercent;
+        snapshot.onBattery = latestPowerTelemetry_->onBattery.value_or(false);
+        if (snapshot.onBattery)
+            snapshot.remainingMinutes = latestPowerTelemetry_->remainingMinutes;
+    }
 
     clawhud::HudRenderOptions options{};
     options.layout = hudOptions_;
@@ -320,6 +328,15 @@ void App::SampleProductionEcTelemetry()
     RenderProductionHud();
 }
 
+void App::SampleProductionBatteryTelemetry()
+{
+    if (!mockHudEnabled_ || !hudPresentation_ || !hudPresentation_->Visible() ||
+        diagnosticHudMode_.has_value())
+        return;
+    latestPowerTelemetry_ = clawhud::ReadWindowsPowerTelemetry();
+    RenderProductionHud();
+}
+
 void App::StartProductionEcSampling()
 {
     if (diagnosticHudMode_.has_value() || !MockHudVisible())
@@ -329,6 +346,8 @@ void App::StartProductionEcSampling()
         ecHudSamplingActive_ = true;
         SampleProductionEcTelemetry();
         SetTimer(tray_.Window(), kEcHudTimerId, kEcHudTimerIntervalMs, nullptr);
+        SampleProductionBatteryTelemetry();
+        SetTimer(tray_.Window(), kBatteryHudTimerId, kBatteryHudTimerIntervalMs, nullptr);
     }
     StartProductionPresentMonSampling();
 }
@@ -336,6 +355,7 @@ void App::StartProductionEcSampling()
 void App::StopProductionEcSampling()
 {
     KillTimer(tray_.Window(), kEcHudTimerId);
+    KillTimer(tray_.Window(), kBatteryHudTimerId);
     StopProductionPresentMonSampling();
     if (ecHudClient_)
     {
@@ -343,6 +363,7 @@ void App::StopProductionEcSampling()
         ecHudClient_.reset();
     }
     ecHudTelemetry_ = {};
+    latestPowerTelemetry_.reset();
     ecHudSamplingActive_ = false;
 }
 

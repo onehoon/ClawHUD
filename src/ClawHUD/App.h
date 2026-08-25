@@ -15,6 +15,7 @@
 #include "EcHelperClient.h"
 #include "MsiEcHudTelemetry.h"
 #include "PresentMonHudTelemetry.h"
+#include "WindowsPowerTelemetry.h"
 
 class SettingsWindow;
 namespace clawhud { class HudPresentation; }
@@ -22,6 +23,7 @@ namespace clawhud { class HudPresentation; }
 constexpr int kHudToggleHotkeyId = 1;
 constexpr UINT_PTR kMockHudTimerId = 1;
 constexpr UINT_PTR kEcHudTimerId = 2;
+constexpr UINT_PTR kBatteryHudTimerId = 3;
 
 class App
 {
@@ -50,6 +52,7 @@ public:
     void StopMockHud();
     void RenderMockHud();
     void SampleProductionEcTelemetry();
+    void SampleProductionBatteryTelemetry();
     void RenderProductionHud();
     bool MockHudVisible() const noexcept;
     bool MockHudEnabled() const noexcept { return mockHudEnabled_; }
@@ -101,6 +104,7 @@ private:
     std::unique_ptr<clawhud::PresentMonHudTelemetry> presentMonHudTelemetry_;
     std::optional<double> latestPresentMonDisplayedFps_;
     DWORD presentMonProcessId_{};
+    std::optional<clawhud::WindowsPowerTelemetry> latestPowerTelemetry_;
     ForegroundTracker foregroundTracker_;
     clawhud::HudLayoutOptions hudOptions_{};
     std::optional<bool> manualHudVisibilityOverride_;

@@ -56,6 +56,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/EcHelperClient.cpp
     src/ClawHUD/MsiEcHudTelemetry.cpp
     src/ClawHUD/PresentMonHudTelemetry.cpp
+    src/ClawHUD/WindowsPowerTelemetry.cpp
     src/ClawHUD/VrrDiagnostic.cpp
     src/ClawHUD/IntelVrrDiagnosticProbe.cpp
     src/ClawHUD/HudModel.cpp
@@ -163,4 +164,13 @@ if(BUILD_TESTING)
     target_include_directories(ClawHUD.PresentMonHudTelemetryTests PRIVATE src/ClawHUD)
     set_target_properties(ClawHUD.PresentMonHudTelemetryTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.PresentMonHudTelemetryTests COMMAND ClawHUD.PresentMonHudTelemetryTests)
+
+    add_executable(ClawHUD.WindowsPowerTelemetryTests
+        tests/WindowsPowerTelemetryTests.cpp
+        src/ClawHUD/WindowsPowerTelemetry.cpp)
+    target_compile_features(ClawHUD.WindowsPowerTelemetryTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.WindowsPowerTelemetryTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.WindowsPowerTelemetryTests PRIVATE src/ClawHUD)
+    set_target_properties(ClawHUD.WindowsPowerTelemetryTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.WindowsPowerTelemetryTests COMMAND ClawHUD.WindowsPowerTelemetryTests)
 endif()
