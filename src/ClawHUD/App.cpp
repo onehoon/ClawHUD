@@ -23,6 +23,7 @@ constexpr wchar_t kInstanceMutexName[] = L"Local\\ClawHUD.SingleInstance";
 struct HudVisibilityRequest
 {
     bool restore{};
+    bool query{};
     bool visible{};
     HudVisibilityState state{};
     HANDLE complete{};
@@ -124,6 +125,11 @@ void App::StopDiagnostic() { StopVrrDiagnostic(); StopEcDiagnostic(); }
 
 bool App::StartMockHud()
 {
+    if (VrrDiagnosticRunning())
+    {
+        Log(L"Show Mock HUD ignored while VRR diagnostic is running");
+        return false;
+    }
     if (!EnsureMockHud()) return false;
     mockHudEnabled_ = true;
     mockFrameIndex_ = 0;
@@ -146,6 +152,11 @@ bool App::EnsureMockHud()
 
 void App::StopMockHud()
 {
+    if (VrrDiagnosticRunning())
+    {
+        Log(L"Hide Mock HUD ignored while VRR diagnostic is running");
+        return;
+    }
     mockHudEnabled_ = false;
     manualHudVisibilityOverride_.reset();
     KillTimer(tray_.Window(), kMockHudTimerId);
@@ -216,6 +227,11 @@ bool App::MockHudVisible() const noexcept
 
 void App::TrackMockGameWindow(HWND window)
 {
+    if (VrrDiagnosticRunning())
+    {
+        Log(L"Track Mock Game ignored while VRR diagnostic is running");
+        return;
+    }
     DWORD processId{};
     if (window)
         GetWindowThreadProcessId(window, &processId);
@@ -231,6 +247,11 @@ void App::TrackMockGameWindow(HWND window)
 
 void App::SetHudVisibilityMode(clawhud::HudVisibilityMode mode)
 {
+    if (VrrDiagnosticRunning())
+    {
+        Log(L"HUD visibility mode change ignored while VRR diagnostic is running");
+        return;
+    }
     hudOptions_.visibilityMode = mode;
     ReconcileHudVisibility();
 }
@@ -321,9 +342,34 @@ bool App::RequestDiagnosticHudVisibility(bool visible, DWORD timeoutMs)
     return RequestHudOnUiThread(visible, nullptr, timeoutMs);
 }
 
+bool App::RequestDiagnosticHudVisibilityMatches(bool expected, DWORD timeoutMs)
+{
+    if (!tray_.Window()) return false;
+    auto request = std::make_shared<HudVisibilityRequest>();
+    request->complete = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (!request->complete) return false;
+    request->query = true;
+    request->visible = expected;
+    auto* payload = new std::shared_ptr<HudVisibilityRequest>(request);
+    if (!PostMessageW(tray_.Window(), kHudVisibilityRequest,
+        reinterpret_cast<WPARAM>(payload), 0))
+    {
+        delete payload;
+        return false;
+    }
+    const bool completed = WaitForSingleObject(request->complete, timeoutMs) == WAIT_OBJECT_0;
+    if (!completed) request->cancelled = true;
+    return completed && request->result;
+}
+
 bool App::RequestDiagnosticHudState(const HudVisibilityState& state, DWORD timeoutMs)
 {
     return RequestHudOnUiThread(false, &state, timeoutMs);
+}
+
+void App::CancelPendingHudVisibilityRequests()
+{
+    DiscardPendingHudVisibilityRequests();
 }
 
 void App::DiscardPendingHudVisibilityRequests()
@@ -495,9 +541,13 @@ int App::ProcessMessages()
                 auto request = *payload;
                 delete payload;
                 if (!request->cancelled.exchange(true))
-                    request->result = request->restore
-                        ? RestoreHudVisibilityState(request->state)
-                        : ApplyDiagnosticHudVisibility(request->visible);
+                {
+                    request->result = request->query
+                        ? MockHudVisible() == request->visible
+                        : request->restore
+                            ? RestoreHudVisibilityState(request->state)
+                            : ApplyDiagnosticHudVisibility(request->visible);
+                }
                 SetEvent(request->complete);
             }
             continue;

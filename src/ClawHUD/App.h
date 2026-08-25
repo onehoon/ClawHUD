@@ -57,7 +57,9 @@ public:
     HudVisibilityState CaptureHudVisibilityState() const noexcept;
     bool RestoreHudVisibilityState(const HudVisibilityState& state);
     bool RequestDiagnosticHudVisibility(bool visible, DWORD timeoutMs = 5000);
+    bool RequestDiagnosticHudVisibilityMatches(bool expected, DWORD timeoutMs = 5000);
     bool RequestDiagnosticHudState(const HudVisibilityState& state, DWORD timeoutMs = 5000);
+    void CancelPendingHudVisibilityRequests();
 
 private:
     bool AcquireSingleInstance();

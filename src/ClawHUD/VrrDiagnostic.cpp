@@ -178,6 +178,7 @@ bool VrrDiagnostic::Start()
 void VrrDiagnostic::Stop()
 {
     stop_ = true;
+    app_.CancelPendingHudVisibilityRequests();
     if (worker_.joinable()) worker_.join();
     if (hudStateSaved_)
     {
@@ -192,9 +193,11 @@ void VrrDiagnostic::Run()
     RunImpl();
     if (!stop_.load() && hudStateSaved_)
     {
-        if (!app_.RequestDiagnosticHudState(savedHudState_))
+        const bool restored = app_.RequestDiagnosticHudState(savedHudState_);
+        if (!restored)
             OutputDebugStringW(L"[ClawHUD] Failed to restore HUD state after VRR diagnostic\n");
-        hudStateSaved_ = false;
+        else if (!stop_.load())
+            hudStateSaved_ = false;
     }
     running_ = false;
 }
@@ -276,9 +279,14 @@ void VrrDiagnostic::RunImpl()
         const bool onOk = Capture(pm, *target, onCsv, "ClawHUD-VRR-" + std::to_string(*target) + "-ON-" + sessionStamp, log);
         const auto onVblank = igcl.StopSampling(log, L"HUD ON");
         const bool targetAliveAfterCapture = Alive(*target);
+        const bool hudCoveredCapture = app_.RequestDiagnosticHudVisibilityMatches(true);
         if (onOk && !targetAliveAfterCapture)
         {
             log << L"PresentMon: FAILED\nReason: Target process exited before the HUD-ON capture completed\n";
+        }
+        if (onOk && !hudCoveredCapture)
+        {
+            log << L"PresentMon: FAILED\nReason: Main HUD was not visible for the completed HUD-ON capture\n";
         }
         const auto on = ParseCsv(onCsv); WriteSummary(log, L"PHASE B - HUD ON", onCsv, on);
         const auto offMedian = clawhud::UsableVblankMedian(offVblank);
@@ -289,7 +297,8 @@ void VrrDiagnostic::RunImpl()
             << L" us\nHUD ON VBlank median: " << (onMedian ? std::to_wstring(*onMedian) : L"Unavailable")
             << L" us\nVBlank median difference: " << (offMedian && onMedian ? std::to_wstring(*onMedian - *offMedian) : L"Unavailable")
             << L" us\nVRR Analysis: NEEDS MANUAL REVIEW\nIGCL VBlank timing is diagnostic evidence only. It has not yet been validated as an authoritative VRR-active signal on MSI Claw hardware.\n";
-        const bool completed = !stop_ && off.valid && on.valid && offOk && onOk && targetAliveAfterCapture;
+        const bool completed = !stop_ && off.valid && on.valid && offOk && onOk &&
+            targetAliveAfterCapture && hudCoveredCapture;
         log << L"Result: " << (completed ? L"Completed" : L"Failed") << L"\n";
         Status(stop_ ? L"Cancelled" : (completed ? L"Completed" : L"Failed"));
     }
