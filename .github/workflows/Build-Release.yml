@@ -115,7 +115,7 @@ jobs:
             --packDir .\stage\ `
             --mainExe ClawHUD.exe `
             --channel stable `
-            --framework vcredist143-x64 `
+            --framework vcredist145-x64 `
             --outputDir .\release
 
       - name: Upload GitHub Release
