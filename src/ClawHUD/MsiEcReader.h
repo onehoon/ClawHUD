@@ -9,6 +9,21 @@
 #include <optional>
 #include <vector>
 
+enum class MsiEcFailureStage
+{
+    None,
+    GetMethod,
+    SpawnInstance,
+    GetInputData,
+    GetWmiFallback,
+    PutBytes,
+    PutInputData,
+    ExecMethod,
+    GetOutputData,
+    GetOutputBytes,
+    InvalidSuccessFlag,
+};
+
 class MsiEcReader
 {
 public:
@@ -19,6 +34,7 @@ public:
     bool ReadFan(std::vector<std::uint8_t>& payload);
     bool ReadData(std::uint8_t selector, std::vector<std::uint8_t>& payload);
     HRESULT LastError() const { return error_; }
+    const wchar_t* LastStage() const noexcept;
 
 private:
     bool InvokeGet(const wchar_t* method, std::uint8_t selector,
@@ -26,11 +42,13 @@ private:
     bool BuildInput(const wchar_t* method, std::uint8_t selector,
         Microsoft::WRL::ComPtr<IWbemClassObject>& input);
     bool ExtractBytes(IWbemClassObject* output, std::vector<std::uint8_t>& bytes);
+    void Fail(MsiEcFailureStage stage, HRESULT error) noexcept;
 
     Microsoft::WRL::ComPtr<IWbemServices> services_;
     Microsoft::WRL::ComPtr<IWbemClassObject> classObject_;
     bool comInitialized_{};
     HRESULT error_{ E_FAIL };
+    MsiEcFailureStage stage_{ MsiEcFailureStage::None };
 };
 
 std::optional<int> DecodeFanRpm(std::uint8_t first, std::uint8_t second);

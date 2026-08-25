@@ -86,7 +86,8 @@ void EcDiagnostic::Run()
     MsiEcReader reader;
     if (!reader.Initialize())
     {
-        log << "WMI Connection: FAILED\nHRESULT: 0x" << std::hex << static_cast<unsigned long>(reader.LastError()) << "\n";
+        log << "WMI Connection: FAILED\nStage: " << Narrow(reader.LastStage())
+            << "\nHRESULT: 0x" << std::hex << static_cast<unsigned long>(reader.LastError()) << "\n";
         Status(L"Failed"); running_ = false; return;
     }
     log << "WMI Connection: OK\n";
@@ -97,7 +98,9 @@ void EcDiagnostic::Run()
         const auto read = [&](const char* name, bool ok)
         {
             log << name << "\nStatus: " << (ok ? "OK" : "FAILED") << "\nRaw: " << Hex(value) << "\n";
-            if (!ok) log << "HRESULT: 0x" << std::hex << static_cast<unsigned long>(reader.LastError()) << std::dec << "\n";
+            if (!ok)
+                log << "Stage: " << Narrow(reader.LastStage())
+                    << "\nHRESULT: 0x" << std::hex << static_cast<unsigned long>(reader.LastError()) << std::dec << "\n";
         };
         bool ok = reader.ReadTemperature(value); read("Get_Temperature(0)", ok);
         if (ok && value.size() >= 2) log << "CPU Temp: " << static_cast<unsigned>(value[0]) << " C\nGPU Temp: " << static_cast<unsigned>(value[1]) << " C\n";
