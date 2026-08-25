@@ -123,6 +123,11 @@ LRESULT CALLBACK TrayIcon::WindowProc(HWND window, UINT message, WPARAM wParam, 
         SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
     }
     if (!self) return DefWindowProcW(window, message, wParam, lParam);
+    if (message == WM_HOTKEY && wParam == kHudToggleHotkeyId)
+    {
+        self->app_.HandleHudToggleHotkey();
+        return 0;
+    }
     if (message == self->taskbarCreatedMessage_)
     {
         self->created_ = false;

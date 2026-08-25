@@ -15,9 +15,21 @@ namespace
 {
 constexpr UINT kSettingsDestroyed = WM_APP + 1;
 constexpr UINT kForegroundChanged = WM_APP + 2;
+constexpr UINT kHudVisibilityRequest = WM_APP + 3;
 constexpr UINT_PTR kMockHudTimerId = 1;
 constexpr UINT kMockHudTimerIntervalMs = 100;
 constexpr wchar_t kInstanceMutexName[] = L"Local\\ClawHUD.SingleInstance";
+
+struct HudVisibilityRequest
+{
+    bool restore{};
+    bool visible{};
+    HudVisibilityState state{};
+    HANDLE complete{};
+    bool result{};
+    std::atomic_bool cancelled{};
+    ~HudVisibilityRequest() { if (complete) CloseHandle(complete); }
+};
 
 std::wstring HudSettingsPath()
 {
@@ -55,8 +67,13 @@ App::~App()
 {
     KillTimer(tray_.Window(), kMockHudTimerId);
     foregroundTracker_.Stop();
-    hudPresentation_.reset();
+    if (vrrDiagnostic_) vrrDiagnostic_->Stop();
+    DiscardPendingHudVisibilityRequests();
     vrrDiagnostic_.reset();
+    if (hudHotkeyRegistered_ && tray_.Window())
+        UnregisterHotKey(tray_.Window(), kHudToggleHotkeyId);
+    hudHotkeyRegistered_ = false;
+    hudPresentation_.reset();
     ecDiagnostic_.reset();
     settings_.reset();
     tray_.Destroy();
@@ -72,6 +89,10 @@ int App::Run()
     if (!AcquireSingleInstance()) return 0;
     CheckForUpdates();
     if (!tray_.Create(instance_)) return 1;
+    hudHotkeyRegistered_ = RegisterHotKey(tray_.Window(), kHudToggleHotkeyId,
+        MOD_NOREPEAT, VK_F8) != FALSE;
+    if (!hudHotkeyRegistered_)
+        Log(L"RegisterHotKey(F8) failed; continuing without the global HUD toggle");
     ecDiagnostic_ = std::make_unique<EcDiagnostic>(tray_.Window());
     vrrDiagnostic_ = std::make_unique<VrrDiagnostic>(*this, tray_.Window());
     if (!foregroundTracker_.Start(tray_.Window(), kForegroundChanged,
@@ -126,6 +147,7 @@ bool App::EnsureMockHud()
 void App::StopMockHud()
 {
     mockHudEnabled_ = false;
+    manualHudVisibilityOverride_.reset();
     KillTimer(tray_.Window(), kMockHudTimerId);
     ReconcileHudVisibility();
 }
@@ -218,13 +240,117 @@ bool App::IsHudAlwaysVisible() const noexcept
     return hudOptions_.visibilityMode == clawhud::HudVisibilityMode::Always;
 }
 
+void App::HandleHudToggleHotkey()
+{
+    if (VrrDiagnosticRunning())
+    {
+        Log(L"F8 ignored while VRR diagnostic is running");
+        return;
+    }
+    if (!mockHudEnabled_)
+    {
+        if (!EnsureMockHud())
+        {
+            Log(L"F8 HUD ON initialization failed");
+            return;
+        }
+        mockHudEnabled_ = true;
+        mockFrameIndex_ = 0;
+    }
+    manualHudVisibilityOverride_ = !MockHudVisible();
+    ReconcileHudVisibility();
+}
+
+HudVisibilityState App::CaptureHudVisibilityState() const noexcept
+{
+    return { mockHudEnabled_, manualHudVisibilityOverride_, MockHudVisible() };
+}
+
+bool App::ApplyDiagnosticHudVisibility(bool visible)
+{
+    manualHudVisibilityOverride_ = visible;
+    if (visible && !mockHudEnabled_)
+    {
+        if (!EnsureMockHud()) return false;
+        mockHudEnabled_ = true;
+        mockFrameIndex_ = 0;
+    }
+    ReconcileHudVisibility();
+    return MockHudVisible() == visible;
+}
+
+bool App::RestoreHudVisibilityState(const HudVisibilityState& state)
+{
+    manualHudVisibilityOverride_ = state.manualOverride;
+    if (state.mockHudEnabled)
+    {
+        if (!EnsureMockHud()) return false;
+        mockHudEnabled_ = true;
+    }
+    else
+    {
+        mockHudEnabled_ = false;
+    }
+    ReconcileHudVisibility();
+    return MockHudVisible() == state.visible;
+}
+
+bool App::RequestHudOnUiThread(bool visible, const HudVisibilityState* restore, DWORD timeoutMs)
+{
+    if (!tray_.Window()) return false;
+    auto request = std::make_shared<HudVisibilityRequest>();
+    request->complete = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (!request->complete) return false;
+    request->restore = restore != nullptr;
+    request->visible = visible;
+    if (restore) request->state = *restore;
+    auto* payload = new std::shared_ptr<HudVisibilityRequest>(request);
+    if (!PostMessageW(tray_.Window(), kHudVisibilityRequest,
+        reinterpret_cast<WPARAM>(payload), 0))
+    {
+        delete payload;
+        return false;
+    }
+    const bool completed = WaitForSingleObject(request->complete, timeoutMs) == WAIT_OBJECT_0;
+    if (!completed) request->cancelled = true;
+    return completed && request->result;
+}
+
+bool App::RequestDiagnosticHudVisibility(bool visible, DWORD timeoutMs)
+{
+    return RequestHudOnUiThread(visible, nullptr, timeoutMs);
+}
+
+bool App::RequestDiagnosticHudState(const HudVisibilityState& state, DWORD timeoutMs)
+{
+    return RequestHudOnUiThread(false, &state, timeoutMs);
+}
+
+void App::DiscardPendingHudVisibilityRequests()
+{
+    MSG message{};
+    while (PeekMessageW(&message, tray_.Window(), kHudVisibilityRequest,
+        kHudVisibilityRequest, PM_REMOVE))
+    {
+        auto* payload = reinterpret_cast<std::shared_ptr<HudVisibilityRequest>*>(message.wParam);
+        if (payload)
+        {
+            (*payload)->cancelled = true;
+            SetEvent((*payload)->complete);
+            delete payload;
+        }
+    }
+}
+
 void App::ReconcileHudVisibility()
 {
     if (!hudPresentation_)
         return;
-    const bool show = mockHudEnabled_ && clawhud::ShouldShowHud(
-        hudOptions_.visibilityMode, foregroundTracker_.ForegroundIsTrackedProcess());
-    if (show)
+    const bool resolvedShow = mockHudEnabled_ && (manualHudVisibilityOverride_.has_value()
+        ? *manualHudVisibilityOverride_
+        : clawhud::ShouldShowHud(hudOptions_.visibilityMode,
+            foregroundTracker_.ForegroundIsTrackedProcess()));
+    if (resolvedShow)
     {
         const HRESULT hr = hudPresentation_->Show();
         if (SUCCEEDED(hr))
@@ -345,6 +471,12 @@ void App::Exit()
     foregroundTracker_.Stop();
     if (vrrDiagnostic_) vrrDiagnostic_->Stop();
     if (ecDiagnostic_) ecDiagnostic_->Stop();
+    DiscardPendingHudVisibilityRequests();
+    if (hudHotkeyRegistered_ && tray_.Window())
+    {
+        UnregisterHotKey(tray_.Window(), kHudToggleHotkeyId);
+        hudHotkeyRegistered_ = false;
+    }
     settings_.reset();
     tray_.Destroy();
     PostQuitMessage(0);
@@ -355,6 +487,21 @@ int App::ProcessMessages()
     MSG message{};
     while (GetMessageW(&message, nullptr, 0, 0) > 0)
     {
+        if (message.message == kHudVisibilityRequest)
+        {
+            auto* payload = reinterpret_cast<std::shared_ptr<HudVisibilityRequest>*>(message.wParam);
+            if (payload)
+            {
+                auto request = *payload;
+                delete payload;
+                if (!request->cancelled.exchange(true))
+                    request->result = request->restore
+                        ? RestoreHudVisibilityState(request->state)
+                        : ApplyDiagnosticHudVisibility(request->visible);
+                SetEvent(request->complete);
+            }
+            continue;
+        }
         if (message.message == kSettingsDestroyed)
         {
             SettingsDestroyed();

@@ -4,6 +4,7 @@
 
 #include <memory>
 #include <cstddef>
+#include <optional>
 #include <string>
 
 #include "TrayIcon.h"
@@ -14,6 +15,8 @@
 
 class SettingsWindow;
 namespace clawhud { class HudPresentation; }
+
+constexpr int kHudToggleHotkeyId = 1;
 
 class App
 {
@@ -50,6 +53,11 @@ public:
     void TrackMockGameWindow(HWND window);
     void SetHudVisibilityMode(clawhud::HudVisibilityMode mode);
     bool IsHudAlwaysVisible() const noexcept;
+    void HandleHudToggleHotkey();
+    HudVisibilityState CaptureHudVisibilityState() const noexcept;
+    bool RestoreHudVisibilityState(const HudVisibilityState& state);
+    bool RequestDiagnosticHudVisibility(bool visible, DWORD timeoutMs = 5000);
+    bool RequestDiagnosticHudState(const HudVisibilityState& state, DWORD timeoutMs = 5000);
 
 private:
     bool AcquireSingleInstance();
@@ -60,6 +68,9 @@ private:
     void RefreshMockHud();
     bool EnsureMockHud();
     void ReconcileHudVisibility();
+    bool ApplyDiagnosticHudVisibility(bool visible);
+    bool RequestHudOnUiThread(bool visible, const HudVisibilityState* restore, DWORD timeoutMs);
+    void DiscardPendingHudVisibilityRequests();
 
     HINSTANCE instance_{};
     HANDLE instanceMutex_{};
@@ -69,6 +80,7 @@ private:
     std::unique_ptr<clawhud::HudPresentation> hudPresentation_;
     ForegroundTracker foregroundTracker_;
     clawhud::HudLayoutOptions hudOptions_{};
+    std::optional<bool> manualHudVisibilityOverride_;
     bool mockHudEnabled_{};
     std::size_t mockFrameIndex_{};
     std::unique_ptr<SettingsWindow> settings_;
@@ -76,4 +88,5 @@ private:
     std::wstring ecStatus_{ L"Idle" };
     std::wstring vrrStatus_{ L"Idle" };
     std::wstring executablePath_;
+    bool hudHotkeyRegistered_{};
 };
