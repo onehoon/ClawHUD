@@ -39,7 +39,7 @@ std::wstring CpuValue(const HudTelemetrySnapshot& snapshot)
     {
         if (!value.empty())
             value += L" ";
-        value += std::to_wstring(*snapshot.cpuTemperatureC) + L"°C";
+        value += std::to_wstring(*snapshot.cpuTemperatureC) + L"\u00B0C";
     }
     return value;
 }
@@ -53,7 +53,7 @@ std::wstring GpuValue(const HudTelemetrySnapshot& snapshot)
     {
         if (!value.empty())
             value += L" ";
-        value += std::to_wstring(*snapshot.gpuTemperatureC) + L"°C";
+        value += std::to_wstring(*snapshot.gpuTemperatureC) + L"\u00B0C";
     }
     return value;
 }

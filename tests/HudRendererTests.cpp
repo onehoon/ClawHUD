@@ -96,7 +96,7 @@ int main()
         ok &= Check(matches, message);
     };
     checkUnits(L"100 FPS", {{4, 3}}, "FPS unit range");
-    checkUnits(L"36% 67°C", {{2, 1}, {6, 2}}, "percentage and temperature unit ranges");
+    checkUnits(L"36% 67\u00B0C", {{2, 1}, {6, 2}}, "percentage and temperature unit ranges");
     checkUnits(L"10.1 W", {{5, 1}}, "power unit range");
     checkUnits(L"1000 RPM", {{5, 3}}, "fan unit range");
     checkUnits(L"72% 2.5h", {{2, 1}, {7, 1}}, "battery hours unit ranges");
