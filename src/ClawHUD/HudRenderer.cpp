@@ -11,6 +11,7 @@ namespace
 using Microsoft::WRL::ComPtr;
 
 constexpr float kMaxLayoutDimension = 100000.0f;
+constexpr float kUnitRaisePhysicalPixels = 2.0f;
 constexpr wchar_t kFontName[] = L"Segoe UI Variable";
 
 float Padding(const HudRenderOptions& options) noexcept
@@ -29,12 +30,13 @@ float SeparatorGap(const HudRenderOptions& options) noexcept
 }
 
 HRESULT CreateTextFormat(IDWriteFactory* factory, const HudRenderOptions& options,
-    ComPtr<IDWriteTextFormat>& format)
+    ComPtr<IDWriteTextFormat>& format, bool unit = false)
 {
     if (!factory)
         return E_INVALIDARG;
 
-    const float size = DipFromPhysicalPixels(options.fontPixelSize, options.dpi);
+    const float size = DipFromPhysicalPixels(
+        unit ? options.unitFontPixelSize : options.fontPixelSize, options.dpi);
     HRESULT hr = factory->CreateTextFormat(kFontName, nullptr,
         DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
         DWRITE_FONT_STRETCH_NORMAL, size, L"", &format);
@@ -175,6 +177,45 @@ HRESULT ValueExtent(IDWriteFactory* factory, IDWriteTextFormat* format,
     if (FAILED(hr))
         return hr;
     width = std::max(width, Width(actual));
+    return S_OK;
+}
+
+HRESULT DrawValue(ID2D1DeviceContext* context, IDWriteFactory* factory,
+    IDWriteTextFormat* mainFormat,
+    const std::wstring& text, const HudRenderOptions& options,
+    float x, float y, ID2D1Brush* brush)
+{
+    ComPtr<IDWriteTextFormat> unitFormat;
+    HRESULT hr = CreateTextFormat(factory, options, unitFormat, true);
+    if (FAILED(hr)) return hr;
+    const float unitY = y - DipFromPhysicalPixels(kUnitRaisePhysicalPixels, options.dpi);
+    std::size_t cursor = 0;
+    for (const auto& range : FindHudUnitRangesImpl(text))
+    {
+        if (range.start > cursor)
+        {
+            ComPtr<IDWriteTextLayout> layout;
+            hr = CreateLayout(factory, mainFormat, text.substr(cursor, range.start - cursor),
+                options, true, false, layout);
+            if (FAILED(hr)) return hr;
+            context->DrawTextLayout(D2D1::Point2F(x, y), layout.Get(), brush);
+            x += Width(layout.Get());
+        }
+        ComPtr<IDWriteTextLayout> unit;
+        const std::wstring unitText = text.substr(range.start, range.length);
+        hr = CreateLayout(factory, unitFormat.Get(), unitText, options, true, false, unit);
+        if (FAILED(hr)) return hr;
+        context->DrawTextLayout(D2D1::Point2F(x, unitY), unit.Get(), brush);
+        x += Width(unit.Get());
+        cursor = range.start + range.length;
+    }
+    if (cursor < text.size())
+    {
+        ComPtr<IDWriteTextLayout> layout;
+        hr = CreateLayout(factory, mainFormat, text.substr(cursor), options, true, false, layout);
+        if (FAILED(hr)) return hr;
+        context->DrawTextLayout(D2D1::Point2F(x, y), layout.Get(), brush);
+    }
     return S_OK;
 }
 
@@ -363,7 +404,9 @@ HRESULT HudRenderer::Draw(ID2D1DeviceContext* context,
         x += Width(label.Get()) + SegmentGap(options);
         const float actualValueWidth = Width(value.Get());
         const float valueX = x + RightAlignedOffset(valueWidth, actualValueWidth);
-        context->DrawTextLayout(D2D1::Point2F(valueX, geometry.textOrigin.y), value.Get(), white.Get());
+        hr = DrawValue(context, factory_, format.Get(), runs[i].value, options,
+            valueX, geometry.textOrigin.y, white.Get());
+        if (FAILED(hr)) return hr;
         x += valueWidth;
         if (i + 1 < runs.size())
         {
