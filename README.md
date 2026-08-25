@@ -1,5 +1,8 @@
 # ClawHUD
 
+> [!WARNING]
+> **ClawHUD is under active development. Do not install or use it yet.**
+
 ClawHUD is an experimental, lightweight performance HUD for **Windows 11 + MSI Claw + Intel Arc**.
 
 The project is intentionally narrow. It is not intended to become a generic overlay framework, hardware-control suite, or multi-device monitoring platform. The goal is a very small gaming add-on that can show useful performance and MSI Claw hardware telemetry while remaining compatible with Intel XeFG, OptiScaler, and VRR.
@@ -797,7 +800,6 @@ frame limiter
 injected overlay fallback
 game-specific hook logic
 ```
-
 ClawHUD should earn complexity only when a real supported-device requirement demands it.
 
 ---
