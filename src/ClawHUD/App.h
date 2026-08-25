@@ -43,6 +43,10 @@ public:
     void RenderMockHud();
     bool MockHudVisible() const noexcept;
     bool MockHudEnabled() const noexcept { return mockHudEnabled_; }
+    const clawhud::HudLayoutOptions& HudOptions() const noexcept { return hudOptions_; }
+    void SetHudAlignment(clawhud::HudAlignment alignment);
+    void SetHudBackgroundMode(clawhud::HudBackgroundMode mode);
+    void SetHudBackgroundOpacity(float opacity, bool persist = true);
     void TrackMockGameWindow(HWND window);
     void SetHudVisibilityMode(clawhud::HudVisibilityMode mode);
     bool IsHudAlwaysVisible() const noexcept;
@@ -51,6 +55,9 @@ private:
     bool AcquireSingleInstance();
     void CheckForUpdates();
     int ProcessMessages();
+    void LoadHudSettings();
+    void SaveHudSettings() const;
+    void RefreshMockHud();
     bool EnsureMockHud();
     void ReconcileHudVisibility();
 
