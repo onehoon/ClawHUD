@@ -343,6 +343,15 @@ void App::SampleProductionTelemetry()
         diagnosticHudMode_.has_value())
         return;
     ecHudTelemetry_ = ReadHudEcTelemetry();
+    if (!usageSampler_.Initialized())
+    {
+        if (!usageSampler_.Initialize())
+        {
+            latestUsageTelemetry_.reset();
+            RenderProductionHud();
+            return;
+        }
+    }
     latestUsageTelemetry_ = usageSampler_.Sample();
     RenderProductionHud();
 }
@@ -363,8 +372,6 @@ void App::StartProductionEcSampling()
     if (!ecHudSamplingActive_)
     {
         ecHudSamplingActive_ = true;
-        if (!usageSampler_.Initialized())
-            usageSampler_.Initialize();
         SampleProductionTelemetry();
         SetTimer(tray_.Window(), kEcHudTimerId, kUsageSamplingIntervalMs, nullptr);
         SampleProductionBatteryTelemetry();
