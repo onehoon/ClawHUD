@@ -61,7 +61,10 @@ std::vector<HudTextRun> FormatHud(const HudTelemetrySnapshot& snapshot)
 {
     std::vector<HudTextRun> runs;
 
-    if (snapshot.presentMonDisplayedFps)
+    if (snapshot.graphicsApi && snapshot.presentMonDisplayedFps)
+        Add(runs, HudSegmentKind::Graphics, *snapshot.graphicsApi,
+            Integer(*snapshot.presentMonDisplayedFps) + L" FPS");
+    else if (snapshot.presentMonDisplayedFps)
         Add(runs, HudSegmentKind::Graphics, L"FPS",
             Integer(*snapshot.presentMonDisplayedFps));
     else if (snapshot.graphicsApi && snapshot.renderFps)

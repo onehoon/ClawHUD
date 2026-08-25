@@ -58,6 +58,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/PresentMonHudTelemetry.cpp
     src/ClawHUD/WindowsPowerTelemetry.cpp
     src/ClawHUD/WindowsUsageTelemetry.cpp
+    src/ClawHUD/IntelGraphicsApiProbe.cpp
     src/ClawHUD/VrrDiagnostic.cpp
     src/ClawHUD/IntelVrrDiagnosticProbe.cpp
     src/ClawHUD/HudModel.cpp
@@ -185,4 +186,13 @@ if(BUILD_TESTING)
     target_link_libraries(ClawHUD.WindowsUsageTelemetryTests PRIVATE pdh)
     set_target_properties(ClawHUD.WindowsUsageTelemetryTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.WindowsUsageTelemetryTests COMMAND ClawHUD.WindowsUsageTelemetryTests)
+
+    add_executable(ClawHUD.IntelGraphicsApiProbeTests
+        tests/IntelGraphicsApiProbeTests.cpp
+        src/ClawHUD/IntelGraphicsApiProbe.cpp)
+    target_compile_features(ClawHUD.IntelGraphicsApiProbeTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.IntelGraphicsApiProbeTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.IntelGraphicsApiProbeTests PRIVATE src/ClawHUD)
+    set_target_properties(ClawHUD.IntelGraphicsApiProbeTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.IntelGraphicsApiProbeTests COMMAND ClawHUD.IntelGraphicsApiProbeTests)
 endif()
