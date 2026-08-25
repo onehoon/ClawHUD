@@ -2,6 +2,7 @@
 #include <d3d11.h>
 #include <dxgi1_6.h>
 #include <dcomp.h>
+#include <d2d1_3.h>
 #include <presentation.h>
 #include <wrl/client.h>
 
@@ -221,6 +222,53 @@ private:
         hr = device_->CreateRenderTargetView(texture_.Get(), nullptr, &renderTarget_);
         LogResult(log_, L"CreateRenderTargetView", hr);
         if (FAILED(hr)) Fail(log_, L"ID3D11Device::CreateRenderTargetView", hr);
+
+        ComPtr<IDXGIDevice> dxgiDevice;
+        hr = device_.As(&dxgiDevice);
+        LogResult(log_, L"Query IDXGIDevice", hr);
+        if (FAILED(hr)) Fail(log_, L"ID3D11Device::QueryInterface(IDXGIDevice)", hr);
+
+        ComPtr<ID2D1Factory1> d2dFactory;
+        hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, __uuidof(ID2D1Factory1),
+            reinterpret_cast<void**>(d2dFactory.ReleaseAndGetAddressOf()));
+        LogResult(log_, L"CreateD2DFactory", hr);
+        if (FAILED(hr)) Fail(log_, L"D2D1CreateFactory", hr);
+
+        ComPtr<ID2D1Device> d2dDevice;
+        hr = d2dFactory->CreateDevice(dxgiDevice.Get(), &d2dDevice);
+        LogResult(log_, L"CreateD2DDevice", hr);
+        if (FAILED(hr)) Fail(log_, L"ID2D1Factory1::CreateDevice", hr);
+
+        ComPtr<ID2D1DeviceContext> d2dContext;
+        hr = d2dDevice->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &d2dContext);
+        LogResult(log_, L"CreateD2DDeviceContext", hr);
+        if (FAILED(hr)) Fail(log_, L"ID2D1Device::CreateDeviceContext", hr);
+
+        ComPtr<IDXGISurface> dxgiSurface;
+        hr = texture_.As(&dxgiSurface);
+        LogResult(log_, L"Query IDXGISurface", hr);
+        if (FAILED(hr)) Fail(log_, L"ID3D11Texture2D::QueryInterface(IDXGISurface)", hr);
+
+        const D2D1_BITMAP_PROPERTIES1 properties = D2D1::BitmapProperties1(
+            D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+        ComPtr<ID2D1Bitmap1> bitmap;
+        hr = d2dContext->CreateBitmapFromDxgiSurface(dxgiSurface.Get(), &properties, &bitmap);
+        LogResult(log_, L"CreateBitmapFromDxgiSurface", hr);
+        if (FAILED(hr)) Fail(log_, L"ID2D1DeviceContext::CreateBitmapFromDxgiSurface", hr);
+
+        d2dContext->SetTarget(bitmap.Get());
+        log_.Write(L"D2D SetTarget: OK");
+        d2dContext->BeginDraw();
+        log_.Write(L"D2D BeginDraw: OK");
+        d2dContext->Clear(D2D1::ColorF(1.0f, 0.0f, 0.0f, 1.0f));
+        log_.Write(L"D2D Clear: OK (solid opaque red)");
+        hr = d2dContext->EndDraw();
+        LogResult(log_, L"D2D EndDraw", hr);
+        if (FAILED(hr)) Fail(log_, L"ID2D1DeviceContext::EndDraw", hr);
+        context_->Flush();
+        log_.Write(L"D2D Flush: OK (D3D11 device context)");
+
         hr = manager_->AddBufferFromResource(texture_.Get(), &buffer_);
         LogResult(log_, L"AddBufferFromResource", hr);
         if (FAILED(hr)) Fail(log_, L"IPresentationManager::AddBufferFromResource", hr);
@@ -231,14 +279,6 @@ private:
 
     void RenderBuffer()
     {
-        const float clear[] = { 1.0f, 0.0f, 0.0f, 1.0f };
-        context_->ClearRenderTargetView(renderTarget_.Get(), clear);
-        context_->OMSetRenderTargets(1, renderTarget_.GetAddressOf(), nullptr);
-        D3D11_VIEWPORT viewport{ 0, 0, 520, 72, 0, 1 };
-        context_->RSSetViewports(1, &viewport);
-        context_->OMSetRenderTargets(0, nullptr, nullptr);
-        context_->Flush();
-        log_.Write(L"Clear/Flush: OK (solid opaque red)");
         HRESULT hr = manager_->Present();
         LogResult(log_, L"IPresentationManager::Present", hr);
         if (FAILED(hr)) Fail(log_, L"IPresentationManager::Present", hr);
