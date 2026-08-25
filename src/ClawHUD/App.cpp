@@ -20,10 +20,16 @@ void Log(const std::wstring& message)
 
 }
 
-App::App(HINSTANCE instance) : instance_(instance), tray_(*this) {}
+App::App(HINSTANCE instance) : instance_(instance), tray_(*this)
+{
+    wchar_t path[MAX_PATH]{}; const DWORD length = GetModuleFileNameW(instance_, path, ARRAYSIZE(path));
+    executablePath_.assign(path, length);
+}
 
 App::~App()
 {
+    vrrDiagnostic_.reset();
+    ecDiagnostic_.reset();
     settings_.reset();
     tray_.Destroy();
     if (instanceMutex_)
@@ -39,18 +45,30 @@ int App::Run()
     CheckForUpdates();
     if (!tray_.Create(instance_)) return 1;
     ecDiagnostic_ = std::make_unique<EcDiagnostic>(tray_.Window());
+    vrrDiagnostic_ = std::make_unique<VrrDiagnostic>(*this, tray_.Window());
     return ProcessMessages();
 }
 
 bool App::StartEcDiagnostic()
 {
-    if (!ecDiagnostic_ || !ecDiagnostic_->Start()) return false;
+    if (!ecDiagnostic_ || VrrDiagnosticRunning() || !ecDiagnostic_->Start()) return false;
     ecStatus_ = L"Running";
     return true;
 }
 void App::StopEcDiagnostic() { if (ecDiagnostic_) ecDiagnostic_->Stop(); }
 bool App::EcDiagnosticRunning() const { return ecDiagnostic_ && ecDiagnostic_->Running(); }
 void App::OpenDiagnosticLogFolder() { if (ecDiagnostic_) ecDiagnostic_->OpenLogFolder(); }
+bool App::StartVrrDiagnostic()
+{
+    if (!vrrDiagnostic_ || EcDiagnosticRunning() || !vrrDiagnostic_->Start()) return false;
+    vrrStatus_ = L"Waiting for game";
+    if (settings_) settings_->RequestClose();
+    return true;
+}
+void App::StopVrrDiagnostic() { if (vrrDiagnostic_) vrrDiagnostic_->Stop(); }
+bool App::VrrDiagnosticRunning() const { return vrrDiagnostic_ && vrrDiagnostic_->Running(); }
+bool App::DiagnosticRunning() const { return EcDiagnosticRunning() || VrrDiagnosticRunning(); }
+void App::StopDiagnostic() { StopVrrDiagnostic(); StopEcDiagnostic(); }
 
 bool App::AcquireSingleInstance()
 {
@@ -118,6 +136,7 @@ void App::Exit()
 {
     if (exiting_) return;
     exiting_ = true;
+    if (vrrDiagnostic_) vrrDiagnostic_->Stop();
     if (ecDiagnostic_) ecDiagnostic_->Stop();
     settings_.reset();
     tray_.Destroy();
@@ -138,6 +157,13 @@ int App::ProcessMessages()
         {
             auto* status = reinterpret_cast<std::wstring*>(message.wParam);
             if (status) { ecStatus_ = *status; if (settings_) settings_->SetDiagnosticStatus(*status); }
+            delete status;
+            continue;
+        }
+        if (message.message == kVrrDiagnosticStatus)
+        {
+            auto* status = reinterpret_cast<std::wstring*>(message.wParam);
+            if (status) { vrrStatus_ = *status; if (settings_) settings_->SetVrrStatus(*status); }
             delete status;
             continue;
         }
