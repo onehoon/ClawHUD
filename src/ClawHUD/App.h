@@ -14,6 +14,7 @@
 #include "ForegroundTracker.h"
 #include "EcHelperClient.h"
 #include "MsiEcHudTelemetry.h"
+#include "PresentMonHudTelemetry.h"
 
 class SettingsWindow;
 namespace clawhud { class HudPresentation; }
@@ -82,8 +83,12 @@ private:
     clawhud::MsiEcHudTelemetry ReadHudEcTelemetry();
     void StartProductionEcSampling();
     void StopProductionEcSampling();
+    void StartProductionPresentMonSampling();
+    void StopProductionPresentMonSampling();
+    void HandlePresentMonHudUpdate(DWORD processId, std::optional<double> displayedFps);
     bool RequestHudOnUiThread(bool visible, const HudVisibilityState* restore, DWORD timeoutMs);
     void DiscardPendingHudVisibilityRequests();
+    void DiscardPendingPresentMonHudUpdates();
 
     HINSTANCE instance_{};
     HANDLE instanceMutex_{};
@@ -93,6 +98,9 @@ private:
     std::unique_ptr<clawhud::HudPresentation> hudPresentation_;
     std::unique_ptr<EcHelperClient> ecHudClient_;
     clawhud::MsiEcHudTelemetry ecHudTelemetry_{};
+    std::unique_ptr<clawhud::PresentMonHudTelemetry> presentMonHudTelemetry_;
+    std::optional<double> latestPresentMonDisplayedFps_;
+    DWORD presentMonProcessId_{};
     ForegroundTracker foregroundTracker_;
     clawhud::HudLayoutOptions hudOptions_{};
     std::optional<bool> manualHudVisibilityOverride_;

@@ -54,5 +54,10 @@ int main()
     ok &= Check(JoinHudRuns(FormatHud(temperaturesOnly)) == L"CPU 48\u00B0C | GPU 44\u00B0C", "temperature-only formatting");
     ok &= Check(FormatHud(HudTelemetrySnapshot{}).empty(), "empty snapshot omitted");
 
+    HudTelemetrySnapshot displayed{};
+    displayed.presentMonDisplayedFps = 120.0;
+    ok &= Check(JoinHudRuns(FormatHud(displayed)) == L"FPS 120",
+        "PresentMon displayed FPS formatting");
+
     return ok ? 0 : 1;
 }

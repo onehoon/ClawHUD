@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <filesystem>
 #include <memory>
 #include <shlobj.h>
 #include <string>
@@ -16,6 +17,7 @@ namespace
 constexpr UINT kSettingsDestroyed = WM_APP + 1;
 constexpr UINT kForegroundChanged = WM_APP + 2;
 constexpr UINT kHudVisibilityRequest = WM_APP + 3;
+constexpr UINT kPresentMonHudUpdate = WM_APP + 4;
 constexpr UINT kMockHudTimerIntervalMs = 100;
 constexpr UINT kEcHudTimerIntervalMs = 1000;
 constexpr wchar_t kInstanceMutexName[] = L"Local\\ClawHUD.SingleInstance";
@@ -32,6 +34,12 @@ struct HudVisibilityRequest
     bool result{};
     std::atomic_bool cancelled{};
     ~HudVisibilityRequest() { if (complete) CloseHandle(complete); }
+};
+
+struct PresentMonHudUpdate
+{
+    DWORD processId{};
+    std::optional<double> displayedFps;
 };
 
 std::wstring HudSettingsPath()
@@ -73,6 +81,8 @@ App::~App()
     foregroundTracker_.Stop();
     if (vrrDiagnostic_) vrrDiagnostic_->Stop();
     DiscardPendingHudVisibilityRequests();
+    StopProductionPresentMonSampling();
+    DiscardPendingPresentMonHudUpdates();
     vrrDiagnostic_.reset();
     if (hudHotkeyRegistered_ && tray_.Window())
         UnregisterHotKey(tray_.Window(), kHudToggleHotkeyId);
@@ -287,6 +297,7 @@ void App::RenderProductionHud()
         ? std::optional<double>(*ecHudTelemetry_.cpuPackagePowerW) : std::nullopt;
     snapshot.fan1Rpm = ecHudTelemetry_.fan1Rpm;
     snapshot.fan2Rpm = ecHudTelemetry_.fan2Rpm;
+    snapshot.presentMonDisplayedFps = latestPresentMonDisplayedFps_;
 
     clawhud::HudRenderOptions options{};
     options.layout = hudOptions_;
@@ -305,16 +316,21 @@ void App::SampleProductionEcTelemetry()
 
 void App::StartProductionEcSampling()
 {
-    if (ecHudSamplingActive_ || diagnosticHudMode_.has_value() || !MockHudVisible())
+    if (diagnosticHudMode_.has_value() || !MockHudVisible())
         return;
-    ecHudSamplingActive_ = true;
-    SampleProductionEcTelemetry();
-    SetTimer(tray_.Window(), kEcHudTimerId, kEcHudTimerIntervalMs, nullptr);
+    if (!ecHudSamplingActive_)
+    {
+        ecHudSamplingActive_ = true;
+        SampleProductionEcTelemetry();
+        SetTimer(tray_.Window(), kEcHudTimerId, kEcHudTimerIntervalMs, nullptr);
+    }
+    StartProductionPresentMonSampling();
 }
 
 void App::StopProductionEcSampling()
 {
     KillTimer(tray_.Window(), kEcHudTimerId);
+    StopProductionPresentMonSampling();
     if (ecHudClient_)
     {
         ecHudClient_->Close();
@@ -322,6 +338,58 @@ void App::StopProductionEcSampling()
     }
     ecHudTelemetry_ = {};
     ecHudSamplingActive_ = false;
+}
+
+void App::StartProductionPresentMonSampling()
+{
+    if (diagnosticHudMode_.has_value() || !mockHudEnabled_ || !MockHudVisible())
+        return;
+    const DWORD processId = foregroundTracker_.TrackedProcessId();
+    if (!processId)
+    {
+        StopProductionPresentMonSampling();
+        return;
+    }
+    if (presentMonHudTelemetry_ && presentMonProcessId_ == processId &&
+        presentMonHudTelemetry_->Running())
+        return;
+
+    StopProductionPresentMonSampling();
+    const auto executable = std::filesystem::path(executablePath_).parent_path() /
+        L"tools" / L"PresentMon.exe";
+    presentMonHudTelemetry_ = std::make_unique<clawhud::PresentMonHudTelemetry>();
+    presentMonProcessId_ = processId;
+    const bool started = presentMonHudTelemetry_->Start(executable.wstring(), processId,
+        [this, processId](std::optional<double> displayedFps)
+        {
+            auto* update = new PresentMonHudUpdate{processId, displayedFps};
+            if (!PostMessageW(tray_.Window(), kPresentMonHudUpdate,
+                reinterpret_cast<WPARAM>(update), 0))
+                delete update;
+        });
+    if (!started)
+        StopProductionPresentMonSampling();
+}
+
+void App::StopProductionPresentMonSampling()
+{
+    if (presentMonHudTelemetry_)
+    {
+        presentMonHudTelemetry_->Stop();
+        presentMonHudTelemetry_.reset();
+    }
+    presentMonProcessId_ = 0;
+    latestPresentMonDisplayedFps_.reset();
+}
+
+void App::HandlePresentMonHudUpdate(DWORD processId,
+    std::optional<double> displayedFps)
+{
+    if (diagnosticHudMode_.has_value() || !presentMonHudTelemetry_ ||
+        presentMonProcessId_ != processId || !MockHudVisible())
+        return;
+    latestPresentMonDisplayedFps_ = displayedFps;
+    RenderProductionHud();
 }
 
 bool App::MockHudVisible() const noexcept
@@ -408,6 +476,7 @@ bool App::ApplyDiagnosticHudVisibility(bool visible)
 
 bool App::ApplyDiagnosticHudMode(DiagnosticHudMode mode)
 {
+    StopProductionPresentMonSampling();
     StopProductionEcSampling();
     diagnosticHudMode_ = mode;
     manualHudVisibilityOverride_ = mode == DiagnosticHudMode::Off
@@ -536,6 +605,14 @@ void App::DiscardPendingHudVisibilityRequests()
             delete payload;
         }
     }
+}
+
+void App::DiscardPendingPresentMonHudUpdates()
+{
+    MSG message{};
+    while (PeekMessageW(&message, tray_.Window(), kPresentMonHudUpdate,
+        kPresentMonHudUpdate, PM_REMOVE))
+        delete reinterpret_cast<PresentMonHudUpdate*>(message.wParam);
 }
 
 void App::ReconcileHudVisibility()
@@ -729,6 +806,16 @@ int App::ProcessMessages()
         if (message.message == kForegroundChanged)
         {
             foregroundTracker_.Reconcile();
+            continue;
+        }
+        if (message.message == kPresentMonHudUpdate)
+        {
+            auto* update = reinterpret_cast<PresentMonHudUpdate*>(message.wParam);
+            if (update)
+            {
+                HandlePresentMonHudUpdate(update->processId, update->displayedFps);
+                delete update;
+            }
             continue;
         }
         if (message.message == kEcDiagnosticStatus)

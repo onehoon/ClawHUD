@@ -52,6 +52,7 @@ struct HudTelemetrySnapshot
     std::optional<int> remainingMinutes;
     bool onBattery{};
     bool foregroundGameActive{};
+    std::optional<double> presentMonDisplayedFps;
 };
 
 enum class HudSegmentKind

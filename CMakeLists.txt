@@ -55,6 +55,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/EcDiagnostic.cpp
     src/ClawHUD/EcHelperClient.cpp
     src/ClawHUD/MsiEcHudTelemetry.cpp
+    src/ClawHUD/PresentMonHudTelemetry.cpp
     src/ClawHUD/VrrDiagnostic.cpp
     src/ClawHUD/IntelVrrDiagnosticProbe.cpp
     src/ClawHUD/HudModel.cpp
@@ -153,4 +154,13 @@ if(BUILD_TESTING)
     target_include_directories(ClawHUD.MsiEcHudTelemetryTests PRIVATE src/ClawHUD)
     set_target_properties(ClawHUD.MsiEcHudTelemetryTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.MsiEcHudTelemetryTests COMMAND ClawHUD.MsiEcHudTelemetryTests)
+
+    add_executable(ClawHUD.PresentMonHudTelemetryTests
+        tests/PresentMonHudTelemetryTests.cpp
+        src/ClawHUD/PresentMonHudTelemetry.cpp)
+    target_compile_features(ClawHUD.PresentMonHudTelemetryTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.PresentMonHudTelemetryTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.PresentMonHudTelemetryTests PRIVATE src/ClawHUD)
+    set_target_properties(ClawHUD.PresentMonHudTelemetryTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.PresentMonHudTelemetryTests COMMAND ClawHUD.PresentMonHudTelemetryTests)
 endif()
