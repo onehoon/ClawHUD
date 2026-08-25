@@ -24,6 +24,9 @@ TrayIcon::~TrayIcon()
 bool TrayIcon::Create(HINSTANCE instance)
 {
     instance_ = instance;
+    taskbarCreatedMessage_ = RegisterWindowMessageW(L"TaskbarCreated");
+    if (taskbarCreatedMessage_ == 0) return false;
+
     WNDCLASSW windowClass{};
     windowClass.lpfnWndProc = WindowProc;
     windowClass.hInstance = instance_;
@@ -42,8 +45,14 @@ bool TrayIcon::Create(HINSTANCE instance)
     notifyIcon_.uCallbackMessage = kTrayMessage;
     notifyIcon_.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
     wcscpy_s(notifyIcon_.szTip, L"ClawHUD");
-    created_ = Shell_NotifyIconW(NIM_ADD, &notifyIcon_) == TRUE;
+    created_ = AddIcon();
     if (!created_) Destroy();
+    return created_;
+}
+
+bool TrayIcon::AddIcon()
+{
+    created_ = Shell_NotifyIconW(NIM_ADD, &notifyIcon_) == TRUE;
     return created_;
 }
 
@@ -89,6 +98,12 @@ LRESULT CALLBACK TrayIcon::WindowProc(HWND window, UINT message, WPARAM wParam, 
         SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
     }
     if (!self) return DefWindowProcW(window, message, wParam, lParam);
+    if (message == self->taskbarCreatedMessage_)
+    {
+        self->created_ = false;
+        self->AddIcon();
+        return 0;
+    }
     if (message == kTrayMessage && (lParam == WM_RBUTTONUP || lParam == WM_LBUTTONUP))
     {
         self->ShowMenu();

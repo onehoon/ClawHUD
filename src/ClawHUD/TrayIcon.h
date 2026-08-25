@@ -17,11 +17,13 @@ public:
 
 private:
     static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
+    bool AddIcon();
     void ShowMenu();
 
     App& app_;
     HINSTANCE instance_{};
     HWND window_{};
     NOTIFYICONDATAW notifyIcon_{};
+    UINT taskbarCreatedMessage_{};
     bool created_{};
 };
