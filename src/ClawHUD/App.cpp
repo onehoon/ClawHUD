@@ -16,8 +16,8 @@ namespace
 constexpr UINT kSettingsDestroyed = WM_APP + 1;
 constexpr UINT kForegroundChanged = WM_APP + 2;
 constexpr UINT kHudVisibilityRequest = WM_APP + 3;
-constexpr UINT_PTR kMockHudTimerId = 1;
 constexpr UINT kMockHudTimerIntervalMs = 100;
+constexpr UINT kEcHudTimerIntervalMs = 1000;
 constexpr wchar_t kInstanceMutexName[] = L"Local\\ClawHUD.SingleInstance";
 
 struct HudVisibilityRequest
@@ -69,6 +69,7 @@ App::App(HINSTANCE instance) : instance_(instance), tray_(*this)
 App::~App()
 {
     KillTimer(tray_.Window(), kMockHudTimerId);
+    StopProductionEcSampling();
     foregroundTracker_.Stop();
     if (vrrDiagnostic_) vrrDiagnostic_->Stop();
     DiscardPendingHudVisibilityRequests();
@@ -106,7 +107,7 @@ int App::Run()
 
 bool App::StartEcDiagnostic()
 {
-    if (!ecDiagnostic_ || VrrDiagnosticRunning() || !ecDiagnostic_->Start()) return false;
+    if (!ecDiagnostic_ || VrrDiagnosticRunning() || ecHudSamplingActive_ || !ecDiagnostic_->Start()) return false;
     ecStatus_ = L"Running";
     return true;
 }
@@ -147,8 +148,11 @@ bool App::EnsureMockHud()
     options.layout = hudOptions_;
     HRESULT hr = hudPresentation_->Initialize(instance_, options);
     if (FAILED(hr)) return false;
-    hr = hudPresentation_->Render(clawhud::MakeGameDcSample(), options);
-    if (FAILED(hr)) return false;
+    if (diagnosticHudMode_.has_value())
+    {
+        hr = hudPresentation_->Render(clawhud::MakeGameDcSample(), options);
+        if (FAILED(hr)) return false;
+    }
     return true;
 }
 
@@ -162,6 +166,7 @@ void App::StopMockHud()
     mockHudEnabled_ = false;
     manualHudVisibilityOverride_.reset();
     KillTimer(tray_.Window(), kMockHudTimerId);
+    StopProductionEcSampling();
     ReconcileHudVisibility();
 }
 
@@ -214,7 +219,12 @@ void App::SetHudBackgroundOpacity(float opacity, bool persist)
 void App::RefreshMockHud()
 {
     if (mockHudEnabled_ && hudPresentation_ && hudPresentation_->Visible())
-        RenderMockHud();
+    {
+        if (diagnosticHudMode_.has_value())
+            RenderMockHud();
+        else
+            RenderProductionHud();
+    }
 }
 
 void App::RenderMockHud()
@@ -235,6 +245,74 @@ void App::RenderMockHud()
     options.layout = hudOptions_;
     const HRESULT hr = hudPresentation_->Render(snapshot, options);
     if (FAILED(hr)) Log(L"Mock HUD redraw failed");
+}
+
+clawhud::MsiEcHudTelemetry App::ReadHudEcTelemetry()
+{
+    clawhud::MsiEcHudTelemetry result{};
+    if (!ecHudClient_)
+        ecHudClient_ = std::make_unique<EcHelperClient>();
+
+    std::vector<std::uint8_t> payload;
+    if (ecHudClient_->ReadTemperature(payload))
+        result.cpuTempC = clawhud::DecodeCpuTempC(payload);
+
+    payload.clear();
+    if (ecHudClient_->ReadFan(payload))
+    {
+        if (const auto fans = clawhud::DecodeFanTelemetry(payload))
+        {
+            result.fan1Rpm = fans->fan1Rpm;
+            result.fan2Rpm = fans->fan2Rpm;
+            result.hudFanRpm = clawhud::SelectHudFanRpm(
+                result.fan1Rpm, result.fan2Rpm);
+        }
+    }
+
+    payload.clear();
+    if (ecHudClient_->ReadData(221, payload))
+        result.cpuPackagePowerW = clawhud::DecodeCpuPackagePowerW(payload);
+    return result;
+}
+
+void App::RenderProductionHud()
+{
+    if (!mockHudEnabled_ || !hudPresentation_ || !hudPresentation_->Visible() ||
+        diagnosticHudMode_.has_value())
+        return;
+
+    const auto ec = ReadHudEcTelemetry();
+    clawhud::HudTelemetrySnapshot snapshot{};
+    snapshot.cpuTemperatureC = ec.cpuTempC;
+    snapshot.cpuPackagePowerW = ec.cpuPackagePowerW
+        ? std::optional<double>(*ec.cpuPackagePowerW) : std::nullopt;
+    snapshot.fan1Rpm = ec.fan1Rpm;
+    snapshot.fan2Rpm = ec.fan2Rpm;
+
+    clawhud::HudRenderOptions options{};
+    options.layout = hudOptions_;
+    const HRESULT hr = hudPresentation_->Render(snapshot, options);
+    if (FAILED(hr)) Log(L"Production EC HUD redraw failed");
+}
+
+void App::StartProductionEcSampling()
+{
+    if (ecHudSamplingActive_ || diagnosticHudMode_.has_value() || !MockHudVisible())
+        return;
+    ecHudSamplingActive_ = true;
+    RenderProductionHud();
+    SetTimer(tray_.Window(), kEcHudTimerId, kEcHudTimerIntervalMs, nullptr);
+}
+
+void App::StopProductionEcSampling()
+{
+    KillTimer(tray_.Window(), kEcHudTimerId);
+    if (ecHudClient_)
+    {
+        ecHudClient_->Close();
+        ecHudClient_.reset();
+    }
+    ecHudSamplingActive_ = false;
 }
 
 bool App::MockHudVisible() const noexcept
@@ -307,6 +385,7 @@ HudVisibilityState App::CaptureHudVisibilityState() const noexcept
 bool App::ApplyDiagnosticHudVisibility(bool visible)
 {
     diagnosticHudMode_.reset();
+    StopProductionEcSampling();
     manualHudVisibilityOverride_ = visible;
     if (visible && !mockHudEnabled_)
     {
@@ -320,6 +399,7 @@ bool App::ApplyDiagnosticHudVisibility(bool visible)
 
 bool App::ApplyDiagnosticHudMode(DiagnosticHudMode mode)
 {
+    StopProductionEcSampling();
     diagnosticHudMode_ = mode;
     manualHudVisibilityOverride_ = mode == DiagnosticHudMode::Off
         ? std::optional<bool>(false)
@@ -462,8 +542,12 @@ void App::ReconcileHudVisibility()
         const HRESULT hr = hudPresentation_->Show();
         if (SUCCEEDED(hr))
         {
-            if (!diagnosticHudMode_.has_value() ||
-                DiagnosticHudModeUsesPeriodicUpdates(*diagnosticHudMode_))
+            if (!diagnosticHudMode_.has_value())
+            {
+                KillTimer(tray_.Window(), kMockHudTimerId);
+                StartProductionEcSampling();
+            }
+            else if (DiagnosticHudModeUsesPeriodicUpdates(*diagnosticHudMode_))
                 SetTimer(tray_.Window(), kMockHudTimerId, kMockHudTimerIntervalMs, nullptr);
             else
                 KillTimer(tray_.Window(), kMockHudTimerId);
@@ -475,6 +559,7 @@ void App::ReconcileHudVisibility()
     {
         hudPresentation_->Hide();
         KillTimer(tray_.Window(), kMockHudTimerId);
+        StopProductionEcSampling();
     }
 }
 
@@ -586,6 +671,7 @@ void App::Exit()
     if (exiting_) return;
     exiting_ = true;
     KillTimer(tray_.Window(), kMockHudTimerId);
+    StopProductionEcSampling();
     foregroundTracker_.Stop();
     if (vrrDiagnostic_) vrrDiagnostic_->Stop();
     if (ecDiagnostic_) ecDiagnostic_->Stop();

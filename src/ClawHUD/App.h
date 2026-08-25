@@ -12,11 +12,15 @@
 #include "VrrDiagnostic.h"
 #include "HudModel.h"
 #include "ForegroundTracker.h"
+#include "EcHelperClient.h"
+#include "MsiEcHudTelemetry.h"
 
 class SettingsWindow;
 namespace clawhud { class HudPresentation; }
 
 constexpr int kHudToggleHotkeyId = 1;
+constexpr UINT_PTR kMockHudTimerId = 1;
+constexpr UINT_PTR kEcHudTimerId = 2;
 
 class App
 {
@@ -44,6 +48,7 @@ public:
     bool StartMockHud();
     void StopMockHud();
     void RenderMockHud();
+    void RenderProductionHud();
     bool MockHudVisible() const noexcept;
     bool MockHudEnabled() const noexcept { return mockHudEnabled_; }
     const clawhud::HudLayoutOptions& HudOptions() const noexcept { return hudOptions_; }
@@ -73,6 +78,9 @@ private:
     void ReconcileHudVisibility();
     bool ApplyDiagnosticHudVisibility(bool visible);
     bool ApplyDiagnosticHudMode(DiagnosticHudMode mode);
+    clawhud::MsiEcHudTelemetry ReadHudEcTelemetry();
+    void StartProductionEcSampling();
+    void StopProductionEcSampling();
     bool RequestHudOnUiThread(bool visible, const HudVisibilityState* restore, DWORD timeoutMs);
     void DiscardPendingHudVisibilityRequests();
 
@@ -82,6 +90,7 @@ private:
     std::unique_ptr<EcDiagnostic> ecDiagnostic_;
     std::unique_ptr<VrrDiagnostic> vrrDiagnostic_;
     std::unique_ptr<clawhud::HudPresentation> hudPresentation_;
+    std::unique_ptr<EcHelperClient> ecHudClient_;
     ForegroundTracker foregroundTracker_;
     clawhud::HudLayoutOptions hudOptions_{};
     std::optional<bool> manualHudVisibilityOverride_;
@@ -94,4 +103,5 @@ private:
     std::wstring vrrStatus_{ L"Idle" };
     std::wstring executablePath_;
     bool hudHotkeyRegistered_{};
+    bool ecHudSamplingActive_{};
 };

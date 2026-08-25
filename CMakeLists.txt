@@ -54,6 +54,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/SettingsWindow.cpp
     src/ClawHUD/EcDiagnostic.cpp
     src/ClawHUD/EcHelperClient.cpp
+    src/ClawHUD/MsiEcHudTelemetry.cpp
     src/ClawHUD/VrrDiagnostic.cpp
     src/ClawHUD/IntelVrrDiagnosticProbe.cpp
     src/ClawHUD/HudModel.cpp
@@ -144,4 +145,12 @@ if(BUILD_TESTING)
     target_include_directories(ClawHUD.EcHelperProtocolTests PRIVATE src/shared)
     set_target_properties(ClawHUD.EcHelperProtocolTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.EcHelperProtocolTests COMMAND ClawHUD.EcHelperProtocolTests)
+
+    add_executable(ClawHUD.MsiEcHudTelemetryTests
+        tests/MsiEcHudTelemetryTests.cpp
+        src/ClawHUD/MsiEcHudTelemetry.cpp)
+    target_compile_features(ClawHUD.MsiEcHudTelemetryTests PRIVATE cxx_std_20)
+    target_include_directories(ClawHUD.MsiEcHudTelemetryTests PRIVATE src/ClawHUD)
+    set_target_properties(ClawHUD.MsiEcHudTelemetryTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.MsiEcHudTelemetryTests COMMAND ClawHUD.MsiEcHudTelemetryTests)
 endif()
