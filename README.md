@@ -14,5 +14,3 @@ The project is currently validating whether a non-injected external HUD can coex
 Development of production telemetry/UI features is blocked until this validation passes.
 
 See [docs/PHASE0-VRR-POC.md](docs/PHASE0-VRR-POC.md) for the build and hardware-validation procedure.
-# ClawHUD
-ClawHUD

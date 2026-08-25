@@ -82,11 +82,14 @@ private:
         wc.hInstance = GetModuleHandleW(nullptr);
         wc.lpszClassName = L"ClawHUD.VrrPoc";
         RegisterClassW(&wc);
-        hwnd_ = CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT,
+        constexpr DWORD overlayExStyle = WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW |
+            WS_EX_TRANSPARENT | WS_EX_NOREDIRECTIONBITMAP;
+        hwnd_ = CreateWindowExW(overlayExStyle,
             wc.lpszClassName, L"ClawHUD VRR TEST", WS_POPUP, 24, 24, 520, 72,
             nullptr, nullptr, wc.hInstance, this);
         if (!hwnd_) Fail(log_, L"CreateWindowEx", HRESULT_FROM_WIN32(GetLastError()));
-        SetWindowPos(hwnd_, HWND_TOPMOST, 24, 24, 520, 72, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        if (!SetWindowPos(hwnd_, HWND_TOPMOST, 24, 24, 520, 72, SWP_NOACTIVATE))
+            Fail(log_, L"SetWindowPos", HRESULT_FROM_WIN32(GetLastError()));
     }
 
     void CreateD3DDevice()
@@ -224,11 +227,13 @@ private:
 
     void SetHudVisible(bool visible)
     {
-        hudVisible_ = visible;
+        if (!visible) ShowWindow(hwnd_, SW_HIDE);
         HRESULT hr = visual_->SetContent(visible ? compositionSurface_.Get() : nullptr);
         if (FAILED(hr)) Fail(log_, L"IDCompositionVisual::SetContent", hr);
         hr = compositionDevice_->Commit();
         if (FAILED(hr)) Fail(log_, L"IDCompositionDevice::Commit", hr);
+        if (visible) ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
+        hudVisible_ = visible;
         log_.Write(std::wstring(L"HUD: ") + (visible ? L"ON" : L"OFF"));
     }
 
@@ -269,8 +274,13 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
         PresentationOverlay overlay(log);
         overlay.Initialize();
         log.Write(L"F8 = HUD ON/OFF; ESC = Exit");
-        RegisterHotKey(overlay.Window(), 1, MOD_NOREPEAT, VK_F8);
-        RegisterHotKey(overlay.Window(), 2, MOD_NOREPEAT, VK_ESCAPE);
+        if (!RegisterHotKey(overlay.Window(), 1, MOD_NOREPEAT, VK_F8))
+            Fail(log, L"RegisterHotKey(F8)", HRESULT_FROM_WIN32(GetLastError()));
+        if (!RegisterHotKey(overlay.Window(), 2, MOD_NOREPEAT, VK_ESCAPE))
+        {
+            UnregisterHotKey(overlay.Window(), 1);
+            Fail(log, L"RegisterHotKey(ESC)", HRESULT_FROM_WIN32(GetLastError()));
+        }
         MSG message{};
         while (GetMessageW(&message, nullptr, 0, 0) > 0)
         {
