@@ -8,7 +8,7 @@ The native entry point runs the official Velopack C/C++ startup hook first, then
 
 On a direct CMake/Visual Studio build, Velopack startup/update exceptions are caught and the app continues silently. A packaged Velopack layout uses the same entry point and official hook handling without a custom `Update.exe` path probe.
 
-After update handling, startup creates only a message-only tray window and a tray icon. No Settings window, taskbar window, D3D device, DirectComposition object, PresentMon session, WMI/EC polling, IGCL object, or diagnostics service is created.
+After update handling, startup creates only a tray window and a tray icon. No Settings window, taskbar window, D3D device, DirectComposition object, PresentMon session, WMI/EC polling, IGCL object, or diagnostics worker is created.
 
 The tray menu contains:
 

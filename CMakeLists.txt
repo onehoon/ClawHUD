@@ -34,7 +34,8 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/TrayIcon.cpp
     src/ClawHUD/SettingsWindow.cpp
     src/ClawHUD/EcDiagnostic.cpp
-    src/ClawHUD/MsiEcReader.cpp)
+    src/ClawHUD/MsiEcReader.cpp
+    src/ClawHUD/VrrDiagnostic.cpp)
 target_compile_features(ClawHUD PRIVATE cxx_std_20)
 target_compile_definitions(ClawHUD PRIVATE
     UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX

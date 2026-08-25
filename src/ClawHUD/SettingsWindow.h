@@ -14,12 +14,15 @@ public:
 
     bool Show(HINSTANCE instance);
     HWND Window() const { return window_; }
+    void RequestClose() { if (window_) PostMessageW(window_, WM_CLOSE, 0, 0); }
     void SetDiagnosticStatus(const std::wstring& status);
+    void SetVrrStatus(const std::wstring& status);
 
 private:
     static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     void CreateTabs();
     void ShowTab(int index);
+    void UpdateDiagnosticButtons();
 
     App& app_;
     HINSTANCE instance_{};
@@ -29,4 +32,7 @@ private:
     HWND startEcButton_{};
     HWND openLogsButton_{};
     HWND diagnosticStatus_{};
+    HWND startVrrButton_{};
+    HWND stopVrrButton_{};
+    HWND vrrStatus_{};
 };

@@ -278,6 +278,25 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
     {
         PresentationOverlay overlay(log);
         overlay.Initialize();
+        const bool diagnostic = GetCommandLineW() && wcsstr(GetCommandLineW(), L"--diagnostic") != nullptr;
+        if (diagnostic)
+        {
+            log.Write(L"Diagnostic mode: HUD ON for 30 seconds");
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+            MSG message{};
+            while (std::chrono::steady_clock::now() < deadline)
+            {
+                while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE))
+                {
+                    if (message.message == WM_QUIT) return 0;
+                    TranslateMessage(&message);
+                    DispatchMessageW(&message);
+                }
+                Sleep(50);
+            }
+            log.Write(L"Diagnostic mode: normal exit");
+            return 0;
+        }
         log.Write(L"F8 = HUD ON/OFF; ESC = Exit");
         if (!RegisterHotKey(overlay.Window(), 1, MOD_NOREPEAT, VK_F8))
             Fail(log, L"RegisterHotKey(F8)", HRESULT_FROM_WIN32(GetLastError()));

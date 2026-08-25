@@ -7,3 +7,9 @@ The test connects to `ROOT\WMI`, invokes only `Get_Temperature`, `Get_Fan`, and 
 Logs are UTF-8 text files under `logs/diagnostics/ec-YYYYMMDD-HHMMSS.txt`. **Open Log Folder** opens that directory. The log includes elevation state and records `Unavailable` for environment fields that cannot be obtained. A read failure for one selector does not stop the remaining selectors; WMI connection failure ends the test and is recorded.
 
 No `Set_*`, TDP, fan-control, charge-limit, or ownership operation is implemented. The test is not production telemetry and has not been validated on physical MSI Claw hardware in this development environment.
+
+## VRR orchestration
+
+The Diagnostics tab also contains a user-started VRR / Presentation orchestration test. It waits a bounded period for a non-ClawHUD foreground process, records a 30-second HUD-OFF phase, then launches the separate `ClawHUD.VrrPoc.exe --diagnostic` child for a 30-second HUD-ON phase. The child is owned by the test and is terminated during Stop or Exit if necessary.
+
+This PR records lifecycle evidence only. It does not collect PresentMon/ETW data, parse frame timing, or emit a VRR PASS/FAIL result. The log records `VRR Analysis: Not performed`; presentation analysis is deferred to a later PR.
