@@ -827,3 +827,521 @@ accurate render + hardware telemetry
 ```
 
 The project should prefer an unavailable metric over a misleading metric, and a NO-GO result over an invasive workaround that violates the original design goal.
+
+---
+
+# 20. Layout and visual design reference
+
+This section records the current HUD layout discussion and the external research used to guide it. It is intentionally a **project reference**, not a promise that every visual constant below is already final. Where an older illustrative HUD example elsewhere in this README differs from this section, this section represents the newer layout direction.
+
+## 20.1 Benchmark target: SteamOS / MangoHud horizontal HUD
+
+The first production layout should benchmark the **SteamOS Performance Overlay horizontal one-line style** and MangoHud's corresponding horizontal layout behavior.
+
+MSI Center M's OSD is useful as a reverse-engineering source for telemetry, but its visual design is **not** a ClawHUD layout benchmark.
+
+Relevant public implementation references:
+
+- Valve Gamescope exposes Steam/MangoApp integration and explicitly advertises horizontal MangoApp support through `STEAM_MANGOAPP_HORIZONTAL_SUPPORTED`, `STEAM_MANGOAPP_PRESETS_SUPPORTED`, and `STEAM_USE_MANGOAPP`.
+- MangoHud's current configuration documents preset `2` as the **horizontal view** and exposes `horizontal`, `horizontal_stretch`, `hud_no_margin`, and `hud_compact` layout options.
+- MangoHud is used as an implementation/design reference only. ClawHUD is a Windows-native project and is not expected to copy MangoHud's Linux rendering code.
+
+References:
+
+- https://github.com/ValveSoftware/gamescope/blob/master/src/main.cpp
+- https://github.com/flightlessmango/MangoHud/blob/master/data/MangoHud.conf
+- https://github.com/flightlessmango/MangoHud/blob/master/README.md
+
+The intended design principle is:
+
+```text
+SteamOS horizontal visual language
+    +
+MangoHud public layout/color behavior as a reference
+    +
+Windows-native ClawHUD renderer
+```
+
+Do not build a skin/theme framework around this. The first goal is one clean, fixed visual language.
+
+## 20.2 First layout: one horizontal line
+
+The first HUD layout is a **single horizontal line at the top of the screen**.
+
+No multi-row layout, graphs, cards, gauges, or vertical sensor list are required for the first version.
+
+Current DC / battery example:
+
+```text
+DX11 60 FPS | CPU 36% 67°C | GPU 98% 72°C | TDP 18 W | SYS 24 W | FAN 3540 RPM | BAT 72%  2.5h
+```
+
+Current AC-connected example:
+
+```text
+DX11 60 FPS | CPU 36% 67°C | GPU 98% 72°C | TDP 18 W | FAN 3540 RPM | BAT 72%
+```
+
+The graphics API label should conceptually become one of:
+
+```text
+DX11
+DX12
+VULKAN
+```
+
+followed immediately by FPS. The desired UI is clear, but the exact reliable source for distinguishing **DX11 vs DX12** still needs real-device/runtime validation; PresentMon's general present/runtime information must not be assumed to solve that distinction until proven.
+
+## 20.3 Metric order and meaning
+
+The current one-line order is:
+
+```text
+Graphics API + FPS
+| CPU usage + CPU temperature
+| GPU usage + GPU temperature
+| TDP
+| SYS (DC only)
+| FAN
+| BAT + remaining time (remaining is DC only)
+```
+
+Meaning of each label:
+
+| HUD label | Meaning | Intended source |
+|---|---|---|
+| `DX11` / `DX12` / `VULKAN` + FPS | current graphics API label + frame rate | PresentMon / runtime validation path |
+| `CPU` | total CPU usage + live CPU temperature | PresentMon candidate for usage; MSI `Get_Temperature(0)[0]` for temperature |
+| `GPU` | GPU usage + live GPU temperature | PresentMon candidate for usage; MSI `Get_Temperature(0)[1]` for temperature |
+| `TDP` | **current CPU Package Power**, not the configured PL1/TDP limit | MSI `Get_Data(221)` |
+| `SYS` | battery-side whole-system discharge power | MSI `Get_Data(70/71)` current × `Get_Data(74/75)` voltage |
+| `FAN` | average of the two Claw fan RPM values | MSI `Get_Fan(0)` |
+| `BAT` | battery percentage and, on DC only, estimated remaining time | Windows battery API + smoothed system power |
+
+The user-facing `TDP` label is intentionally concise. Internally the value should retain an accurate name such as `cpuPackagePowerW` so it is not confused with configured PL1/PL2 limits.
+
+## 20.4 MSI temperature selectors: do not confuse telemetry with fan-curve axes
+
+For the HUD, real-time temperature is read from:
+
+```text
+Get_Temperature(0)
+├─ payload[0] = CPU temperature °C
+└─ payload[1] = GPU temperature °C
+```
+
+Do **not** use the fan-curve selector values as live temperatures:
+
+```text
+Get_Temperature(1) = Fan 1 temperature-axis / curve data
+Get_Temperature(2) = Fan 2 temperature-axis / curve data
+```
+
+Selectors `1` and `2` are useful for fan-control/curve research but are not the runtime CPU/GPU temperature source for this HUD.
+
+## 20.5 Fan display policy
+
+The HUD displays **one FAN value**, not two separate fan values.
+
+```text
+FAN = average(Fan 1 RPM, Fan 2 RPM)
+```
+
+This keeps the horizontal HUD compact and matches the goal of showing a quick device-level cooling signal rather than exposing every low-level sensor.
+
+If only one fan reading is valid, using the valid fan reading is preferable to manufacturing a zero for the missing fan. If neither reading is valid, the metric should be unavailable rather than reported as `0 RPM` unless hardware has positively reported an actual stopped-fan condition.
+
+## 20.6 AC / DC visibility policy
+
+System Power is derived from battery discharge telemetry and therefore has a strict power-source rule.
+
+### DC / battery
+
+Show:
+
+```text
+Battery %
+Remaining time
+System Power
+CPU Package Power / TDP
+Fan RPM
+CPU/GPU temperature
+CPU/GPU usage
+FPS / API
+```
+
+### AC connected
+
+Show:
+
+```text
+Battery %
+CPU Package Power / TDP
+Fan RPM
+CPU/GPU temperature
+CPU/GPU usage
+FPS / API
+```
+
+Hide:
+
+```text
+Remaining time
+System Power
+```
+
+Do not replace hidden AC values with artificial text such as:
+
+```text
+Charging
+AC
+0 W
+-- h
+```
+
+The battery segment simply becomes shorter on AC. Battery percentage remains visible.
+
+This is especially important for `SYS`: it is based on battery current and voltage, not wall power, so showing an AC-side zero or misleading value would be worse than hiding the segment.
+
+## 20.7 Static category colors, not warning colors
+
+The first HUD is an information display, not a warning/alert system.
+
+Do **not** change FPS, frametime, CPU, GPU, temperature, power, or other text colors because a metric crosses a threshold.
+
+Examples of behavior intentionally not required:
+
+```text
+low FPS → red
+high frametime → yellow
+high CPU usage → red
+high temperature → warning color
+```
+
+Color is for **stable metric/category identification only**.
+
+MangoHud's current public configuration provides useful baseline values:
+
+```text
+text_color                 = #FFFFFF
+gpu_color                  = #2E9762
+cpu_color                  = #2E97CB
+vram_color                 = #AD64C1
+ram_color                  = #C26693
+engine_color               = #EB5B5B
+battery_color              = #FF9078
+background_color           = #020202
+horizontal_separator_color = #AD64C1
+background_alpha           = 0.5
+alpha                      = 1.0
+round_corners              = 0
+```
+
+ClawHUD should treat those values as a **visual benchmark, not an immutable copied theme**.
+
+Current ClawHUD direction:
+
+- CPU label/category may use the MangoHud-style blue family.
+- GPU label/category may use the MangoHud-style green family.
+- Battery may use the MangoHud-style coral family.
+- metric values remain white.
+- TDP, SYS, and FAN should initially remain visually simple rather than inventing additional arbitrary category colors.
+- separators should remain low-emphasis and must not dominate the line.
+- no state-dependent recoloring.
+
+Exact final colors should be validated on the actual Claw display before being treated as shipping constants.
+
+## 20.8 Background direction
+
+A near-black semitransparent background is the current baseline direction.
+
+MangoHud's public baseline is approximately:
+
+```text
+background_color = #020202
+background_alpha = 0.5
+round_corners    = 0
+```
+
+This is a better benchmark for ClawHUD than MSI Center M's OSD styling.
+
+The ClawHUD background should stay visually simple:
+
+```text
+near-black
+adjustable opacity
+square / no-card appearance
+no decorative border
+no glow
+no gradient
+```
+
+The exact default opacity is not final yet. **Approximately 50%** is the current benchmark starting point.
+
+## 20.9 Full-width vs content-width background
+
+Two background modes are worth keeping because the rendering cost and implementation difference are minimal:
+
+```text
+Full Width
+Content Width
+```
+
+### Full Width
+
+The background spans the complete display width while only the text moves according to alignment.
+
+Advantages:
+
+- strongest SteamOS-style top performance-bar appearance;
+- the bar does not grow/shrink when `SYS` and remaining time disappear on AC;
+- Left / Center / Right alignment changes only text position, not the overall HUD silhouette;
+- visually stable when metric text length changes.
+
+### Content Width
+
+The background spans only the measured text width plus padding.
+
+Advantages:
+
+- visually smaller footprint;
+- shows less darkened game content;
+- may feel more like a compact floating telemetry strip.
+
+The final default is **not locked yet**. Full Width is a strong default candidate, but both modes should be easy to support by changing only the background rectangle calculation. Do not create separate renderers for them.
+
+Background mode and text alignment are independent settings.
+
+## 20.10 Position and alignment
+
+The HUD's vertical position is fixed to the **top** for the initial design.
+
+The one-line text supports three horizontal alignments:
+
+```text
+Left
+Center
+Right
+```
+
+Conceptually:
+
+```text
+Left:   x = leftPadding
+Center: x = (screenWidth - contentWidth) / 2
+Right:  x = screenWidth - contentWidth - rightPadding
+```
+
+No bottom/side placement matrix is required for the first version unless a real need appears later.
+
+## 20.11 Windows typography direction
+
+ClawHUD should use a clean **Windows 11 built-in font** rather than trying to reproduce SteamOS's exact font assets.
+
+Current candidate:
+
+```text
+Segoe UI Variable
+```
+
+Goals:
+
+- clean Windows-native appearance;
+- excellent small-size readability;
+- no external font dependency;
+- no bundled font licensing/distribution requirement;
+- stable numeric rendering.
+
+The final point/pixel size should be chosen by real-device visual testing. Earlier discussion used roughly **14 physical pixels of text in a 28–30 physical-pixel bar** as an initial sizing candidate, but these numbers are not final design constants.
+
+## 20.12 Physical-pixel sizing and DPI independence
+
+The HUD should remain approximately the **same physical pixel size** when Windows DPI scaling or game resolution changes.
+
+Desired behavior:
+
+```text
+100% Windows scale → same HUD pixel height
+150% Windows scale → same HUD pixel height
+175% Windows scale → same HUD pixel height
+```
+
+Likewise, reducing game/display resolution should not cause the HUD font to become proportionally larger simply because normal XAML/DIP scaling changed.
+
+Implementation direction:
+
+- define HUD height, font size, padding, and spacing in target physical pixels;
+- obtain the current window/monitor DPI;
+- convert/inversely compensate when the text/rendering API operates in DIPs;
+- do not let generic desktop DPI scaling silently enlarge the HUD.
+
+If horizontal space becomes insufficient at a very low resolution, prefer a deliberate compact/metric policy over randomly shrinking the font from frame to frame.
+
+## 20.13 Direct2D / DirectWrite text rendering direction
+
+The one-line HUD should be treated as a small native renderer, not a collection of heavy UI controls.
+
+The current rendering direction is:
+
+```text
+TelemetrySnapshot
+    ↓
+format small metric text runs
+    ↓
+DirectWrite text layout
+    ↓
+Direct2D drawing into the validated HUD presentation surface
+    ↓
+Composition / Presentation Manager path
+```
+
+The Phase 0 presentation backend remains authoritative: this section does **not** replace the Composition Swapchain / Presentation Manager requirement with a generic layered overlay.
+
+The text line should be composed from separate runs, for example:
+
+```text
+[DX11] [60 FPS] [|]
+[CPU] [36%] [67°C] [|]
+[GPU] [98%] [72°C] [|]
+[TDP] [18 W] [|]
+[SYS] [24 W] [|]
+[FAN] [3540 RPM] [|]
+[BAT] [72%] [2.5h]
+```
+
+Separate runs allow category labels and values to use different fixed brushes without adding a UI-layout framework.
+
+For a premultiplied-alpha/transparent composition surface, grayscale text antialiasing is a safer initial direction than relying on ClearType assumptions tied to an opaque background.
+
+## 20.14 Avoid numeric/layout jitter
+
+Frequently changing numbers should not make the entire line visibly shift left/right every sample.
+
+Two useful techniques are:
+
+1. use DirectWrite/OpenType **tabular figures** where the selected font supports them;
+2. reserve small predictable widths/slots for rapidly changing values such as FPS, percentages, watts, and RPM.
+
+Examples that should not cause distracting reflow:
+
+```text
+9% → 10% → 100%
+9.8 W → 10.1 W
+999 RPM → 1000 RPM
+```
+
+This does not require drawing visible boxes. It only means the renderer should use stable metric extents where practical.
+
+## 20.15 Telemetry-source direction for this layout
+
+The simplest desired runtime split is:
+
+```text
+PresentMon
+├─ FPS / presentation metrics
+├─ CPU utilization candidate
+├─ GPU utilization candidate
+└─ graphics API/runtime information candidate
+
+MSI_ACPI read-only
+├─ Get_Temperature(0) → CPU/GPU temperature
+├─ Get_Data(221)      → CPU Package Power shown as TDP
+├─ Get_Data(70/71)    → battery current
+├─ Get_Data(74/75)    → battery voltage
+└─ Get_Fan(0)         → Fan 1 / Fan 2 tach → average FAN value
+
+Windows power API
+└─ Battery percentage / power-source state / battery capacity data as available
+```
+
+Because FPS already makes PresentMon necessary, the first real-device PoC should test whether PresentMon's CPU/GPU utilization metrics are reliable enough to reuse. If they are, do not add a second Windows Performance Counter path merely for architectural symmetry.
+
+If a PresentMon metric is unavailable or its meaning is unsuitable, fall back to a proven Windows/Intel metric source only for that real requirement.
+
+The desired `DX11` / `DX12` / `VULKAN` label also needs validation. A generic Present runtime such as DXGI is not automatically proof of D3D11 vs D3D12, so this must remain a measured implementation detail rather than a guessed mapping.
+
+## 20.16 Candidate sampling / refresh cadence
+
+Sensor sampling and HUD redraw should be separate.
+
+Current starting-point cadence discussed for the PoC/first implementation:
+
+| Metric | Candidate data refresh |
+|---|---:|
+| FPS / frame data | ~250 ms |
+| CPU usage | ~500 ms |
+| GPU usage | ~500 ms |
+| CPU Package Power / `TDP` | ~500 ms |
+| CPU/GPU temperature | ~500–1000 ms |
+| FAN average RPM | ~1000 ms |
+| Battery % | ~5000 ms |
+| Remaining time | ~5000–10000 ms |
+| HUD redraw | ~10 FPS / 100 ms |
+
+These are starting points, not performance requirements.
+
+Do not poll every EC/battery metric at the renderer rate. The renderer should display the latest `TelemetrySnapshot` and redraw independently.
+
+## 20.17 Remaining-time smoothing
+
+Remaining battery time should not visibly oscillate with every instantaneous power sample.
+
+Conceptually:
+
+```text
+remaining energy Wh
+÷
+smoothed System Power W
+=
+estimated remaining hours
+```
+
+A simple moving average or EMA is enough. An approximate **30–60 second smoothing window** is a reasonable experiment for stable handheld display, while the visible remaining-time string only needs to update every several seconds.
+
+Do not turn this into a prediction framework.
+
+## 20.18 Missing-value behavior
+
+The HUD should prefer unavailable data over misleading data.
+
+Examples:
+
+- do not display fake `0 W` for DC-only system power on AC;
+- do not display a synthetic `0 RPM` merely because fan telemetry failed;
+- do not turn a failed temperature read into `0°C`;
+- do not invent a battery remaining time when the required data is unavailable.
+
+Whether an unavailable metric is temporarily omitted or displayed as a compact `--` placeholder can be finalized during visual testing, but synthetic zeroes should not be the default failure representation.
+
+## 20.19 Current layout summary
+
+The current design target can be summarized as:
+
+```text
+Position:          Top
+Rows:              1
+Alignment:         Left / Center / Right selectable
+Background:        near-black, semitransparent
+Background width:  Full Width vs Content Width selectable / final default TBD
+Corner style:      square / no card
+Typography:        Windows 11 built-in; Segoe UI Variable candidate
+Sizing:            fixed physical-pixel target, DPI-independent
+Colors:            stable category colors + white values
+Warning colors:    none
+Renderer:          Direct2D / DirectWrite into validated composition surface
+Data model:        latest TelemetrySnapshot, independent sampling rates
+```
+
+DC example:
+
+```text
+DX11 60 FPS | CPU 36% 67°C | GPU 98% 72°C | TDP 18 W | SYS 24 W | FAN 3540 RPM | BAT 72%  2.5h
+```
+
+AC example:
+
+```text
+DX11 60 FPS | CPU 36% 67°C | GPU 98% 72°C | TDP 18 W | FAN 3540 RPM | BAT 72%
+```
+
+This section should be updated when real-device presentation, telemetry, and visual tests settle any of the remaining candidate choices.
