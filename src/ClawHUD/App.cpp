@@ -145,9 +145,13 @@ bool App::StartVrrDiagnostic()
 {
     if (!vrrDiagnostic_ || EcDiagnosticRunning()) return false;
     StopProductionEcSampling();
+    StopGraphicsApiProbe();
     if (!vrrDiagnostic_->Start())
     {
         ReconcileHudVisibility();
+        if (const DWORD processId = foregroundTracker_.TrackedProcessId();
+            processId && ProcessAlive(processId) && mockHudEnabled_)
+            StartGraphicsApiProbe(processId);
         return false;
     }
     vrrStatus_ = L"Waiting for game";
@@ -459,6 +463,7 @@ void App::StartGraphicsApiProbe(DWORD processId)
 void App::StopGraphicsApiProbe()
 {
     KillTimer(tray_.Window(), kGraphicsApiRetryTimerId);
+    graphicsApiProbe_.Reset();
     graphicsApiProcessId_ = 0;
     graphicsApiAttempts_ = 0;
     latestGraphicsApi_.reset();
@@ -476,6 +481,7 @@ void App::TryGraphicsApiProbe()
     if (latestGraphicsApi_ || graphicsApiAttempts_ >= kGraphicsApiMaxAttempts)
     {
         KillTimer(tray_.Window(), kGraphicsApiRetryTimerId);
+        graphicsApiProbe_.Reset();
         if (!latestGraphicsApi_)
             Log(L"IGCL Graphics API unresolved after bounded retries");
         RenderProductionHud();
@@ -618,6 +624,12 @@ bool App::RestoreHudVisibilityState(const HudVisibilityState& state)
         mockHudEnabled_ = false;
     }
     ReconcileHudVisibility();
+    if (state.mockHudEnabled)
+    {
+        if (const DWORD processId = foregroundTracker_.TrackedProcessId();
+            processId && ProcessAlive(processId))
+            StartGraphicsApiProbe(processId);
+    }
     const bool expectedVisible = state.mockHudEnabled &&
         (state.manualOverride.has_value()
             ? *state.manualOverride

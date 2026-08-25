@@ -27,6 +27,7 @@ public:
     ~IntelGraphicsApiProbe();
 
     std::optional<std::wstring> Query(DWORD processId);
+    void Reset() noexcept;
 
 private:
     bool Initialize();

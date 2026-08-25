@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <iomanip>
+#include <sstream>
 #include <vector>
 
 namespace clawhud
@@ -77,6 +79,14 @@ void Debug(const std::wstring& message)
     OutputDebugStringW((L"[ClawHUD] " + message + L"\n").c_str());
 }
 
+std::wstring HexMask(std::uint32_t value)
+{
+    std::wostringstream stream;
+    stream << L"0x" << std::uppercase << std::hex
+        << std::setw(8) << std::setfill(L'0') << value;
+    return stream.str();
+}
+
 std::optional<std::string> ProcessApplicationName(DWORD processId)
 {
     HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
@@ -128,6 +138,11 @@ std::optional<std::wstring> ResolveGraphicsApi(
 }
 
 IntelGraphicsApiProbe::~IntelGraphicsApiProbe()
+{
+    Shutdown();
+}
+
+void IntelGraphicsApiProbe::Reset() noexcept
 {
     Shutdown();
 }
@@ -211,8 +226,8 @@ std::optional<std::wstring> IntelGraphicsApiProbe::Query(DWORD processId)
             continue;
 
         const auto state = DecodeGraphicsApiMask(liveState.gfxApi);
-        Debug(L"IGCL Adapter[" + std::to_wstring(index) + L"] GfxApi=0x" +
-            std::to_wstring(liveState.gfxApi));
+        Debug(L"IGCL Adapter[" + std::to_wstring(index) + L"] GfxApi=" +
+            HexMask(liveState.gfxApi));
         const auto api = ResolveGraphicsApi(state);
         if (!api)
         {
