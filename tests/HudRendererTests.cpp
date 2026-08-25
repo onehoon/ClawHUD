@@ -4,6 +4,7 @@
 #include <wrl/client.h>
 
 #include <cmath>
+#include <initializer_list>
 #include <iostream>
 
 using namespace clawhud;
@@ -38,6 +39,9 @@ int main()
     ok &= Check(Near(DipFromPhysicalPixels(14.0f, 144.0f), 9.3333f), "physical pixels to DIP");
 
     HudRenderOptions options{};
+    ok &= Check(Near(options.fontPixelSize, 30.0f) &&
+        Near(options.unitFontPixelSize, 17.0f) &&
+        Near(options.barPixelHeight, 42.0f), "HUD typography defaults");
     options.layout.alignment = HudAlignment::Center;
     options.layout.backgroundMode = HudBackgroundMode::ContentWidth;
     const D2D1_RECT_F viewport = D2D1::RectF(0, 0, 1000, 300);
@@ -73,6 +77,30 @@ int main()
     geometry = CalculateHudGeometry(viewport, scaledMeasure, options);
     ok &= Check(Near(geometry.background.right, 266.6667f), "144 DPI content width");
     ok &= Check(Near(geometry.textOrigin.x, 5.3333f), "144 DPI physical padding");
+
+    const HudRenderOptions geometryOptions{};
+    geometry = CalculateHudGeometry(viewport, HudMeasureResult{400.0f, 42.0f, 32.0f}, geometryOptions);
+    ok &= Check(Near(geometry.textOrigin.y, 5.0f), "vertical centering uses measured text height");
+    ok &= Check(Near(RightAlignedOffset(100.0f, 80.0f), 20.0f) &&
+        Near(RightAlignedOffset(100.0f, 100.0f), 0.0f) &&
+        Near(RightAlignedOffset(100.0f, 120.0f), 0.0f), "right aligned value offset");
+
+    const auto checkUnits = [&](const wchar_t* text, std::initializer_list<HudUnitRange> expected,
+        const char* message)
+    {
+        const auto actual = FindHudUnitRanges(text);
+        const std::vector<HudUnitRange> wanted(expected);
+        bool matches = actual.size() == wanted.size();
+        for (std::size_t i = 0; matches && i < actual.size(); ++i)
+            matches = actual[i].start == wanted[i].start && actual[i].length == wanted[i].length;
+        ok &= Check(matches, message);
+    };
+    checkUnits(L"100 FPS", {{4, 3}}, "FPS unit range");
+    checkUnits(L"36% 67°C", {{2, 1}, {6, 2}}, "percentage and temperature unit ranges");
+    checkUnits(L"10.1 W", {{5, 1}}, "power unit range");
+    checkUnits(L"1000 RPM", {{5, 3}}, "fan unit range");
+    checkUnits(L"72% 2.5h", {{2, 1}, {7, 1}}, "battery hours unit ranges");
+    checkUnits(L"72% 45m", {{2, 1}, {6, 1}}, "battery minutes unit ranges");
 
     ComPtr<IDWriteFactory> factory;
     HRESULT hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED,

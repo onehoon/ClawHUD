@@ -49,33 +49,97 @@ HRESULT CreateTextFormat(IDWriteFactory* factory, const HudRenderOptions& option
     return format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
 }
 
+bool IsWordBoundary(const std::wstring& text, std::size_t start, std::size_t length) noexcept
+{
+    const auto isWord = [](wchar_t value) { return value >= L'A' && value <= L'Z' ||
+        value >= L'a' && value <= L'z' || value >= L'0' && value <= L'9' || value == L'_'; };
+    return (start == 0 || !isWord(text[start - 1])) &&
+        (start + length >= text.size() || !isWord(text[start + length]));
+}
+
+std::vector<HudUnitRange> FindHudUnitRangesImpl(const std::wstring& text)
+{
+    std::vector<HudUnitRange> ranges;
+    const auto addToken = [&](const wchar_t* token, bool wordBoundary)
+    {
+        const std::size_t length = wcslen(token);
+        for (std::size_t start = text.find(token); start != std::wstring::npos;
+            start = text.find(token, start + length))
+        {
+            if (!wordBoundary || IsWordBoundary(text, start, length))
+                ranges.push_back({static_cast<std::uint32_t>(start), static_cast<std::uint32_t>(length)});
+        }
+    };
+    addToken(L"FPS", true);
+    addToken(L"RPM", true);
+    addToken(L"%", false);
+    addToken(L"°C", false);
+    addToken(L"W", true);
+    for (std::size_t i = 1; i < text.size(); ++i)
+    {
+        if ((text[i] == L'h' || text[i] == L'm') &&
+            (text[i - 1] >= L'0' && text[i - 1] <= L'9' || text[i - 1] == L'.') &&
+            (i + 1 == text.size() || !((text[i + 1] >= L'a' && text[i + 1] <= L'z') ||
+                (text[i + 1] >= L'A' && text[i + 1] <= L'Z'))))
+            ranges.push_back({static_cast<std::uint32_t>(i), 1});
+    }
+    std::sort(ranges.begin(), ranges.end(), [](const auto& left, const auto& right)
+        { return left.start < right.start; });
+    return ranges;
+}
+
+HRESULT ApplyUnitTypography(IDWriteTextLayout* layout, const std::wstring& text,
+    const HudRenderOptions& options)
+{
+    if (!layout || text.empty()) return S_OK;
+    const auto ranges = FindHudUnitRangesImpl(text);
+    const float size = DipFromPhysicalPixels(options.unitFontPixelSize, options.dpi);
+    for (const auto& unit : ranges)
+    {
+        const DWRITE_TEXT_RANGE range{unit.start, unit.length};
+        HRESULT hr = layout->SetFontSize(size, range);
+        if (FAILED(hr)) return hr;
+    }
+    return S_OK;
+}
+
 HRESULT CreateLayout(IDWriteFactory* factory, IDWriteTextFormat* format,
-    const std::wstring& text, bool tabular, ComPtr<IDWriteTextLayout>& layout)
+    const std::wstring& text, const HudRenderOptions& options, bool tabular,
+    bool styleUnits, ComPtr<IDWriteTextLayout>& layout)
 {
     if (!factory || !format)
         return E_INVALIDARG;
 
     HRESULT hr = factory->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.size()),
         format, kMaxLayoutDimension, kMaxLayoutDimension, &layout);
-    if (FAILED(hr) || !tabular || text.empty())
+    if (FAILED(hr) || text.empty())
         return hr;
 
-    ComPtr<IDWriteTypography> typography;
-    hr = factory->CreateTypography(&typography);
-    if (FAILED(hr))
-        return hr;
-    const DWRITE_FONT_FEATURE feature{DWRITE_FONT_FEATURE_TAG_TABULAR_FIGURES, 1};
-    hr = typography->AddFontFeature(feature);
-    if (FAILED(hr))
-        return hr;
-    const DWRITE_TEXT_RANGE range{0, static_cast<UINT32>(text.size())};
-    return layout->SetTypography(typography.Get(), range);
+    if (tabular)
+    {
+        ComPtr<IDWriteTypography> typography;
+        hr = factory->CreateTypography(&typography);
+        if (FAILED(hr)) return hr;
+        const DWRITE_FONT_FEATURE feature{DWRITE_FONT_FEATURE_TAG_TABULAR_FIGURES, 1};
+        hr = typography->AddFontFeature(feature);
+        if (FAILED(hr)) return hr;
+        const DWRITE_TEXT_RANGE range{0, static_cast<UINT32>(text.size())};
+        hr = layout->SetTypography(typography.Get(), range);
+        if (FAILED(hr)) return hr;
+    }
+    return styleUnits ? ApplyUnitTypography(layout.Get(), text, options) : S_OK;
 }
 
 float Width(IDWriteTextLayout* layout) noexcept
 {
     DWRITE_TEXT_METRICS metrics{};
     return SUCCEEDED(layout->GetMetrics(&metrics)) ? metrics.widthIncludingTrailingWhitespace : 0.0f;
+}
+
+float Height(IDWriteTextLayout* layout) noexcept
+{
+    DWRITE_TEXT_METRICS metrics{};
+    return SUCCEEDED(layout->GetMetrics(&metrics)) ? metrics.height : 0.0f;
 }
 
 const wchar_t* ValueExemplar(HudSegmentKind kind) noexcept
@@ -94,10 +158,10 @@ const wchar_t* ValueExemplar(HudSegmentKind kind) noexcept
 }
 
 HRESULT ReservedValueWidth(IDWriteFactory* factory, IDWriteTextFormat* format,
-    HudSegmentKind kind, float& width)
+    const HudRenderOptions& options, HudSegmentKind kind, float& width)
 {
     ComPtr<IDWriteTextLayout> exemplar;
-    HRESULT hr = CreateLayout(factory, format, ValueExemplar(kind), true, exemplar);
+    HRESULT hr = CreateLayout(factory, format, ValueExemplar(kind), options, true, true, exemplar);
     if (FAILED(hr))
         return hr;
     width = Width(exemplar.Get());
@@ -105,9 +169,9 @@ HRESULT ReservedValueWidth(IDWriteFactory* factory, IDWriteTextFormat* format,
 }
 
 HRESULT ValueExtent(IDWriteFactory* factory, IDWriteTextFormat* format,
-    HudSegmentKind kind, IDWriteTextLayout* actual, float& width)
+    const HudRenderOptions& options, HudSegmentKind kind, IDWriteTextLayout* actual, float& width)
 {
-    HRESULT hr = ReservedValueWidth(factory, format, kind, width);
+    HRESULT hr = ReservedValueWidth(factory, format, options, kind, width);
     if (FAILED(hr))
         return hr;
     width = std::max(width, Width(actual));
@@ -115,21 +179,22 @@ HRESULT ValueExtent(IDWriteFactory* factory, IDWriteTextFormat* format,
 }
 
 HRESULT RunWidth(IDWriteFactory* factory, IDWriteTextFormat* format,
-    const HudTextRun& run, const HudRenderOptions& options, float& width)
+    const HudTextRun& run, const HudRenderOptions& options, float& width, float& height)
 {
     ComPtr<IDWriteTextLayout> label;
     ComPtr<IDWriteTextLayout> value;
-    HRESULT hr = CreateLayout(factory, format, run.label, false, label);
+    HRESULT hr = CreateLayout(factory, format, run.label, options, false, false, label);
     if (FAILED(hr))
         return hr;
-    hr = CreateLayout(factory, format, run.value, true, value);
+    hr = CreateLayout(factory, format, run.value, options, true, true, value);
     if (FAILED(hr))
         return hr;
     float valueWidth{};
-    hr = ValueExtent(factory, format, run.kind, value.Get(), valueWidth);
+    hr = ValueExtent(factory, format, options, run.kind, value.Get(), valueWidth);
     if (FAILED(hr))
         return hr;
     width = Width(label.Get()) + SegmentGap(options) + valueWidth;
+    height = std::max(Height(label.Get()), Height(value.Get()));
     return S_OK;
 }
 
@@ -167,6 +232,16 @@ float DipFromPhysicalPixels(float pixels, float dpi) noexcept
     return dpi > 0.0f ? pixels * 96.0f / dpi : pixels;
 }
 
+std::vector<HudUnitRange> FindHudUnitRanges(const std::wstring& text)
+{
+    return FindHudUnitRangesImpl(text);
+}
+
+float RightAlignedOffset(float reservedWidth, float actualWidth) noexcept
+{
+    return actualWidth < reservedWidth ? reservedWidth - actualWidth : 0.0f;
+}
+
 HudRenderGeometry CalculateHudGeometry(const D2D1_RECT_F& viewport,
     const HudMeasureResult& measure, const HudRenderOptions& options) noexcept
 {
@@ -191,8 +266,9 @@ HudRenderGeometry CalculateHudGeometry(const D2D1_RECT_F& viewport,
         contentX = std::clamp(contentX, viewport.left, viewport.right - contentWidth);
 
     const float barHeight = std::max(0.0f, measure.contentHeight);
-    const float textY = viewport.top + std::max(0.0f, (barHeight -
-        DipFromPhysicalPixels(options.fontPixelSize, options.dpi)) / 2.0f);
+    const float textHeight = measure.textHeight > 0.0f
+        ? measure.textHeight : DipFromPhysicalPixels(options.fontPixelSize, options.dpi);
+    const float textY = viewport.top + std::max(0.0f, (barHeight - textHeight) / 2.0f);
     HudRenderGeometry geometry{
         D2D1::RectF(viewport.left, viewport.top, viewport.right,
             std::min(viewport.bottom, viewport.top + barHeight)),
@@ -215,15 +291,18 @@ HRESULT HudRenderer::Measure(const std::vector<HudTextRun>& runs,
     result.contentWidth = Padding(options) * 2.0f;
     result.contentHeight = DipFromPhysicalPixels(options.barPixelHeight, options.dpi);
     ComPtr<IDWriteTextLayout> separator;
-    hr = CreateLayout(factory_, format.Get(), L"|", false, separator);
+    hr = CreateLayout(factory_, format.Get(), L"|", options, false, false, separator);
     if (FAILED(hr))
         return hr;
+    result.textHeight = Height(separator.Get());
     for (size_t i = 0; i < runs.size(); ++i)
     {
         float width{};
-        hr = RunWidth(factory_, format.Get(), runs[i], options, width);
+        float height{};
+        hr = RunWidth(factory_, format.Get(), runs[i], options, width, height);
         if (FAILED(hr))
             return hr;
+        result.textHeight = std::max(result.textHeight, height);
         result.contentWidth += width;
         if (i + 1 < runs.size())
             result.contentWidth += SeparatorGap(options) * 2.0f + Width(separator.Get());
@@ -259,7 +338,7 @@ HRESULT HudRenderer::Draw(ID2D1DeviceContext* context,
     hr = CreateTextFormat(factory_, options, format);
     if (FAILED(hr)) return hr;
     ComPtr<IDWriteTextLayout> separator;
-    hr = CreateLayout(factory_, format.Get(), L"|", false, separator);
+    hr = CreateLayout(factory_, format.Get(), L"|", options, false, false, separator);
     if (FAILED(hr)) return hr;
 
     TextAntialiasModeGuard antialiasMode(context);
@@ -269,12 +348,12 @@ HRESULT HudRenderer::Draw(ID2D1DeviceContext* context,
     {
         ComPtr<IDWriteTextLayout> label;
         ComPtr<IDWriteTextLayout> value;
-        hr = CreateLayout(factory_, format.Get(), runs[i].label, false, label);
+        hr = CreateLayout(factory_, format.Get(), runs[i].label, options, false, false, label);
         if (FAILED(hr)) return hr;
-        hr = CreateLayout(factory_, format.Get(), runs[i].value, true, value);
+        hr = CreateLayout(factory_, format.Get(), runs[i].value, options, true, true, value);
         if (FAILED(hr)) return hr;
         float valueWidth{};
-        hr = ValueExtent(factory_, format.Get(), runs[i].kind, value.Get(), valueWidth);
+        hr = ValueExtent(factory_, format.Get(), options, runs[i].kind, value.Get(), valueWidth);
         if (FAILED(hr)) return hr;
 
         ComPtr<ID2D1SolidColorBrush> labelBrush;
@@ -282,7 +361,9 @@ HRESULT HudRenderer::Draw(ID2D1DeviceContext* context,
         if (FAILED(hr)) return hr;
         context->DrawTextLayout(D2D1::Point2F(x, geometry.textOrigin.y), label.Get(), labelBrush.Get());
         x += Width(label.Get()) + SegmentGap(options);
-        context->DrawTextLayout(D2D1::Point2F(x, geometry.textOrigin.y), value.Get(), white.Get());
+        const float actualValueWidth = Width(value.Get());
+        const float valueX = x + RightAlignedOffset(valueWidth, actualValueWidth);
+        context->DrawTextLayout(D2D1::Point2F(valueX, geometry.textOrigin.y), value.Get(), white.Get());
         x += valueWidth;
         if (i + 1 < runs.size())
         {

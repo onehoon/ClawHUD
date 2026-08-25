@@ -5,6 +5,8 @@
 #include <d2d1_1.h>
 #include <dwrite.h>
 
+#include <cstdint>
+#include <string>
 #include <vector>
 
 namespace clawhud
@@ -12,8 +14,9 @@ namespace clawhud
 struct HudRenderOptions
 {
     HudLayoutOptions layout{};
-    float fontPixelSize{14.0f};
-    float barPixelHeight{30.0f};
+    float fontPixelSize{30.0f};
+    float unitFontPixelSize{17.0f};
+    float barPixelHeight{42.0f};
     float horizontalPaddingPx{8.0f};
     float segmentGapPx{6.0f};
     float separatorGapPx{6.0f};
@@ -24,6 +27,13 @@ struct HudMeasureResult
 {
     float contentWidth{};
     float contentHeight{};
+    float textHeight{};
+};
+
+struct HudUnitRange
+{
+    std::uint32_t start{};
+    std::uint32_t length{};
 };
 
 struct HudRenderGeometry
@@ -33,6 +43,8 @@ struct HudRenderGeometry
 };
 
 float DipFromPhysicalPixels(float pixels, float dpi) noexcept;
+std::vector<HudUnitRange> FindHudUnitRanges(const std::wstring& text);
+float RightAlignedOffset(float reservedWidth, float actualWidth) noexcept;
 HudRenderGeometry CalculateHudGeometry(
     const D2D1_RECT_F& viewport,
     const HudMeasureResult& measure,
