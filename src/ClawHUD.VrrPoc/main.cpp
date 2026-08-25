@@ -223,7 +223,7 @@ private:
         wc.lpszClassName = L"ClawHUD.VrrPoc";
         RegisterClassW(&wc);
         constexpr DWORD overlayExStyle = WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW |
-            WS_EX_TRANSPARENT | WS_EX_NOREDIRECTIONBITMAP;
+            WS_EX_TRANSPARENT | WS_EX_NOREDIRECTIONBITMAP | WS_EX_TOPMOST;
         hwnd_ = CreateWindowExW(overlayExStyle,
             wc.lpszClassName, L"ClawHUD VRR TEST", WS_POPUP, 24, 24, 520, 72,
             nullptr, nullptr, wc.hInstance, this);
@@ -495,6 +495,9 @@ private:
         if (FAILED(hr)) Fail(log_, L"IDCompositionDevice::Commit", hr);
         if (visible)
         {
+            if (!SetWindowPos(hwnd_, HWND_TOPMOST, 0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW))
+                Fail(log_, L"SetWindowPos(HWND_TOPMOST)", HRESULT_FROM_WIN32(GetLastError()));
             ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
             log_.Write(L"ShowWindow: called");
             RECT rect{};
@@ -515,6 +518,8 @@ private:
             styleLog << L"WindowExStyle: 0x" << std::hex << std::uppercase
                 << static_cast<unsigned long long>(exStyle);
             log_.Write(styleLog.str());
+            log_.Write(std::wstring(L"WS_EX_TOPMOST: ") +
+                ((exStyle & WS_EX_TOPMOST) ? L"YES" : L"NO"));
         }
         hudVisible_ = visible;
         log_.Write(std::wstring(L"Visual attached: ") + (visible ? L"YES" : L"NO"));
