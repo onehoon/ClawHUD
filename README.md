@@ -204,11 +204,9 @@ create Settings window
 show window
 ```
 
-When closed, destroy it and release resources owned by the window.
+When minimized or closed, hide it to the tray while keeping ClawHUD running. Selecting Settings again restores the existing window.
 
-Do not keep it alive using only `ShowWindow(..., SW_HIDE)`.
-
-Recreating a small settings window on the next open is acceptable; conserving idle resources is more important than avoiding a trivial recreation cost.
+The Settings window remains lightweight and is not created until explicitly requested.
 
 The initial settings UI only needs a small native Windows surface. The project does not currently need WinUI 3, WPF, WebView, Electron, or another heavyweight UI framework.
 

@@ -64,7 +64,7 @@ bool SettingsWindow::Show(HINSTANCE instance)
         windowClass.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
         windowClass.lpszClassName = kSettingsClassName;
         RegisterClassW(&windowClass);
-        window_ = CreateWindowExW(0, kSettingsClassName, L"ClawHUD Settings",
+        window_ = CreateWindowExW(WS_EX_TOOLWINDOW, kSettingsClassName, L"ClawHUD Settings",
             WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
             CW_USEDEFAULT, CW_USEDEFAULT, 1040, 720, nullptr, nullptr, instance_, this);
         if (!window_) return false;
@@ -321,9 +321,14 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
     {
         self->ShowTab(TabCtrl_GetCurSel(self->tabs_)); return 0;
     }
+    if (message == WM_SIZE && wParam == SIZE_MINIMIZED)
+    {
+        ShowWindow(window, SW_HIDE);
+        return 0;
+    }
     if (message == WM_CLOSE)
     {
-        DestroyWindow(window);
+        ShowWindow(window, SW_HIDE);
         return 0;
     }
     if (message == WM_NCDESTROY)
