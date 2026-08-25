@@ -13,6 +13,7 @@ constexpr int kTabHud = 1;
 constexpr int kTabTweaks = 2;
 constexpr int kTabDiagnostics = 3;
 constexpr int kTabCount = 4;
+constexpr int kStartWithWindows = 1001;
 constexpr int kStartEc = 1101;
 constexpr int kOpenLogs = 1102;
 constexpr int kStartVrr = 1103;
@@ -90,6 +91,11 @@ void SettingsWindow::CreateTabs()
     }
     generalPanel_ = CreateWindowW(L"STATIC", L"ClawHUD\r\nVersion: " CLAWHUD_VERSION,
         WS_CHILD | WS_VISIBLE, 24, 52, 940, 580, window_, nullptr, instance_, nullptr);
+    if (generalPanel_) SetWindowSubclass(generalPanel_, ForwardPanelNotifications, 3, 0);
+    startWithWindows_ = CreateWindowW(L"BUTTON", L"Start ClawHUD with Windows",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+        0, 56, 260, 24, generalPanel_,
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kStartWithWindows)), instance_, nullptr);
     hudPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD, 24, 52, 940, 580, window_, nullptr, instance_, nullptr);
     if (hudPanel_) SetWindowSubclass(hudPanel_, ForwardPanelNotifications, 1, 0);
     CreateWindowW(L"STATIC", L"Alignment", WS_CHILD | WS_VISIBLE,
@@ -142,7 +148,15 @@ void SettingsWindow::CreateTabs()
     diagnosticStatus_ = CreateWindowW(L"STATIC", L"Status: Idle", WS_CHILD | WS_VISIBLE,
         0, 179, 900, 24, diagnosticsPanel_, nullptr, instance_, nullptr);
     ShowTab(kTabGeneral);
+    UpdateGeneralControls();
     UpdateHudControls();
+}
+
+void SettingsWindow::UpdateGeneralControls()
+{
+    if (startWithWindows_)
+        SendMessageW(startWithWindows_, BM_SETCHECK,
+            app_.StartWithWindows() ? BST_CHECKED : BST_UNCHECKED, 0);
 }
 
 void SettingsWindow::ShowTab(int index)
@@ -236,6 +250,10 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
     {
         switch (LOWORD(wParam))
         {
+        case kStartWithWindows:
+            self->app_.SetStartWithWindows(
+                SendMessageW(reinterpret_cast<HWND>(lParam), BM_GETCHECK, 0, 0) == BST_CHECKED);
+            return 0;
         case kAlignmentLeft: self->app_.SetHudAlignment(clawhud::HudAlignment::Left); return 0;
         case kAlignmentCenter: self->app_.SetHudAlignment(clawhud::HudAlignment::Center); return 0;
         case kAlignmentRight: self->app_.SetHudAlignment(clawhud::HudAlignment::Right); return 0;

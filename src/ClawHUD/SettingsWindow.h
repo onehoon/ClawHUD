@@ -15,6 +15,7 @@ public:
     bool Show(HINSTANCE instance);
     HWND Window() const { return window_; }
     void RequestClose() { if (window_) PostMessageW(window_, WM_CLOSE, 0, 0); }
+    void UpdateGeneralControls();
     void SetDiagnosticStatus(const std::wstring& status);
     void SetVrrStatus(const std::wstring& status);
 
@@ -31,6 +32,7 @@ private:
     HWND window_{};
     HWND tabs_{};
     HWND generalPanel_{};
+    HWND startWithWindows_{};
     HWND hudPanel_{};
     HWND diagnosticsPanel_{};
     HWND tweaksPanel_{};

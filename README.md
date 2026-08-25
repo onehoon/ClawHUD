@@ -167,6 +167,8 @@ A major goal of ClawHUD is to remain lightweight when sitting in the tray.
 
 On fresh startup, the application should **not** create a settings window and hide it. The settings UI must not exist until the user explicitly requests it.
 
+The General tab provides a **Start ClawHUD with Windows** option. It defaults to enabled when no saved value exists and controls a per-user Startup-folder shortcut; it does not add a service, scheduled task, or elevated startup path.
+
 Fresh tray idle should be close to:
 
 ```text

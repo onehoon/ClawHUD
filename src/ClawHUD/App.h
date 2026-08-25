@@ -40,6 +40,8 @@ public:
     void OpenSettings();
     void Exit();
     void SettingsDestroyed();
+    bool StartWithWindows() const noexcept { return startWithWindows_; }
+    void SetStartWithWindows(bool enabled);
     HWND MessageWindow() const { return tray_.Window(); }
     const std::wstring& ExecutablePath() const { return executablePath_; }
     bool StartEcDiagnostic();
@@ -87,6 +89,7 @@ private:
     int ProcessMessages();
     void LoadHudSettings();
     void SaveHudSettings() const;
+    bool ApplyStartupRegistration() const;
     void RefreshMockHud();
     bool EnsureMockHud();
     void ReconcileHudVisibility();
@@ -137,4 +140,5 @@ private:
     bool ecHudSamplingActive_{};
     bool intelVrrRangeFixEnabled_{ true };
     clawhud::TweakStartupCoordinator tweakStartupCoordinator_;
+    bool startWithWindows_{true};
 };

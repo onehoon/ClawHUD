@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <memory>
+#include <shobjidl.h>
 #include <shlobj.h>
 #include <string>
 
@@ -26,6 +27,7 @@ constexpr UINT kBatteryHudTimerIntervalMs = 5000;
 constexpr UINT kGraphicsApiRetryIntervalMs = 500;
 constexpr unsigned kGraphicsApiMaxAttempts = 5;
 constexpr wchar_t kInstanceMutexName[] = L"Local\\ClawHUD.SingleInstance";
+constexpr wchar_t kStartupShortcutName[] = L"ClawHUD.lnk";
 
 struct HudVisibilityRequest
 {
@@ -55,6 +57,16 @@ std::wstring HudSettingsPath()
     std::wstring path(localAppData);
     CoTaskMemFree(localAppData);
     return path + L"\\ClawHUD\\settings.ini";
+}
+
+std::wstring StartupShortcutPath()
+{
+    PWSTR startup{};
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_Startup, KF_FLAG_DEFAULT, nullptr, &startup)))
+        return {};
+    std::wstring path(startup);
+    CoTaskMemFree(startup);
+    return path + L"\\" + kStartupShortcutName;
 }
 
 std::wstring ReadHudSetting(const std::wstring& path, const wchar_t* key,
@@ -142,6 +154,7 @@ int App::Run()
             L"ClawHUD", MB_OK | MB_ICONWARNING);
         return 0;
     }
+    ApplyStartupRegistration();
     if (!tray_.Create(instance_)) return 1;
     hudHotkeyRegistered_ = RegisterHotKey(tray_.Window(), kHudToggleHotkeyId,
         MOD_NOREPEAT, VK_F8) != FALSE;
@@ -169,6 +182,21 @@ void App::SetIntelVrrRangeFixEnabled(bool enabled)
 std::optional<clawhud::IntelVrrRunResult> App::IntelVrrLastResult() const
 {
     return clawhud::IntelVrrResultStore::Load();
+}
+
+void App::SetStartWithWindows(bool enabled)
+{
+    if (startWithWindows_ == enabled)
+        return;
+    const bool previous = startWithWindows_;
+    startWithWindows_ = enabled;
+    if (!ApplyStartupRegistration())
+    {
+        startWithWindows_ = previous;
+        Log(enabled ? L"Startup registration failed" : L"Startup shortcut removal failed");
+        return;
+    }
+    SaveHudSettings();
 }
 
 bool App::StartEcDiagnostic()
@@ -835,6 +863,10 @@ void App::LoadHudSettings()
 {
     const auto path = HudSettingsPath();
     if (path.empty()) return;
+    wchar_t startup[8]{};
+    GetPrivateProfileStringW(L"General", L"StartWithWindows", L"1", startup,
+        ARRAYSIZE(startup), path.c_str());
+    startWithWindows_ = std::wcstol(startup, nullptr, 10) != 0;
     const auto alignment = ReadHudSetting(path, L"Alignment", L"Center");
     if (alignment == L"Left") hudOptions_.alignment = clawhud::HudAlignment::Left;
     else if (alignment == L"Right") hudOptions_.alignment = clawhud::HudAlignment::Right;
@@ -866,6 +898,39 @@ void App::SaveHudSettings() const
     WritePrivateProfileStringW(L"HUD", L"Alignment", alignment, path.c_str());
     WritePrivateProfileStringW(L"HUD", L"BackgroundWidth", background, path.c_str());
     WritePrivateProfileStringW(L"HUD", L"BackgroundOpacity", opacity, path.c_str());
+    WritePrivateProfileStringW(L"General", L"StartWithWindows", startWithWindows_ ? L"1" : L"0", path.c_str());
+}
+
+bool App::ApplyStartupRegistration() const
+{
+    const auto shortcut = StartupShortcutPath();
+    if (shortcut.empty()) return false;
+
+    if (!startWithWindows_)
+        return DeleteFileW(shortcut.c_str()) != FALSE || GetLastError() == ERROR_FILE_NOT_FOUND;
+
+    const HRESULT initialized = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    if (FAILED(initialized)) return false;
+
+    IShellLinkW* shellLink{};
+    IPersistFile* persistFile{};
+    HRESULT result = CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER,
+        IID_PPV_ARGS(&shellLink));
+    if (SUCCEEDED(result))
+    {
+        result = shellLink->SetPath(executablePath_.c_str());
+        if (SUCCEEDED(result))
+        {
+            const auto workingDirectory = std::filesystem::path(executablePath_).parent_path();
+            result = shellLink->SetWorkingDirectory(workingDirectory.c_str());
+        }
+        if (SUCCEEDED(result)) result = shellLink->QueryInterface(IID_PPV_ARGS(&persistFile));
+        if (SUCCEEDED(result)) result = persistFile->Save(shortcut.c_str(), TRUE);
+    }
+    if (persistFile) persistFile->Release();
+    if (shellLink) shellLink->Release();
+    CoUninitialize();
+    return SUCCEEDED(result);
 }
 
 void App::CheckForUpdates()
