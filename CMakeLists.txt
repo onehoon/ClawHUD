@@ -22,6 +22,14 @@ file(DOWNLOAD
     TLS_VERIFY OFF)
 file(ARCHIVE_EXTRACT INPUT "${VELOPACK_ARCHIVE}" DESTINATION "${VELOPACK_ROOT}")
 
+set(PRESENTMON_VERSION "2.5.1")
+set(PRESENTMON_EXE "${CMAKE_BINARY_DIR}/_deps/PresentMon-${PRESENTMON_VERSION}-x64.exe")
+file(DOWNLOAD
+    "https://github.com/GameTechDev/PresentMon/releases/download/v${PRESENTMON_VERSION}/PresentMon-${PRESENTMON_VERSION}-x64.exe"
+    "${PRESENTMON_EXE}"
+    EXPECTED_HASH SHA256=9BEC3083069F58F911E6A512F4806DB51A27BD096103087BC1D05EF54C80A191
+    TLS_VERIFY OFF)
+
 add_library(ClawHUD.Velopack SHARED IMPORTED GLOBAL)
 set_target_properties(ClawHUD.Velopack PROPERTIES
     IMPORTED_IMPLIB "${VELOPACK_ROOT}/lib/velopack_libc_win_x64_msvc.dll.lib"
@@ -45,6 +53,10 @@ target_link_libraries(ClawHUD PRIVATE ClawHUD.Velopack comctl32 shell32 delayimp
 target_link_options(ClawHUD PRIVATE "/DELAYLOAD:velopack_libc.dll")
 set_target_properties(ClawHUD PROPERTIES CXX_EXTENSIONS OFF)
 add_custom_command(TARGET ClawHUD POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:ClawHUD>/tools"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${PRESENTMON_EXE}"
+        "$<TARGET_FILE_DIR:ClawHUD>/tools/PresentMon.exe"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${VELOPACK_ROOT}/lib/velopack_libc_win_x64_msvc.dll"
         "$<TARGET_FILE_DIR:ClawHUD>/velopack_libc.dll")

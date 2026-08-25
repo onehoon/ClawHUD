@@ -1354,4 +1354,4 @@ The production `ClawHUD.exe` is a lightweight tray-first native Win32 shell with
 
 The Diagnostics tab contains a user-started, bounded MSI EC read-only probe. It records ten samples from `Get_Temperature(0)`, `Get_Fan(0)`, `Get_Data(221)`, and the raw battery current/voltage selectors into `logs/diagnostics`. It does not initialize WMI at startup and never calls MSI write methods. See [docs/DIAGNOSTICS.md](docs/DIAGNOSTICS.md).
 
-The same tab provides a separate user-started VRR orchestration test: a 30-second HUD-OFF phase followed by a 30-second `ClawHUD.VrrPoc.exe --diagnostic` HUD-ON phase. This records lifecycle evidence only; PresentMon, ETW, frame analysis, and VRR verdicts remain deferred.
+The same tab provides a separate user-started VRR test: a 30-second HUD-OFF phase followed by a 30-second `ClawHUD.VrrPoc.exe --diagnostic` HUD-ON phase. Each phase uses the pinned PresentMon 2.5.1 standalone console for a 28-second PID-targeted raw CSV capture, followed by a small TXT summary. Capture data is evidence only; no automatic VRR verdict is emitted. PresentMon/ETW capture remains diagnostics-only and is not initialized at tray startup.
