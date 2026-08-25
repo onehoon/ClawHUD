@@ -104,7 +104,7 @@ CsvSummary ParseCsv(const std::filesystem::path& path)
     if (line.size() >= 3 && static_cast<unsigned char>(line[0]) == 0xEF && static_cast<unsigned char>(line[1]) == 0xBB && static_cast<unsigned char>(line[2]) == 0xBF) line.erase(0, 3);
     const auto headers = CsvLine(line); std::map<std::string, std::size_t> column;
     for (std::size_t i = 0; i < headers.size(); ++i) column[headers[i]] = i;
-    const char* required[] = { "ProcessID", "SwapChainAddress", "PresentMode", "CPUStartQPCTime", "DisplayedTime", "MsBetweenPresents", "MsBetweenDisplayChange" };
+    const char* required[] = { "ProcessID", "SwapChainAddress", "PresentMode", "MsUntilDisplayed", "MsBetweenPresents", "MsBetweenDisplayChange" };
     for (const auto name : required) if (!column.contains(name)) { result.reason = std::string("Required PresentMon column missing: ") + name; return result; }
     const auto field = [&](const std::vector<std::string>& row, const char* name) -> std::string { const auto i = column.at(name); return i < row.size() ? row[i] : std::string{}; };
     std::map<std::string, std::size_t> swaps; std::vector<std::vector<std::string>> rows;
@@ -121,8 +121,8 @@ CsvSummary ParseCsv(const std::filesystem::path& path)
     {
         if (field(row, "SwapChainAddress") != result.dominantSwapChain) continue;
         ++result.modes[field(row, "PresentMode")];
-        const auto displayed = field(row, "DisplayedTime");
-        if (!displayed.empty() && displayed != "NA") ++result.displayed; else ++result.notDisplayed;
+        const auto untilDisplayed = field(row, "MsUntilDisplayed");
+        if (!untilDisplayed.empty() && untilDisplayed != "NA") ++result.displayed; else ++result.notDisplayed;
         try { const double value = std::stod(field(row, "MsBetweenPresents")); presentTotal += value; ++presentCount; } catch (...) {}
         try
         {
@@ -237,7 +237,15 @@ void VrrDiagnostic::Run()
         PROCESS_INFORMATION child{}; if (!Launch(command, child)) { log << L"PoC Launch: FAILED\nRESULT: Failed\n"; Status(L"Failed"); running_ = false; return; }
         log << L"PoC Launch: OK\nPoC PID: " << child.dwProcessId << L"\n"; const auto visibleEnd = std::chrono::steady_clock::now() + std::chrono::seconds(5); bool visible = false;
         while (!stop_ && std::chrono::steady_clock::now() < visibleEnd) { const HWND hwnd = FindWindowW(L"ClawHUD.VrrPoc", nullptr); if (hwnd && IsWindowVisible(hwnd)) { visible = true; break; } std::this_thread::sleep_for(std::chrono::milliseconds(100)); }
-        if (!visible) { if (WaitForSingleObject(child.hProcess, 0) == WAIT_TIMEOUT) { TerminateProcess(child.hProcess, 3); WaitForSingleObject(child.hProcess, 5000); } CloseHandle(child.hThread); CloseHandle(child.hProcess); log << L"PoC HUD: FAILED\nReason: PoC HUD did not become visible\nRESULT: Failed\n"; Status(L"Failed"); running_ = false; return; }
+        if (!visible)
+        {
+            const bool cancelled = stop_.load();
+            if (WaitForSingleObject(child.hProcess, 0) == WAIT_TIMEOUT) { TerminateProcess(child.hProcess, cancelled ? 2 : 3); WaitForSingleObject(child.hProcess, 5000); }
+            CloseHandle(child.hThread); CloseHandle(child.hProcess);
+            if (cancelled) { log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); }
+            else { log << L"PoC HUD: FAILED\nReason: PoC HUD did not become visible\nRESULT: Failed\n"; Status(L"Failed"); }
+            running_ = false; return;
+        }
         const bool onOk = Capture(pm, *target, onCsv, "ClawHUD-VRR-" + std::to_string(*target) + "-ON-" + sessionStamp, log);
         const bool pocAliveAfterCapture = WaitForSingleObject(child.hProcess, 0) == WAIT_TIMEOUT;
         const HWND pocWindowAfterCapture = FindWindowW(L"ClawHUD.VrrPoc", nullptr);
