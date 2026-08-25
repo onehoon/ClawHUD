@@ -86,8 +86,9 @@ void TrayIcon::ShowMenu()
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, kSettingsCommand, L"Settings");
     if (app_.DiagnosticRunning()) AppendMenuW(menu, MF_STRING, kStopDiagnosticCommand, L"Stop Diagnostic Test");
-    AppendMenuW(menu, MF_STRING, app_.MockHudVisible() ? kHideMockHudCommand : kShowMockHudCommand,
-        app_.MockHudVisible() ? L"Hide Mock HUD" : L"Show Mock HUD");
+    const bool mockHudEnabled = app_.MockHudEnabled();
+    AppendMenuW(menu, MF_STRING, mockHudEnabled ? kHideMockHudCommand : kShowMockHudCommand,
+        mockHudEnabled ? L"Hide Mock HUD" : L"Show Mock HUD");
     AppendMenuW(menu, MF_STRING, kTrackMockGameCommand, L"Track Foreground as Mock Game");
     AppendMenuW(menu, MF_STRING, kInGameOnlyCommand, L"HUD: In Game Only");
     AppendMenuW(menu, MF_STRING, kAlwaysCommand, L"HUD: Always");

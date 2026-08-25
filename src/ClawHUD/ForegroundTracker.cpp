@@ -19,7 +19,7 @@ bool ForegroundTracker::Start(HWND dispatchWindow, UINT reconcileMessage,
     changed_ = std::move(callback);
     active_ = this;
     hook_ = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND,
-        nullptr, WinEventProc, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+        nullptr, WinEventProc, 0, 0, WINEVENT_OUTOFCONTEXT);
     if (!hook_)
     {
         active_ = nullptr;

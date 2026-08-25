@@ -7,5 +7,6 @@ The current visibility path uses a temporary PID target so the event-driven life
 3. With **HUD: In Game Only** selected, verify the HUD is visible while the tracked process is foreground, disappears after Alt+Tab, and reappears when returning to the same process.
 4. Select **HUD: Always** and verify the HUD remains visible while switching to a browser or the desktop.
 5. Select **HUD: In Game Only** again while another application is foreground; the HUD should hide immediately and return when the tracked process becomes foreground.
+6. With the tracked game foreground and the HUD visible, open ClawHUD Settings. The HUD should hide while Settings is foreground, then reappear when returning to the tracked game. While the HUD is policy-hidden, the tray should still offer **Hide Mock HUD** because the mock HUD remains enabled.
 
 The tracker uses `SetWinEventHook(EVENT_SYSTEM_FOREGROUND)` and PID comparison. It does not classify applications as games, poll foreground state, or start telemetry providers. The mock HUD is rendered once; visibility changes only attach or detach the existing composition visual.

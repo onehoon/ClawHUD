@@ -40,6 +40,7 @@ public:
     bool StartMockHud();
     void StopMockHud();
     bool MockHudVisible() const noexcept;
+    bool MockHudEnabled() const noexcept { return mockHudEnabled_; }
     void TrackMockGameWindow(HWND window);
     void SetHudVisibilityMode(clawhud::HudVisibilityMode mode);
     bool IsHudAlwaysVisible() const noexcept;
