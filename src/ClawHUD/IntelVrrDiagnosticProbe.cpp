@@ -67,6 +67,12 @@ using VblankFn = Result(__cdecl*)(OutputHandle, VblankArgs*);
 
 constexpr Result kSuccess = 0;
 constexpr std::uint32_t kErrorNotAvailable = 0x40000007;
+constexpr std::uint32_t kIgclApiVersion = (1u << 16) | 1u;
+
+constexpr std::uint32_t MakeVersion(std::uint32_t major, std::uint32_t minor) noexcept
+{
+    return (major << 16) | (minor & 0xFFFFu);
+}
 
 template <typename T>
 T Resolve(HMODULE module, const char* name) { return reinterpret_cast<T>(GetProcAddress(module, name)); }
@@ -138,6 +144,7 @@ std::string IntelCtlResultName(std::uint32_t result)
     case 0x40000005: return "CTL_RESULT_ERROR_OUT_OF_DEVICE_MEMORY";
     case 0x40000006: return "CTL_RESULT_ERROR_INSUFFICIENT_PERMISSIONS";
     case kErrorNotAvailable: return "CTL_RESULT_ERROR_NOT_AVAILABLE";
+    case 0x40000008: return "CTL_RESULT_ERROR_UNINITIALIZED";
     case 0x40000009: return "CTL_RESULT_ERROR_UNSUPPORTED_VERSION";
     case 0x4000000A: return "CTL_RESULT_ERROR_UNSUPPORTED_FEATURE";
     case 0x4000000B: return "CTL_RESULT_ERROR_INVALID_ARGUMENT";
@@ -154,8 +161,8 @@ IntelVrrDiagnosticProbe::~IntelVrrDiagnosticProbe() { Shutdown(); }
 bool IntelVrrDiagnosticProbe::Initialize(std::wofstream& log)
 {
     log_ = &log;
-    library_ = LoadLibraryW(L"ControlLib.dll");
-    if (!library_) { log << L"IGCL VRR Evidence: Unavailable\nReason: ControlLib.dll not found\n"; return false; }
+    library_ = LoadLibraryExW(L"ControlLib.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    if (!library_) { log << L"IGCL VRR Evidence: Unavailable\nReason: driver-installed System32 ControlLib.dll not found\n"; return false; }
     const auto init = Resolve<InitFn>(library_, "ctlInit");
     const auto close = Resolve<CloseFn>(library_, "ctlClose");
     const auto enumerateDevices = Resolve<EnumerateDevicesFn>(library_, "ctlEnumerateDevices");
@@ -168,15 +175,17 @@ bool IntelVrrDiagnosticProbe::Initialize(std::wofstream& log)
         log << L"IGCL VRR Evidence: Unavailable\nReason: Required IGCL symbol unavailable\n";
         FreeLibrary(library_); library_ = nullptr; return false;
     }
-    InitArgs args{}; args.Size = sizeof(args); args.AppVersion = 0x00010000; args.SupportedVersion = 0x00010000;
+    InitArgs args{}; args.Size = sizeof(args); args.AppVersion = kIgclApiVersion; args.Flags = 0;
     const Result result = init(&args, reinterpret_cast<ApiHandle*>(&apiHandle_));
+    LogResult(log, L"ctlInit", result);
     if (result != kSuccess)
     {
-        LogResult(log, L"ctlInit", result); log << L"IGCL VRR Evidence: Unavailable\n";
+        log << L"IGCL VRR Evidence: Unavailable\n";
         FreeLibrary(library_); library_ = nullptr; return false;
     }
     initialized_ = true; vblankAvailable_ = vblank != nullptr;
-    log << L"=== INTEL IGCL VRR STATE ===\nIGCL: Available\nVBlank API: " << (vblankAvailable_ ? L"Available" : L"Unavailable") << L"\n";
+    log << L"IGCL requested API version: 1.1\nIGCL supported API version: " << (args.SupportedVersion >> 16) << L"." << (args.SupportedVersion & 0xFFFFu)
+        << L"\n=== INTEL IGCL VRR STATE ===\nIGCL: Available\nVBlank API: " << (vblankAvailable_ ? L"Available" : L"Unavailable") << L"\n";
     std::uint32_t deviceCount{}; Result enumerateResult = enumerateDevices(apiHandle_, &deviceCount, nullptr);
     if (enumerateResult != kSuccess || !deviceCount) { LogResult(log, L"ctlEnumerateDevices", enumerateResult); return true; }
     std::vector<DeviceHandle> devices(deviceCount); enumerateResult = enumerateDevices(apiHandle_, &deviceCount, devices.data());
@@ -256,9 +265,18 @@ std::vector<VblankSummary> IntelVrrDiagnosticProbe::StopSampling(std::wofstream&
     {
         if (series.timestamps.empty()) continue; const auto summary = SummarizeVblank(series); summaries.push_back(summary);
         log << L"Output[" << series.output << L"] Target[" << series.target << L"]\nUnique timestamps: " << summary.uniqueSamples << L"\nValid deltas: " << summary.validDeltas
-            << L"\nFirst timestamp: " << summary.first << L"\nLast timestamp: " << summary.last << L"\nAverage delta us: " << summary.averageDeltaUs
-            << L"\nMedian delta us: " << summary.medianDeltaUs << L"\nMin/Max delta us: " << summary.minimumDeltaUs << L"/" << summary.maximumDeltaUs
-            << L"\nMeasured VBlank Hz: " << (summary.measuredHz ? std::to_wstring(*summary.measuredHz) : L"Unavailable") << L"\nReset events: " << series.resetCount << L"\n";
+            << L"\nFirst timestamp: " << summary.first << L"\nLast timestamp: " << summary.last << L"\n";
+        if (summary.validDeltas > 0)
+        {
+            log << L"Average delta us: " << summary.averageDeltaUs << L"\nMedian delta us: " << summary.medianDeltaUs
+                << L"\nMin/Max delta us: " << summary.minimumDeltaUs << L"/" << summary.maximumDeltaUs
+                << L"\nMeasured VBlank Hz: " << *summary.measuredHz << L"\n";
+        }
+        else
+        {
+            log << L"Average delta us: Unavailable\nMedian delta us: Unavailable\nMin/Max delta us: Unavailable\nMeasured VBlank Hz: Unavailable\n";
+        }
+        log << L"Reset events: " << series.resetCount << L"\n";
     }
     if (lastSampleError_) LogResult(log, L"ctlGetVblankTimestamp", lastSampleError_);
     if (summaries.empty()) log << L"Unavailable\n";

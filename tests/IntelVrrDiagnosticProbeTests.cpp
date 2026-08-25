@@ -43,8 +43,10 @@ int main()
     ok &= Check(summary.validDeltas == 1 && reset.resetCount == 1, "non-monotonic reset does not create a cross-reset delta");
 
     VblankSeries empty{}; ok &= Check(!SummarizeVblank(empty).measuredHz, "empty is unavailable");
-    VblankSeries one{}; RecordVblankTimestamp(one, 1); ok &= Check(!SummarizeVblank(one).measuredHz, "one timestamp is unavailable");
-    ok &= Check(!UsableVblankMedian({SummarizeVblank(one)}), "insufficient VBlank evidence stays unavailable in comparison");
+    VblankSeries one{}; RecordVblankTimestamp(one, 1); const auto oneSummary = SummarizeVblank(one);
+    ok &= Check(!oneSummary.measuredHz && oneSummary.validDeltas == 0 && oneSummary.averageDeltaUs == 0 && oneSummary.medianDeltaUs == 0,
+        "one timestamp has no cadence statistics");
+    ok &= Check(!UsableVblankMedian({oneSummary}), "insufficient VBlank evidence stays unavailable in comparison");
     ok &= Check(kVblankPollInterval <= std::chrono::milliseconds(1), "VBlank poll interval remains cadence-safe");
 
     VblankSeries output0{}; output0.output = 0; output0.target = 0;
@@ -54,5 +56,6 @@ int main()
     ok &= Check(output0.output != output1.output && SummarizeVblank(output0).validDeltas == 1 && SummarizeVblank(output1).validDeltas == 1,
         "output target series remain separate");
     ok &= Check(IntelCtlResultName(0xDEADBEEF) == "UNKNOWN", "unknown result name remains raw-compatible");
+    ok &= Check(IntelCtlResultName(0x40000008) == "CTL_RESULT_ERROR_UNINITIALIZED", "uninitialized result name");
     return ok ? 0 : 1;
 }
