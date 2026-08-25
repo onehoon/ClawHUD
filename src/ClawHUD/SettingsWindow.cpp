@@ -101,7 +101,7 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
     if (!self) return DefWindowProcW(window, message, wParam, lParam);
     if (message == WM_COMMAND && LOWORD(wParam) == kStartEc)
     {
-        self->app_.StartEcDiagnostic(); self->SetDiagnosticStatus(L"Running"); return 0;
+        if (self->app_.StartEcDiagnostic()) self->SetDiagnosticStatus(L"Running"); return 0;
     }
     if (message == WM_COMMAND && LOWORD(wParam) == kOpenLogs)
     {

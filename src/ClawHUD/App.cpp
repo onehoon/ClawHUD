@@ -42,9 +42,11 @@ int App::Run()
     return ProcessMessages();
 }
 
-void App::StartEcDiagnostic()
+bool App::StartEcDiagnostic()
 {
-    if (ecDiagnostic_ && ecDiagnostic_->Start()) ecStatus_ = L"Running";
+    if (!ecDiagnostic_ || !ecDiagnostic_->Start()) return false;
+    ecStatus_ = L"Running";
+    return true;
 }
 void App::StopEcDiagnostic() { if (ecDiagnostic_) ecDiagnostic_->Stop(); }
 bool App::EcDiagnosticRunning() const { return ecDiagnostic_ && ecDiagnostic_->Running(); }

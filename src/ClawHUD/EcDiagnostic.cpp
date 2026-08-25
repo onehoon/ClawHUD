@@ -51,13 +51,17 @@ std::filesystem::path Folder()
 
 bool EcDiagnostic::Start()
 {
-    if (worker_.joinable()) return false;
-    stop_ = false; worker_ = std::thread(&EcDiagnostic::Run, this); Status(L"Running"); return true;
+    if (running_.exchange(true)) return false;
+    if (worker_.joinable()) worker_.join();
+    stop_ = false;
+    try { worker_ = std::thread(&EcDiagnostic::Run, this); }
+    catch (...) { running_ = false; throw; }
+    Status(L"Running"); return true;
 }
 
 void EcDiagnostic::Stop()
 {
-    stop_ = true; if (worker_.joinable()) worker_.join();
+    stop_ = true; if (worker_.joinable()) worker_.join(); running_ = false;
 }
 
 void EcDiagnostic::Status(const wchar_t* text) const
@@ -71,9 +75,9 @@ void EcDiagnostic::Run()
 {
     std::filesystem::path path;
     try { path = Folder() / (L"ec-" + Now(true) + L".txt"); }
-    catch (...) { Status(L"Failed"); return; }
+    catch (...) { Status(L"Failed"); running_ = false; return; }
     std::ofstream log(path, std::ios::binary);
-    if (!log.is_open()) { Status(L"Failed"); return; }
+    if (!log.is_open()) { Status(L"Failed"); running_ = false; return; }
     log << "=== CLAWHUD MSI EC DIAGNOSTIC ===\nTimestamp: " << Narrow(Now())
         << "\nClawHUD Version: 0.1.0\nWindows Build: Unavailable\nProcess Elevated: "
         << (Elevated() ? "YES" : "NO") << "\nBoard: Unavailable\nBIOS: Unavailable\n\n";
@@ -82,7 +86,7 @@ void EcDiagnostic::Run()
     if (!reader.Initialize())
     {
         log << "WMI Connection: FAILED\nHRESULT: 0x" << std::hex << static_cast<unsigned long>(reader.LastError()) << "\n";
-        Status(L"Failed"); return;
+        Status(L"Failed"); running_ = false; return;
     }
     log << "WMI Connection: OK\n";
     for (int sample = 1; sample <= 10 && !stop_; ++sample)
@@ -99,8 +103,9 @@ void EcDiagnostic::Run()
         ok = reader.ReadFan(value); read("Get_Fan(0)", ok);
         if (ok && value.size() >= 4)
         {
-            log << "Fan1 RPM: " << DecodeFanRpm(value[0], value[1]).value_or(0)
-                << "\nFan2 RPM: " << DecodeFanRpm(value[2], value[3]).value_or(0)
+            const auto fan1 = DecodeFanRpm(value[0], value[1]); const auto fan2 = DecodeFanRpm(value[2], value[3]);
+            log << "Fan1 RPM: " << (fan1 ? std::to_string(*fan1) : "Unavailable")
+                << "\nFan2 RPM: " << (fan2 ? std::to_string(*fan2) : "Unavailable")
                 << "\nFan2 mapping: bytes 2/3 are a candidate; hardware validation remains pending.\n";
         }
         const auto data = [&](std::uint8_t selector, const char* name)
@@ -120,7 +125,7 @@ void EcDiagnostic::Run()
         }
         log.flush(); if (sample < 10) std::this_thread::sleep_for(std::chrono::seconds(1));
     }
-    reader.Shutdown(); log << "\nWMI Connection: released\n"; log.flush(); Status(stop_ ? L"Cancelled" : L"Completed");
+    reader.Shutdown(); log << "\nWMI Connection: released\n"; log.flush(); Status(stop_ ? L"Cancelled" : L"Completed"); running_ = false;
 }
 
 void EcDiagnostic::OpenLogFolder() const

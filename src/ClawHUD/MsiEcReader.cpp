@@ -78,19 +78,13 @@ bool MsiEcReader::BuildInput(const wchar_t* method, std::uint8_t selector, ComPt
     if (SUCCEEDED(hr) && input) data = DataObject(input.Get());
     if (!data)
     {
-        // Compatibility fallback used by the known SteamAddon MSI transport.
-        ComPtr<IWbemClassObject> fallbackSignature, fallbackInput;
-        hr = classObject_->GetMethod(L"Get_WMI", 0, &fallbackSignature, nullptr);
-        if (SUCCEEDED(hr) && fallbackSignature) hr = fallbackSignature->SpawnInstance(0, &fallbackInput);
-        auto fallbackData = fallbackInput ? DataObject(fallbackInput.Get()) : nullptr;
-        if (!fallbackData || !PutPackage(fallbackData.Get(), 0)) { error_ = hr; return false; }
-        VARIANT replacement{}; V_VT(&replacement) = VT_UNKNOWN; fallbackData.CopyTo(&V_UNKNOWN(&replacement));
-        if (FAILED(fallbackInput->Put(L"Data", 0, &replacement, 0))) { VariantClear(&replacement); error_ = E_INVALIDARG; return false; }
-        VariantClear(&replacement);
-        BSTR instance = SysAllocString(kInstance), operation = SysAllocString(L"Get_WMI"); ComPtr<IWbemClassObject> output;
-        hr = services_->ExecMethod(instance, operation, 0, nullptr, fallbackInput.Get(), &output, nullptr);
+        // Compatibility fallback used by the known SteamAddon MSI transport:
+        // invoke Get_WMI without input parameters and reuse its returned Data.
+        input.Reset();
+        BSTR instance = SysAllocString(kInstance), operation = SysAllocString(L"Get_WMI");
+        hr = services_->ExecMethod(instance, operation, 0, nullptr, nullptr, &input, nullptr);
         SysFreeString(instance); SysFreeString(operation);
-        data = SUCCEEDED(hr) && output ? DataObject(output.Get()) : nullptr;
+        data = SUCCEEDED(hr) && input ? DataObject(input.Get()) : nullptr;
     }
     if (!input)
     {

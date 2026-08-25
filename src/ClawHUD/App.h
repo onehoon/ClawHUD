@@ -21,7 +21,7 @@ public:
     void Exit();
     void SettingsDestroyed();
     HWND MessageWindow() const { return tray_.Window(); }
-    void StartEcDiagnostic();
+    bool StartEcDiagnostic();
     void StopEcDiagnostic();
     bool EcDiagnosticRunning() const;
     const std::wstring& EcStatus() const { return ecStatus_; }

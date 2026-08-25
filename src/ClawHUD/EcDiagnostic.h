@@ -12,7 +12,7 @@ public:
     ~EcDiagnostic() { Stop(); }
     bool Start();
     void Stop();
-    bool Running() const { return worker_.joinable(); }
+    bool Running() const { return running_.load(); }
     void OpenLogFolder() const;
 
 private:
@@ -21,6 +21,7 @@ private:
     HWND notifyWindow_{};
     std::thread worker_;
     std::atomic_bool stop_{};
+    std::atomic_bool running_{};
 };
 
 constexpr UINT kEcDiagnosticStatus = WM_APP + 20;
