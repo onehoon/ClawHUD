@@ -10,11 +10,6 @@ constexpr UINT kTrayMessage = WM_APP + 10;
 constexpr UINT kSettingsCommand = 1001;
 constexpr UINT kExitCommand = 1002;
 constexpr UINT kStopDiagnosticCommand = 1003;
-constexpr UINT kShowMockHudCommand = 1004;
-constexpr UINT kHideMockHudCommand = 1005;
-constexpr UINT kTrackMockGameCommand = 1006;
-constexpr UINT kInGameOnlyCommand = 1007;
-constexpr UINT kAlwaysCommand = 1008;
 constexpr wchar_t kTrayClassName[] = L"ClawHUD.TrayMessageWindow";
 }
 
@@ -79,19 +74,12 @@ void TrayIcon::Destroy()
 
 void TrayIcon::ShowMenu()
 {
-    const HWND previousForeground = GetForegroundWindow();
     HMENU menu = CreatePopupMenu();
     if (!menu) return;
     AppendMenuW(menu, MF_STRING | MF_DISABLED, 0, L"ClawHUD");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, kSettingsCommand, L"Settings");
-    if (app_.DiagnosticRunning()) AppendMenuW(menu, MF_STRING, kStopDiagnosticCommand, L"Stop Diagnostic Test");
-    const bool mockHudEnabled = app_.MockHudEnabled();
-    AppendMenuW(menu, MF_STRING, mockHudEnabled ? kHideMockHudCommand : kShowMockHudCommand,
-        mockHudEnabled ? L"Hide Mock HUD" : L"Show Mock HUD");
-    AppendMenuW(menu, MF_STRING, kTrackMockGameCommand, L"Track Foreground as Mock Game");
-    AppendMenuW(menu, MF_STRING, kInGameOnlyCommand, L"HUD: In Game Only");
-    AppendMenuW(menu, MF_STRING, kAlwaysCommand, L"HUD: Always");
+    if (app_.DiagnosticRunning()) AppendMenuW(menu, MF_STRING, kStopDiagnosticCommand, L"Stop Diagnostic");
     AppendMenuW(menu, MF_STRING, kExitCommand, L"Exit");
     POINT point{};
     GetCursorPos(&point);
@@ -103,11 +91,6 @@ void TrayIcon::ShowMenu()
     {
     case kSettingsCommand: app_.OpenSettings(); break;
     case kStopDiagnosticCommand: app_.StopDiagnostic(); break;
-    case kShowMockHudCommand: app_.StartMockHud(); break;
-    case kHideMockHudCommand: app_.StopMockHud(); break;
-    case kTrackMockGameCommand: app_.TrackMockGameWindow(previousForeground); break;
-    case kInGameOnlyCommand: app_.SetHudVisibilityMode(clawhud::HudVisibilityMode::InGameOnly); break;
-    case kAlwaysCommand: app_.SetHudVisibilityMode(clawhud::HudVisibilityMode::Always); break;
     case kExitCommand: app_.Exit(); break;
     default: break;
     }
@@ -139,7 +122,12 @@ LRESULT CALLBACK TrayIcon::WindowProc(HWND window, UINT message, WPARAM wParam, 
         self->app_.RenderMockHud();
         return 0;
     }
-    if (message == kTrayMessage && (lParam == WM_RBUTTONUP || lParam == WM_LBUTTONUP))
+    if (message == kTrayMessage && lParam == WM_LBUTTONUP)
+    {
+        self->app_.OpenSettings();
+        return 0;
+    }
+    if (message == kTrayMessage && lParam == WM_RBUTTONUP)
     {
         self->ShowMenu();
         return 0;
