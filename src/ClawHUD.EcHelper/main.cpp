@@ -16,9 +16,28 @@ bool Elevated()
     CloseHandle(token); return result && value.TokenIsElevated != 0;
 }
 
-void WriteResponse(HANDLE pipe, const clawhud::ec::EcResponse& response)
+bool ReadExactSync(HANDLE pipe, void* data, DWORD size)
 {
-    DWORD written{}; WriteFile(pipe, &response, sizeof(response), &written, nullptr);
+    auto* cursor = static_cast<std::uint8_t*>(data); DWORD remaining = size;
+    while (remaining != 0)
+    {
+        DWORD read{};
+        if (!ReadFile(pipe, cursor, remaining, &read, nullptr) || !read) return false;
+        cursor += read; remaining -= read;
+    }
+    return true;
+}
+
+bool WriteExactSync(HANDLE pipe, const void* data, DWORD size)
+{
+    auto* cursor = static_cast<const std::uint8_t*>(data); DWORD remaining = size;
+    while (remaining != 0)
+    {
+        DWORD written{};
+        if (!WriteFile(pipe, cursor, remaining, &written, nullptr) || !written) return false;
+        cursor += written; remaining -= written;
+    }
+    return true;
 }
 }
 
@@ -35,20 +54,20 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR commandLine, int)
     {
         clawhud::ec::EcResponse response{ clawhud::ec::kProtocolVersion, 0, E_ACCESSDENIED,
             clawhud::ec::EcFailureStage::HelperNotElevated, 0, {} };
-        WriteResponse(pipe, response); CloseHandle(pipe); return 4;
+        WriteExactSync(pipe, &response, sizeof(response)); CloseHandle(pipe); return 4;
     }
     if (!reader.Initialize())
     {
         clawhud::ec::EcResponse response{ clawhud::ec::kProtocolVersion, 0, reader.LastError(), reader.LastStage(), 0, {} };
-        WriteResponse(pipe, response); CloseHandle(pipe); return 5;
+        WriteExactSync(pipe, &response, sizeof(response)); CloseHandle(pipe); return 5;
     }
     for (;;)
     {
-        clawhud::ec::EcRequest request{}; DWORD read{};
-        if (!ReadFile(pipe, &request, sizeof(request), &read, nullptr) || read == 0) break;
+        clawhud::ec::EcRequest request{};
+        if (!ReadExactSync(pipe, &request, sizeof(request))) break;
         clawhud::ec::EcResponse response{ clawhud::ec::kProtocolVersion, 0, E_INVALIDARG,
             clawhud::ec::EcFailureStage::InvalidResponse, 0, {} };
-        if (read == sizeof(request) && clawhud::ec::IsAllowedRequest(request))
+        if (clawhud::ec::IsAllowedRequest(request))
         {
             std::vector<std::uint8_t> payload;
             if (reader.Read(request.operation, request.selector, payload) && payload.size() <= clawhud::ec::kMaxPayload)
@@ -59,7 +78,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR commandLine, int)
             }
             else { response.hresult = reader.LastError(); response.stage = reader.LastStage(); }
         }
-        WriteResponse(pipe, response);
+        if (!WriteExactSync(pipe, &response, sizeof(response))) break;
     }
     reader.Shutdown(); FlushFileBuffers(pipe); CloseHandle(pipe); return 0;
 }

@@ -41,15 +41,25 @@ bool EcHelperClient::EnsureConnected()
     OVERLAPPED overlap{}; overlap.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     if (!overlap.hEvent) { Failure(HRESULT_FROM_WIN32(GetLastError()), clawhud::ec::EcFailureStage::Pipe); Close(); return false; }
     const BOOL connected = ConnectNamedPipe(pipe_, &overlap);
-    if (!connected && GetLastError() != ERROR_IO_PENDING && GetLastError() != ERROR_PIPE_CONNECTED)
+    const DWORD connectError = connected ? ERROR_SUCCESS : GetLastError();
+    if (!connected && connectError != ERROR_IO_PENDING && connectError != ERROR_PIPE_CONNECTED)
     {
-        Failure(HRESULT_FROM_WIN32(GetLastError()), clawhud::ec::EcFailureStage::Pipe);
+        Failure(HRESULT_FROM_WIN32(connectError), clawhud::ec::EcFailureStage::Pipe);
         CloseHandle(overlap.hEvent); Close(); return false;
     }
-    if (!connected && GetLastError() == ERROR_IO_PENDING && WaitForSingleObject(overlap.hEvent, 30000) != WAIT_OBJECT_0)
+    if (!connected && connectError == ERROR_IO_PENDING)
     {
-        Failure(HRESULT_FROM_WIN32(ERROR_TIMEOUT), clawhud::ec::EcFailureStage::Pipe);
-        CancelIo(pipe_); CloseHandle(overlap.hEvent); Close(); return false;
+        if (WaitForSingleObject(overlap.hEvent, 30000) != WAIT_OBJECT_0)
+        {
+            CancelIo(pipe_); Failure(HRESULT_FROM_WIN32(ERROR_TIMEOUT), clawhud::ec::EcFailureStage::Pipe);
+            CloseHandle(overlap.hEvent); Close(); return false;
+        }
+        DWORD transferred{};
+        if (!GetOverlappedResult(pipe_, &overlap, &transferred, FALSE))
+        {
+            const DWORD error = GetLastError(); Failure(HRESULT_FROM_WIN32(error), clawhud::ec::EcFailureStage::Pipe);
+            CloseHandle(overlap.hEvent); Close(); return false;
+        }
     }
     CloseHandle(overlap.hEvent); stage_ = clawhud::ec::EcFailureStage::None; error_ = S_OK; return true;
 }
@@ -69,23 +79,51 @@ bool EcHelperClient::StartHelper(const std::wstring& pipeName)
 
 bool EcHelperClient::WriteAll(const void* data, DWORD size)
 {
-    OVERLAPPED overlap{}; overlap.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    DWORD written{}; const BOOL result = WriteFile(pipe_, data, size, &written, &overlap);
-    if (!result && GetLastError() != ERROR_IO_PENDING) { CloseHandle(overlap.hEvent); Failure(HRESULT_FROM_WIN32(GetLastError()), clawhud::ec::EcFailureStage::Pipe); return false; }
-    if (!result && (WaitForSingleObject(overlap.hEvent, 5000) != WAIT_OBJECT_0 || !GetOverlappedResult(pipe_, &overlap, &written, FALSE)))
-    { CloseHandle(overlap.hEvent); Failure(HRESULT_FROM_WIN32(GetLastError()), clawhud::ec::EcFailureStage::Pipe); return false; }
-    CloseHandle(overlap.hEvent); if (written != size) { Failure(E_FAIL, clawhud::ec::EcFailureStage::Pipe); return false; }
+    auto* cursor = static_cast<const std::uint8_t*>(data); DWORD remaining = size;
+    while (remaining != 0)
+    {
+        OVERLAPPED overlap{}; overlap.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        if (!overlap.hEvent) { Failure(HRESULT_FROM_WIN32(GetLastError()), clawhud::ec::EcFailureStage::Pipe); return false; }
+        DWORD written{}; const BOOL result = WriteFile(pipe_, cursor, remaining, &written, &overlap);
+        const DWORD writeError = result ? ERROR_SUCCESS : GetLastError();
+        if (!result && writeError != ERROR_IO_PENDING)
+        { Failure(HRESULT_FROM_WIN32(writeError), clawhud::ec::EcFailureStage::Pipe); CloseHandle(overlap.hEvent); return false; }
+        if (!result)
+        {
+            const DWORD wait = WaitForSingleObject(overlap.hEvent, 5000);
+            if (wait != WAIT_OBJECT_0)
+            { CancelIoEx(pipe_, &overlap); Failure(HRESULT_FROM_WIN32(wait == WAIT_TIMEOUT ? ERROR_TIMEOUT : GetLastError()), clawhud::ec::EcFailureStage::Pipe); CloseHandle(overlap.hEvent); return false; }
+            if (!GetOverlappedResult(pipe_, &overlap, &written, FALSE))
+            { const DWORD error = GetLastError(); Failure(HRESULT_FROM_WIN32(error), clawhud::ec::EcFailureStage::Pipe); CloseHandle(overlap.hEvent); return false; }
+        }
+        CloseHandle(overlap.hEvent); if (!written) { Failure(E_FAIL, clawhud::ec::EcFailureStage::Pipe); return false; }
+        cursor += written; remaining -= written;
+    }
     return true;
 }
 
 bool EcHelperClient::ReadAll(void* data, DWORD size)
 {
-    OVERLAPPED overlap{}; overlap.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    DWORD read{}; const BOOL result = ReadFile(pipe_, data, size, &read, &overlap);
-    if (!result && GetLastError() != ERROR_IO_PENDING) { CloseHandle(overlap.hEvent); Failure(HRESULT_FROM_WIN32(GetLastError()), clawhud::ec::EcFailureStage::Pipe); return false; }
-    if (!result && (WaitForSingleObject(overlap.hEvent, 30000) != WAIT_OBJECT_0 || !GetOverlappedResult(pipe_, &overlap, &read, FALSE)))
-    { CloseHandle(overlap.hEvent); Failure(HRESULT_FROM_WIN32(GetLastError()), clawhud::ec::EcFailureStage::Pipe); return false; }
-    CloseHandle(overlap.hEvent); if (read != size) { Failure(HRESULT_FROM_WIN32(ERROR_BROKEN_PIPE), clawhud::ec::EcFailureStage::Pipe); return false; }
+    auto* cursor = static_cast<std::uint8_t*>(data); DWORD remaining = size;
+    while (remaining != 0)
+    {
+        OVERLAPPED overlap{}; overlap.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        if (!overlap.hEvent) { Failure(HRESULT_FROM_WIN32(GetLastError()), clawhud::ec::EcFailureStage::Pipe); return false; }
+        DWORD read{}; const BOOL result = ReadFile(pipe_, cursor, remaining, &read, &overlap);
+        const DWORD readError = result ? ERROR_SUCCESS : GetLastError();
+        if (!result && readError != ERROR_IO_PENDING)
+        { Failure(HRESULT_FROM_WIN32(readError), clawhud::ec::EcFailureStage::Pipe); CloseHandle(overlap.hEvent); return false; }
+        if (!result)
+        {
+            const DWORD wait = WaitForSingleObject(overlap.hEvent, 30000);
+            if (wait != WAIT_OBJECT_0)
+            { CancelIoEx(pipe_, &overlap); Failure(HRESULT_FROM_WIN32(wait == WAIT_TIMEOUT ? ERROR_TIMEOUT : GetLastError()), clawhud::ec::EcFailureStage::Pipe); CloseHandle(overlap.hEvent); return false; }
+            if (!GetOverlappedResult(pipe_, &overlap, &read, FALSE))
+            { const DWORD error = GetLastError(); Failure(HRESULT_FROM_WIN32(error), clawhud::ec::EcFailureStage::Pipe); CloseHandle(overlap.hEvent); return false; }
+        }
+        CloseHandle(overlap.hEvent); if (!read) { Failure(HRESULT_FROM_WIN32(ERROR_BROKEN_PIPE), clawhud::ec::EcFailureStage::Pipe); return false; }
+        cursor += read; remaining -= read;
+    }
     return true;
 }
 
