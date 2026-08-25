@@ -15,7 +15,7 @@ struct WindowsUsageTelemetry
     std::optional<double> gpuUsagePercent;
 };
 
-std::optional<double> ValidateUsagePercent(double value) noexcept;
+std::optional<double> NormalizeUsagePercent(double value) noexcept;
 std::optional<double> MaxGpuUsagePercent(const std::vector<double>& values) noexcept;
 
 class WindowsUsageSampler
@@ -30,7 +30,8 @@ public:
 private:
     static bool IsValidCounter(const PDH_FMT_COUNTERVALUE& value) noexcept;
     bool AddGpuCounters();
-    std::optional<double> ReadCounter(PDH_HCOUNTER counter) const;
+    std::optional<double> ReadCounter(PDH_HCOUNTER counter,
+        bool capAbove100) const;
 
     PDH_HQUERY query_{};
     PDH_HCOUNTER cpuCounter_{};

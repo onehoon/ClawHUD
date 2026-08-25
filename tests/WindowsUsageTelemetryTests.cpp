@@ -22,10 +22,12 @@ bool Near(double actual, double expected)
 int main()
 {
     bool ok = true;
-    ok &= Check(ValidateUsagePercent(33.0).value() == 33.0, "valid CPU usage");
-    ok &= Check(ValidateUsagePercent(0.0).value() == 0.0, "valid zero usage");
-    ok &= Check(!ValidateUsagePercent(-1.0) && !ValidateUsagePercent(101.0) &&
-        !ValidateUsagePercent(NAN), "invalid usage omitted");
+    ok &= Check(NormalizeUsagePercent(33.0).value() == 33.0, "valid CPU usage");
+    ok &= Check(NormalizeUsagePercent(0.0).value() == 0.0, "valid zero usage");
+    ok &= Check(NormalizeUsagePercent(125.0).value() == 100.0,
+        "turbo CPU usage capped");
+    ok &= Check(!NormalizeUsagePercent(-1.0) && !NormalizeUsagePercent(NAN),
+        "invalid CPU usage omitted");
     ok &= Check(Near(MaxGpuUsagePercent({12.0, 44.0, 31.0}).value(), 44.0),
         "maximum 3D GPU usage");
     ok &= Check(!MaxGpuUsagePercent({-1.0, 101.0, NAN}),

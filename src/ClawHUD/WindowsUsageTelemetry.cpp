@@ -6,10 +6,11 @@
 
 namespace clawhud
 {
-std::optional<double> ValidateUsagePercent(double value) noexcept
+std::optional<double> NormalizeUsagePercent(double value) noexcept
 {
-    return std::isfinite(value) && value >= 0.0 && value <= 100.0
-        ? std::optional<double>(value) : std::nullopt;
+    if (!std::isfinite(value) || value < 0.0)
+        return std::nullopt;
+    return std::min(value, 100.0);
 }
 
 std::optional<double> MaxGpuUsagePercent(const std::vector<double>& values) noexcept
@@ -17,7 +18,8 @@ std::optional<double> MaxGpuUsagePercent(const std::vector<double>& values) noex
     std::optional<double> maximum;
     for (const double value : values)
     {
-        if (const auto valid = ValidateUsagePercent(value);
+        if (const auto valid = std::isfinite(value) && value >= 0.0 && value <= 100.0
+                ? std::optional<double>(value) : std::nullopt;
             valid && (!maximum || *valid > *maximum))
             maximum = valid;
     }
@@ -91,7 +93,8 @@ bool WindowsUsageSampler::IsValidCounter(
     return value.CStatus == ERROR_SUCCESS || value.CStatus == 0x00000001L;
 }
 
-std::optional<double> WindowsUsageSampler::ReadCounter(PDH_HCOUNTER counter) const
+std::optional<double> WindowsUsageSampler::ReadCounter(
+    PDH_HCOUNTER counter, bool capAbove100) const
 {
     if (!counter)
         return std::nullopt;
@@ -99,7 +102,12 @@ std::optional<double> WindowsUsageSampler::ReadCounter(PDH_HCOUNTER counter) con
     if (PdhGetFormattedCounterValue(counter, PDH_FMT_DOUBLE, nullptr, &value) !=
         ERROR_SUCCESS || !IsValidCounter(value))
         return std::nullopt;
-    return ValidateUsagePercent(value.doubleValue);
+    if (capAbove100)
+        return NormalizeUsagePercent(value.doubleValue);
+    if (!std::isfinite(value.doubleValue) || value.doubleValue < 0.0 ||
+        value.doubleValue > 100.0)
+        return std::nullopt;
+    return value.doubleValue;
 }
 
 std::optional<WindowsUsageTelemetry> WindowsUsageSampler::Sample()
@@ -112,11 +120,11 @@ std::optional<WindowsUsageTelemetry> WindowsUsageSampler::Sample()
         return WindowsUsageTelemetry{};
     }
     WindowsUsageTelemetry result{};
-    result.cpuUsagePercent = ReadCounter(cpuCounter_);
+    result.cpuUsagePercent = ReadCounter(cpuCounter_, true);
     std::vector<double> gpuValues;
     for (const auto counter : gpuCounters_)
     {
-        if (const auto value = ReadCounter(counter))
+        if (const auto value = ReadCounter(counter, false))
             gpuValues.push_back(*value);
     }
     result.gpuUsagePercent = MaxGpuUsagePercent(gpuValues);
