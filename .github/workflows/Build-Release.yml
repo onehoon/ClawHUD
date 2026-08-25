@@ -56,14 +56,14 @@ jobs:
       - name: Install Velopack CLI
         shell: pwsh
         run: |
-          dotnet tool install --global vpk
+          dotnet tool install --global vpk --version 1.2.0
           $env:PATH = "$env:USERPROFILE\.dotnet\tools;$env:PATH"
           "PATH=$env:PATH" >> $env:GITHUB_ENV
 
       - name: Configure Release x64
         shell: pwsh
         run: >-
-          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -T v143
           -DBUILD_TESTING=ON
           "-DCLAWHUD_VERSION=${{ steps.version.outputs.version }}"
 
@@ -115,6 +115,7 @@ jobs:
             --packDir .\stage\ `
             --mainExe ClawHUD.exe `
             --channel stable `
+            --framework vcredist143-x64 `
             --outputDir .\release
 
       - name: Upload GitHub Release
