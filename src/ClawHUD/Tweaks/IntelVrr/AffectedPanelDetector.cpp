@@ -85,15 +85,18 @@ std::vector<PanelIdentity> EnumeratePanelIdentities()
         if (FAILED(services->ExecQuery(_bstr_t(L"WQL"), _bstr_t(L"SELECT * FROM WmiMonitorID"), WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY,
             nullptr, &enumerator))) break;
         querySucceeded = true;
+        HRESULT enumerationResult = S_OK;
         while (true)
         {
             IWbemClassObject* object{}; ULONG returned{};
-            if (FAILED(enumerator->Next(WBEM_INFINITE, 1, &object, &returned)) || returned == 0) break;
+            enumerationResult = enumerator->Next(WBEM_INFINITE, 1, &object, &returned);
+            if (FAILED(enumerationResult) || returned == 0) break;
             PanelIdentity identity{ PropertyString(object, L"ManufacturerName"), PropertyString(object, L"ProductCodeID"),
                 PropertyString(object, L"UserFriendlyName"), PropertyBool(object, L"Active"), PropertyString(object, L"InstanceName") };
             if (!identity.manufacturer.empty()) results.push_back(std::move(identity));
             object->Release();
         }
+        if (FAILED(enumerationResult)) querySucceeded = false;
     } while (false);
     if (enumerator) enumerator->Release(); if (services) services->Release(); if (locator) locator->Release();
     CoUninitialize();

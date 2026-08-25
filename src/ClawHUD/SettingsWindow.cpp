@@ -197,8 +197,8 @@ void SettingsWindow::UpdateTweaksControls()
     case clawhud::IntelVrrRunStatus::ApplyFailed: message = L"Failed to apply: " + std::wstring(result->message.begin(), result->message.end()); break;
     case clawhud::IntelVrrRunStatus::VerificationFailed: message = L"Applied but could not verify."; break;
     }
-    if (intelVrrPanel_) SetWindowTextW(intelVrrPanel_, (L"Panel: " + panel).c_str());
-    if (intelVrrRange_) SetWindowTextW(intelVrrRange_, (L"Range: " + before + L" -> " + after).c_str());
+    if (intelVrrPanel_) SetWindowTextW(intelVrrPanel_, panel.empty() ? L"" : (L"Panel: " + panel).c_str());
+    if (intelVrrRange_) SetWindowTextW(intelVrrRange_, (before.empty() || after.empty()) ? L"" : (L"Range: " + before + L" -> " + after).c_str());
     if (intelVrrResult_) SetWindowTextW(intelVrrResult_, (L"Last result: " + message).c_str());
 }
 

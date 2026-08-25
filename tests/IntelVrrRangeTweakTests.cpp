@@ -4,6 +4,7 @@
 #include <memory>
 #include <windows.h>
 #include <fstream>
+#include <stdexcept>
 
 using namespace clawhud;
 namespace
@@ -12,11 +13,11 @@ bool Check(bool value, const char* message) { if (!value) std::cerr << "FAILED: 
 class FakeClient final : public IIntelArcSyncClient
 {
 public:
-    bool initialize{ true }; std::vector<IntelDisplayOutput> outputs{ { nullptr, nullptr, {} } }; IntelArcSyncCapability capability{ true, 48, 120, 0, 0 }; IntelArcSyncProfileState profile{}; bool setSuccess{ true }; bool validReadback{ true }; std::shared_ptr<int> setCalls{ std::make_shared<int>(0) };
+    bool initialize{ true }; std::vector<IntelDisplayOutput> outputs{ { nullptr, nullptr, {} } }; IntelArcSyncCapability capability{ true, 48, 120, 0, 0 }; IntelArcSyncProfileState profile{}; bool setSuccess{ true }; bool validReadback{ true }; bool verificationReadSuccess{ true }; int profileReads{}; std::shared_ptr<int> setCalls{ std::make_shared<int>(0) };
     bool Initialize() override { return initialize; }
     std::vector<IntelDisplayOutput> EnumerateDisplayOutputs() override { return outputs; }
     bool GetMonitorCapability(const IntelDisplayOutput&, IntelArcSyncCapability& value) override { value = capability; return initialize; }
-    bool GetArcSyncProfile(const IntelDisplayOutput&, IntelArcSyncProfileState& value) override { value = profile; return initialize; }
+    bool GetArcSyncProfile(const IntelDisplayOutput&, IntelArcSyncProfileState& value) override { ++profileReads; if (profileReads > 1 && !verificationReadSuccess) { calls.push_back({ "ctlGetIntelArcSyncProfile", 0x40000007, "CTL_RESULT_ERROR_NOT_AVAILABLE", "verification" }); return false; } value = profile; return initialize; }
     bool SetArcSyncProfile(const IntelDisplayOutput&, IntelArcSyncProfile value, std::string&) override { ++*setCalls; if (setSuccess && validReadback) profile = { value, 48, 120, 0, 0 }; return setSuccess; }
     const std::vector<IntelArcSyncCall>& CallLog() const override { return calls; }
     void Shutdown() override {}
@@ -69,9 +70,18 @@ int main()
         auto result = tweak.Run(true); ok &= Check(result.status == IntelVrrRunStatus::VerificationFailed && *fake->setCalls == 1, "invalid readback is verification failure");
     }
     {
+        auto fake = std::make_shared<FakeClient>(); fake->profile = { IntelArcSyncProfile::Recommended, 48, 60, 0, 0 }; fake->verificationReadSuccess = false; IntelVrrRangeTweak tweak([fake] { return std::unique_ptr<IIntelArcSyncClient>(new FakeClient(*fake)); }, [] { return std::vector<PanelIdentity>{ Affected() }; });
+        auto result = tweak.Run(true); const auto& log = tweak.LastLog(); bool found = false; for (const auto& line : log) if (line.find("ctlGetIntelArcSyncProfile: CTL_RESULT_ERROR_NOT_AVAILABLE") != std::string::npos) found = true;
+        ok &= Check(result.status == IntelVrrRunStatus::VerificationFailed && found, "failed verification GET is logged");
+    }
+    {
         const auto saved = IntelVrrResultStore::Load(); ok &= Check(saved && saved->status == IntelVrrRunStatus::VerificationFailed, "last result round-trips");
         std::wofstream corrupt(resultDirectory + L"\\tweaks-intel-vrr-result.ini", std::ios::trunc); corrupt << L"not a result"; corrupt.close();
         ok &= Check(!IntelVrrResultStore::Load(), "corrupt result falls back safely");
+    }
+    {
+        IntelVrrRangeTweak tweak([] { return std::unique_ptr<IIntelArcSyncClient>{}; }, []() -> std::vector<PanelIdentity> { throw std::runtime_error("WMI enumeration failed"); });
+        auto result = tweak.Run(true); ok &= Check(result.status == IntelVrrRunStatus::Unavailable, "WMI enumeration failure is unavailable");
     }
     return ok ? 0 : 1;
 }
