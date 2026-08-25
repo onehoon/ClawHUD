@@ -19,7 +19,7 @@ constexpr UINT kForegroundChanged = WM_APP + 2;
 constexpr UINT kHudVisibilityRequest = WM_APP + 3;
 constexpr UINT kPresentMonHudUpdate = WM_APP + 4;
 constexpr UINT kMockHudTimerIntervalMs = 100;
-constexpr UINT kEcHudTimerIntervalMs = 1000;
+constexpr UINT kUsageSamplingIntervalMs = 1000;
 constexpr UINT kBatteryHudTimerIntervalMs = 5000;
 constexpr wchar_t kInstanceMutexName[] = L"Local\\ClawHUD.SingleInstance";
 
@@ -305,6 +305,11 @@ void App::RenderProductionHud()
     snapshot.fan1Rpm = ecHudTelemetry_.fan1Rpm;
     snapshot.fan2Rpm = ecHudTelemetry_.fan2Rpm;
     snapshot.presentMonDisplayedFps = latestPresentMonDisplayedFps_;
+    if (latestUsageTelemetry_)
+    {
+        snapshot.cpuUsagePercent = latestUsageTelemetry_->cpuUsagePercent;
+        snapshot.gpuUsagePercent = latestUsageTelemetry_->gpuUsagePercent;
+    }
     if (latestPowerTelemetry_)
     {
         snapshot.batteryPercent = latestPowerTelemetry_->batteryPercent;
@@ -319,12 +324,13 @@ void App::RenderProductionHud()
     if (FAILED(hr)) Log(L"Production EC HUD redraw failed");
 }
 
-void App::SampleProductionEcTelemetry()
+void App::SampleProductionTelemetry()
 {
     if (!mockHudEnabled_ || !hudPresentation_ || !hudPresentation_->Visible() ||
         diagnosticHudMode_.has_value())
         return;
     ecHudTelemetry_ = ReadHudEcTelemetry();
+    latestUsageTelemetry_ = usageSampler_.Sample();
     RenderProductionHud();
 }
 
@@ -344,8 +350,10 @@ void App::StartProductionEcSampling()
     if (!ecHudSamplingActive_)
     {
         ecHudSamplingActive_ = true;
-        SampleProductionEcTelemetry();
-        SetTimer(tray_.Window(), kEcHudTimerId, kEcHudTimerIntervalMs, nullptr);
+        if (!usageSampler_.Initialized())
+            usageSampler_.Initialize();
+        SampleProductionTelemetry();
+        SetTimer(tray_.Window(), kEcHudTimerId, kUsageSamplingIntervalMs, nullptr);
         SampleProductionBatteryTelemetry();
         SetTimer(tray_.Window(), kBatteryHudTimerId, kBatteryHudTimerIntervalMs, nullptr);
     }
@@ -364,6 +372,8 @@ void App::StopProductionEcSampling()
     }
     ecHudTelemetry_ = {};
     latestPowerTelemetry_.reset();
+    latestUsageTelemetry_.reset();
+    usageSampler_.Reset();
     ecHudSamplingActive_ = false;
 }
 
@@ -437,6 +447,8 @@ void App::TrackMockGameWindow(HWND window)
     if (!processId)
         return;
     foregroundTracker_.SetTrackedProcessId(processId);
+    usageSampler_.Reset();
+    latestUsageTelemetry_.reset();
     if (EnsureMockHud())
     {
         mockHudEnabled_ = true;

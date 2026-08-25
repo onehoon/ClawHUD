@@ -25,13 +25,13 @@ int main()
     ok &= Check(defaults.backgroundOpacity == 0.5f, "default opacity");
 
     const auto dc = FormatHud(MakeGameDcSample());
-    ok &= Check(JoinHudRuns(dc) == L"DX11 60 FPS | CPU 36% 67\u00B0C | GPU 98% 72\u00B0C | TDP 18 W | SYS 24 W | FAN 3540 RPM | BAT 72% 2.5h", "game DC formatting");
+    ok &= Check(JoinHudRuns(dc) == L"DX11 60 FPS | CPU 36% 67\u00B0C | GPU 98% | TDP 18 W | SYS 24 W | FAN 3540 RPM | BAT 72% 2.5h", "game DC formatting");
     ok &= Check(dc.size() == 7, "game DC segment count");
 
     ok &= Check(JoinHudRuns(FormatHud(MakeGameAcSample())) ==
-        L"DX11 60 FPS | CPU 36% 67\u00B0C | GPU 98% 72\u00B0C | TDP 18 W | FAN 3540 RPM | BAT 72%", "game AC formatting");
+        L"DX11 60 FPS | CPU 36% 67\u00B0C | GPU 98% | TDP 18 W | FAN 3540 RPM | BAT 72%", "game AC formatting");
     ok &= Check(JoinHudRuns(FormatHud(MakeNoGameAlwaysSample())) ==
-        L"CPU 36% 67\u00B0C | GPU 98% 72\u00B0C | TDP 18 W | SYS 24 W | FAN 3540 RPM | BAT 72% 2.5h", "no-game formatting");
+        L"CPU 36% 67\u00B0C | GPU 98% | TDP 18 W | SYS 24 W | FAN 3540 RPM | BAT 72% 2.5h", "no-game formatting");
     ok &= Check(ShouldShowHud(HudVisibilityMode::Always, false), "always visibility");
     ok &= Check(!ShouldShowHud(HudVisibilityMode::InGameOnly, false), "in-game-only visibility");
     ok &= Check(ShouldShowHud(HudVisibilityMode::InGameOnly, true), "foreground game visibility");
@@ -51,7 +51,15 @@ int main()
     HudTelemetrySnapshot temperaturesOnly{};
     temperaturesOnly.cpuTemperatureC = 48;
     temperaturesOnly.gpuTemperatureC = 44;
-    ok &= Check(JoinHudRuns(FormatHud(temperaturesOnly)) == L"CPU 48\u00B0C | GPU 44\u00B0C", "temperature-only formatting");
+    ok &= Check(JoinHudRuns(FormatHud(temperaturesOnly)) == L"CPU 48\u00B0C", "GPU temperature omitted");
+
+    HudTelemetrySnapshot usage{};
+    usage.cpuUsagePercent = 33.0;
+    usage.cpuTemperatureC = 33;
+    usage.gpuUsagePercent = 44.0;
+    usage.gpuTemperatureC = 67;
+    ok &= Check(JoinHudRuns(FormatHud(usage)) == L"CPU 33% 33\u00B0C | GPU 44%",
+        "CPU usage and GPU usage formatting");
     ok &= Check(FormatHud(HudTelemetrySnapshot{}).empty(), "empty snapshot omitted");
 
     HudTelemetrySnapshot displayed{};
