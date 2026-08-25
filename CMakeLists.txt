@@ -54,6 +54,10 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/SettingsWindow.cpp
     src/ClawHUD/EcDiagnostic.cpp
     src/ClawHUD/EcHelperClient.cpp
+    src/ClawHUD/MsiEcHudTelemetry.cpp
+    src/ClawHUD/PresentMonHudTelemetry.cpp
+    src/ClawHUD/WindowsPowerTelemetry.cpp
+    src/ClawHUD/WindowsUsageTelemetry.cpp
     src/ClawHUD/VrrDiagnostic.cpp
     src/ClawHUD/IntelVrrDiagnosticProbe.cpp
     src/ClawHUD/HudModel.cpp
@@ -65,7 +69,7 @@ target_compile_definitions(ClawHUD PRIVATE
     UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX
     CLAWHUD_UPDATE_REPOSITORY=\"https://github.com/onehoon/ClawHUD\")
 target_include_directories(ClawHUD PRIVATE src/ClawHUD "${CMAKE_BINARY_DIR}/generated")
-target_link_libraries(ClawHUD PRIVATE ClawHUD.Velopack comctl32 shell32 delayimp d3d11 dxgi dcomp d2d1 dwrite)
+target_link_libraries(ClawHUD PRIVATE ClawHUD.Velopack comctl32 shell32 delayimp d3d11 dxgi dcomp d2d1 dwrite pdh advapi32)
 target_link_options(ClawHUD PRIVATE "/DELAYLOAD:velopack_libc.dll")
 set_target_properties(ClawHUD PROPERTIES CXX_EXTENSIONS OFF)
 
@@ -144,4 +148,41 @@ if(BUILD_TESTING)
     target_include_directories(ClawHUD.EcHelperProtocolTests PRIVATE src/shared)
     set_target_properties(ClawHUD.EcHelperProtocolTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.EcHelperProtocolTests COMMAND ClawHUD.EcHelperProtocolTests)
+
+    add_executable(ClawHUD.MsiEcHudTelemetryTests
+        tests/MsiEcHudTelemetryTests.cpp
+        src/ClawHUD/MsiEcHudTelemetry.cpp)
+    target_compile_features(ClawHUD.MsiEcHudTelemetryTests PRIVATE cxx_std_20)
+    target_include_directories(ClawHUD.MsiEcHudTelemetryTests PRIVATE src/ClawHUD)
+    set_target_properties(ClawHUD.MsiEcHudTelemetryTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.MsiEcHudTelemetryTests COMMAND ClawHUD.MsiEcHudTelemetryTests)
+
+    add_executable(ClawHUD.PresentMonHudTelemetryTests
+        tests/PresentMonHudTelemetryTests.cpp
+        src/ClawHUD/PresentMonHudTelemetry.cpp)
+    target_compile_features(ClawHUD.PresentMonHudTelemetryTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.PresentMonHudTelemetryTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.PresentMonHudTelemetryTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.PresentMonHudTelemetryTests PRIVATE advapi32)
+    set_target_properties(ClawHUD.PresentMonHudTelemetryTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.PresentMonHudTelemetryTests COMMAND ClawHUD.PresentMonHudTelemetryTests)
+
+    add_executable(ClawHUD.WindowsPowerTelemetryTests
+        tests/WindowsPowerTelemetryTests.cpp
+        src/ClawHUD/WindowsPowerTelemetry.cpp)
+    target_compile_features(ClawHUD.WindowsPowerTelemetryTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.WindowsPowerTelemetryTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.WindowsPowerTelemetryTests PRIVATE src/ClawHUD)
+    set_target_properties(ClawHUD.WindowsPowerTelemetryTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.WindowsPowerTelemetryTests COMMAND ClawHUD.WindowsPowerTelemetryTests)
+
+    add_executable(ClawHUD.WindowsUsageTelemetryTests
+        tests/WindowsUsageTelemetryTests.cpp
+        src/ClawHUD/WindowsUsageTelemetry.cpp)
+    target_compile_features(ClawHUD.WindowsUsageTelemetryTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.WindowsUsageTelemetryTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.WindowsUsageTelemetryTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.WindowsUsageTelemetryTests PRIVATE pdh)
+    set_target_properties(ClawHUD.WindowsUsageTelemetryTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.WindowsUsageTelemetryTests COMMAND ClawHUD.WindowsUsageTelemetryTests)
 endif()

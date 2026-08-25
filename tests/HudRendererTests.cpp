@@ -39,9 +39,9 @@ int main()
     ok &= Check(Near(DipFromPhysicalPixels(14.0f, 144.0f), 9.3333f), "physical pixels to DIP");
 
     HudRenderOptions options{};
-    ok &= Check(Near(options.fontPixelSize, 30.0f) &&
-        Near(options.unitFontPixelSize, 17.0f) &&
-        Near(options.barPixelHeight, 42.0f), "HUD typography defaults");
+    ok &= Check(Near(options.fontPixelSize, 20.0f) &&
+        Near(options.unitFontPixelSize, 11.0f) &&
+        Near(options.barPixelHeight, 30.0f), "HUD typography defaults");
     options.layout.alignment = HudAlignment::Center;
     options.layout.backgroundMode = HudBackgroundMode::ContentWidth;
     const D2D1_RECT_F viewport = D2D1::RectF(0, 0, 1000, 300);

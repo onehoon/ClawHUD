@@ -119,7 +119,12 @@ LRESULT CALLBACK TrayIcon::WindowProc(HWND window, UINT message, WPARAM wParam, 
     }
     if (message == WM_TIMER)
     {
-        self->app_.RenderMockHud();
+        if (wParam == kEcHudTimerId)
+            self->app_.SampleProductionTelemetry();
+        else if (wParam == kBatteryHudTimerId)
+            self->app_.SampleProductionBatteryTelemetry();
+        else if (wParam == kMockHudTimerId)
+            self->app_.RenderMockHud();
         return 0;
     }
     if (message == kTrayMessage && lParam == WM_LBUTTONUP)

@@ -14,12 +14,12 @@ namespace clawhud
 struct HudRenderOptions
 {
     HudLayoutOptions layout{};
-    float fontPixelSize{30.0f};
-    float unitFontPixelSize{17.0f};
-    float barPixelHeight{42.0f};
+    float fontPixelSize{20.0f};
+    float unitFontPixelSize{11.0f};
+    float barPixelHeight{30.0f};
     float horizontalPaddingPx{8.0f};
     float segmentGapPx{6.0f};
-    float separatorGapPx{6.0f};
+    float separatorGapPx{10.0f};
     float dpi{96.0f};
 };
 

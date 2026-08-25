@@ -46,16 +46,9 @@ std::wstring CpuValue(const HudTelemetrySnapshot& snapshot)
 
 std::wstring GpuValue(const HudTelemetrySnapshot& snapshot)
 {
-    std::wstring value;
-    if (snapshot.gpuUsagePercent)
-        value = Integer(*snapshot.gpuUsagePercent) + L"%";
-    if (snapshot.gpuTemperatureC)
-    {
-        if (!value.empty())
-            value += L" ";
-        value += std::to_wstring(*snapshot.gpuTemperatureC) + L"\u00B0C";
-    }
-    return value;
+    return snapshot.gpuUsagePercent
+        ? Integer(*snapshot.gpuUsagePercent) + L"%"
+        : std::wstring{};
 }
 }
 
@@ -68,7 +61,10 @@ std::vector<HudTextRun> FormatHud(const HudTelemetrySnapshot& snapshot)
 {
     std::vector<HudTextRun> runs;
 
-    if (snapshot.graphicsApi && snapshot.renderFps)
+    if (snapshot.presentMonDisplayedFps)
+        Add(runs, HudSegmentKind::Graphics, L"FPS",
+            Integer(*snapshot.presentMonDisplayedFps));
+    else if (snapshot.graphicsApi && snapshot.renderFps)
         Add(runs, HudSegmentKind::Graphics, *snapshot.graphicsApi,
             Integer(*snapshot.renderFps) + L" FPS");
 
@@ -128,7 +124,7 @@ std::wstring JoinHudRuns(const std::vector<HudTextRun>& runs)
 HudTelemetrySnapshot MakeGameDcSample()
 {
     return {L"DX11", 60.0, std::nullopt, std::nullopt, 36.0, 67, 18.0,
-        98.0, 72, 3520, 3560, 72, 24.0, 150, true, true};
+        98.0, std::nullopt, 3520, 3560, 72, 24.0, 150, true, true};
 }
 
 HudTelemetrySnapshot MakeGameAcSample()

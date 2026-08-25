@@ -177,5 +177,5 @@ void EcHelperClient::Close()
 {
     if (pipe_ != INVALID_HANDLE_VALUE) { FlushFileBuffers(pipe_); DisconnectNamedPipe(pipe_); CloseHandle(pipe_); pipe_ = INVALID_HANDLE_VALUE; }
     if (helperProcess_) { CloseHandle(helperProcess_); helperProcess_ = {}; }
-    helperPid_ = 0; pipeName_.clear(); helperElevated_ = false;
+    helperPid_ = 0; pipeName_.clear(); helperElevated_ = false; attempted_ = false;
 }
