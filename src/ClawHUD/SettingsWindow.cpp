@@ -10,8 +10,9 @@ namespace
 constexpr wchar_t kSettingsClassName[] = L"ClawHUD.SettingsWindow";
 constexpr int kTabGeneral = 0;
 constexpr int kTabHud = 1;
-constexpr int kTabDiagnostics = 2;
-constexpr int kTabCount = 3;
+constexpr int kTabTweaks = 2;
+constexpr int kTabDiagnostics = 3;
+constexpr int kTabCount = 4;
 constexpr int kStartEc = 1101;
 constexpr int kOpenLogs = 1102;
 constexpr int kStartVrr = 1103;
@@ -22,6 +23,7 @@ constexpr int kAlignmentRight = 1203;
 constexpr int kBackgroundFull = 1204;
 constexpr int kBackgroundContent = 1205;
 constexpr int kOpacitySlider = 1206;
+constexpr int kIntelVrrToggle = 1301;
 
 LRESULT CALLBACK ForwardPanelNotifications(HWND window, UINT message, WPARAM wParam,
     LPARAM lParam, UINT_PTR subclassId, DWORD_PTR)
@@ -69,6 +71,7 @@ bool SettingsWindow::Show(HINSTANCE instance)
     SetForegroundWindow(window_);
     UpdateHudControls();
     SetDiagnosticStatus(app_.EcStatus()); SetVrrStatus(app_.VrrStatus());
+    UpdateTweaksControls();
     return true;
 }
 
@@ -77,7 +80,7 @@ void SettingsWindow::CreateTabs()
     tabs_ = CreateWindowExW(0, WC_TABCONTROLW, L"",
         WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
         8, 8, 1008, 660, window_, nullptr, instance_, nullptr);
-    const wchar_t* labels[kTabCount] = { L"General", L"HUD", L"Diagnostics" };
+    const wchar_t* labels[kTabCount] = { L"General", L"HUD", L"Tweaks", L"Diagnostics" };
     for (int i = 0; i < kTabCount; ++i)
     {
         TCITEMW item{};
@@ -110,6 +113,16 @@ void SettingsWindow::CreateTabs()
     SendMessageW(opacitySlider_, TBM_SETRANGE, TRUE, MAKELONG(0, 100));
     opacityLabel_ = CreateWindowW(L"STATIC", L"50%", WS_CHILD | WS_VISIBLE,
         310, 172, 60, 22, hudPanel_, nullptr, instance_, nullptr);
+    tweaksPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD, 24, 52, 940, 580, window_, nullptr, instance_, nullptr);
+    if (tweaksPanel_) SetWindowSubclass(tweaksPanel_, ForwardPanelNotifications, 3, 0);
+    CreateWindowW(L"STATIC", L"Intel VRR Range Fix", WS_CHILD | WS_VISIBLE, 0, 0, 300, 24, tweaksPanel_, nullptr, instance_, nullptr);
+    intelVrrToggle_ = CreateWindowW(L"BUTTON", L"Enabled", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+        320, -2, 110, 28, tweaksPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIntelVrrToggle)), instance_, nullptr);
+    CreateWindowW(L"STATIC", L"Restores the native VRR range on the affected MSI Claw display. Applied at application startup.", WS_CHILD | WS_VISIBLE,
+        0, 34, 900, 24, tweaksPanel_, nullptr, instance_, nullptr);
+    intelVrrPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 70, 900, 24, tweaksPanel_, nullptr, instance_, nullptr);
+    intelVrrRange_ = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 96, 900, 24, tweaksPanel_, nullptr, instance_, nullptr);
+    intelVrrResult_ = CreateWindowW(L"STATIC", L"Last result: No result yet", WS_CHILD | WS_VISIBLE, 0, 122, 900, 24, tweaksPanel_, nullptr, instance_, nullptr);
     diagnosticsPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD, 24, 52, 940, 580, window_, nullptr, instance_, nullptr);
     if (diagnosticsPanel_) SetWindowSubclass(diagnosticsPanel_, ForwardPanelNotifications, 2, 0);
     CreateWindowW(L"STATIC", L"VRR / Presentation Test\r\nRuns HUD OFF / STATIC HUD / DYNAMIC HUD phases for presentation validation.", WS_CHILD | WS_VISIBLE,
@@ -136,6 +149,7 @@ void SettingsWindow::ShowTab(int index)
 {
     if (generalPanel_) ShowWindow(generalPanel_, index == kTabGeneral ? SW_SHOW : SW_HIDE);
     if (hudPanel_) ShowWindow(hudPanel_, index == kTabHud ? SW_SHOW : SW_HIDE);
+    if (tweaksPanel_) ShowWindow(tweaksPanel_, index == kTabTweaks ? SW_SHOW : SW_HIDE);
     if (diagnosticsPanel_) ShowWindow(diagnosticsPanel_, index == kTabDiagnostics ? SW_SHOW : SW_HIDE);
 }
 
@@ -160,6 +174,32 @@ void SettingsWindow::UpdateHudControls()
         swprintf_s(text, L"%d%%", percent);
         SetWindowTextW(opacityLabel_, text);
     }
+}
+
+void SettingsWindow::UpdateTweaksControls()
+{
+    if (intelVrrToggle_) SendMessageW(intelVrrToggle_, BM_SETCHECK, app_.IntelVrrRangeFixEnabled() ? BST_CHECKED : BST_UNCHECKED, 0);
+    const auto result = app_.IntelVrrLastResult();
+    if (!result) { if (intelVrrResult_) SetWindowTextW(intelVrrResult_, L"Last result: No result yet"); return; }
+    const auto panel = std::wstring(result->panelName.begin(), result->panelName.end());
+    const auto before = std::wstring(result->rangeBefore.begin(), result->rangeBefore.end());
+    const auto after = std::wstring(result->rangeAfter.begin(), result->rangeAfter.end());
+    std::wstring message;
+    switch (result->status)
+    {
+    case clawhud::IntelVrrRunStatus::Disabled: message = L"Disabled"; break;
+    case clawhud::IntelVrrRunStatus::Unavailable: message = L"Unavailable"; break;
+    case clawhud::IntelVrrRunStatus::UnsupportedPanel: message = L"This panel is not affected."; break;
+    case clawhud::IntelVrrRunStatus::AmbiguousDisplay: message = L"Skipped: multiple displays matched."; break;
+    case clawhud::IntelVrrRunStatus::AlreadyCorrect: message = L"Already using the native VRR range."; break;
+    case clawhud::IntelVrrRunStatus::SkippedUserProfile: message = L"Skipped: a custom or OFF profile is already set."; break;
+    case clawhud::IntelVrrRunStatus::Applied: message = L"Native VRR range restored."; break;
+    case clawhud::IntelVrrRunStatus::ApplyFailed: message = L"Failed to apply: " + std::wstring(result->message.begin(), result->message.end()); break;
+    case clawhud::IntelVrrRunStatus::VerificationFailed: message = L"Applied but could not verify."; break;
+    }
+    if (intelVrrPanel_) SetWindowTextW(intelVrrPanel_, (L"Panel: " + panel).c_str());
+    if (intelVrrRange_) SetWindowTextW(intelVrrRange_, (L"Range: " + before + L" -> " + after).c_str());
+    if (intelVrrResult_) SetWindowTextW(intelVrrResult_, (L"Last result: " + message).c_str());
 }
 
 void SettingsWindow::SetDiagnosticStatus(const std::wstring& status)
@@ -201,6 +241,7 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
         case kAlignmentRight: self->app_.SetHudAlignment(clawhud::HudAlignment::Right); return 0;
         case kBackgroundFull: self->app_.SetHudBackgroundMode(clawhud::HudBackgroundMode::FullWidth); return 0;
         case kBackgroundContent: self->app_.SetHudBackgroundMode(clawhud::HudBackgroundMode::ContentWidth); return 0;
+        case kIntelVrrToggle: self->app_.SetIntelVrrRangeFixEnabled(SendMessageW(self->intelVrrToggle_, BM_GETCHECK, 0, 0) == BST_CHECKED); return 0;
         default: break;
         }
     }

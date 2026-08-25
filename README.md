@@ -186,7 +186,7 @@ Unless currently needed, tray startup should not automatically create:
 - Direct3D HUD resources,
 - Presentation Manager / DirectComposition HUD resources,
 - PresentMon capture sessions,
-- IGCL polling,
+- IGCL polling or diagnostics probes,
 - MSI EC/WMI polling,
 - Diagnostics probes.
 
@@ -215,6 +215,7 @@ Expected top-level tabs:
 ```text
 General
 HUD
+Tweaks
 Diagnostics
 ```
 
@@ -554,7 +555,7 @@ Do not pull in:
 - `Set_Data(80/81)` TDP writes,
 - write-oriented lifecycle recovery.
 
-The production application remains unelevated. MSI EC reads are performed only by the narrowly scoped `ClawHUD.EcHelper.exe` read-only helper, which is started with `runas` when an explicit EC diagnostic first needs it. This isolates the privilege boundary without elevating tray, Settings, HUD, PresentMon, or VRR diagnostics.
+The production application remains unelevated. MSI EC reads are performed only by the narrowly scoped `ClawHUD.EcHelper.exe` read-only helper, which is started with `runas` when an explicit EC diagnostic first needs it. This isolates the privilege boundary without elevating tray, Settings, HUD, PresentMon, or VRR diagnostics. The separate Intel VRR Range Fix is a bounded startup tweak and never becomes a prerequisite for the core runtime.
 
 ---
 

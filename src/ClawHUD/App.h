@@ -18,6 +18,8 @@
 #include "WindowsPowerTelemetry.h"
 #include "WindowsUsageTelemetry.h"
 #include "IntelGraphicsApiProbe.h"
+#include "Tweaks/TweakStartupCoordinator.h"
+#include "Tweaks/IntelVrr/IntelVrrRunResult.h"
 
 class SettingsWindow;
 namespace clawhud { class HudPresentation; }
@@ -75,6 +77,9 @@ public:
     bool RequestDiagnosticHudMode(DiagnosticHudMode mode, DWORD timeoutMs = 5000);
     bool RequestDiagnosticHudState(const HudVisibilityState& state, DWORD timeoutMs = 5000);
     void CancelPendingHudVisibilityRequests();
+    bool IntelVrrRangeFixEnabled() const noexcept { return intelVrrRangeFixEnabled_; }
+    void SetIntelVrrRangeFixEnabled(bool enabled);
+    std::optional<clawhud::IntelVrrRunResult> IntelVrrLastResult() const;
 
 private:
     bool AcquireSingleInstance();
@@ -130,4 +135,6 @@ private:
     std::wstring executablePath_;
     bool hudHotkeyRegistered_{};
     bool ecHudSamplingActive_{};
+    bool intelVrrRangeFixEnabled_{ true };
+    clawhud::TweakStartupCoordinator tweakStartupCoordinator_;
 };
