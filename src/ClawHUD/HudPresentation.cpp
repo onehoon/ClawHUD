@@ -134,9 +134,11 @@ HRESULT HudPresentation::CreateBitmapTarget()
     ComPtr<IDXGISurface> surface;
     HRESULT hr = texture_.As(&surface);
     if (FAILED(hr)) return hr;
+    d2dContext_->SetDpi(dpi_, dpi_);
     const auto properties = D2D1::BitmapProperties1(
         D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
-        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+        dpi_, dpi_);
     return d2dContext_->CreateBitmapFromDxgiSurface(surface.Get(), &properties, &bitmapTarget_);
 }
 

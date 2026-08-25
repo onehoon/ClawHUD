@@ -58,6 +58,15 @@ int main()
     geometry = CalculateHudGeometry(viewport, HudMeasureResult{1200.0f, 30.0f}, options);
     ok &= Check(Near(geometry.background.left, 0.0f), "wide content clamps to viewport");
 
+    options.dpi = 144.0f;
+    options.layout.alignment = HudAlignment::Left;
+    const auto scaledMeasure = HudMeasureResult{
+        DipFromPhysicalPixels(400.0f, options.dpi),
+        DipFromPhysicalPixels(30.0f, options.dpi)};
+    geometry = CalculateHudGeometry(viewport, scaledMeasure, options);
+    ok &= Check(Near(geometry.background.right, 266.6667f), "144 DPI content width");
+    ok &= Check(Near(geometry.textOrigin.x, 5.3333f), "144 DPI physical padding");
+
     ComPtr<IDWriteFactory> factory;
     HRESULT hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED,
         __uuidof(IDWriteFactory), &factory);
