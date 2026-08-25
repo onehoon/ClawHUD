@@ -132,8 +132,10 @@ CsvSummary ParseCsv(const std::filesystem::path& path)
         }
         catch (...) {}
     }
-    result.presentAverage = presentCount ? presentTotal / presentCount : 0.0;
-    result.displayAverage = displayCount ? displayTotal / displayCount : 0.0; result.valid = true; return result;
+    if (!presentCount) { result.reason = "No usable MsBetweenPresents samples on dominant swapchain"; return result; }
+    if (!displayCount) { result.reason = "No usable MsBetweenDisplayChange samples on dominant swapchain"; return result; }
+    result.presentAverage = presentTotal / presentCount;
+    result.displayAverage = displayTotal / displayCount; result.valid = true; return result;
 }
 
 bool SamePresentModeSet(const std::map<std::string, std::size_t>& a, const std::map<std::string, std::size_t>& b)
@@ -247,6 +249,11 @@ void VrrDiagnostic::Run()
             running_ = false; return;
         }
         const bool onOk = Capture(pm, *target, onCsv, "ClawHUD-VRR-" + std::to_string(*target) + "-ON-" + sessionStamp, log);
+        const bool targetAliveAfterCapture = Alive(*target);
+        if (onOk && !targetAliveAfterCapture)
+        {
+            log << L"PresentMon: FAILED\nReason: Target process exited before the HUD-ON capture completed\n";
+        }
         const bool pocAliveAfterCapture = WaitForSingleObject(child.hProcess, 0) == WAIT_TIMEOUT;
         const HWND pocWindowAfterCapture = FindWindowW(L"ClawHUD.VrrPoc", nullptr);
         const bool pocVisibleAfterCapture = pocWindowAfterCapture != nullptr && IsWindowVisible(pocWindowAfterCapture) != FALSE;
@@ -262,7 +269,7 @@ void VrrDiagnostic::Run()
         log << L"PoC Exit: " << ((!pocTimeout && code == 0) ? L"OK (normal)" : L"FAILED") << L"\n=== COMPARISON ===\nPresentMode set changed: "
             << ((!off.valid || !on.valid) ? L"unavailable" : (SamePresentModeSet(off.modes, on.modes) ? L"NO" : L"YES"))
             << L"\nVRR Analysis: NEEDS MANUAL REVIEW\n";
-        const bool completed = !stop_ && off.valid && on.valid && offOk && onOk && pocCoveredCapture && !pocTimeout && code == 0; log << L"Result: " << (completed ? L"Completed" : L"Failed") << L"\n"; Status(stop_ ? L"Cancelled" : (completed ? L"Completed" : L"Failed")); running_ = false;
+        const bool completed = !stop_ && off.valid && on.valid && offOk && onOk && targetAliveAfterCapture && pocCoveredCapture && !pocTimeout && code == 0; log << L"Result: " << (completed ? L"Completed" : L"Failed") << L"\n"; Status(stop_ ? L"Cancelled" : (completed ? L"Completed" : L"Failed")); running_ = false;
     }
     catch (...) { if (log.is_open()) log << L"RESULT: Failed\n"; Status(L"Failed"); running_ = false; }
 }
