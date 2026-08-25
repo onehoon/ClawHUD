@@ -21,7 +21,7 @@ std::optional<PresentMonFrameSample> ParseDisplayedFrame(
     const std::vector<std::string>& headers,
     const std::vector<std::string>& row);
 std::optional<double> CalculateDisplayedFps(
-    const std::vector<double>& intervalsMs);
+    std::size_t displayedFrameCount, double elapsedSeconds);
 
 class PresentMonHudTelemetry
 {

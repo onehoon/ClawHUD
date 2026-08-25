@@ -22,11 +22,12 @@ bool Near(double actual, double expected)
 int main()
 {
     bool ok = true;
-    ok &= Check(Near(CalculateDisplayedFps({8.33}).value(), 120.0), "120 FPS interval");
-    ok &= Check(Near(CalculateDisplayedFps({13.70}).value(), 73.0), "73 FPS interval");
-    ok &= Check(Near(CalculateDisplayedFps({25.00}).value(), 40.0), "40 FPS interval");
-    ok &= Check(!CalculateDisplayedFps({}), "empty window unavailable");
-    ok &= Check(!CalculateDisplayedFps({0.0, -1.0}), "invalid window unavailable");
+    ok &= Check(Near(CalculateDisplayedFps(60, 0.500).value(), 120.0), "120 FPS bucket");
+    ok &= Check(Near(CalculateDisplayedFps(20, 0.500).value(), 40.0), "40 FPS bucket");
+    ok &= Check(Near(CalculateDisplayedFps(37, 0.507).value(), 37.0 / 0.507),
+        "actual elapsed bucket");
+    ok &= Check(!CalculateDisplayedFps(0, 0.500), "empty window unavailable");
+    ok &= Check(!CalculateDisplayedFps(20, 0.0), "invalid elapsed window unavailable");
 
     const std::vector<std::string> headers{
         "DisplayedTime", "MsBetweenDisplayChange", "FrameType"};

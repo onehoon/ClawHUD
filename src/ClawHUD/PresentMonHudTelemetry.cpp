@@ -69,22 +69,12 @@ std::optional<PresentMonFrameSample> ParseDisplayedFrame(
     catch (...) { return std::nullopt; }
 }
 
-std::optional<double> CalculateDisplayedFps(const std::vector<double>& intervalsMs)
+std::optional<double> CalculateDisplayedFps(
+    std::size_t displayedFrameCount, double elapsedSeconds)
 {
-    if (intervalsMs.empty())
+    if (!displayedFrameCount || !std::isfinite(elapsedSeconds) || elapsedSeconds <= 0.0)
         return std::nullopt;
-    double total{};
-    for (const double interval : intervalsMs)
-    {
-        if (!std::isfinite(interval) || interval <= 0.0)
-            continue;
-        total += interval;
-    }
-    if (total <= 0.0)
-        return std::nullopt;
-    const auto valid = std::count_if(intervalsMs.begin(), intervalsMs.end(),
-        [](double value) { return std::isfinite(value) && value > 0.0; });
-    return valid ? std::optional<double>(1000.0 * valid / total) : std::nullopt;
+    return static_cast<double>(displayedFrameCount) / elapsedSeconds;
 }
 
 PresentMonHudTelemetry::~PresentMonHudTelemetry()
@@ -157,8 +147,10 @@ void PresentMonHudTelemetry::ReadLoop()
     const HANDLE output = output_;
     std::string line;
     std::vector<std::string> headers;
-    std::deque<std::pair<std::chrono::steady_clock::time_point, double>> samples;
-    auto lastUpdate = std::chrono::steady_clock::now() - std::chrono::seconds(1);
+    constexpr auto kFpsSamplingPeriod = std::chrono::milliseconds(500);
+    const auto fpsWindowStart = std::chrono::steady_clock::now();
+    auto windowStart = fpsWindowStart;
+    std::size_t displayedFrameCount{};
     char character{};
     while (!stop_)
     {
@@ -189,18 +181,13 @@ void PresentMonHudTelemetry::ReadLoop()
         line.clear();
         if (!frame) continue;
         const auto now = std::chrono::steady_clock::now();
-        samples.emplace_back(now, frame->msBetweenDisplayChange);
-        while (!samples.empty() && now - samples.front().first > std::chrono::seconds(1))
-            samples.pop_front();
-        if (now - lastUpdate < std::chrono::milliseconds(250) || !callback_)
-            continue;
-        std::vector<double> intervals;
-        intervals.reserve(samples.size());
-        for (const auto& sample : samples) intervals.push_back(sample.second);
-        if (const auto fps = CalculateDisplayedFps(intervals))
+        ++displayedFrameCount;
+        const std::chrono::duration<double> elapsed = now - windowStart;
+        if (elapsed >= kFpsSamplingPeriod && callback_)
         {
-            callback_(*fps);
-            lastUpdate = now;
+            callback_(CalculateDisplayedFps(displayedFrameCount, elapsed.count()));
+            displayedFrameCount = 0;
+            windowStart = now;
         }
     }
     if (!stop_ && callback_)
