@@ -25,6 +25,10 @@ int main()
         "recorded suspend does not repeat fallback preparation");
     ok &= Check(!ResumeRecoveryShouldStart(true),
         "duplicate resume does not start recovery");
+    ok &= Check(ShouldRestorePersistedHud(true),
+        "persisted enabled state requests startup initialization");
+    ok &= Check(!ShouldRestorePersistedHud(false),
+        "persisted disabled state skips startup initialization");
     ok &= Check(ResumeRecoveryHasAttemptsRemaining(5),
         "recovery retries before the limit");
     ok &= Check(!ResumeRecoveryHasAttemptsRemaining(6),

@@ -191,6 +191,18 @@ int App::Run()
             L"Foreground tracker initialization failed");
         return 1;
     }
+    if (ShouldRestorePersistedHud(mockHudEnabled_))
+    {
+        if (!EnsureMockHud())
+        {
+            mockHudEnabled_ = false;
+            Log(L"Persisted HUD enable restore failed during initialization");
+        }
+        else
+        {
+            ReconcileHudVisibility();
+        }
+    }
     tweakStartupCoordinator_.Start(intelVrrRangeFixEnabled_);
     return ProcessMessages();
 }
