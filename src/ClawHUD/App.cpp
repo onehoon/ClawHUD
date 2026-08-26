@@ -419,23 +419,6 @@ void App::TryResumeRecovery()
         kResumeRecoveryIntervalMs, nullptr);
 }
 
-bool App::StartMockHud()
-{
-    if (VrrDiagnosticRunning())
-    {
-        Log(L"Show Mock HUD ignored while VRR diagnostic is running");
-        return false;
-    }
-    if (!EnsureMockHud()) return false;
-    if (!mockHudEnabled_) Log(L"HUD enabled");
-    mockHudEnabled_ = true;
-    mockFrameIndex_ = 0;
-    if (const DWORD processId = foregroundTracker_.TrackedProcessId())
-        StartGraphicsApiProbe(processId);
-    ReconcileHudVisibility();
-    return true;
-}
-
 bool App::EnsureMockHud()
 {
     if (!hudPresentation_)
@@ -480,6 +463,11 @@ void App::StopMockHud()
     StopProductionEcSampling();
     StopGraphicsApiProbe();
     ReconcileHudVisibility();
+    if (hudPresentation_)
+    {
+        hudPresentation_->Shutdown();
+        hudPresentation_.reset();
+    }
 }
 
 bool App::SetHudEnabled(bool enabled)
@@ -1000,11 +988,6 @@ void App::SetHudVisibilityMode(clawhud::HudVisibilityMode mode)
     manualHudVisibilityOverride_.reset();
     SaveHudSettings();
     ReconcileHudVisibility();
-}
-
-bool App::IsHudAlwaysVisible() const noexcept
-{
-    return hudOptions_.visibilityMode == clawhud::HudVisibilityMode::Always;
 }
 
 void App::HandleHudToggleHotkey()

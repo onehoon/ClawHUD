@@ -106,7 +106,6 @@ public:
     void HandleSystemResume();
     void TryResumeRecovery();
     const std::wstring& VrrStatus() const { return vrrStatus_; }
-    bool StartMockHud();
     void StopMockHud();
     void RenderMockHud(bool allowHidden = false);
     void SampleProductionTelemetry();
@@ -124,7 +123,6 @@ public:
     void SetHudSizeOffset(int offset);
     void TrackMockGameWindow(HWND window);
     void SetHudVisibilityMode(clawhud::HudVisibilityMode mode);
-    bool IsHudAlwaysVisible() const noexcept;
     void HandleHudToggleHotkey();
     HudVisibilityState CaptureHudVisibilityState() const noexcept;
     bool RestoreHudVisibilityState(const HudVisibilityState& state);
