@@ -2,7 +2,9 @@
 
 #include "App.h"
 #include "resource.h"
+#include "RuntimeLogger.h"
 
+#include <dbt.h>
 #include <shellapi.h>
 
 namespace
@@ -42,6 +44,12 @@ bool TrayIcon::Create(HINSTANCE instance)
         0, 0, 0, 0, nullptr, nullptr, instance_, this);
     if (!window_) return false;
 
+    suspendResumeNotification_ = RegisterSuspendResumeNotification(
+        window_, DEVICE_NOTIFY_WINDOW_HANDLE);
+    if (!suspendResumeNotification_)
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+            L"Suspend/resume notification registration failed; recovery may be unavailable");
+
     notifyIcon_.cbSize = sizeof(notifyIcon_);
     notifyIcon_.hWnd = window_;
     notifyIcon_.uID = 1;
@@ -62,6 +70,11 @@ bool TrayIcon::AddIcon()
 
 void TrayIcon::Destroy()
 {
+    if (suspendResumeNotification_)
+    {
+        UnregisterSuspendResumeNotification(suspendResumeNotification_);
+        suspendResumeNotification_ = nullptr;
+    }
     if (created_)
     {
         Shell_NotifyIconW(NIM_DELETE, &notifyIcon_);
@@ -113,6 +126,23 @@ LRESULT CALLBACK TrayIcon::WindowProc(HWND window, UINT message, WPARAM wParam, 
         self->app_.HandleHudToggleHotkey();
         return 0;
     }
+    if (message == WM_POWERBROADCAST)
+    {
+        switch (wParam)
+        {
+        case PBT_APMSUSPEND:
+            self->app_.HandleSystemSuspend();
+            break;
+        case PBT_APMRESUMEAUTOMATIC:
+            self->app_.HandleSystemResume();
+            break;
+        case PBT_APMRESUMESUSPEND:
+            break;
+        default:
+            break;
+        }
+        return TRUE;
+    }
     if (message == self->taskbarCreatedMessage_)
     {
         self->created_ = false;
@@ -127,6 +157,8 @@ LRESULT CALLBACK TrayIcon::WindowProc(HWND window, UINT message, WPARAM wParam, 
             self->app_.SampleProductionBatteryTelemetry();
         else if (wParam == kGraphicsApiRetryTimerId)
             self->app_.TryGraphicsApiProbe();
+        else if (wParam == kResumeRecoveryTimerId)
+            self->app_.TryResumeRecovery();
         else if (wParam == kMockHudTimerId)
             self->app_.RenderMockHud();
         return 0;

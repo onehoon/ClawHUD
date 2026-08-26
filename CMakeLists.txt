@@ -89,7 +89,7 @@ target_compile_definitions(ClawHUD PRIVATE
     UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX
     CLAWHUD_UPDATE_REPOSITORY=\"https://github.com/onehoon/ClawHUD\")
 target_include_directories(ClawHUD PRIVATE src/ClawHUD src/resources "${CMAKE_BINARY_DIR}/generated")
-target_link_libraries(ClawHUD PRIVATE ClawHUD.Velopack comctl32 shell32 dwmapi delayimp d3d11 dxgi dcomp d2d1 dwrite pdh advapi32 wbemuuid ole32 oleaut32)
+target_link_libraries(ClawHUD PRIVATE ClawHUD.Velopack comctl32 shell32 user32 dwmapi delayimp d3d11 dxgi dcomp d2d1 dwrite pdh advapi32 wbemuuid ole32 oleaut32)
 target_link_options(ClawHUD PRIVATE "/DELAYLOAD:velopack_libc.dll")
 set_target_properties(ClawHUD PROPERTIES CXX_EXTENSIONS OFF)
 
@@ -209,6 +209,13 @@ if(BUILD_TESTING)
     target_include_directories(ClawHUD.DiagnosticHudModeTests PRIVATE src/ClawHUD)
     set_target_properties(ClawHUD.DiagnosticHudModeTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.DiagnosticHudModeTests COMMAND ClawHUD.DiagnosticHudModeTests)
+
+    add_executable(ClawHUD.SuspendResumeRecoveryTests tests/SuspendResumeRecoveryTests.cpp)
+    target_compile_features(ClawHUD.SuspendResumeRecoveryTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.SuspendResumeRecoveryTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.SuspendResumeRecoveryTests PRIVATE src/ClawHUD)
+    set_target_properties(ClawHUD.SuspendResumeRecoveryTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.SuspendResumeRecoveryTests COMMAND ClawHUD.SuspendResumeRecoveryTests)
 
     add_executable(ClawHUD.EcHelperProtocolTests tests/EcHelperProtocolTests.cpp)
     target_compile_features(ClawHUD.EcHelperProtocolTests PRIVATE cxx_std_20)

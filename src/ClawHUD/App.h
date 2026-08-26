@@ -29,6 +29,48 @@ constexpr UINT_PTR kMockHudTimerId = 1;
 constexpr UINT_PTR kEcHudTimerId = 2;
 constexpr UINT_PTR kBatteryHudTimerId = 3;
 constexpr UINT_PTR kGraphicsApiRetryTimerId = 4;
+constexpr UINT_PTR kResumeRecoveryTimerId = 5;
+constexpr UINT kResumeRecoveryIntervalMs = 500;
+constexpr unsigned kResumeRecoveryMaxAttempts = 6;
+
+constexpr bool ResumeRecoveryShouldStart(bool active) noexcept
+{
+    return !active;
+}
+
+constexpr bool ResumeRecoveryNeedsSuspendFallback(bool suspended) noexcept
+{
+    return !suspended;
+}
+
+constexpr bool ResumeRecoveryHasAttemptsRemaining(unsigned attempts) noexcept
+{
+    return attempts < kResumeRecoveryMaxAttempts;
+}
+
+constexpr bool ResumeRecoveryCanRetainPresentMon(
+    DWORD trackedProcessId, DWORD presentMonProcessId, bool running) noexcept
+{
+    return trackedProcessId != 0 && trackedProcessId == presentMonProcessId && running;
+}
+
+constexpr bool ResumeRecoveryShouldWaitForForeground(
+    bool hudEnabled, bool visibilityUsesForeground, bool processAlive,
+    bool foregroundMatches, unsigned attempts) noexcept
+{
+    return hudEnabled && visibilityUsesForeground && processAlive &&
+        !foregroundMatches && ResumeRecoveryHasAttemptsRemaining(attempts);
+}
+
+constexpr bool ResumeRecoveryMayShowHud(bool expectedVisible, bool freshFrameReady) noexcept
+{
+    return !expectedVisible || freshFrameReady;
+}
+
+constexpr bool ResumeRecoveryFrameWasPresented(HRESULT renderResult) noexcept
+{
+    return renderResult == S_OK;
+}
 
 class App
 {
@@ -55,6 +97,9 @@ public:
     bool VrrDiagnosticRunning() const;
     bool DiagnosticRunning() const;
     void StopDiagnostic();
+    void HandleSystemSuspend();
+    void HandleSystemResume();
+    void TryResumeRecovery();
     const std::wstring& VrrStatus() const { return vrrStatus_; }
     bool StartMockHud();
     void StopMockHud();
@@ -103,6 +148,8 @@ private:
     bool ApplyDiagnosticHudMode(DiagnosticHudMode mode);
     clawhud::MsiEcHudTelemetry ReadHudEcTelemetry();
     void StartProductionEcSampling();
+    void PauseProductionSamplingForSuspend();
+    void CancelResumeRecovery();
     void StopProductionEcSampling();
     void StartProductionPresentMonSampling();
     void StopProductionPresentMonSampling();
@@ -150,6 +197,9 @@ private:
     bool hudShowFailureLogged_{};
     bool hudHideFailureLogged_{};
     bool intelVrrRangeFixEnabled_{ true };
+    bool suspended_{};
+    bool resumeRecoveryActive_{};
+    unsigned resumeRecoveryAttempts_{};
     clawhud::TweakStartupCoordinator tweakStartupCoordinator_;
     bool startWithWindows_{true};
     bool diagnosticsTabEnabled_{};
