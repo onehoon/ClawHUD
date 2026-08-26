@@ -248,7 +248,7 @@ if(BUILD_TESTING)
     target_compile_features(ClawHUD.WindowsUsageTelemetryTests PRIVATE cxx_std_20)
     target_compile_definitions(ClawHUD.WindowsUsageTelemetryTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
     target_include_directories(ClawHUD.WindowsUsageTelemetryTests PRIVATE src/ClawHUD)
-    target_link_libraries(ClawHUD.WindowsUsageTelemetryTests PRIVATE pdh)
+    target_link_libraries(ClawHUD.WindowsUsageTelemetryTests PRIVATE pdh dxgi)
     set_target_properties(ClawHUD.WindowsUsageTelemetryTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.WindowsUsageTelemetryTests COMMAND ClawHUD.WindowsUsageTelemetryTests)
 

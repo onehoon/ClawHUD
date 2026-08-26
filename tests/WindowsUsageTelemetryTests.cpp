@@ -1,6 +1,7 @@
 #include "WindowsUsageTelemetry.h"
 
 #include <cmath>
+#include <cstdint>
 #include <iostream>
 
 using namespace clawhud;
@@ -32,5 +33,25 @@ int main()
         "maximum 3D GPU usage");
     ok &= Check(!MaxGpuUsagePercent({-1.0, 101.0, NAN}),
         "invalid GPU values omitted");
+
+    const LUID intelLuid{0x12345678, static_cast<LONG>(0x9ABCDEF0)};
+    ok &= Check(IsIntelGpuMemoryCounterInstance(
+        L"luid_0x9abcdef0_0x12345678_phys_0", intelLuid),
+        "matching Intel adapter LUID counter");
+    ok &= Check(IsIntelGpuMemoryCounterInstance(
+        L"luid_0x12345678_0x9abc_phys_0", intelLuid),
+        "matching compact Intel adapter LUID counter");
+    ok &= Check(!IsIntelGpuMemoryCounterInstance(
+        L"luid_0x11111111_0x22222222_phys_0", intelLuid),
+        "different adapter LUID counter ignored");
+    ok &= Check(CombineGpuMemoryBytes(2u, 3u).value() == 5u,
+        "dedicated and shared memory are summed");
+    ok &= Check(CombineGpuMemoryBytes(0u, 0u).value() == 0u,
+        "zero memory remains available");
+    ok &= Check(CombineGpuMemoryBytes(4u, std::nullopt).value() == 4u &&
+        CombineGpuMemoryBytes(std::nullopt, 5u).value() == 5u,
+        "one invalid memory counter is ignored");
+    ok &= Check(!CombineGpuMemoryBytes(std::nullopt, std::nullopt),
+        "missing Intel memory counters are unavailable");
     return ok ? 0 : 1;
 }

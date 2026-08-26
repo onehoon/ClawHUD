@@ -24,6 +24,14 @@ std::wstring Integer(double value)
     return std::to_wstring(static_cast<long long>(std::lround(value)));
 }
 
+std::wstring Gigabytes(std::uint64_t bytes)
+{
+    std::wostringstream output;
+    output << std::fixed << std::setprecision(1)
+        << (static_cast<double>(bytes) / 1024.0 / 1024.0 / 1024.0);
+    return output.str();
+}
+
 void Add(std::vector<HudTextRun>& runs, HudSegmentKind kind,
     std::wstring label, std::wstring value)
 {
@@ -46,9 +54,16 @@ std::wstring CpuValue(const HudTelemetrySnapshot& snapshot)
 
 std::wstring GpuValue(const HudTelemetrySnapshot& snapshot)
 {
-    return snapshot.gpuUsagePercent
-        ? Integer(*snapshot.gpuUsagePercent) + L"%"
-        : std::wstring{};
+    std::wstring value;
+    if (snapshot.gpuUsagePercent)
+        value = Integer(*snapshot.gpuUsagePercent) + L"%";
+    if (snapshot.gpuMemoryUsedBytes)
+    {
+        if (!value.empty())
+            value += L" ";
+        value += L"VRAM " + Gigabytes(*snapshot.gpuMemoryUsedBytes) + L" GB";
+    }
+    return value;
 }
 }
 

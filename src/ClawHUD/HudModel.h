@@ -1,6 +1,7 @@
 #pragma once
 
 #include <optional>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -53,6 +54,7 @@ struct HudTelemetrySnapshot
     bool onBattery{};
     bool foregroundGameActive{};
     std::optional<double> presentMonDisplayedFps;
+    std::optional<std::uint64_t> gpuMemoryUsedBytes;
 };
 
 enum class HudSegmentKind
