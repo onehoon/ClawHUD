@@ -122,7 +122,7 @@ void EcDiagnostic::Run()
         << "\nClawHUD Version: " << Narrow(CLAWHUD_VERSION) << "\nWindows Build: Unavailable\nProcess Elevated: "
         << (Elevated() ? "YES" : "NO") << "\nBoard: Unavailable\nBIOS: Unavailable\n\n";
     log << "Read-only methods: Get_Temperature, Get_Fan, Get_Data\n";
-    EcHelperClient reader;
+    EcHelperClient reader(false);
     log << "Main Process Elevated: " << (Elevated() ? "YES" : "NO") << "\n";
     for (int sample = 1; sample <= 10 && !stop_; ++sample)
     {

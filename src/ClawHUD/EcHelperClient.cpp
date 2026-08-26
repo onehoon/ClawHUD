@@ -58,7 +58,7 @@ void EcHelperClient::Failure(HRESULT error, clawhud::ec::EcFailureStage stage)
 {
     error_ = error;
     stage_ = stage;
-    if (!runtimeFailureActive_)
+    if (runtimeLogging_ && !runtimeFailureActive_)
     {
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
             L"EC Helper connection failed stage=" + std::wstring(FailureStageName(stage)) +
@@ -108,10 +108,10 @@ bool EcHelperClient::EnsureConnected()
         }
     }
     CloseHandle(overlap.hEvent); stage_ = clawhud::ec::EcFailureStage::None; error_ = S_OK;
-    if (runtimeFailureActive_)
+    if (runtimeLogging_ && runtimeFailureActive_)
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info,
             L"EC Helper FAILED -> CONNECTED");
-    else
+    else if (runtimeLogging_)
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info, L"EC Helper connected");
     runtimeFailureActive_ = false;
     return true;
@@ -119,8 +119,9 @@ bool EcHelperClient::EnsureConnected()
 
 bool EcHelperClient::StartHelper(const std::wstring& pipeName)
 {
-    clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info,
-        L"EC Helper launch requested");
+    if (runtimeLogging_ && !runtimeFailureActive_)
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info,
+            L"EC Helper launch requested");
     wchar_t module[MAX_PATH]{}; const DWORD length = GetModuleFileNameW(nullptr, module, MAX_PATH);
     if (!length) { Failure(HRESULT_FROM_WIN32(GetLastError()), clawhud::ec::EcFailureStage::HelperLaunch); return false; }
     const auto helper = std::filesystem::path(module).parent_path() / L"ClawHUD.EcHelper.exe";
@@ -211,7 +212,7 @@ bool EcHelperClient::Send(clawhud::ec::EcOperation operation, std::uint8_t selec
         Failure(error_, stage_);
         return false;
     }
-    if (runtimeFailureActive_)
+    if (runtimeLogging_ && runtimeFailureActive_)
     {
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info,
             L"EC Helper FAILED -> CONNECTED");
@@ -230,6 +231,6 @@ void EcHelperClient::Close()
     if (pipe_ != INVALID_HANDLE_VALUE) { FlushFileBuffers(pipe_); DisconnectNamedPipe(pipe_); CloseHandle(pipe_); pipe_ = INVALID_HANDLE_VALUE; }
     if (helperProcess_) { CloseHandle(helperProcess_); helperProcess_ = {}; }
     helperPid_ = 0; pipeName_.clear(); helperElevated_ = false; attempted_ = false;
-    if (wasConnected)
+    if (runtimeLogging_ && wasConnected)
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info, L"EC Helper disconnected");
 }

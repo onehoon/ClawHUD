@@ -262,13 +262,6 @@ void PresentMonHudTelemetry::ReadLoop()
                 consumeLine(std::move(line));
         }
     }
-    if (!stop_)
-    {
-        RuntimeLogger::Log(RuntimeLogLevel::Warn, L"PresentMon stdout closed unexpectedly");
-        if (headers.empty())
-            RuntimeLogger::Log(RuntimeLogLevel::Warn,
-                L"PresentMon CSV/header parse unavailable");
-    }
     if (!stop_ && callback_)
         callback_(std::nullopt);
 }
