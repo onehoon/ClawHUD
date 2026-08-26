@@ -1,4 +1,5 @@
 #include "HudPresentation.h"
+#include "resource.h"
 
 #include <cmath>
 
@@ -58,6 +59,7 @@ HRESULT HudPresentation::CreateWindowHost(HINSTANCE instance)
     windowClass.lpfnWndProc = WindowProc;
     windowClass.hInstance = instance;
     windowClass.lpszClassName = kWindowClass;
+    windowClass.hIcon = LoadIconW(instance, MAKEINTRESOURCEW(IDI_CLAWHUD));
     RegisterClassW(&windowClass);
     constexpr DWORD exStyle = WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW |
         WS_EX_TRANSPARENT | WS_EX_NOREDIRECTIONBITMAP | WS_EX_TOPMOST;

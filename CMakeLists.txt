@@ -49,6 +49,7 @@ set_target_properties(ClawHUD.Velopack PROPERTIES
 
 add_executable(ClawHUD WIN32
     src/ClawHUD/main.cpp
+    src/resources/ClawHUD.rc
     src/ClawHUD/App.cpp
     src/ClawHUD/TrayIcon.cpp
     src/ClawHUD/SettingsWindow.cpp
@@ -77,17 +78,18 @@ target_compile_features(ClawHUD PRIVATE cxx_std_20)
 target_compile_definitions(ClawHUD PRIVATE
     UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX
     CLAWHUD_UPDATE_REPOSITORY=\"https://github.com/onehoon/ClawHUD\")
-target_include_directories(ClawHUD PRIVATE src/ClawHUD "${CMAKE_BINARY_DIR}/generated")
+target_include_directories(ClawHUD PRIVATE src/ClawHUD src/resources "${CMAKE_BINARY_DIR}/generated")
 target_link_libraries(ClawHUD PRIVATE ClawHUD.Velopack comctl32 shell32 delayimp d3d11 dxgi dcomp d2d1 dwrite pdh advapi32 wbemuuid ole32 oleaut32)
 target_link_options(ClawHUD PRIVATE "/DELAYLOAD:velopack_libc.dll")
 set_target_properties(ClawHUD PROPERTIES CXX_EXTENSIONS OFF)
 
 add_executable(ClawHUD.EcHelper WIN32
     src/ClawHUD.EcHelper/main.cpp
+    src/resources/ClawHUD.rc
     src/ClawHUD.EcHelper/MsiEcReader.cpp)
 target_compile_features(ClawHUD.EcHelper PRIVATE cxx_std_20)
 target_compile_definitions(ClawHUD.EcHelper PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-target_include_directories(ClawHUD.EcHelper PRIVATE src/ClawHUD.EcHelper src/shared)
+target_include_directories(ClawHUD.EcHelper PRIVATE src/ClawHUD.EcHelper src/shared src/resources)
 target_link_libraries(ClawHUD.EcHelper PRIVATE wbemuuid ole32 oleaut32)
 set_target_properties(ClawHUD.EcHelper PROPERTIES CXX_EXTENSIONS OFF)
 add_custom_command(TARGET ClawHUD POST_BUILD

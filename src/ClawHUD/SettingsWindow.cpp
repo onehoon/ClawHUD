@@ -2,6 +2,7 @@
 
 #include "App.h"
 #include "Version.h"
+#include "resource.h"
 
 #include <commctrl.h>
 
@@ -62,6 +63,7 @@ bool SettingsWindow::Show(HINSTANCE instance)
         windowClass.hInstance = instance_;
         windowClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
         windowClass.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+        windowClass.hIcon = LoadIconW(instance_, MAKEINTRESOURCEW(IDI_CLAWHUD));
         windowClass.lpszClassName = kSettingsClassName;
         RegisterClassW(&windowClass);
         window_ = CreateWindowExW(WS_EX_TOOLWINDOW, kSettingsClassName, L"ClawHUD Settings",

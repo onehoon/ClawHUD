@@ -1,6 +1,7 @@
 #include "TrayIcon.h"
 
 #include "App.h"
+#include "resource.h"
 
 #include <shellapi.h>
 
@@ -33,6 +34,7 @@ bool TrayIcon::Create(HINSTANCE instance)
     windowClass.hInstance = instance_;
     windowClass.lpszClassName = kTrayClassName;
     windowClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    windowClass.hIcon = LoadIconW(instance_, MAKEINTRESOURCEW(IDI_CLAWHUD));
     RegisterClassW(&windowClass);
 
     window_ = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
@@ -45,7 +47,7 @@ bool TrayIcon::Create(HINSTANCE instance)
     notifyIcon_.uID = 1;
     notifyIcon_.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     notifyIcon_.uCallbackMessage = kTrayMessage;
-    notifyIcon_.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
+    notifyIcon_.hIcon = windowClass.hIcon;
     wcscpy_s(notifyIcon_.szTip, L"ClawHUD");
     created_ = AddIcon();
     if (!created_) Destroy();
