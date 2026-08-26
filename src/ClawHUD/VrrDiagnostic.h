@@ -34,6 +34,11 @@ enum class VrrDiagnosticState
     Running,
 };
 
+constexpr bool VrrDiagnosticStopReportsCancellation(VrrDiagnosticState state) noexcept
+{
+    return state == VrrDiagnosticState::WaitingForTrigger;
+}
+
 constexpr bool DiagnosticHudModeUsesPeriodicUpdates(DiagnosticHudMode mode) noexcept
 {
     return mode == DiagnosticHudMode::Dynamic;

@@ -252,6 +252,8 @@ void VrrDiagnostic::Run()
         });
         if (stop_)
         {
+            if (VrrDiagnosticStopReportsCancellation(state_.load()))
+                Status(L"Cancelled");
             state_ = VrrDiagnosticState::Idle;
             running_ = false;
             return;
