@@ -1,4 +1,5 @@
 #include "SupportedHardware.h"
+#include "RuntimeLogger.h"
 
 #include <Windows.h>
 #include <Wbemidl.h>
@@ -22,7 +23,7 @@ constexpr std::wstring_view kSupportedBoards[] =
 
 void Log(const std::wstring& message)
 {
-    OutputDebugStringW((L"[ClawHUD] " + message + L"\n").c_str());
+    clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info, message);
 }
 
 std::wstring TrimWhitespace(std::wstring_view value)
@@ -168,9 +169,9 @@ HardwareSupport CheckSupportedHardware()
     VariantClear(&product);
     const auto status = ClassifyBaseBoardProduct(boardProduct);
     if (status == HardwareSupport::Supported)
-        Log(L"Hardware supported: " + TrimWhitespace(boardProduct));
+        Log(L"Hardware supported board=" + TrimWhitespace(boardProduct));
     else if (status == HardwareSupport::Unsupported)
-        Log(L"Unsupported BaseBoard Product: " + TrimWhitespace(boardProduct));
+        Log(L"Unsupported BaseBoard Product=" + TrimWhitespace(boardProduct));
     else
         Log(L"BaseBoard Product unavailable");
     return status;

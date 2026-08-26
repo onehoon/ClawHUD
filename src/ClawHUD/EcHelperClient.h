@@ -11,6 +11,8 @@
 class EcHelperClient
 {
 public:
+    explicit EcHelperClient(bool runtimeLogging = true) noexcept
+        : runtimeLogging_(runtimeLogging) {}
     ~EcHelperClient();
     bool ReadTemperature(std::vector<std::uint8_t>& payload);
     bool ReadFan(std::vector<std::uint8_t>& payload);
@@ -39,4 +41,6 @@ private:
     std::wstring pipeName_;
     bool attempted_{};
     bool helperElevated_{};
+    bool runtimeLogging_{ true };
+    bool runtimeFailureActive_{};
 };

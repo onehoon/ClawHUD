@@ -54,6 +54,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/main.cpp
     src/resources/ClawHUD.rc
     src/ClawHUD/App.cpp
+    src/ClawHUD/RuntimeLogger.cpp
     src/ClawHUD/TrayIcon.cpp
     src/ClawHUD/SettingsWindow.cpp
     src/ClawHUD/EcDiagnostic.cpp
@@ -124,6 +125,31 @@ if(BUILD_TESTING)
     target_include_directories(ClawHUD.HudModelTests PRIVATE src/ClawHUD)
     set_target_properties(ClawHUD.HudModelTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.HudModelTests COMMAND ClawHUD.HudModelTests)
+
+    add_executable(ClawHUD.RuntimeLoggerTests
+        tests/RuntimeLoggerTests.cpp
+        src/ClawHUD/RuntimeLogger.cpp)
+    target_compile_features(ClawHUD.RuntimeLoggerTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.RuntimeLoggerTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX CLAWHUD_RUNTIME_LOGGER_TESTS)
+    target_include_directories(ClawHUD.RuntimeLoggerTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.RuntimeLoggerTests PRIVATE shell32 ole32)
+    set_target_properties(ClawHUD.RuntimeLoggerTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.RuntimeLoggerTests COMMAND ClawHUD.RuntimeLoggerTests)
+
+    add_executable(ClawHUD.EcHelperClientRuntimeLoggingTests
+        tests/EcHelperClientRuntimeLoggingTests.cpp
+        src/ClawHUD/EcHelperClient.cpp
+        src/ClawHUD/RuntimeLogger.cpp)
+    target_compile_features(ClawHUD.EcHelperClientRuntimeLoggingTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.EcHelperClientRuntimeLoggingTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX CLAWHUD_RUNTIME_LOGGER_TESTS)
+    target_include_directories(ClawHUD.EcHelperClientRuntimeLoggingTests PRIVATE
+        src/ClawHUD src/shared)
+    target_link_libraries(ClawHUD.EcHelperClientRuntimeLoggingTests PRIVATE shell32 ole32)
+    set_target_properties(ClawHUD.EcHelperClientRuntimeLoggingTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.EcHelperClientRuntimeLoggingTests
+        COMMAND ClawHUD.EcHelperClientRuntimeLoggingTests)
 
     add_executable(ClawHUD.HudRendererTests
         tests/HudRendererTests.cpp
@@ -198,11 +224,12 @@ if(BUILD_TESTING)
 
     add_executable(ClawHUD.PresentMonHudTelemetryTests
         tests/PresentMonHudTelemetryTests.cpp
-        src/ClawHUD/PresentMonHudTelemetry.cpp)
+        src/ClawHUD/PresentMonHudTelemetry.cpp
+        src/ClawHUD/RuntimeLogger.cpp)
     target_compile_features(ClawHUD.PresentMonHudTelemetryTests PRIVATE cxx_std_20)
     target_compile_definitions(ClawHUD.PresentMonHudTelemetryTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
     target_include_directories(ClawHUD.PresentMonHudTelemetryTests PRIVATE src/ClawHUD)
-    target_link_libraries(ClawHUD.PresentMonHudTelemetryTests PRIVATE advapi32)
+    target_link_libraries(ClawHUD.PresentMonHudTelemetryTests PRIVATE advapi32 shell32 ole32)
     set_target_properties(ClawHUD.PresentMonHudTelemetryTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.PresentMonHudTelemetryTests COMMAND ClawHUD.PresentMonHudTelemetryTests)
 
@@ -227,20 +254,23 @@ if(BUILD_TESTING)
 
     add_executable(ClawHUD.IntelGraphicsApiProbeTests
         tests/IntelGraphicsApiProbeTests.cpp
-        src/ClawHUD/IntelGraphicsApiProbe.cpp)
+        src/ClawHUD/IntelGraphicsApiProbe.cpp
+        src/ClawHUD/RuntimeLogger.cpp)
     target_compile_features(ClawHUD.IntelGraphicsApiProbeTests PRIVATE cxx_std_20)
     target_compile_definitions(ClawHUD.IntelGraphicsApiProbeTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
     target_include_directories(ClawHUD.IntelGraphicsApiProbeTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.IntelGraphicsApiProbeTests PRIVATE shell32 ole32)
     set_target_properties(ClawHUD.IntelGraphicsApiProbeTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.IntelGraphicsApiProbeTests COMMAND ClawHUD.IntelGraphicsApiProbeTests)
 
     add_executable(ClawHUD.SupportedHardwareTests
         tests/SupportedHardwareTests.cpp
-        src/ClawHUD/SupportedHardware.cpp)
+        src/ClawHUD/SupportedHardware.cpp
+        src/ClawHUD/RuntimeLogger.cpp)
     target_compile_features(ClawHUD.SupportedHardwareTests PRIVATE cxx_std_20)
     target_compile_definitions(ClawHUD.SupportedHardwareTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
     target_include_directories(ClawHUD.SupportedHardwareTests PRIVATE src/ClawHUD)
-    target_link_libraries(ClawHUD.SupportedHardwareTests PRIVATE wbemuuid ole32 oleaut32)
+    target_link_libraries(ClawHUD.SupportedHardwareTests PRIVATE wbemuuid ole32 oleaut32 shell32)
     set_target_properties(ClawHUD.SupportedHardwareTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.SupportedHardwareTests COMMAND ClawHUD.SupportedHardwareTests)
 

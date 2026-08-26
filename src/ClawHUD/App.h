@@ -144,6 +144,10 @@ private:
     int hudSizeOffset_{};
     bool hudHotkeyRegistered_{};
     bool ecHudSamplingActive_{};
+    bool hudInitializedLogged_{};
+    bool hudRenderFailureLogged_{};
+    bool hudShowFailureLogged_{};
+    bool hudHideFailureLogged_{};
     bool intelVrrRangeFixEnabled_{ true };
     clawhud::TweakStartupCoordinator tweakStartupCoordinator_;
     bool startWithWindows_{true};

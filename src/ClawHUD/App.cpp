@@ -6,6 +6,8 @@
 #include "SupportedHardware.h"
 #include "HudSize.h"
 #include "UninstallCleanup.h"
+#include "RuntimeLogger.h"
+#include "Version.h"
 
 #include <Velopack.hpp>
 
@@ -76,7 +78,14 @@ bool ReadBoolSetting(const std::wstring& path, const wchar_t* section, const wch
 
 void Log(const std::wstring& message)
 {
-    OutputDebugStringW((L"[ClawHUD] " + message + L"\n").c_str());
+    clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info, message);
+}
+
+std::wstring HexHresult(HRESULT hr)
+{
+    wchar_t buffer[11]{};
+    swprintf_s(buffer, L"0x%08X", static_cast<unsigned int>(hr));
+    return buffer;
 }
 
 bool ProcessAlive(DWORD processId)
@@ -96,13 +105,20 @@ bool ProcessAlive(DWORD processId)
 
 App::App(HINSTANCE instance) : instance_(instance), tray_(*this)
 {
+    clawhud::RuntimeLogger::Initialize();
     wchar_t path[MAX_PATH]{}; const DWORD length = GetModuleFileNameW(instance_, path, ARRAYSIZE(path));
     executablePath_.assign(path, length);
     LoadHudSettings();
+    Log(L"ClawHUD started version=" CLAWHUD_VERSION L" pid=" +
+        std::to_wstring(GetCurrentProcessId()));
+    Log(L"Runtime settings HUDEnabled=" + std::to_wstring(mockHudEnabled_ ? 1 : 0) +
+        L" HUDSizeOffset=" + std::to_wstring(hudSizeOffset_) +
+        L" StartWithWindows=" + std::to_wstring(startWithWindows_ ? 1 : 0));
 }
 
 App::~App()
 {
+    Log(L"ClawHUD exiting");
     KillTimer(tray_.Window(), kMockHudTimerId);
     StopProductionEcSampling();
     StopGraphicsApiProbe();
@@ -144,8 +160,15 @@ int App::Run()
             L"ClawHUD", MB_OK | MB_ICONWARNING);
         return 0;
     }
-    ApplyStartupRegistration();
-    if (!tray_.Create(instance_)) return 1;
+    if (!ApplyStartupRegistration())
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
+            L"Startup registration failed");
+    if (!tray_.Create(instance_))
+    {
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
+            L"Tray initialization failed");
+        return 1;
+    }
     hudHotkeyRegistered_ = RegisterHotKey(tray_.Window(), kHudToggleHotkeyId,
         MOD_NOREPEAT, VK_F8) != FALSE;
     if (!hudHotkeyRegistered_)
@@ -153,8 +176,20 @@ int App::Run()
     ecDiagnostic_ = std::make_unique<EcDiagnostic>(tray_.Window());
     vrrDiagnostic_ = std::make_unique<VrrDiagnostic>(*this, tray_.Window());
     if (!foregroundTracker_.Start(tray_.Window(), kForegroundChanged,
-        [this](bool) { ReconcileHudVisibility(); }))
+        [this](bool matches)
+        {
+            if (matches)
+                Log(L"Foreground target pid=" +
+                    std::to_wstring(foregroundTracker_.TrackedProcessId()));
+            else
+                Log(L"Foreground target cleared");
+            ReconcileHudVisibility();
+        }))
+    {
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
+            L"Foreground tracker initialization failed");
         return 1;
+    }
     tweakStartupCoordinator_.Start(intelVrrRangeFixEnabled_);
     return ProcessMessages();
 }
@@ -166,7 +201,10 @@ void App::SetIntelVrrRangeFixEnabled(bool enabled)
     if (path.empty()) return;
     const auto separator = path.find_last_of(L'\\');
     if (separator != std::wstring::npos) CreateDirectoryW(path.substr(0, separator).c_str(), nullptr);
-    WritePrivateProfileStringW(L"Tweaks", L"IntelVrrRangeFixEnabled", enabled ? L"1" : L"0", path.c_str());
+    if (!WritePrivateProfileStringW(L"Tweaks", L"IntelVrrRangeFixEnabled",
+        enabled ? L"1" : L"0", path.c_str()))
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
+            L"Settings save failed key=IntelVrrRangeFixEnabled");
 }
 
 std::optional<clawhud::IntelVrrRunResult> App::IntelVrrLastResult() const
@@ -228,6 +266,7 @@ bool App::StartMockHud()
         return false;
     }
     if (!EnsureMockHud()) return false;
+    if (!mockHudEnabled_) Log(L"HUD enabled");
     mockHudEnabled_ = true;
     mockFrameIndex_ = 0;
     if (const DWORD processId = foregroundTracker_.TrackedProcessId())
@@ -242,11 +281,26 @@ bool App::EnsureMockHud()
         hudPresentation_ = std::make_unique<clawhud::HudPresentation>();
     const auto options = BuildHudRenderOptions();
     HRESULT hr = hudPresentation_->Initialize(instance_, options);
-    if (FAILED(hr)) return false;
+    if (FAILED(hr))
+    {
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
+            L"HUD initialization failed hr=" + HexHresult(hr));
+        return false;
+    }
+    if (!hudInitializedLogged_)
+    {
+        Log(L"HUD initialized");
+        hudInitializedLogged_ = true;
+    }
     if (diagnosticHudMode_.has_value())
     {
         hr = hudPresentation_->Render(clawhud::MakeGameDcSample(), options);
-        if (FAILED(hr)) return false;
+        if (FAILED(hr))
+        {
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
+                L"HUD render failed hr=" + HexHresult(hr));
+            return false;
+        }
     }
     return true;
 }
@@ -258,6 +312,7 @@ void App::StopMockHud()
         Log(L"Hide Mock HUD ignored while VRR diagnostic is running");
         return;
     }
+    if (mockHudEnabled_) Log(L"HUD disabled");
     mockHudEnabled_ = false;
     manualHudVisibilityOverride_.reset();
     KillTimer(tray_.Window(), kMockHudTimerId);
@@ -279,6 +334,7 @@ bool App::SetHudEnabled(bool enabled)
         return true;
     }
     if (!EnsureMockHud()) return false;
+    if (!mockHudEnabled_) Log(L"HUD enabled");
     mockHudEnabled_ = true;
     mockFrameIndex_ = 0;
     manualHudVisibilityOverride_.reset();
@@ -356,6 +412,7 @@ void App::SetHudSizeOffset(int offset)
         Log(L"HUD size change rolled back after presentation recreation failure");
         return;
     }
+    Log(L"HUD presentation recreated");
     SaveHudSettings();
 }
 
@@ -428,7 +485,14 @@ void App::RenderMockHud(bool allowHidden)
     snapshot.batteryPercent = phase == 0 ? 9 : phase == 1 ? 10 : 100;
     const auto options = BuildHudRenderOptions();
     const HRESULT hr = hudPresentation_->Render(snapshot, options);
-    if (FAILED(hr)) Log(L"Mock HUD redraw failed");
+    if (FAILED(hr))
+    {
+        if (!hudRenderFailureLogged_)
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error, L"HUD render failed");
+        hudRenderFailureLogged_ = true;
+    }
+    else
+        hudRenderFailureLogged_ = false;
 }
 
 clawhud::MsiEcHudTelemetry App::ReadHudEcTelemetry()
@@ -489,7 +553,14 @@ void App::RenderProductionHud(bool allowHidden)
 
     const auto options = BuildHudRenderOptions();
     const HRESULT hr = hudPresentation_->Render(snapshot, options);
-    if (FAILED(hr)) Log(L"Production EC HUD redraw failed");
+    if (FAILED(hr))
+    {
+        if (!hudRenderFailureLogged_)
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error, L"HUD render failed");
+        hudRenderFailureLogged_ = true;
+    }
+    else
+        hudRenderFailureLogged_ = false;
 }
 
 void App::SampleProductionTelemetry()
@@ -574,6 +645,7 @@ void App::StartProductionPresentMonSampling()
         L"tools" / L"PresentMon.exe";
     presentMonHudTelemetry_ = std::make_unique<clawhud::PresentMonHudTelemetry>();
     presentMonProcessId_ = processId;
+    Log(L"PresentMon start requested pid=" + std::to_wstring(processId));
     const bool started = presentMonHudTelemetry_->Start(executable.wstring(), processId,
         [this, processId](std::optional<double> displayedFps)
         {
@@ -582,14 +654,23 @@ void App::StartProductionPresentMonSampling()
                 reinterpret_cast<WPARAM>(update), 0))
                 delete update;
         });
-    if (!started)
-        StopProductionPresentMonSampling();
+    if (started)
+        Log(L"PresentMon started pid=" + std::to_wstring(processId));
+    else
+    {
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
+            L"PresentMon start failed pid=" + std::to_wstring(processId));
+        presentMonHudTelemetry_.reset();
+        presentMonProcessId_ = 0;
+        latestPresentMonDisplayedFps_.reset();
+    }
 }
 
 void App::StopProductionPresentMonSampling()
 {
     if (presentMonHudTelemetry_)
     {
+        Log(L"PresentMon stopped");
         presentMonHudTelemetry_->Stop();
         presentMonHudTelemetry_.reset();
     }
@@ -627,7 +708,10 @@ void App::TryGraphicsApiProbe()
         KillTimer(tray_.Window(), kGraphicsApiRetryTimerId);
         graphicsApiProbe_.Reset();
         if (!latestGraphicsApi_)
-            Log(L"IGCL Graphics API unresolved after bounded retries");
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+                L"IGCL Graphics API unresolved after bounded retries");
+        else
+            Log(L"Graphics API resolved api=" + *latestGraphicsApi_);
         RenderProductionHud();
         return;
     }
@@ -646,7 +730,14 @@ void App::HandlePresentMonHudUpdate(DWORD processId,
     latestPresentMonDisplayedFps_ = displayedFps;
     RenderProductionHud();
     if (!displayedFps)
+    {
+        if (!ProcessAlive(processId))
+            Log(L"PresentMon target process exited");
+        else
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+                L"PresentMon exited unexpectedly");
         StopProductionPresentMonSampling();
+    }
 }
 
 bool App::MockHudVisible() const noexcept
@@ -898,9 +989,12 @@ void App::ReconcileHudVisibility()
             foregroundTracker_.ForegroundIsTrackedProcess()));
     if (resolvedShow)
     {
+        const bool wasVisible = hudPresentation_->Visible();
         const HRESULT hr = hudPresentation_->Show();
         if (SUCCEEDED(hr))
         {
+            if (!wasVisible) Log(L"HUD shown");
+            hudShowFailureLogged_ = false;
             if (!diagnosticHudMode_.has_value())
             {
                 KillTimer(tray_.Window(), kMockHudTimerId);
@@ -912,11 +1006,27 @@ void App::ReconcileHudVisibility()
                 KillTimer(tray_.Window(), kMockHudTimerId);
         }
         else
-            Log(L"Mock HUD show failed");
+        {
+            if (!hudShowFailureLogged_)
+                clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
+                    L"HUD show failed");
+            hudShowFailureLogged_ = true;
+        }
     }
     else
     {
-        hudPresentation_->Hide();
+        const bool wasVisible = hudPresentation_->Visible();
+        const HRESULT hr = hudPresentation_->Hide();
+        if (SUCCEEDED(hr))
+        {
+            if (wasVisible) Log(L"HUD hidden");
+            hudHideFailureLogged_ = false;
+        }
+        else if (!hudHideFailureLogged_)
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
+                L"HUD hide failed");
+        if (FAILED(hr))
+            hudHideFailureLogged_ = true;
         KillTimer(tray_.Window(), kMockHudTimerId);
         StopProductionEcSampling();
     }
@@ -927,11 +1037,13 @@ bool App::AcquireSingleInstance()
     instanceMutex_ = CreateMutexW(nullptr, TRUE, kInstanceMutexName);
     if (!instanceMutex_)
     {
-        Log(L"CreateMutex failed; exiting");
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
+            L"CreateMutex failed; exiting");
         return false;
     }
     if (GetLastError() == ERROR_ALREADY_EXISTS)
     {
+        Log(L"another ClawHUD instance already exists");
         CloseHandle(instanceMutex_);
         instanceMutex_ = nullptr;
         return false;
@@ -981,14 +1093,17 @@ void App::SaveHudSettings() const
         ? L"Always" : L"InGameOnly";
     wchar_t opacity[8]{};
     swprintf_s(opacity, L"%d", static_cast<int>(hudOptions_.backgroundOpacity * 100.0f + 0.5f));
-    WritePrivateProfileStringW(L"HUD", L"Alignment", alignment, path.c_str());
-    WritePrivateProfileStringW(L"HUD", L"BackgroundWidth", background, path.c_str());
-    WritePrivateProfileStringW(L"HUD", L"BackgroundOpacity", opacity, path.c_str());
-    WritePrivateProfileStringW(L"HUD", L"VisibilityMode", visibility, path.c_str());
+    bool saved = WritePrivateProfileStringW(L"HUD", L"Alignment", alignment, path.c_str()) != FALSE;
+    saved = WritePrivateProfileStringW(L"HUD", L"BackgroundWidth", background, path.c_str()) != FALSE && saved;
+    saved = WritePrivateProfileStringW(L"HUD", L"BackgroundOpacity", opacity, path.c_str()) != FALSE && saved;
+    saved = WritePrivateProfileStringW(L"HUD", L"VisibilityMode", visibility, path.c_str()) != FALSE && saved;
     wchar_t size[8]{};
     swprintf_s(size, L"%d", clawhud::ClampHudSizeOffset(hudSizeOffset_));
-    WritePrivateProfileStringW(L"HUD", L"Size", size, path.c_str());
-    WritePrivateProfileStringW(L"General", L"StartWithWindows", startWithWindows_ ? L"1" : L"0", path.c_str());
+    saved = WritePrivateProfileStringW(L"HUD", L"Size", size, path.c_str()) != FALSE && saved;
+    saved = WritePrivateProfileStringW(L"General", L"StartWithWindows",
+        startWithWindows_ ? L"1" : L"0", path.c_str()) != FALSE && saved;
+    if (!saved)
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error, L"Settings save failed");
 }
 
 bool App::ApplyStartupRegistration() const

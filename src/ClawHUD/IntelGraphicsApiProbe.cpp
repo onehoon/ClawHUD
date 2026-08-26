@@ -1,4 +1,5 @@
 #include "IntelGraphicsApiProbe.h"
+#include "RuntimeLogger.h"
 
 #include <algorithm>
 #include <filesystem>

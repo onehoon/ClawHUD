@@ -1,10 +1,12 @@
 #include "PresentMonHudTelemetry.h"
+#include "RuntimeLogger.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
 #include <evntrace.h>
+#include <filesystem>
 #include <utility>
 
 namespace clawhud
@@ -124,11 +126,29 @@ bool PresentMonHudTelemetry::Start(const std::wstring& executable, DWORD process
     Stop();
     if (executable.empty() || !processId)
         return false;
+    std::error_code fileError;
+    const bool presentMonExists = std::filesystem::exists(executable, fileError);
+    if (fileError)
+    {
+        RuntimeLogger::Log(RuntimeLogLevel::Error,
+            L"PresentMon executable check failed error=" +
+            std::to_wstring(fileError.value()));
+        return false;
+    }
+    if (!presentMonExists)
+    {
+        RuntimeLogger::Log(RuntimeLogLevel::Error, L"PresentMon executable missing");
+        return false;
+    }
 
     SECURITY_ATTRIBUTES security{sizeof(security), nullptr, TRUE};
     HANDLE outputRead{}, outputWrite{};
     if (!CreatePipe(&outputRead, &outputWrite, &security, 0))
+    {
+        RuntimeLogger::Log(RuntimeLogLevel::Error,
+            L"CreatePipe failed error=" + std::to_wstring(GetLastError()));
         return false;
+    }
     SetHandleInformation(outputRead, HANDLE_FLAG_INHERIT, 0);
 
     sessionName_ =
@@ -146,9 +166,12 @@ bool PresentMonHudTelemetry::Start(const std::wstring& executable, DWORD process
     PROCESS_INFORMATION processInfo{};
     const BOOL created = CreateProcessW(nullptr, commandLine.data(), nullptr, nullptr,
         TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &startup, &processInfo);
+    const DWORD createError = created ? ERROR_SUCCESS : GetLastError();
     CloseHandle(outputWrite);
     if (!created)
     {
+        RuntimeLogger::Log(RuntimeLogLevel::Error,
+            L"CreateProcess failed error=" + std::to_wstring(createError));
         CloseHandle(outputRead);
         sessionName_.clear();
         return false;
