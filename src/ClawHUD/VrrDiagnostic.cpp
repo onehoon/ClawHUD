@@ -24,7 +24,6 @@ namespace
 using Microsoft::WRL::ComPtr;
 constexpr auto kCaptureDuration = std::chrono::seconds(28);
 constexpr auto kCaptureWatchdog = std::chrono::seconds(35);
-constexpr auto kTargetWait = std::chrono::seconds(15);
 
 std::wstring Now(bool fileName = false)
 {
@@ -46,31 +45,32 @@ std::filesystem::path LogFolder(const App& app)
     std::filesystem::create_directories(path); return path;
 }
 
-std::optional<DWORD> ForegroundTarget()
+struct ForegroundTargetInfo
+{
+    HWND window{};
+    DWORD processId{};
+    std::wstring processPath;
+};
+
+std::optional<ForegroundTargetInfo> CaptureForegroundTarget()
 {
     const HWND window = GetForegroundWindow(); if (!window) return std::nullopt;
-    DWORD pid{}; GetWindowThreadProcessId(window, &pid);
-    if (!pid || pid == GetCurrentProcessId()) return std::nullopt;
-    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid); if (!process) return std::nullopt;
+    DWORD processId{}; GetWindowThreadProcessId(window, &processId);
+    if (!processId || processId == GetCurrentProcessId()) return std::nullopt;
+    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId); if (!process) return std::nullopt;
     wchar_t path[MAX_PATH]{}; DWORD size = ARRAYSIZE(path);
     const bool ok = QueryFullProcessImageNameW(process, 0, path, &size) != FALSE; CloseHandle(process);
     if (!ok) return std::nullopt;
-    std::wstring name(path, size); std::transform(name.begin(), name.end(), name.begin(), towlower);
+    const std::wstring processPath(path, size);
+    std::wstring name = processPath; std::transform(name.begin(), name.end(), name.begin(), towlower);
     if (name.ends_with(L"\\explorer.exe") || name.ends_with(L"\\clawhud.exe")) return std::nullopt;
-    return pid;
+    return ForegroundTargetInfo{ window, processId, processPath };
 }
 
 bool Alive(DWORD pid)
 {
     HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid); if (!process) return false;
     DWORD code{}; const bool alive = GetExitCodeProcess(process, &code) && code == STILL_ACTIVE; CloseHandle(process); return alive;
-}
-
-std::wstring ProcessPath(DWORD pid)
-{
-    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid); if (!process) return L"Unavailable";
-    wchar_t path[MAX_PATH]{}; DWORD size = ARRAYSIZE(path); QueryFullProcessImageNameW(process, 0, path, &size); CloseHandle(process);
-    return size ? std::wstring(path, size) : L"Unavailable";
 }
 
 void WriteSummary(std::wofstream& log, const wchar_t* phase, const std::filesystem::path& csv, const clawhud::VrrCsvSummary& summary)
@@ -201,17 +201,25 @@ bool VrrDiagnostic::Start()
 {
     if (running_.exchange(true)) return false;
     if (worker_.joinable()) worker_.join();
+    {
+        std::lock_guard lock(triggerMutex_);
+        targetPid_.reset();
+        targetWindow_ = nullptr;
+        targetPath_.clear();
+    }
     savedHudState_ = app_.CaptureHudVisibilityState();
     hudStateSaved_ = true;
     stop_ = false;
+    state_ = VrrDiagnosticState::WaitingForTrigger;
     try { worker_ = std::thread(&VrrDiagnostic::Run, this); }
-    catch (...) { hudStateSaved_ = false; running_ = false; throw; }
-    Status(L"Waiting for game"); return true;
+    catch (...) { hudStateSaved_ = false; state_ = VrrDiagnosticState::Idle; running_ = false; throw; }
+    Status(L"Waiting for F8"); return true;
 }
 
 void VrrDiagnostic::Stop()
 {
     stop_ = true;
+    triggerCondition_.notify_all();
     app_.CancelPendingHudVisibilityRequests();
     if (worker_.joinable()) worker_.join();
     if (hudStateSaved_)
@@ -221,12 +229,38 @@ void VrrDiagnostic::Stop()
         else
             OutputDebugStringW(L"[ClawHUD] Failed to restore HUD state while stopping VRR diagnostic\n");
     }
+    {
+        std::lock_guard lock(triggerMutex_);
+        targetPid_.reset();
+        targetWindow_ = nullptr;
+        targetPath_.clear();
+    }
+    state_ = VrrDiagnosticState::Idle;
     running_ = false;
 }
 
 void VrrDiagnostic::Run()
 {
-    RunImpl();
+    DWORD targetPid{};
+    HWND foregroundWindow{};
+    std::wstring targetPath;
+    {
+        std::unique_lock lock(triggerMutex_);
+        triggerCondition_.wait(lock, [this]
+        {
+            return stop_.load() || targetPid_.has_value();
+        });
+        if (stop_)
+        {
+            state_ = VrrDiagnosticState::Idle;
+            running_ = false;
+            return;
+        }
+        targetPid = *targetPid_;
+        foregroundWindow = targetWindow_;
+        targetPath = targetPath_;
+    }
+    RunImpl(targetPid, foregroundWindow, targetPath);
     if (!stop_.load() && hudStateSaved_)
     {
         const bool restored = app_.RequestDiagnosticHudState(savedHudState_);
@@ -235,7 +269,30 @@ void VrrDiagnostic::Run()
         else if (!stop_.load())
             hudStateSaved_ = false;
     }
+    state_ = VrrDiagnosticState::Idle;
     running_ = false;
+}
+
+bool VrrDiagnostic::TriggerFromForeground()
+{
+    if (!WaitingForTrigger()) return false;
+    const auto target = CaptureForegroundTarget();
+    if (!target)
+    {
+        OutputDebugStringW(L"[ClawHUD] VRR diagnostic trigger ignored: no valid foreground target\n");
+        return false;
+    }
+    {
+        std::lock_guard lock(triggerMutex_);
+        if (stop_ || state_.load() != VrrDiagnosticState::WaitingForTrigger)
+            return false;
+        targetPid_ = target->processId;
+        targetWindow_ = target->window;
+        targetPath_ = target->processPath;
+        state_ = VrrDiagnosticState::Running;
+    }
+    triggerCondition_.notify_one();
+    return true;
 }
 
 void VrrDiagnostic::Status(const wchar_t* text) const
@@ -266,7 +323,8 @@ bool VrrDiagnostic::Capture(const std::filesystem::path& executable, DWORD pid, 
     return true;
 }
 
-void VrrDiagnostic::RunImpl()
+void VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
+    const std::wstring& targetPath)
 {
     std::wofstream log;
     clawhud::IntelVrrDiagnosticProbe igcl;
@@ -287,11 +345,9 @@ void VrrDiagnostic::RunImpl()
         igcl.LogState(log);
         const auto pm = std::filesystem::path(app_.ExecutablePath()).parent_path() / L"tools" / L"PresentMon.exe";
         if (!std::filesystem::exists(pm)) { log << L"PresentMon: FAILED\nReason: tools\\PresentMon.exe not found\n"; Status(L"Failed"); return; }
-        std::this_thread::sleep_for(std::chrono::seconds(1)); std::optional<DWORD> target; const auto targetEnd = std::chrono::steady_clock::now() + kTargetWait;
-        while (!stop_ && std::chrono::steady_clock::now() < targetEnd) { target = ForegroundTarget(); if (target) break; std::this_thread::sleep_for(std::chrono::milliseconds(250)); }
-        if (stop_) { log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); return; }
-        if (!target) { log << L"VRR TEST FAILED\nReason: No valid foreground target process\n"; Status(L"Failed"); return; }
-        log << L"Target Process: " << ProcessPath(*target) << L"\nPID: " << *target << L"\n\n";
+        log << L"=== VRR DIAGNOSTIC TRIGGER ===\nTrigger: F8\nForeground HWND: "
+            << reinterpret_cast<const void*>(foregroundWindow) << L"\nTarget PID: " << targetPid
+            << L"\nTarget Process: " << targetPath << L"\n\n";
         const std::string sessionStamp = Narrow(stamp);
         struct PhaseResult { clawhud::VrrCsvSummary csv; std::vector<clawhud::VblankSummary> vblank; bool captureOk{}; bool targetAlive{}; bool hudVisible{}; };
         auto runPhase = [&](const wchar_t* title, const wchar_t* status, DiagnosticHudMode mode,
@@ -316,10 +372,10 @@ void VrrDiagnostic::RunImpl()
             if (stop_) return false;
             std::this_thread::sleep_for(std::chrono::seconds(1));
             igcl.StartSampling();
-            result.captureOk = Capture(pm, *target, csvPath,
-                "ClawHUD-VRR-" + std::to_string(*target) + "-" + sessionMode + "-" + sessionStamp, log);
+            result.captureOk = Capture(pm, targetPid, csvPath,
+                "ClawHUD-VRR-" + std::to_string(targetPid) + "-" + sessionMode + "-" + sessionStamp, log);
             result.vblank = igcl.StopSampling(log, title);
-            result.targetAlive = Alive(*target);
+            result.targetAlive = Alive(targetPid);
             result.hudVisible = app_.RequestDiagnosticHudVisibilityMatches(expectedVisible);
             result.csv = clawhud::ParseVrrCsvFile(csvPath, preferredSwapChain);
             WriteSummary(log, title, csvPath, result.csv);

@@ -833,7 +833,7 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
     }
     if (message == WM_COMMAND && LOWORD(wParam) == kStartVrr)
     {
-        if (self->app_.StartVrrDiagnostic()) self->SetVrrStatus(L"Waiting for game"); return 0;
+        if (self->app_.StartVrrDiagnostic()) self->SetVrrStatus(L"Waiting for F8"); return 0;
     }
     if (message == WM_COMMAND && LOWORD(wParam) == kStopVrr)
     {

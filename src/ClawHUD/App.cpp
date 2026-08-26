@@ -249,7 +249,7 @@ bool App::StartVrrDiagnostic()
             StartGraphicsApiProbe(processId);
         return false;
     }
-    vrrStatus_ = L"Waiting for game";
+    vrrStatus_ = L"Waiting for F8";
     if (settings_) settings_->RequestClose();
     return true;
 }
@@ -820,6 +820,12 @@ bool App::IsHudAlwaysVisible() const noexcept
 
 void App::HandleHudToggleHotkey()
 {
+    if (vrrDiagnostic_ && vrrDiagnostic_->WaitingForTrigger())
+    {
+        if (vrrDiagnostic_->TriggerFromForeground())
+            Log(L"VRR diagnostic triggered by F8");
+        return;
+    }
     if (VrrDiagnosticRunning())
     {
         Log(L"F8 ignored while VRR diagnostic is running");

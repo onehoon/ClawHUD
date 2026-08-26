@@ -10,7 +10,7 @@ No `Set_*`, TDP, fan-control, charge-limit, or ownership operation is implemente
 
 ## VRR orchestration
 
-The Diagnostics tab also contains a user-started VRR / Presentation orchestration test. It waits a bounded period for a non-ClawHUD foreground process, fixes that PID for the complete test, and uses the real main `ClawHUD.exe` presentation path for three phases:
+The Diagnostics tab also contains a user-started VRR / Presentation orchestration test. After **Start VRR Test**, the Settings window closes and the diagnostic waits indefinitely for the existing global **F8** hotkey. At the instant F8 is received, the UI thread validates and captures the current non-ClawHUD foreground process and fixes that PID for the complete test. Invalid foreground windows leave the diagnostic waiting for another F8. The test uses the real main `ClawHUD.exe` presentation path for three phases:
 
 1. **HUD OFF** — the main HUD is hidden and its update timer is stopped.
 2. **STATIC HUD** — one deterministic HUD frame is rendered and shown; the 100 ms update timer is not started and no periodic redraw is issued.
