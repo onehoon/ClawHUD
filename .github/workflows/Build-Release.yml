@@ -48,6 +48,18 @@ jobs:
           Write-Host "Next ClawHUD release: $version"
           "version=$version" >> $env:GITHUB_OUTPUT
 
+      - name: Generate release notes
+        shell: pwsh
+        run: |
+          $lastTag = git tag --list 'v0.1.*' --sort=-v:refname | Select-Object -First 1
+          $commitRange = if ([string]::IsNullOrWhiteSpace($lastTag)) { 'HEAD' } else { "$lastTag..HEAD" }
+          $notes = @(git log $commitRange --pretty=format:'- %s (%h)')
+          if ($notes.Count -eq 0) {
+            $notes = @('- No changes recorded.')
+          }
+          $notes | Set-Content -Path .\release-notes.md -Encoding utf8NoBOM
+          Get-Content .\release-notes.md
+
       - name: Setup .NET for Velopack CLI
         uses: actions/setup-dotnet@v4
         with:
@@ -114,6 +126,7 @@ jobs:
             --packVersion "${{ steps.version.outputs.version }}" `
             --packDir .\stage\ `
             --mainExe ClawHUD.exe `
+            --releaseNotes .\release-notes.md `
             --shortcuts StartMenuRoot `
             --channel stable `
             --framework vcredist145-x64 `
