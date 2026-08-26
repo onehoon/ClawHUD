@@ -336,7 +336,8 @@ void SettingsWindow::CreateTabs()
         WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS, 0, 0, 0, 0,
         window_, nullptr, instance_, nullptr);
     const wchar_t* labels[kTabCount] = { L"Settings", L"Tweaks", L"About", L"Diagnostics" };
-    for (int i = 0; i < kTabCount; ++i)
+    const int tabCount = app_.DiagnosticsTabEnabled() ? kTabCount : kTabCount - 1;
+    for (int i = 0; i < tabCount; ++i)
     {
         TCITEMW item{};
         item.mask = TCIF_TEXT;
@@ -346,7 +347,8 @@ void SettingsWindow::CreateTabs()
     CreateSettingsControls();
     CreateTweaksControls();
     CreateAboutControls();
-    CreateDiagnosticsControls();
+    if (app_.DiagnosticsTabEnabled())
+        CreateDiagnosticsControls();
     ShowTab(kTabSettings);
     UpdateGeneralControls();
     UpdateHudControls();
@@ -523,7 +525,8 @@ void SettingsWindow::Layout()
     MoveWindow(settingsPanel_, panelX, panelY, panelWidth, panelHeight, TRUE);
     MoveWindow(tweaksPanel_, panelX, panelY, panelWidth, panelHeight, TRUE);
     MoveWindow(aboutPanel_, panelX, panelY, panelWidth, panelHeight, TRUE);
-    MoveWindow(diagnosticsPanel_, panelX, panelY, panelWidth, panelHeight, TRUE);
+    if (diagnosticsPanel_)
+        MoveWindow(diagnosticsPanel_, panelX, panelY, panelWidth, panelHeight, TRUE);
     ClampScrollOffsets();
     ApplyScrollPosition();
 }

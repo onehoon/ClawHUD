@@ -1056,6 +1056,8 @@ void App::LoadHudSettings()
 {
     const auto path = HudSettingsPath();
     if (path.empty()) return;
+    diagnosticsTabEnabled_ = ReadBoolSetting(
+        path, L"Developer", L"DiagnosticsTabEnabled", false);
     wchar_t startup[8]{};
     GetPrivateProfileStringW(L"General", L"StartWithWindows", L"1", startup,
         ARRAYSIZE(startup), path.c_str());
