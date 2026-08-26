@@ -88,6 +88,19 @@ int main()
     ok &= Check(Near(RightAlignedOffset(100.0f, 80.0f), 20.0f) &&
         Near(RightAlignedOffset(100.0f, 100.0f), 0.0f) &&
         Near(RightAlignedOffset(100.0f, 120.0f), 0.0f), "right aligned value offset");
+    const HudSegmentMetrics segmentMetrics{50.0f, 100.0f, 156.0f};
+    const auto shortValueLayout = CalculateHudSegmentLayout(
+        20.0f, segmentMetrics, 40.0f, 60.0f, 6.0f);
+    const auto longValueLayout = CalculateHudSegmentLayout(
+        20.0f, segmentMetrics, 40.0f, 90.0f, 6.0f);
+    ok &= Check(Near(shortValueLayout.segmentWidth, 156.0f) &&
+        Near(longValueLayout.segmentWidth, 156.0f) &&
+        Near(shortValueLayout.valueX + 60.0f, longValueLayout.valueX + 90.0f),
+        "segment value right edge is stable");
+    const auto overflowLayout = CalculateHudSegmentLayout(
+        20.0f, segmentMetrics, 40.0f, 120.0f, 6.0f);
+    ok &= Check(Near(overflowLayout.segmentWidth, 176.0f) &&
+        Near(overflowLayout.valueX, 76.0f), "segment overflow expands value slot");
 
     const RECT monitor{ -1920, -100, 0, 980 };
     const auto fullWindow = CalculateHudWindowGeometry(
@@ -146,26 +159,39 @@ int main()
             "measure empty runs");
 
         const HudRenderOptions stableOptions{};
-        const auto width = [&](HudSegmentKind kind, const wchar_t* value)
+        const auto width = [&](HudSegmentKind kind, const wchar_t* label, const wchar_t* value)
         {
-            const wchar_t* label = kind == HudSegmentKind::Fan ? L"FAN" :
-                kind == HudSegmentKind::Graphics ? L"DX11" : L"GPU";
             return MeasureWidth(renderer, {{kind, label, value}}, stableOptions);
         };
-        ok &= Check(Near(width(HudSegmentKind::Graphics, L"99 FPS"),
-            width(HudSegmentKind::Graphics, L"100 FPS")), "stable FPS slot");
-        ok &= Check(Near(width(HudSegmentKind::Gpu, L"99%"),
-            width(HudSegmentKind::Gpu, L"100%")), "stable percentage slot");
-        ok &= Check(width(HudSegmentKind::Gpu, L"0%") <
-            width(HudSegmentKind::Gpu, L"47% VRAM 3.4 GB"),
-            "GPU without VRAM does not reserve VRAM width");
-        ok &= Check(Near(width(HudSegmentKind::Tdp, L"9.8 W"),
-            width(HudSegmentKind::Tdp, L"10.1 W")), "stable power slot");
-        ok &= Check(Near(width(HudSegmentKind::Fan, L"999 RPM"),
-            width(HudSegmentKind::Fan, L"1000 RPM")), "stable fan slot");
-        ok &= Check(Near(width(HudSegmentKind::Gpu, L"99% VRAM 3.4 GB"),
-            width(HudSegmentKind::Gpu, L"100% VRAM 99.9 GB")),
-            "stable GPU VRAM slot");
+        const auto sameWidth = [&](HudSegmentKind kind, const wchar_t* label,
+            std::initializer_list<const wchar_t*> values, const char* message)
+        {
+            const auto first = width(kind, label, *values.begin());
+            for (const auto* value : values)
+                ok &= Check(Near(width(kind, label, value), first), message);
+        };
+        sameWidth(HudSegmentKind::Graphics, L"FPS",
+            {L"9 FPS", L"99 FPS", L"999 FPS"}, "stable Graphics slot");
+        sameWidth(HudSegmentKind::Cpu, L"CPU",
+            {L"1% 40\u00B0C", L"36% 67\u00B0C", L"100% 100\u00B0C"},
+            "stable CPU slot");
+        sameWidth(HudSegmentKind::Gpu, L"GPU",
+            {L"1%", L"47% VRAM 3.4 GB", L"100% VRAM 99.9 GB"},
+            "stable GPU slot");
+        ok &= Check(Near(width(HudSegmentKind::Gpu, L"GPU", L"47%"),
+            width(HudSegmentKind::Gpu, L"GPU", L"47% VRAM 3.4 GB")),
+            "GPU reserves VRAM slot when unavailable");
+        sameWidth(HudSegmentKind::Tdp, L"TDP",
+            {L"5 W", L"18 W", L"99.9 W"}, "stable TDP slot");
+        sameWidth(HudSegmentKind::SystemPower, L"SYS",
+            {L"8 W", L"24.5 W", L"99.9 W"}, "stable SystemPower slot");
+        sameWidth(HudSegmentKind::Fan, L"FAN",
+            {L"800 RPM", L"4500 RPM", L"9999 RPM"}, "stable Fan slot");
+        sameWidth(HudSegmentKind::Battery, L"BAT",
+            {L"9%", L"72% 2.5h", L"100% 9.9h"}, "stable Battery slot");
+        ok &= Check(Near(width(HudSegmentKind::Graphics, L"FPS", L"60 FPS"),
+            width(HudSegmentKind::Graphics, L"Vulkan", L"60 FPS")),
+            "Graphics API labels share a fixed slot");
         float reservedWidth{};
         ok &= Check(SUCCEEDED(renderer.MeasureReservedHudWidth(stableOptions, reservedWidth)) &&
             reservedWidth > 0.0f, "measure reserved HUD envelope");
@@ -176,7 +202,8 @@ int main()
         ok &= Check(SUCCEEDED(renderer.MeasureReservedHudWidth(alternateOptions,
             alternateReservedWidth)) && Near(reservedWidth, alternateReservedWidth),
             "reserved HUD envelope is layout-stable");
-        ok &= Check(width(HudSegmentKind::Fan, L"10000 RPM") > width(HudSegmentKind::Fan, L"999 RPM"),
+        ok &= Check(width(HudSegmentKind::Fan, L"FAN", L"10000 RPM") >
+            width(HudSegmentKind::Fan, L"FAN", L"999 RPM"),
             "fan overflow expands");
 
         const std::vector<HudTextRun> gpu{{HudSegmentKind::Gpu, L"GPU", L"99%"}};
@@ -184,6 +211,14 @@ int main()
             {HudSegmentKind::Gpu, L"GPU", L"99%"}, {HudSegmentKind::Cpu, L"CPU", L"36%"}};
         ok &= Check(MeasureWidth(renderer, gpuAndCpu, stableOptions) >
             MeasureWidth(renderer, gpu, stableOptions), "missing run compacts");
+        const auto cpuAndGpu = [&](const wchar_t* cpuValue)
+        {
+            return MeasureWidth(renderer,
+                {{HudSegmentKind::Cpu, L"CPU", cpuValue},
+                 {HudSegmentKind::Gpu, L"GPU", L"47%"}}, stableOptions);
+        };
+        ok &= Check(Near(cpuAndGpu(L"1% 40\u00B0C"), cpuAndGpu(L"100% 100\u00B0C")),
+            "next segment position is stable when CPU value changes");
 
         const auto gpuOnlyMeasure = [&]()
         {

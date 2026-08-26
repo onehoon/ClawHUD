@@ -144,15 +144,28 @@ float Height(IDWriteTextLayout* layout) noexcept
     return SUCCEEDED(layout->GetMetrics(&metrics)) ? metrics.height : 0.0f;
 }
 
-const wchar_t* ValueExemplar(HudSegmentKind kind, const std::wstring& actual) noexcept
+const wchar_t* LabelExemplar(HudSegmentKind kind) noexcept
+{
+    switch (kind)
+    {
+    case HudSegmentKind::Graphics: return L"Vulkan";
+    case HudSegmentKind::Cpu: return L"CPU";
+    case HudSegmentKind::Gpu: return L"GPU";
+    case HudSegmentKind::Tdp: return L"TDP";
+    case HudSegmentKind::SystemPower: return L"SYS";
+    case HudSegmentKind::Fan: return L"FAN";
+    case HudSegmentKind::Battery: return L"BAT";
+    }
+    return L"";
+}
+
+const wchar_t* ValueExemplar(HudSegmentKind kind) noexcept
 {
     switch (kind)
     {
     case HudSegmentKind::Graphics: return L"999 FPS";
     case HudSegmentKind::Cpu: return L"100% 100\u00B0C";
-    case HudSegmentKind::Gpu:
-        return actual.find(L"VRAM") != std::wstring::npos
-            ? L"100% VRAM 99.9 GB" : L"100%";
+    case HudSegmentKind::Gpu: return L"100% VRAM 99.9 GB";
     case HudSegmentKind::Tdp:
     case HudSegmentKind::SystemPower: return L"99.9 W";
     case HudSegmentKind::Fan: return L"9999 RPM";
@@ -161,26 +174,20 @@ const wchar_t* ValueExemplar(HudSegmentKind kind, const std::wstring& actual) no
     return L"";
 }
 
-HRESULT ReservedValueWidth(IDWriteFactory* factory, IDWriteTextFormat* format,
-    const HudRenderOptions& options, HudSegmentKind kind,
-    const std::wstring& actual, float& width)
+HRESULT MeasureSegmentMetrics(IDWriteFactory* factory, IDWriteTextFormat* format,
+    const HudRenderOptions& options, HudSegmentKind kind, HudSegmentMetrics& metrics)
 {
+    ComPtr<IDWriteTextLayout> label;
     ComPtr<IDWriteTextLayout> exemplar;
-    HRESULT hr = CreateLayout(factory, format, ValueExemplar(kind, actual), options, true, true, exemplar);
+    HRESULT hr = CreateLayout(factory, format, LabelExemplar(kind), options, false, false, label);
     if (FAILED(hr))
         return hr;
-    width = Width(exemplar.Get());
-    return S_OK;
-}
-
-HRESULT ValueExtent(IDWriteFactory* factory, IDWriteTextFormat* format,
-    const HudRenderOptions& options, HudSegmentKind kind,
-    const std::wstring& actualText, IDWriteTextLayout* actual, float& width)
-{
-    HRESULT hr = ReservedValueWidth(factory, format, options, kind, actualText, width);
+    hr = CreateLayout(factory, format, ValueExemplar(kind), options, true, true, exemplar);
     if (FAILED(hr))
         return hr;
-    width = std::max(width, Width(actual));
+    metrics.labelSlotWidth = Width(label.Get());
+    metrics.valueSlotWidth = Width(exemplar.Get());
+    metrics.segmentWidth = metrics.labelSlotWidth + SegmentGap(options) + metrics.valueSlotWidth;
     return S_OK;
 }
 
@@ -233,11 +240,12 @@ HRESULT RunWidth(IDWriteFactory* factory, IDWriteTextFormat* format,
     hr = CreateLayout(factory, format, run.value, options, true, true, value);
     if (FAILED(hr))
         return hr;
-    float valueWidth{};
-    hr = ValueExtent(factory, format, options, run.kind, run.value, value.Get(), valueWidth);
+    HudSegmentMetrics metrics{};
+    hr = MeasureSegmentMetrics(factory, format, options, run.kind, metrics);
     if (FAILED(hr))
         return hr;
-    width = Width(label.Get()) + SegmentGap(options) + valueWidth;
+    width = std::max(metrics.labelSlotWidth, Width(label.Get())) + SegmentGap(options) +
+        std::max(metrics.valueSlotWidth, Width(value.Get()));
     height = std::max(Height(label.Get()), Height(value.Get()));
     return S_OK;
 }
@@ -284,6 +292,19 @@ std::vector<HudUnitRange> FindHudUnitRanges(const std::wstring& text)
 float RightAlignedOffset(float reservedWidth, float actualWidth) noexcept
 {
     return actualWidth < reservedWidth ? reservedWidth - actualWidth : 0.0f;
+}
+
+HudSegmentLayout CalculateHudSegmentLayout(float segmentStart,
+    const HudSegmentMetrics& metrics, float actualLabelWidth, float actualValueWidth,
+    float segmentGap) noexcept
+{
+    const float labelSlotWidth = std::max(metrics.labelSlotWidth, actualLabelWidth);
+    const float valueSlotWidth = std::max(metrics.valueSlotWidth, actualValueWidth);
+    const float valueSlotX = segmentStart + labelSlotWidth + segmentGap;
+    return HudSegmentLayout{
+        segmentStart,
+        valueSlotX + RightAlignedOffset(valueSlotWidth, actualValueWidth),
+        labelSlotWidth + segmentGap + valueSlotWidth};
 }
 
 HudRenderGeometry CalculateHudGeometry(const D2D1_RECT_F& viewport,
@@ -417,21 +438,22 @@ HRESULT HudRenderer::Draw(ID2D1DeviceContext* context,
         if (FAILED(hr)) return hr;
         hr = CreateLayout(factory_, format.Get(), runs[i].value, options, true, true, value);
         if (FAILED(hr)) return hr;
-        float valueWidth{};
-        hr = ValueExtent(factory_, format.Get(), options, runs[i].kind,
-            runs[i].value, value.Get(), valueWidth);
+        HudSegmentMetrics metrics{};
+        hr = MeasureSegmentMetrics(factory_, format.Get(), options, runs[i].kind, metrics);
         if (FAILED(hr)) return hr;
+
+        const auto layout = CalculateHudSegmentLayout(x, metrics, Width(label.Get()),
+            Width(value.Get()), SegmentGap(options));
 
         ComPtr<ID2D1SolidColorBrush> labelBrush;
         hr = context->CreateSolidColorBrush(LabelColor(runs[i].kind), &labelBrush);
         if (FAILED(hr)) return hr;
-        context->DrawTextLayout(D2D1::Point2F(x, geometry.textOrigin.y), label.Get(), labelBrush.Get());
-        x += Width(label.Get()) + SegmentGap(options);
-        const float valueX = x;
+        context->DrawTextLayout(D2D1::Point2F(layout.labelX, geometry.textOrigin.y),
+            label.Get(), labelBrush.Get());
         hr = DrawValue(context, factory_, format.Get(), runs[i].value, options,
-            valueX, geometry.textOrigin.y, white.Get());
+            layout.valueX, geometry.textOrigin.y, white.Get());
         if (FAILED(hr)) return hr;
-        x += valueWidth;
+        x += layout.segmentWidth;
         if (i + 1 < runs.size())
         {
             x += SeparatorGap(options);
