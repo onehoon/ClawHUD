@@ -142,6 +142,7 @@ SettingsWindow::~SettingsWindow()
 {
     if (window_) DestroyWindow(window_);
     if (uiFont_) DeleteObject(uiFont_);
+    if (headingFont_) DeleteObject(headingFont_);
 }
 
 bool SettingsWindow::Show(HINSTANCE instance)
@@ -199,6 +200,11 @@ void SettingsWindow::RecreateFont()
         DeleteObject(uiFont_);
         uiFont_ = nullptr;
     }
+    if (headingFont_)
+    {
+        DeleteObject(headingFont_);
+        headingFont_ = nullptr;
+    }
 
     NONCLIENTMETRICSW metrics{};
     metrics.cbSize = sizeof(metrics);
@@ -206,6 +212,16 @@ void SettingsWindow::RecreateFont()
             SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0, dpi_))
     {
         uiFont_ = CreateFontIndirectW(&metrics.lfMessageFont);
+    }
+    if (uiFont_)
+    {
+        LOGFONTW heading{};
+        if (GetObjectW(uiFont_, static_cast<int>(sizeof(heading)), &heading) ==
+            static_cast<int>(sizeof(heading)))
+        {
+            heading.lfWeight = FW_SEMIBOLD;
+            headingFont_ = CreateFontIndirectW(&heading);
+        }
     }
 }
 
@@ -217,6 +233,28 @@ void SettingsWindow::ApplyFont()
         SendMessageW(child, WM_SETFONT, parameter, TRUE);
         return TRUE;
     }, reinterpret_cast<LPARAM>(uiFont_));
+    ApplyHeadingFont();
+}
+
+void SettingsWindow::ApplyHeadingFont()
+{
+    if (!headingFont_)
+        return;
+
+    const auto apply = [this](HWND panel, int id)
+    {
+        if (HWND control = GetDlgItem(panel, id))
+            SendMessageW(control, WM_SETFONT,
+                reinterpret_cast<WPARAM>(headingFont_), TRUE);
+    };
+
+    apply(settingsPanel_, kGeneralHeading);
+    apply(settingsPanel_, kHudHeading);
+    apply(tweaksPanel_, kTweaksHeading);
+    apply(aboutPanel_, kAboutTitle);
+    apply(aboutPanel_, kAboutHowToUse);
+    apply(diagnosticsPanel_, kDiagnosticsVrrHeading);
+    apply(diagnosticsPanel_, kDiagnosticsEcHeading);
 }
 
 int SettingsWindow::Scale(int value) const noexcept
@@ -235,9 +273,9 @@ int SettingsWindow::ContentHeightForTab(int tab) const noexcept
     switch (tab)
     {
     case kTabSettings: return 360;
-    case kTabTweaks: return 190;
-    case kTabAbout: return 250;
-    case kTabDiagnostics: return 300;
+    case kTabTweaks: return 230;
+    case kTabAbout: return 260;
+    case kTabDiagnostics: return 340;
     default: return 0;
     }
 }
@@ -337,7 +375,7 @@ void SettingsWindow::CreateSettingsControls()
     visibilityAlways_ = CreateWindowW(L"BUTTON", L"Always on",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | BS_PUSHLIKE, 0, 0, 0, 0,
         settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kVisibilityAlways)), instance_, nullptr);
-    CreateWindowW(L"STATIC", L"HUD Size", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
+    CreateWindowW(L"STATIC", L"HUD size", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
         settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kHudSizeLabel)), instance_, nullptr);
     hudSizeMinus_ = CreateWindowW(L"BUTTON", L"-", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
         0, 0, 0, 0, settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kHudSizeMinus)), instance_, nullptr);
@@ -397,7 +435,7 @@ void SettingsWindow::CreateTweaksControls()
     intelVrrToggle_ = CreateWindowW(L"BUTTON", L"Enable Intel VRR Range Fix",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, 0, 0, 0, 0,
         tweaksPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIntelVrrToggle)), instance_, nullptr);
-    CreateWindowW(L"STATIC", L"Restores the native VRR range on the affected MSI Claw display. Applied at application startup.",
+    CreateWindowW(L"STATIC", L"Restores the native VRR range on the affected\r\nMSI Claw display. Applied at application startup.",
         WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, tweaksPanel_,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kTweaksDescription)), instance_, nullptr);
     intelVrrPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE,
@@ -439,7 +477,7 @@ void SettingsWindow::CreateDiagnosticsControls()
     if (diagnosticsPanel_) SetWindowSubclass(diagnosticsPanel_, ForwardPanelNotifications, 2, 0);
     CreateWindowW(L"STATIC", L"VRR / Presentation Test", WS_CHILD | WS_VISIBLE,
         0, 0, 0, 0, diagnosticsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kDiagnosticsVrrHeading)), instance_, nullptr);
-    CreateWindowW(L"STATIC", L"Runs HUD OFF / STATIC HUD / DYNAMIC HUD phases for presentation validation.",
+    CreateWindowW(L"STATIC", L"Runs HUD OFF / STATIC HUD / DYNAMIC HUD phases\r\nfor presentation validation.",
         WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, diagnosticsPanel_,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kDiagnosticsVrrDescription)), instance_, nullptr);
     startVrrButton_ = CreateWindowW(L"BUTTON", L"Start VRR Test",
@@ -452,7 +490,7 @@ void SettingsWindow::CreateDiagnosticsControls()
         0, 0, 0, 0, diagnosticsPanel_, nullptr, instance_, nullptr);
     CreateWindowW(L"STATIC", L"MSI EC Read Test", WS_CHILD | WS_VISIBLE,
         0, 0, 0, 0, diagnosticsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kDiagnosticsEcHeading)), instance_, nullptr);
-    CreateWindowW(L"STATIC", L"Reads MSI Claw telemetry without changing hardware state.", WS_CHILD | WS_VISIBLE,
+    CreateWindowW(L"STATIC", L"Reads MSI Claw telemetry without changing\r\nhardware state.", WS_CHILD | WS_VISIBLE,
         0, 0, 0, 0, diagnosticsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kDiagnosticsEcDescription)), instance_, nullptr);
     startEcButton_ = CreateWindowW(L"BUTTON", L"Start EC Test",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, 0, 0, diagnosticsPanel_,
@@ -503,7 +541,7 @@ void SettingsWindow::LayoutSettings()
     MoveControl(settingsPanel_, kGeneralHeading, labelX, Scale(8) - scrollY, labelWidth, labelHeight);
     MoveWindow(startWithWindows_, labelX, Scale(40) - scrollY, Scale(260), checkboxHeight, TRUE);
     MoveControl(settingsPanel_, kHudHeading, labelX, Scale(86) - scrollY, labelWidth, labelHeight);
-    MoveWindow(enableHud_, controlX, Scale(118) - scrollY, Scale(220), checkboxHeight, TRUE);
+    MoveWindow(enableHud_, labelX, Scale(118) - scrollY, Scale(220), checkboxHeight, TRUE);
     MoveControl(settingsPanel_, kVisibilityLabel, labelX, Scale(154) - scrollY, labelWidth, labelHeight);
     MoveWindow(visibilityInGameOnly_, controlX, Scale(150) - scrollY, Scale(130), optionHeight, TRUE);
     MoveWindow(visibilityAlways_, controlX + Scale(138), Scale(150) - scrollY, Scale(100), optionHeight, TRUE);
@@ -529,12 +567,12 @@ void SettingsWindow::LayoutTweaks()
     const int x = Scale(24);
     const int width = Scale(680);
     const int scrollY = Scale(tweaksScrollY_);
-    MoveControl(tweaksPanel_, kTweaksHeading, x, Scale(8) - scrollY, Scale(300), Scale(28));
-    MoveWindow(intelVrrToggle_, Scale(340), Scale(4) - scrollY, Scale(220), Scale(32), TRUE);
-    MoveControl(tweaksPanel_, kTweaksDescription, x, Scale(42) - scrollY, width, Scale(28));
-    MoveWindow(intelVrrPanel_, x, Scale(78) - scrollY, width, Scale(24), TRUE);
-    MoveWindow(intelVrrRange_, x, Scale(106) - scrollY, width, Scale(24), TRUE);
-    MoveWindow(intelVrrResult_, x, Scale(134) - scrollY, width, Scale(24), TRUE);
+    MoveControl(tweaksPanel_, kTweaksHeading, x, Scale(8) - scrollY, width, Scale(28));
+    MoveWindow(intelVrrToggle_, x, Scale(44) - scrollY, Scale(300), Scale(32), TRUE);
+    MoveControl(tweaksPanel_, kTweaksDescription, x, Scale(82) - scrollY, width, Scale(44));
+    MoveWindow(intelVrrPanel_, x, Scale(140) - scrollY, width, Scale(24), TRUE);
+    MoveWindow(intelVrrRange_, x, Scale(168) - scrollY, width, Scale(24), TRUE);
+    MoveWindow(intelVrrResult_, x, Scale(196) - scrollY, width, Scale(24), TRUE);
 }
 
 void SettingsWindow::LayoutAbout()
@@ -544,10 +582,10 @@ void SettingsWindow::LayoutAbout()
     const int scrollY = Scale(aboutScrollY_);
     MoveWindow(aboutIcon_, x, Scale(12) - scrollY, Scale(48), Scale(48), TRUE);
     MoveControl(aboutPanel_, kAboutTitle, Scale(88), Scale(8) - scrollY, Scale(400), Scale(28));
-    MoveControl(aboutPanel_, kAboutDescription, Scale(88), Scale(38) - scrollY, Scale(520), Scale(28));
-    MoveControl(aboutPanel_, kAboutVersion, Scale(88), Scale(66) - scrollY, Scale(300), Scale(24));
-    MoveControl(aboutPanel_, kAboutHowToUse, x, Scale(120) - scrollY, Scale(400), Scale(28));
-    MoveControl(aboutPanel_, kAboutInstructions, x, Scale(152) - scrollY, Scale(600), Scale(80));
+    MoveControl(aboutPanel_, kAboutDescription, Scale(88), Scale(40) - scrollY, Scale(520), Scale(24));
+    MoveControl(aboutPanel_, kAboutVersion, Scale(88), Scale(68) - scrollY, Scale(300), Scale(24));
+    MoveControl(aboutPanel_, kAboutHowToUse, x, Scale(122) - scrollY, Scale(400), Scale(28));
+    MoveControl(aboutPanel_, kAboutInstructions, x, Scale(156) - scrollY, Scale(600), Scale(84));
 }
 
 void SettingsWindow::LayoutDiagnostics()
@@ -556,15 +594,15 @@ void SettingsWindow::LayoutDiagnostics()
     const int x = Scale(24);
     const int scrollY = Scale(diagnosticsScrollY_);
     MoveControl(diagnosticsPanel_, kDiagnosticsVrrHeading, x, Scale(8) - scrollY, Scale(680), Scale(28));
-    MoveControl(diagnosticsPanel_, kDiagnosticsVrrDescription, x, Scale(38) - scrollY, Scale(680), Scale(28));
-    MoveWindow(startVrrButton_, x, Scale(74) - scrollY, Scale(140), Scale(32), TRUE);
-    MoveWindow(stopVrrButton_, x + Scale(152), Scale(74) - scrollY, Scale(80), Scale(32), TRUE);
-    MoveWindow(vrrStatus_, x, Scale(110) - scrollY, Scale(680), Scale(24), TRUE);
-    MoveControl(diagnosticsPanel_, kDiagnosticsEcHeading, x, Scale(150) - scrollY, Scale(680), Scale(28));
-    MoveControl(diagnosticsPanel_, kDiagnosticsEcDescription, x, Scale(180) - scrollY, Scale(680), Scale(28));
-    MoveWindow(startEcButton_, x, Scale(216) - scrollY, Scale(140), Scale(32), TRUE);
-    MoveWindow(openLogsButton_, x + Scale(152), Scale(216) - scrollY, Scale(145), Scale(32), TRUE);
-    MoveWindow(diagnosticStatus_, x, Scale(252) - scrollY, Scale(680), Scale(24), TRUE);
+    MoveControl(diagnosticsPanel_, kDiagnosticsVrrDescription, x, Scale(40) - scrollY, Scale(680), Scale(44));
+    MoveWindow(startVrrButton_, x, Scale(92) - scrollY, Scale(140), Scale(32), TRUE);
+    MoveWindow(stopVrrButton_, x + Scale(152), Scale(92) - scrollY, Scale(80), Scale(32), TRUE);
+    MoveWindow(vrrStatus_, x, Scale(132) - scrollY, Scale(680), Scale(24), TRUE);
+    MoveControl(diagnosticsPanel_, kDiagnosticsEcHeading, x, Scale(180) - scrollY, Scale(680), Scale(28));
+    MoveControl(diagnosticsPanel_, kDiagnosticsEcDescription, x, Scale(212) - scrollY, Scale(680), Scale(44));
+    MoveWindow(startEcButton_, x, Scale(264) - scrollY, Scale(140), Scale(32), TRUE);
+    MoveWindow(openLogsButton_, x + Scale(152), Scale(264) - scrollY, Scale(150), Scale(32), TRUE);
+    MoveWindow(diagnosticStatus_, x, Scale(304) - scrollY, Scale(680), Scale(24), TRUE);
 }
 
 void SettingsWindow::UpdateGeneralControls()
@@ -841,6 +879,11 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
         {
             DeleteObject(self->uiFont_);
             self->uiFont_ = nullptr;
+        }
+        if (self->headingFont_)
+        {
+            DeleteObject(self->headingFont_);
+            self->headingFont_ = nullptr;
         }
         self->window_ = nullptr;
         self->tabs_ = nullptr;
