@@ -353,9 +353,19 @@ void App::SetHudSizeOffset(int offset)
     offset = clawhud::ClampHudSizeOffset(offset);
     if (hudSizeOffset_ == offset)
         return;
+
+    const int previousOffset = hudSizeOffset_;
     hudSizeOffset_ = offset;
+    const bool recreated = RecreateHudPresentationForSize();
+    hudSizeOffset_ = clawhud::CommitHudSizeOffsetAfterRecreation(
+        previousOffset, offset, recreated);
+    if (!recreated)
+    {
+        RecreateHudPresentationForSize();
+        Log(L"HUD size change rolled back after presentation recreation failure");
+        return;
+    }
     SaveHudSettings();
-    RecreateHudPresentationForSize();
 }
 
 clawhud::HudRenderOptions App::BuildHudRenderOptions() const
@@ -365,10 +375,14 @@ clawhud::HudRenderOptions App::BuildHudRenderOptions() const
 
 bool App::RecreateHudPresentationForSize()
 {
-    if (!hudPresentation_ || !hudPresentation_->Initialized())
+    if (!hudPresentation_)
         return true;
 
-    const bool wasVisible = hudPresentation_->Visible();
+    const bool wasInitialized = hudPresentation_->Initialized();
+    if (!wasInitialized && !mockHudEnabled_)
+        return true;
+
+    const bool wasVisible = wasInitialized && hudPresentation_->Visible();
     const auto options = BuildHudRenderOptions();
     hudPresentation_->Shutdown();
     HRESULT hr = hudPresentation_->Initialize(instance_, options);

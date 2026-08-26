@@ -25,6 +25,12 @@ int ParseHudSizeOffset(std::wstring_view value)
     return ClampHudSizeOffset(static_cast<int>(parsed));
 }
 
+int CommitHudSizeOffsetAfterRecreation(
+    int previous, int requested, bool recreationSucceeded) noexcept
+{
+    return recreationSucceeded ? ClampHudSizeOffset(requested) : previous;
+}
+
 HudRenderOptions BuildHudRenderOptionsForSize(
     int offset, const HudLayoutOptions& layout) noexcept
 {

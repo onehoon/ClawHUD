@@ -50,6 +50,10 @@ int main()
     ok &= Check(ParseHudSizeOffset(L"-100") == -2, "persisted minimum clamp");
     ok &= Check(ParseHudSizeOffset(L"100") == 2, "persisted maximum clamp");
     ok &= Check(ParseHudSizeOffset(L"2") == 2, "persisted size restore");
+    ok &= Check(CommitHudSizeOffsetAfterRecreation(0, 2, false) == 0,
+        "failed recreation rolls back size");
+    const int retryOffset = CommitHudSizeOffsetAfterRecreation(0, 2, true);
+    ok &= Check(retryOffset == 2, "successful retry commits size");
 
     HudLayoutOptions customLayout{};
     customLayout.visibilityMode = HudVisibilityMode::Always;
