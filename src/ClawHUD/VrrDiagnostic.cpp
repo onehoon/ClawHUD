@@ -2,6 +2,7 @@
 
 #include "App.h"
 #include "IntelVrrDiagnosticProbe.h"
+#include "VrrDiagnosticAnalysis.h"
 
 #include <d3d11.h>
 #include <dxgi1_6.h>
@@ -12,9 +13,10 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
-#include <map>
+#include <numeric>
 #include <optional>
 #include <sstream>
+#include <string_view>
 #include <vector>
 
 namespace
@@ -23,22 +25,6 @@ using Microsoft::WRL::ComPtr;
 constexpr auto kCaptureDuration = std::chrono::seconds(28);
 constexpr auto kCaptureWatchdog = std::chrono::seconds(35);
 constexpr auto kTargetWait = std::chrono::seconds(15);
-
-struct CsvSummary
-{
-    bool valid{};
-    std::string reason;
-    std::size_t rows{};
-    std::string dominantSwapChain;
-    std::size_t dominantRows{};
-    std::map<std::string, std::size_t> modes;
-    std::size_t displayed{};
-    std::size_t notDisplayed{};
-    double presentAverage{};
-    double displayAverage{};
-    double displayMin{};
-    double displayMax{};
-};
 
 std::wstring Now(bool fileName = false)
 {
@@ -87,75 +73,23 @@ std::wstring ProcessPath(DWORD pid)
     return size ? std::wstring(path, size) : L"Unavailable";
 }
 
-std::vector<std::string> CsvLine(const std::string& line)
-{
-    std::vector<std::string> fields; std::string field; bool quoted = false;
-    for (std::size_t i = 0; i < line.size(); ++i)
-    {
-        const char c = line[i];
-        if (c == '"') { if (quoted && i + 1 < line.size() && line[i + 1] == '"') { field += '"'; ++i; } else quoted = !quoted; }
-        else if (c == ',' && !quoted) { fields.push_back(field); field.clear(); }
-        else field += c;
-    }
-    fields.push_back(field); return fields;
-}
-
-CsvSummary ParseCsv(const std::filesystem::path& path)
-{
-    CsvSummary result; std::ifstream file(path); if (!file.is_open()) { result.reason = "CSV could not be opened"; return result; }
-    std::string line; if (!std::getline(file, line)) { result.reason = "CSV is empty"; return result; }
-    if (line.size() >= 3 && static_cast<unsigned char>(line[0]) == 0xEF && static_cast<unsigned char>(line[1]) == 0xBB && static_cast<unsigned char>(line[2]) == 0xBF) line.erase(0, 3);
-    const auto headers = CsvLine(line); std::map<std::string, std::size_t> column;
-    for (std::size_t i = 0; i < headers.size(); ++i) column[headers[i]] = i;
-    const char* required[] = { "ProcessID", "SwapChainAddress", "PresentMode", "MsUntilDisplayed", "MsBetweenPresents", "MsBetweenDisplayChange" };
-    for (const auto name : required) if (!column.contains(name)) { result.reason = std::string("Required PresentMon column missing: ") + name; return result; }
-    const auto field = [&](const std::vector<std::string>& row, const char* name) -> std::string { const auto i = column.at(name); return i < row.size() ? row[i] : std::string{}; };
-    std::map<std::string, std::size_t> swaps; std::vector<std::vector<std::string>> rows;
-    while (std::getline(file, line))
-    {
-        if (line.empty()) continue; auto row = CsvLine(line);
-        ++result.rows; ++swaps[field(row, "SwapChainAddress")]; rows.push_back(std::move(row));
-    }
-    if (!result.rows) { result.reason = "CSV has no data rows"; return result; }
-    for (const auto& [swap, count] : swaps) if (count > result.dominantRows) { result.dominantSwapChain = swap; result.dominantRows = count; }
-
-    double presentTotal{}, displayTotal{}; std::size_t presentCount{}, displayCount{};
-    for (const auto& row : rows)
-    {
-        if (field(row, "SwapChainAddress") != result.dominantSwapChain) continue;
-        ++result.modes[field(row, "PresentMode")];
-        const auto untilDisplayed = field(row, "MsUntilDisplayed");
-        if (!untilDisplayed.empty() && untilDisplayed != "NA") ++result.displayed; else ++result.notDisplayed;
-        try { const double value = std::stod(field(row, "MsBetweenPresents")); presentTotal += value; ++presentCount; } catch (...) {}
-        try
-        {
-            const double value = std::stod(field(row, "MsBetweenDisplayChange")); displayTotal += value; ++displayCount;
-            if (displayCount == 1 || value < result.displayMin) result.displayMin = value;
-            if (displayCount == 1 || value > result.displayMax) result.displayMax = value;
-        }
-        catch (...) {}
-    }
-    if (!presentCount) { result.reason = "No usable MsBetweenPresents samples on dominant swapchain"; return result; }
-    if (!displayCount) { result.reason = "No usable MsBetweenDisplayChange samples on dominant swapchain"; return result; }
-    result.presentAverage = presentTotal / presentCount;
-    result.displayAverage = displayTotal / displayCount; result.valid = true; return result;
-}
-
-bool SamePresentModeSet(const std::map<std::string, std::size_t>& a, const std::map<std::string, std::size_t>& b)
-{
-    if (a.size() != b.size()) return false;
-    auto left = a.begin(); auto right = b.begin();
-    for (; left != a.end(); ++left, ++right) if (left->first != right->first) return false;
-    return true;
-}
-
-void WriteSummary(std::wofstream& log, const wchar_t* phase, const std::filesystem::path& csv, const CsvSummary& summary)
+void WriteSummary(std::wofstream& log, const wchar_t* phase, const std::filesystem::path& csv, const clawhud::VrrCsvSummary& summary)
 {
     log << L"=== " << phase << L" SUMMARY ===\nCSV: " << csv.wstring() << L"\n";
     if (!summary.valid) { log << L"Summary: unavailable\nReason: " << std::wstring(summary.reason.begin(), summary.reason.end()) << L"\n"; return; }
     log << L"Rows: " << summary.rows << L"\nDominant SwapChain: " << std::wstring(summary.dominantSwapChain.begin(), summary.dominantSwapChain.end())
         << L"\nDominant Rows: " << summary.dominantRows << L"\nPresentMode distribution:\n";
-    for (const auto& [mode, count] : summary.modes) log << L"  " << std::wstring(mode.begin(), mode.end()) << L": " << count << L"\n";
+    for (const auto& [mode, count] : summary.modes)
+    {
+        const double percentage = summary.modes.empty() ? 0.0 :
+            100.0 * static_cast<double>(count) /
+            static_cast<double>(std::accumulate(summary.modes.begin(), summary.modes.end(), std::size_t{},
+                [](std::size_t total, const auto& item) { return total + item.second; }));
+        log << L"  " << std::wstring(mode.begin(), mode.end()) << L": " << count
+            << L" (" << std::fixed << std::setprecision(1) << percentage << L"%)\n";
+    }
+    log << L"Independent Flip: " << std::fixed << std::setprecision(1)
+        << clawhud::IndependentFlipPercentage(summary) << L"%\n";
     log << L"Average MsBetweenPresents: " << summary.presentAverage << L"\nAverage MsBetweenDisplayChange: " << summary.displayAverage
         << L"\nMin MsBetweenDisplayChange: " << summary.displayMin << L"\nMax MsBetweenDisplayChange: " << summary.displayMax
         << L"\nDisplayed frames: " << summary.displayed << L"\nNot-displayed frames: " << summary.notDisplayed << L"\n";
@@ -345,7 +279,7 @@ void VrrDiagnostic::RunImpl()
         log << L"=== CLAWHUD VRR DIAGNOSTIC ===\nTimestamp: " << Now() << L"\nPresentMon: 2.5.1\n"
             << L"Display tracking: enabled (no --no_track_display)\n"
             << L"Pinned v2.5.1 console asset does not expose --write_display_metadata; standard display timing columns are retained.\n"
-            << L"VRR Analysis: NEEDS MANUAL REVIEW\nNOTE: PresentMon captures application presents and OS-visible display timing.\n"
+            << L"VRR Analysis: automatic PASS/FAIL/INCONCLUSIVE verdict follows; manual review remains recommended.\nNOTE: PresentMon captures application presents and OS-visible display timing.\n"
             << L"Intel UMD XeFG-generated output frames may not all be observable here.\nDo not treat this capture as authoritative true XeFG displayed FPS.\n\n";
         LogMpoCapability(log);
         igcl.Initialize(log);
@@ -358,9 +292,10 @@ void VrrDiagnostic::RunImpl()
         if (!target) { log << L"VRR TEST FAILED\nReason: No valid foreground target process\n"; Status(L"Failed"); return; }
         log << L"Target Process: " << ProcessPath(*target) << L"\nPID: " << *target << L"\n\n";
         const std::string sessionStamp = Narrow(stamp);
-        struct PhaseResult { CsvSummary csv; std::vector<clawhud::VblankSummary> vblank; bool captureOk{}; bool targetAlive{}; bool hudVisible{}; };
+        struct PhaseResult { clawhud::VrrCsvSummary csv; std::vector<clawhud::VblankSummary> vblank; bool captureOk{}; bool targetAlive{}; bool hudVisible{}; };
         auto runPhase = [&](const wchar_t* title, const wchar_t* status, DiagnosticHudMode mode,
-            const std::filesystem::path& csvPath, const char* sessionMode, PhaseResult& result) -> bool
+            const std::filesystem::path& csvPath, const char* sessionMode,
+            std::string_view preferredSwapChain, PhaseResult& result) -> bool
         {
             log << L"=== " << title << L" ===\nStart: " << Now() << L"\nCSV: " << csvPath.wstring() << L"\n";
             Status(status);
@@ -385,30 +320,31 @@ void VrrDiagnostic::RunImpl()
             result.vblank = igcl.StopSampling(log, title);
             result.targetAlive = Alive(*target);
             result.hudVisible = app_.RequestDiagnosticHudVisibilityMatches(expectedVisible);
-            result.csv = ParseCsv(csvPath);
+            result.csv = clawhud::ParseVrrCsvFile(csvPath, preferredSwapChain);
             WriteSummary(log, title, csvPath, result.csv);
             log << L"End: " << Now() << L"\n";
             if (!result.targetAlive) log << L"Reason: Target process exited\n";
             if (!result.hudVisible) log << L"Reason: Main HUD visibility did not match phase\n";
-            return !stop_ && result.captureOk && result.csv.valid && result.targetAlive && result.hudVisible;
+            return !stop_ && result.captureOk && result.targetAlive && result.hudVisible;
         };
 
         PhaseResult off, staticHud, dynamicHud;
-        const bool offOk = runPhase(L"PHASE A - HUD OFF", L"HUD OFF", DiagnosticHudMode::Off, offCsv, "OFF", off);
+        const bool offOk = runPhase(L"PHASE A - HUD OFF", L"HUD OFF", DiagnosticHudMode::Off, offCsv, "OFF", {}, off);
         if (stop_) { log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); return; }
         if (!offOk) { log << L"RESULT: Failed\nReason: HUD-OFF phase failed\n"; Status(L"Failed"); return; }
-        const bool staticOk = runPhase(L"PHASE B - STATIC HUD", L"STATIC HUD", DiagnosticHudMode::Static, staticCsv, "STATIC", staticHud);
+        const bool staticOk = runPhase(L"PHASE B - STATIC HUD", L"STATIC HUD", DiagnosticHudMode::Static, staticCsv, "STATIC", off.csv.dominantSwapChain, staticHud);
         if (stop_) { log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); return; }
         if (!staticOk) { log << L"RESULT: Failed\nReason: STATIC HUD phase failed\n"; Status(L"Failed"); return; }
-        const bool dynamicOk = runPhase(L"PHASE C - DYNAMIC HUD", L"DYNAMIC HUD", DiagnosticHudMode::Dynamic, dynamicCsv, "DYNAMIC", dynamicHud);
+        const bool dynamicOk = runPhase(L"PHASE C - DYNAMIC HUD", L"DYNAMIC HUD", DiagnosticHudMode::Dynamic, dynamicCsv, "DYNAMIC", off.csv.dominantSwapChain, dynamicHud);
         if (stop_) { log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); return; }
         auto writeComparison = [&](const wchar_t* name, const PhaseResult& left, const PhaseResult& right)
         {
             const auto leftMedian = clawhud::UsableVblankMedian(left.vblank);
             const auto rightMedian = clawhud::UsableVblankMedian(right.vblank);
-            log << name << L"\nPresentMode set changed: "
+            log << name << L"\nPresentMode set comparison is informational; distribution is authoritative.\n"
+                << L"Game swapchain continuity: "
                 << ((!left.csv.valid || !right.csv.valid) ? L"Unavailable" :
-                    (SamePresentModeSet(left.csv.modes, right.csv.modes) ? L"NO" : L"YES"))
+                    (left.csv.dominantSwapChain == right.csv.dominantSwapChain ? L"SAME" : L"RECREATED"))
                 << L"\n";
             if (left.csv.valid && right.csv.valid)
             {
@@ -427,10 +363,33 @@ void VrrDiagnostic::RunImpl()
         writeComparison(L"OFF vs STATIC", off, staticHud);
         writeComparison(L"STATIC vs DYNAMIC", staticHud, dynamicHud);
         writeComparison(L"OFF vs DYNAMIC", off, dynamicHud);
-        log << L"VRR Analysis: NEEDS MANUAL REVIEW\nIGCL VBlank timing is diagnostic evidence only. It has not yet been validated as an authoritative VRR-active signal on MSI Claw hardware.\n";
-        const bool completed = !stop_ && offOk && staticOk && dynamicOk;
-        log << L"Result: " << (completed ? L"Completed" : L"Failed") << L"\n";
-        Status(stop_ ? L"Cancelled" : (completed ? L"Completed" : L"Failed"));
+        const auto evaluation = clawhud::EvaluateVrrComparison(off.csv, staticHud.csv, dynamicHud.csv);
+        const auto writeVerdictPhase = [&](const wchar_t* name, const clawhud::VrrCsvSummary& summary)
+        {
+            const auto dominantMode = clawhud::DominantPresentMode(summary);
+            log << name << L"\nIndependent Flip: " << std::fixed << std::setprecision(1)
+                << clawhud::IndependentFlipPercentage(summary) << L"%\n"
+                << L"Dominant PresentMode: "
+                << std::wstring(dominantMode.begin(), dominantMode.end())
+                << L"\n";
+        };
+        log << L"=== VRR VERDICT ===\n";
+        writeVerdictPhase(L"HUD OFF", off.csv);
+        writeVerdictPhase(L"STATIC HUD", staticHud.csv);
+        log << L"Delta vs OFF: " << std::fixed << std::setprecision(1)
+            << clawhud::IndependentFlipPercentage(staticHud.csv) - clawhud::IndependentFlipPercentage(off.csv) << L" pp\n";
+        writeVerdictPhase(L"DYNAMIC HUD", dynamicHud.csv);
+        log << L"Delta vs OFF: " << std::fixed << std::setprecision(1)
+            << clawhud::IndependentFlipPercentage(dynamicHud.csv) - clawhud::IndependentFlipPercentage(off.csv) << L" pp\n"
+            << L"Final Verdict: " << clawhud::VrrDiagnosticVerdictName(evaluation.verdict)
+            << L"\nReason: " << std::wstring(evaluation.reason.begin(), evaluation.reason.end()) << L"\n"
+            << L"Supporting evidence: IGCL VBlank timing is not an authoritative VRR-active signal.\n";
+        const bool phaseOk = !stop_ && offOk && staticOk && dynamicOk;
+        const auto finalVerdict = phaseOk ? evaluation.verdict : clawhud::VrrDiagnosticVerdict::Fail;
+        log << L"Result: " << clawhud::VrrDiagnosticVerdictName(finalVerdict) << L"\n";
+        Status(stop_ ? L"Cancelled" :
+            finalVerdict == clawhud::VrrDiagnosticVerdict::Pass ? L"Passed" :
+            finalVerdict == clawhud::VrrDiagnosticVerdict::Inconclusive ? L"Inconclusive" : L"Failed");
     }
     catch (...) { if (log.is_open()) log << L"RESULT: Failed\n"; Status(L"Failed"); }
 }
