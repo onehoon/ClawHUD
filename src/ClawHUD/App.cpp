@@ -8,6 +8,7 @@
 #include "UninstallCleanup.h"
 #include "RuntimeLogger.h"
 #include "Version.h"
+#include "ProductionTargetPolicy.h"
 
 #include <Velopack.hpp>
 
@@ -190,7 +191,7 @@ int App::Run()
         [this](HWND window, DWORD processId)
         {
             if (mockHudEnabled_)
-                AdoptForegroundProductionTarget();
+                AdoptForegroundProductionTarget(window, processId);
         }))
     {
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
@@ -986,15 +987,20 @@ void App::TrackMockGameWindow(HWND window)
 
 bool App::AdoptForegroundProductionTarget()
 {
-    const DWORD trackedProcessId = foregroundTracker_.TrackedProcessId();
-    if (trackedProcessId && ProcessAlive(trackedProcessId))
-        return true;
-
     HWND foreground = GetForegroundWindow();
     DWORD processId{};
     if (foreground)
         GetWindowThreadProcessId(foreground, &processId);
-    if (!IsUsableProductionTarget(foreground, processId))
+    return AdoptForegroundProductionTarget(foreground, processId);
+}
+
+bool App::AdoptForegroundProductionTarget(HWND window, DWORD processId)
+{
+    const DWORD trackedProcessId = foregroundTracker_.TrackedProcessId();
+    if (trackedProcessId && ProcessAlive(trackedProcessId))
+        return true;
+
+    if (!IsUsableProductionTarget(window, processId))
     {
         if (trackedProcessId && !ProcessAlive(trackedProcessId))
             foregroundTracker_.SetTrackedProcessId(0);
@@ -1032,14 +1038,7 @@ bool App::IsUsableProductionTarget(HWND window, DWORD processId) const
         image.erase(0, separator + 1);
     std::transform(image.begin(), image.end(), image.begin(),
         [](wchar_t value) { return static_cast<wchar_t>(std::towlower(value)); });
-    constexpr const wchar_t* rejected[] = {
-        L"explorer.exe", L"searchhost.exe", L"shellexperiencehost.exe",
-        L"startmenuexperiencehost.exe", L"applicationframehost.exe",
-        L"textinputhost.exe", L"chrome.exe", L"msedge.exe",
-        L"firefox.exe", L"brave.exe", L"opera.exe", L"vivaldi.exe"
-    };
-    return std::find(std::begin(rejected), std::end(rejected), image) ==
-        std::end(rejected);
+    return !clawhud::IsRejectedProductionTargetImage(image);
 }
 
 void App::SetHudVisibilityMode(clawhud::HudVisibilityMode mode)

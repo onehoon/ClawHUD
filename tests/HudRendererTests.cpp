@@ -48,20 +48,21 @@ int main()
     const D2D1_RECT_F viewport = D2D1::RectF(0, 0, 1000, 300);
     const HudMeasureResult measure{400.0f, 30.0f};
     auto geometry = CalculateHudGeometry(viewport, measure, options);
-    ok &= Check(Near(geometry.background.left, 0.0f) && Near(geometry.background.right, 1000.0f),
-        "content background fills viewport");
+    ok &= Check(Near(geometry.background.left, 300.0f) &&
+        Near(geometry.background.right, 700.0f),
+        "center ContentWidth background uses measured content");
     ok &= Check(Near(geometry.textOrigin.x, 308.0f), "center text origin");
 
     options.layout.alignment = HudAlignment::Left;
     geometry = CalculateHudGeometry(viewport, measure, options);
     ok &= Check(Near(geometry.background.left, 0.0f) &&
-        Near(geometry.background.right, 1000.0f) && Near(geometry.textOrigin.x, 8.0f),
-        "left content geometry");
+        Near(geometry.background.right, 400.0f) && Near(geometry.textOrigin.x, 8.0f),
+        "left ContentWidth geometry");
     options.layout.alignment = HudAlignment::Right;
     geometry = CalculateHudGeometry(viewport, measure, options);
-    ok &= Check(Near(geometry.background.left, 0.0f) &&
+    ok &= Check(Near(geometry.background.left, 600.0f) &&
         Near(geometry.background.right, 1000.0f) && Near(geometry.textOrigin.x, 608.0f),
-        "right content geometry");
+        "right ContentWidth geometry");
 
     options.layout.backgroundMode = HudBackgroundMode::FullWidth;
     geometry = CalculateHudGeometry(viewport, measure, options);
@@ -78,7 +79,7 @@ int main()
         DipFromPhysicalPixels(400.0f, options.dpi),
         DipFromPhysicalPixels(30.0f, options.dpi)};
     geometry = CalculateHudGeometry(viewport, scaledMeasure, options);
-    ok &= Check(Near(geometry.background.right, 1000.0f), "144 DPI content viewport");
+    ok &= Check(Near(geometry.background.right, 266.6667f), "144 DPI content width");
     ok &= Check(Near(geometry.textOrigin.x, 5.3333f), "144 DPI physical padding");
 
     const HudRenderOptions geometryOptions{};

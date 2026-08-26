@@ -83,7 +83,8 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/HudWindowGeometry.cpp
     src/ClawHUD/HudPresentationContract.cpp
     src/ClawHUD/HudPresentationLifecycle.cpp
-    src/ClawHUD/ForegroundTracker.cpp)
+    src/ClawHUD/ForegroundTracker.cpp
+    src/ClawHUD/ProductionTargetPolicy.cpp)
 target_compile_features(ClawHUD PRIVATE cxx_std_20)
 target_compile_definitions(ClawHUD PRIVATE
     UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX
@@ -173,6 +174,14 @@ if(BUILD_TESTING)
     target_link_libraries(ClawHUD.ForegroundTrackerTests PRIVATE user32)
     set_target_properties(ClawHUD.ForegroundTrackerTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.ForegroundTrackerTests COMMAND ClawHUD.ForegroundTrackerTests)
+
+    add_executable(ClawHUD.ProductionTargetPolicyTests
+        tests/ProductionTargetPolicyTests.cpp
+        src/ClawHUD/ProductionTargetPolicy.cpp)
+    target_compile_features(ClawHUD.ProductionTargetPolicyTests PRIVATE cxx_std_20)
+    target_include_directories(ClawHUD.ProductionTargetPolicyTests PRIVATE src/ClawHUD)
+    set_target_properties(ClawHUD.ProductionTargetPolicyTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.ProductionTargetPolicyTests COMMAND ClawHUD.ProductionTargetPolicyTests)
 
     add_executable(ClawHUD.IntelVrrDiagnosticProbeTests
         tests/IntelVrrDiagnosticProbeTests.cpp

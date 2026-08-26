@@ -149,6 +149,7 @@ private:
     bool EnsureMockHud();
     void ReconcileHudVisibility();
     bool AdoptForegroundProductionTarget();
+    bool AdoptForegroundProductionTarget(HWND window, DWORD processId);
     bool IsUsableProductionTarget(HWND window, DWORD processId) const;
     bool ApplyDiagnosticHudVisibility(bool visible);
     bool ApplyDiagnosticHudMode(DiagnosticHudMode mode);

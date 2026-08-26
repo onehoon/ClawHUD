@@ -313,8 +313,13 @@ HudRenderGeometry CalculateHudGeometry(const D2D1_RECT_F& viewport,
     const float textHeight = measure.textHeight > 0.0f
         ? measure.textHeight : DipFromPhysicalPixels(options.fontPixelSize, options.dpi);
     const float textY = viewport.top + std::max(0.0f, (barHeight - textHeight) / 2.0f);
+    const bool contentBackground =
+        options.layout.backgroundMode == HudBackgroundMode::ContentWidth;
+    const float backgroundLeft = contentBackground ? contentX : viewport.left;
+    const float backgroundRight = contentBackground
+        ? std::min(viewport.right, contentX + contentWidth) : viewport.right;
     HudRenderGeometry geometry{
-        D2D1::RectF(viewport.left, viewport.top, viewport.right,
+        D2D1::RectF(backgroundLeft, viewport.top, backgroundRight,
             std::min(viewport.bottom, viewport.top + barHeight)),
         D2D1::Point2F(contentX + padding, textY)};
     return geometry;
