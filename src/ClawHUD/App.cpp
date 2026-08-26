@@ -480,6 +480,7 @@ bool App::SetHudEnabled(bool enabled)
     if (!enabled)
     {
         StopMockHud();
+        SaveHudSettings();
         return true;
     }
     if (!EnsureMockHud()) return false;
@@ -488,6 +489,7 @@ bool App::SetHudEnabled(bool enabled)
     mockFrameIndex_ = 0;
     manualHudVisibilityOverride_.reset();
     ReconcileHudVisibility();
+    SaveHudSettings();
     return true;
 }
 
@@ -1272,8 +1274,10 @@ bool App::AcquireSingleInstance()
 
 void App::LoadHudSettings()
 {
+    mockHudEnabled_ = true;
     const auto path = HudSettingsPath();
     if (path.empty()) return;
+    mockHudEnabled_ = ReadBoolSetting(path, L"HUD", L"Enabled", true);
     diagnosticsTabEnabled_ = ReadBoolSetting(
         path, L"Developer", L"DiagnosticsTabEnabled", false);
     wchar_t startup[8]{};
@@ -1314,7 +1318,9 @@ void App::SaveHudSettings() const
         ? L"Always" : L"InGameOnly";
     wchar_t opacity[8]{};
     swprintf_s(opacity, L"%d", static_cast<int>(hudOptions_.backgroundOpacity * 100.0f + 0.5f));
-    bool saved = WritePrivateProfileStringW(L"HUD", L"Alignment", alignment, path.c_str()) != FALSE;
+    bool saved = WritePrivateProfileStringW(L"HUD", L"Enabled",
+        mockHudEnabled_ ? L"1" : L"0", path.c_str()) != FALSE;
+    saved = WritePrivateProfileStringW(L"HUD", L"Alignment", alignment, path.c_str()) != FALSE && saved;
     saved = WritePrivateProfileStringW(L"HUD", L"BackgroundWidth", background, path.c_str()) != FALSE && saved;
     saved = WritePrivateProfileStringW(L"HUD", L"BackgroundOpacity", opacity, path.c_str()) != FALSE && saved;
     saved = WritePrivateProfileStringW(L"HUD", L"VisibilityMode", visibility, path.c_str()) != FALSE && saved;
