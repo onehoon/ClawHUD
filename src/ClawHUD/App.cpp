@@ -81,6 +81,13 @@ void Log(const std::wstring& message)
     clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info, message);
 }
 
+std::wstring HexHresult(HRESULT hr)
+{
+    wchar_t buffer[11]{};
+    swprintf_s(buffer, L"0x%08X", static_cast<unsigned int>(hr));
+    return buffer;
+}
+
 bool ProcessAlive(DWORD processId)
 {
     if (!processId)
@@ -277,7 +284,7 @@ bool App::EnsureMockHud()
     if (FAILED(hr))
     {
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
-            L"HUD initialization failed hr=0x" + std::to_wstring(static_cast<unsigned long>(hr)));
+            L"HUD initialization failed hr=" + HexHresult(hr));
         return false;
     }
     if (!hudInitializedLogged_)
@@ -291,7 +298,7 @@ bool App::EnsureMockHud()
         if (FAILED(hr))
         {
             clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
-                L"HUD render failed hr=0x" + std::to_wstring(static_cast<unsigned long>(hr)));
+                L"HUD render failed hr=" + HexHresult(hr));
             return false;
         }
     }
@@ -653,7 +660,9 @@ void App::StartProductionPresentMonSampling()
     {
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
             L"PresentMon start failed pid=" + std::to_wstring(processId));
-        StopProductionPresentMonSampling();
+        presentMonHudTelemetry_.reset();
+        presentMonProcessId_ = 0;
+        latestPresentMonDisplayedFps_.reset();
     }
 }
 

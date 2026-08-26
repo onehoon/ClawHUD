@@ -77,7 +77,7 @@ T Resolve(HMODULE module, const char* name)
 
 void Debug(const std::wstring& message)
 {
-    clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info, message);
+    OutputDebugStringW((L"[ClawHUD] " + message + L"\n").c_str());
 }
 
 std::wstring HexMask(std::uint32_t value)

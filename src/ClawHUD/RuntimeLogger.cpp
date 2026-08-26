@@ -101,26 +101,34 @@ void InitializeLocked()
 
 void RuntimeLogger::Initialize() noexcept
 {
-    std::lock_guard lock(g_mutex);
-    try { InitializeLocked(); } catch (...) { g_fileEnabled = false; }
+    try
+    {
+        std::lock_guard lock(g_mutex);
+        InitializeLocked();
+    }
+    catch (...) { OutputDebugStringW(L"[ClawHUD] [WARN] Runtime logging initialization failed\n"); }
 }
 
 void RuntimeLogger::Shutdown() noexcept
 {
-    std::lock_guard lock(g_mutex);
-    g_fileEnabled = false;
-    g_initialized = false;
-    g_directory.clear();
+    try
+    {
+        std::lock_guard lock(g_mutex);
+        g_fileEnabled = false;
+        g_initialized = false;
+        g_directory.clear();
+    }
+    catch (...) { OutputDebugStringW(L"[ClawHUD] [WARN] Runtime logging shutdown failed\n"); }
 }
 
 void RuntimeLogger::Log(RuntimeLogLevel level, const std::wstring& message) noexcept
 {
-    const std::wstring line = std::wstring(L"[") + LevelName(level) + L"] " + message;
-    OutputDebugStringW((L"[ClawHUD] " + line + L"\n").c_str());
-
-    std::lock_guard lock(g_mutex);
     try
     {
+        const std::wstring line = std::wstring(L"[") + LevelName(level) + L"] " + message;
+        OutputDebugStringW((L"[ClawHUD] " + line + L"\n").c_str());
+
+        std::lock_guard lock(g_mutex);
         InitializeLocked();
         if (!g_fileEnabled) return;
         const auto file = g_directory / L"clawhud.log";
@@ -129,26 +137,37 @@ void RuntimeLogger::Log(RuntimeLogLevel level, const std::wstring& message) noex
         if (!output) return;
         output << Utf8(Timestamp() + L" " + line) << "\r\n";
     }
-    catch (...) { /* Runtime logging is deliberately fail-open. */ }
+    catch (...)
+    {
+        OutputDebugStringW(L"[ClawHUD] [WARN] Runtime logging failed\n");
+    }
 }
 
 #ifdef CLAWHUD_RUNTIME_LOGGER_TESTS
 void RuntimeLogger::SetDirectoryForTests(const std::wstring& directory) noexcept
 {
-    std::lock_guard lock(g_mutex);
-    g_testDirectory = directory;
-    g_initialized = false;
-    g_fileEnabled = false;
-    g_directory.clear();
+    try
+    {
+        std::lock_guard lock(g_mutex);
+        g_testDirectory = directory;
+        g_initialized = false;
+        g_fileEnabled = false;
+        g_directory.clear();
+    }
+    catch (...) { OutputDebugStringW(L"[ClawHUD] [WARN] Runtime logger test setup failed\n"); }
 }
 
 void RuntimeLogger::ResetForTests() noexcept
 {
-    std::lock_guard lock(g_mutex);
-    g_testDirectory.clear();
-    g_initialized = false;
-    g_fileEnabled = false;
-    g_directory.clear();
+    try
+    {
+        std::lock_guard lock(g_mutex);
+        g_testDirectory.clear();
+        g_initialized = false;
+        g_fileEnabled = false;
+        g_directory.clear();
+    }
+    catch (...) { OutputDebugStringW(L"[ClawHUD] [WARN] Runtime logger test reset failed\n"); }
 }
 #endif
 }

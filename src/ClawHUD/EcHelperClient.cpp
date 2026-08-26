@@ -24,6 +24,13 @@ const wchar_t* FailureStageName(clawhud::ec::EcFailureStage stage) noexcept
     }
 }
 
+std::wstring HexHresult(HRESULT hr)
+{
+    wchar_t buffer[11]{};
+    swprintf_s(buffer, L"0x%08X", static_cast<unsigned int>(hr));
+    return buffer;
+}
+
 bool CancelAndDrain(HANDLE handle, OVERLAPPED& overlap)
 {
     if (!CancelIoEx(handle, &overlap))
@@ -55,7 +62,7 @@ void EcHelperClient::Failure(HRESULT error, clawhud::ec::EcFailureStage stage)
     {
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
             L"EC Helper connection failed stage=" + std::wstring(FailureStageName(stage)) +
-            L" hr=0x" + std::to_wstring(static_cast<unsigned long>(error)));
+            L" hr=" + HexHresult(error));
         runtimeFailureActive_ = true;
     }
 }
