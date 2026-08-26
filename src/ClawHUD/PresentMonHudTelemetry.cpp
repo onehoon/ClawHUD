@@ -126,7 +126,16 @@ bool PresentMonHudTelemetry::Start(const std::wstring& executable, DWORD process
     Stop();
     if (executable.empty() || !processId)
         return false;
-    if (!std::filesystem::exists(executable))
+    std::error_code fileError;
+    const bool presentMonExists = std::filesystem::exists(executable, fileError);
+    if (fileError)
+    {
+        RuntimeLogger::Log(RuntimeLogLevel::Error,
+            L"PresentMon executable check failed error=" +
+            std::to_wstring(fileError.value()));
+        return false;
+    }
+    if (!presentMonExists)
     {
         RuntimeLogger::Log(RuntimeLogLevel::Error, L"PresentMon executable missing");
         return false;
@@ -157,11 +166,12 @@ bool PresentMonHudTelemetry::Start(const std::wstring& executable, DWORD process
     PROCESS_INFORMATION processInfo{};
     const BOOL created = CreateProcessW(nullptr, commandLine.data(), nullptr, nullptr,
         TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &startup, &processInfo);
+    const DWORD createError = created ? ERROR_SUCCESS : GetLastError();
     CloseHandle(outputWrite);
     if (!created)
     {
         RuntimeLogger::Log(RuntimeLogLevel::Error,
-            L"CreateProcess failed error=" + std::to_wstring(GetLastError()));
+            L"CreateProcess failed error=" + std::to_wstring(createError));
         CloseHandle(outputRead);
         sessionName_.clear();
         return false;
