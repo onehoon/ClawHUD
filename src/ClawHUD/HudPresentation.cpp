@@ -1,5 +1,4 @@
 #include "HudPresentation.h"
-#include "HudPresentationContract.h"
 #include "HudPresentationLifecycle.h"
 #include "resource.h"
 
@@ -12,8 +11,6 @@ namespace clawhud
 namespace
 {
 constexpr wchar_t kWindowClass[] = L"ClawHUD.MockHudSurface";
-constexpr auto kPresentationContract = ProductionHudPresentationContract();
-static_assert(kPresentationContract.bufferCount == 3);
 
 HRESULT LastErrorResult() noexcept
 {
@@ -65,7 +62,7 @@ HRESULT HudPresentation::CreateWindowHost(HINSTANCE instance)
     windowClass.lpszClassName = kWindowClass;
     windowClass.hIcon = LoadIconW(instance, MAKEINTRESOURCEW(IDI_CLAWHUD));
     RegisterClassW(&windowClass);
-    window_ = CreateWindowExW(kPresentationContract.windowExStyle, kWindowClass, L"ClawHUD Mock HUD", WS_POPUP,
+    window_ = CreateWindowExW(kHudPresentationContract.windowExStyle, kWindowClass, L"ClawHUD Mock HUD", WS_POPUP,
         xPx_, yPx_, static_cast<int>(widthPx_), static_cast<int>(heightPx_),
         nullptr, nullptr, instance, this);
     if (!window_)
@@ -112,30 +109,38 @@ HRESULT HudPresentation::CreatePresentationSurface()
     HRESULT hr = CreatePresentationFactory(device_.Get(), __uuidof(IPresentationFactory),
         reinterpret_cast<void**>(presentationFactory_.ReleaseAndGetAddressOf()));
     if (FAILED(hr)) return hr;
-    if (!presentationFactory_->IsPresentationSupportedWithIndependentFlip())
+    if (kHudPresentationContract.independentFlipRequired &&
+        !presentationFactory_->IsPresentationSupportedWithIndependentFlip())
         return DXGI_ERROR_UNSUPPORTED;
     if (FAILED(hr = presentationFactory_->CreatePresentationManager(&presentationManager_))) return hr;
     if (FAILED(hr = DCompositionCreateSurfaceHandle(COMPOSITIONOBJECT_ALL_ACCESS, nullptr, &surfaceHandle_))) return hr;
     if (FAILED(hr = presentationManager_->CreatePresentationSurface(surfaceHandle_, &presentationSurface_))) return hr;
     if (FAILED(hr = compositionDevice_->CreateSurfaceFromHandle(surfaceHandle_,
         reinterpret_cast<IUnknown**>(compositionSurface_.ReleaseAndGetAddressOf())))) return hr;
-    if (FAILED(hr = presentationSurface_->SetAlphaMode(kPresentationContract.alphaMode))) return hr;
+    if (FAILED(hr = presentationSurface_->SetAlphaMode(kHudPresentationContract.alphaMode))) return hr;
     RECT sourceRect{ 0, 0, static_cast<LONG>(widthPx_), static_cast<LONG>(heightPx_) };
     if (FAILED(hr = presentationSurface_->SetSourceRect(&sourceRect))) return hr;
     PresentationTransform transform{};
-    transform.M11 = 1.0f;
-    transform.M22 = 1.0f;
+    if (kHudPresentationContract.identityTransform)
+    {
+        transform.M11 = 1.0f;
+        transform.M22 = 1.0f;
+    }
     if (FAILED(hr = presentationSurface_->SetTransform(&transform))) return hr;
-    if (FAILED(hr = presentationSurface_->SetLetterboxingMargins(0.0f, 0.0f, 0.0f, 0.0f))) return hr;
+    if (FAILED(hr = presentationSurface_->SetLetterboxingMargins(
+        kHudPresentationContract.letterboxLeft,
+        kHudPresentationContract.letterboxTop,
+        kHudPresentationContract.letterboxRight,
+        kHudPresentationContract.letterboxBottom))) return hr;
 
     D3D11_TEXTURE2D_DESC description{};
     description.Width = widthPx_; description.Height = heightPx_;
     description.MipLevels = 1; description.ArraySize = 1;
-    description.Format = kPresentationContract.textureFormat;
-    description.SampleDesc.Count = kPresentationContract.sampleCount;
+    description.Format = kHudPresentationContract.textureFormat;
+    description.SampleDesc.Count = kHudPresentationContract.sampleCount;
     description.Usage = D3D11_USAGE_DEFAULT;
     description.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
-    description.MiscFlags = kPresentationContract.resourceMiscFlags;
+    description.MiscFlags = kHudPresentationContract.resourceMiscFlags;
     for (auto& buffer : buffers_)
     {
         if (FAILED(hr = device_->CreateTexture2D(&description, nullptr, &buffer.texture))) return hr;
@@ -150,7 +155,7 @@ HRESULT HudPresentation::CreateBitmapTargets()
     d2dContext_->SetDpi(dpi_, dpi_);
     const auto properties = D2D1::BitmapProperties1(
         D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
-        D2D1::PixelFormat(kPresentationContract.textureFormat, D2D1_ALPHA_MODE_PREMULTIPLIED),
+        D2D1::PixelFormat(kHudPresentationContract.textureFormat, D2D1_ALPHA_MODE_PREMULTIPLIED),
         dpi_, dpi_);
     for (auto& buffer : buffers_)
     {

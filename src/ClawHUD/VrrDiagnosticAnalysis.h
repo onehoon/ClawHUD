@@ -16,6 +16,7 @@ struct VrrCsvSummary
     std::size_t rows{};
     std::string dominantSwapChain;
     std::size_t dominantRows{};
+    std::size_t presentModeSamples{};
     std::map<std::string, std::size_t> modes;
     bool preferredSwapChainUsed{};
     std::size_t displayed{};

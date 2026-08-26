@@ -138,6 +138,7 @@ VrrCsvSummary ParseVrrCsvText(std::string_view text, std::string_view preferredS
         if (field(row.fields, "SwapChainAddress") != result.dominantSwapChain) continue;
         const auto mode = field(row.fields, "PresentMode");
         if (mode.empty() || mode == "NA") continue;
+        ++result.presentModeSamples;
         ++result.modes[mode];
 
         const auto untilDisplayed = field(row.fields, "MsUntilDisplayed");
@@ -231,10 +232,10 @@ VrrDiagnosticEvaluation EvaluateVrrComparison(
 {
     if (!off.valid || !staticHud.valid || !dynamicHud.valid)
         return { VrrDiagnosticVerdict::Inconclusive, "One or more phase CSV summaries are invalid." };
-    if (off.rows < kMinimumVrrComparisonSamples ||
-        staticHud.rows < kMinimumVrrComparisonSamples ||
-        dynamicHud.rows < kMinimumVrrComparisonSamples)
-        return { VrrDiagnosticVerdict::Inconclusive, "Comparison phases did not provide enough samples." };
+    if (off.presentModeSamples < kMinimumVrrComparisonSamples ||
+        staticHud.presentModeSamples < kMinimumVrrComparisonSamples ||
+        dynamicHud.presentModeSamples < kMinimumVrrComparisonSamples)
+        return { VrrDiagnosticVerdict::Inconclusive, "Comparison phases did not provide enough PresentMode samples." };
 
     const double offPercentage = IndependentFlipPercentage(off);
     if (offPercentage < kBaselineIndependentFlipMinimumPercent)

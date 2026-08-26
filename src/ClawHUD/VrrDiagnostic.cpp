@@ -78,7 +78,8 @@ void WriteSummary(std::wofstream& log, const wchar_t* phase, const std::filesyst
     log << L"=== " << phase << L" SUMMARY ===\nCSV: " << csv.wstring() << L"\n";
     if (!summary.valid) { log << L"Summary: unavailable\nReason: " << std::wstring(summary.reason.begin(), summary.reason.end()) << L"\n"; return; }
     log << L"Rows: " << summary.rows << L"\nDominant SwapChain: " << std::wstring(summary.dominantSwapChain.begin(), summary.dominantSwapChain.end())
-        << L"\nDominant Rows: " << summary.dominantRows << L"\nPresentMode distribution:\n";
+        << L"\nDominant Rows: " << summary.dominantRows << L"\nUsable PresentMode samples: " << summary.presentModeSamples
+        << L"\nPresentMode distribution:\n";
     for (const auto& [mode, count] : summary.modes)
     {
         const double percentage = summary.modes.empty() ? 0.0 :

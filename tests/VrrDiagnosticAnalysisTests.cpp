@@ -16,6 +16,7 @@ VrrCsvSummary Summary(double independentFlip, std::size_t rows = 100)
     result.rows = rows;
     result.dominantSwapChain = "game-swapchain";
     result.dominantRows = rows;
+    result.presentModeSamples = rows;
     result.modes["Hardware Composed: Independent Flip"] = independentRows;
     result.modes["Composed: Flip"] = rows - independentRows;
     return result;
@@ -66,5 +67,16 @@ int main()
         "ProcessID,SwapChainAddress,MsUntilDisplayed,MsBetweenPresents,MsBetweenDisplayChange\n"
         "1,game,1,16.6,16.6\n");
     ok &= Expect(!missing.valid, "missing PresentMode column");
+
+    std::string sparseCsv =
+        "ProcessID,SwapChainAddress,PresentMode,MsUntilDisplayed,MsBetweenPresents,MsBetweenDisplayChange\n";
+    sparseCsv += "1,game,Hardware Composed: Independent Flip,1,16.6,16.6\n";
+    for (int i = 1; i < 20; ++i)
+        sparseCsv += "1,game,NA,1,16.6,16.6\n";
+    const auto sparse = clawhud::ParseVrrCsvText(sparseCsv);
+    ok &= Expect(sparse.valid && sparse.rows == 20 && sparse.presentModeSamples == 1,
+        "usable PresentMode sample count");
+    ok &= Expect(clawhud::EvaluateVrrComparison(sparse, Summary(95), Summary(95)).verdict ==
+        clawhud::VrrDiagnosticVerdict::Inconclusive, "insufficient usable PresentMode samples");
     return ok ? 0 : 1;
 }

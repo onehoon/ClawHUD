@@ -1,5 +1,6 @@
 #pragma once
 
+#include "HudPresentationContract.h"
 #include "HudRenderer.h"
 
 #include <windows.h>
@@ -30,7 +31,7 @@ public:
     void Shutdown() noexcept;
 
 private:
-    static constexpr std::size_t kHudBufferCount = 3;
+    static constexpr auto kHudPresentationContract = ProductionHudPresentationContract();
     struct HudFrameBuffer
     {
         Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;
@@ -69,7 +70,7 @@ private:
     Microsoft::WRL::ComPtr<IPresentationFactory> presentationFactory_;
     Microsoft::WRL::ComPtr<IPresentationManager> presentationManager_;
     Microsoft::WRL::ComPtr<IPresentationSurface> presentationSurface_;
-    std::array<HudFrameBuffer, kHudBufferCount> buffers_{};
+    std::array<HudFrameBuffer, kHudPresentationContract.bufferCount> buffers_{};
     Microsoft::WRL::ComPtr<ID2D1DeviceContext> d2dContext_;
     Microsoft::WRL::ComPtr<IDWriteFactory> writeFactory_;
     std::unique_ptr<HudRenderer> renderer_;
