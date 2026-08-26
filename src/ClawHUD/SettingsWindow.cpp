@@ -73,12 +73,32 @@ LRESULT CALLBACK ForwardPanGesture(HWND window, UINT message, WPARAM wParam,
 {
     if (message == WM_GESTURE)
     {
+        GESTUREINFO info{};
+        info.cbSize = sizeof(info);
+        const HGESTUREINFO gesture = reinterpret_cast<HGESTUREINFO>(lParam);
+        if (!GetGestureInfo(gesture, &info) || info.dwID != GID_PAN)
+            return DefSubclassProc(window, message, wParam, lParam);
+
         if (HWND root = GetAncestor(window, GA_ROOT))
             return SendMessageW(root, message, wParam, lParam);
     }
     if (message == WM_NCDESTROY)
         RemoveWindowSubclass(window, ForwardPanGesture, subclassId);
     return DefSubclassProc(window, message, wParam, lParam);
+}
+
+void ConfigureVerticalPan(HWND window)
+{
+    if (!window)
+        return;
+
+    GESTURECONFIG config{};
+    config.dwID = GID_PAN;
+    config.dwWant = GC_PAN |
+        GC_PAN_WITH_SINGLE_FINGER_VERTICALLY |
+        GC_PAN_WITH_INERTIA;
+    config.dwBlock = GC_PAN_WITH_SINGLE_FINGER_HORIZONTALLY;
+    SetGestureConfig(window, 0, 1, &config, sizeof(config));
 }
 
 void MoveControl(HWND parent, int id, int x, int y, int width, int height)
@@ -98,13 +118,17 @@ void EnableStaticPanForwarding(HWND panel)
     if (!panel)
         return;
 
+    ConfigureVerticalPan(panel);
     SetWindowSubclass(panel, ForwardPanGesture, 5, 0);
     EnumChildWindows(panel, [](HWND child, LPARAM) -> BOOL
     {
         wchar_t className[32]{};
         GetClassNameW(child, className, _countof(className));
         if (_wcsicmp(className, L"Static") == 0)
+        {
+            ConfigureVerticalPan(child);
             SetWindowSubclass(child, ForwardPanGesture, 5, 0);
+        }
         return TRUE;
     }, 0);
 }
@@ -145,13 +169,7 @@ bool SettingsWindow::Show(HINSTANCE instance)
         dpi_ = GetDpiForWindow(window_);
         if (dpi_ == 0) dpi_ = 96;
         ApplyWindowStyle();
-        GESTURECONFIG config{};
-        config.dwID = GID_PAN;
-        config.dwWant = GC_PAN |
-            GC_PAN_WITH_SINGLE_FINGER_VERTICALLY |
-            GC_PAN_WITH_INERTIA;
-        config.dwBlock = GC_PAN_WITH_SINGLE_FINGER_HORIZONTALLY;
-        SetGestureConfig(window_, 0, 1, &config, sizeof(config));
+        ConfigureVerticalPan(window_);
         CreateTabs();
         RecreateFont();
         ApplyFont();
@@ -691,24 +709,25 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
         GESTUREINFO info{};
         info.cbSize = sizeof(info);
         const HGESTUREINFO gesture = reinterpret_cast<HGESTUREINFO>(lParam);
-        if (GetGestureInfo(gesture, &info) && info.dwID == GID_PAN)
+        if (!GetGestureInfo(gesture, &info) || info.dwID != GID_PAN)
+            return DefWindowProcW(window, message, wParam, lParam);
+
+        const LONG y = info.ptsLocation.y;
+        if (info.dwFlags & GF_BEGIN)
         {
-            const LONG y = info.ptsLocation.y;
-            if (info.dwFlags & GF_BEGIN)
-            {
-                self->panActive_ = true;
-                self->lastPanY_ = y;
-            }
-            else if (self->panActive_)
-            {
-                const int delta = MulDiv(static_cast<int>(y - self->lastPanY_),
-                    96, static_cast<int>(self->dpi_));
-                self->lastPanY_ = y;
-                self->ScrollActivePanel(-delta);
-            }
-            if (info.dwFlags & GF_END)
-                self->panActive_ = false;
+            self->panActive_ = true;
+            self->lastPanY_ = y;
         }
+        else if (self->panActive_)
+        {
+            const int delta = MulDiv(static_cast<int>(y - self->lastPanY_),
+                96, static_cast<int>(self->dpi_));
+            self->lastPanY_ = y;
+            self->ScrollActivePanel(-delta);
+        }
+        if (info.dwFlags & GF_END)
+            self->panActive_ = false;
+
         CloseGestureInfoHandle(gesture);
         return 0;
     }
