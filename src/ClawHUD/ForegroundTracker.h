@@ -8,9 +8,11 @@ class ForegroundTracker
 {
 public:
     using ChangedCallback = std::function<void(bool)>;
+    using ForegroundChangedCallback = std::function<void(HWND, DWORD)>;
 
     ~ForegroundTracker();
-    bool Start(HWND dispatchWindow, UINT reconcileMessage, ChangedCallback callback);
+    bool Start(HWND dispatchWindow, UINT reconcileMessage, ChangedCallback callback,
+        ForegroundChangedCallback foregroundChanged = {});
     void Stop() noexcept;
     void Reconcile();
     void SetTrackedProcessId(DWORD processId);
@@ -29,6 +31,9 @@ private:
     UINT reconcileMessage_{};
     DWORD trackedProcessId_{};
     HANDLE trackedProcess_{};
+    HWND lastForegroundWindow_{};
+    DWORD lastForegroundProcessId_{};
     bool foregroundMatches_{};
     ChangedCallback changed_;
+    ForegroundChangedCallback foregroundChanged_;
 };

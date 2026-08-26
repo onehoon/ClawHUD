@@ -51,5 +51,6 @@ private:
     std::vector<PDH_HCOUNTER> intelDedicatedMemoryCounters_;
     std::vector<PDH_HCOUNTER> intelSharedMemoryCounters_;
     bool primed_{};
+    bool memoryDiagnosticsLogged_{};
 };
 }

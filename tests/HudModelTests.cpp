@@ -79,6 +79,9 @@ int main()
         "missing graphics API preserves other telemetry");
 
     HudTelemetrySnapshot vram{};
+    vram.gpuUsagePercent = 0.0;
+    ok &= Check(JoinHudRuns(FormatHud(vram)) == L"GPU 0%",
+        "zero GPU usage without VRAM formatting");
     vram.gpuUsagePercent = 87.0;
     vram.gpuMemoryUsedBytes = static_cast<std::uint64_t>(3.4 * 1024.0 * 1024.0 * 1024.0);
     ok &= Check(JoinHudRuns(FormatHud(vram)) == L"GPU 87% VRAM 3.4 GB",
