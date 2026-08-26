@@ -65,4 +65,5 @@ private:
     HWND vrrStatus_{};
     UINT dpi_{ 96 };
     HFONT uiFont_{};
+    bool systemBackdropActive_{};
 };

@@ -67,7 +67,7 @@ bool SettingsWindow::Show(HINSTANCE instance)
         windowClass.lpfnWndProc = WindowProc;
         windowClass.hInstance = instance_;
         windowClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-        windowClass.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+        windowClass.hbrBackground = nullptr;
         windowClass.hIcon = LoadIconW(instance_, MAKEINTRESOURCEW(IDI_CLAWHUD));
         windowClass.lpszClassName = kSettingsClassName;
         RegisterClassW(&windowClass);
@@ -95,9 +95,8 @@ void SettingsWindow::ApplyWindowStyle()
 {
     if (!window_) return;
     const DWM_SYSTEMBACKDROP_TYPE backdrop = DWMSBT_MAINWINDOW;
-    const HRESULT hr = DwmSetWindowAttribute(
-        window_, DWMWA_SYSTEMBACKDROP_TYPE, &backdrop, sizeof(backdrop));
-    (void)hr;
+    systemBackdropActive_ = SUCCEEDED(DwmSetWindowAttribute(
+        window_, DWMWA_SYSTEMBACKDROP_TYPE, &backdrop, sizeof(backdrop)));
 }
 
 void SettingsWindow::RecreateFont()
@@ -335,6 +334,17 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
         SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
     }
     if (!self) return DefWindowProcW(window, message, wParam, lParam);
+    if (message == WM_ERASEBKGND)
+    {
+        if (self->systemBackdropActive_)
+            return TRUE;
+
+        RECT rect{};
+        GetClientRect(window, &rect);
+        FillRect(reinterpret_cast<HDC>(wParam), &rect,
+            GetSysColorBrush(COLOR_WINDOW));
+        return TRUE;
+    }
     if (message == WM_COMMAND && HIWORD(wParam) == BN_CLICKED)
     {
         switch (LOWORD(wParam))
