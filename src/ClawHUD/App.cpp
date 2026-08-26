@@ -5,6 +5,7 @@
 #include "Tweaks/IntelVrr/IntelVrrResultStore.h"
 #include "SupportedHardware.h"
 #include "HudSize.h"
+#include "UninstallCleanup.h"
 
 #include <Velopack.hpp>
 
@@ -28,8 +29,6 @@ constexpr UINT kBatteryHudTimerIntervalMs = 5000;
 constexpr UINT kGraphicsApiRetryIntervalMs = 500;
 constexpr unsigned kGraphicsApiMaxAttempts = 5;
 constexpr wchar_t kInstanceMutexName[] = L"Local\\ClawHUD.SingleInstance";
-constexpr wchar_t kStartupShortcutName[] = L"ClawHUD.lnk";
-
 struct HudVisibilityRequest
 {
     bool restore{};
@@ -58,16 +57,6 @@ std::wstring HudSettingsPath()
     std::wstring path(localAppData);
     CoTaskMemFree(localAppData);
     return path + L"\\ClawHUD\\settings.ini";
-}
-
-std::wstring StartupShortcutPath()
-{
-    PWSTR startup{};
-    if (FAILED(SHGetKnownFolderPath(FOLDERID_Startup, KF_FLAG_DEFAULT, nullptr, &startup)))
-        return {};
-    std::wstring path(startup);
-    CoTaskMemFree(startup);
-    return path + L"\\" + kStartupShortcutName;
 }
 
 std::wstring ReadHudSetting(const std::wstring& path, const wchar_t* key,
@@ -1004,7 +993,7 @@ void App::SaveHudSettings() const
 
 bool App::ApplyStartupRegistration() const
 {
-    const auto shortcut = StartupShortcutPath();
+    const auto shortcut = clawhud::StartupShortcutPath();
     if (shortcut.empty()) return false;
 
     if (!startWithWindows_)

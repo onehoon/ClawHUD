@@ -75,6 +75,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/Tweaks/IntelVrr/IntelVrrRunLogger.cpp
     src/ClawHUD/HudModel.cpp
     src/ClawHUD/HudSize.cpp
+    src/ClawHUD/UninstallCleanup.cpp
     src/ClawHUD/HudRenderer.cpp
     src/ClawHUD/HudPresentation.cpp
     src/ClawHUD/ForegroundTracker.cpp)
@@ -248,4 +249,14 @@ if(BUILD_TESTING)
     target_include_directories(ClawHUD.HudSizeTests PRIVATE src/ClawHUD)
     set_target_properties(ClawHUD.HudSizeTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.HudSizeTests COMMAND ClawHUD.HudSizeTests)
+
+    add_executable(ClawHUD.UninstallCleanupTests
+        tests/UninstallCleanupTests.cpp
+        src/ClawHUD/UninstallCleanup.cpp)
+    target_compile_features(ClawHUD.UninstallCleanupTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.UninstallCleanupTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.UninstallCleanupTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.UninstallCleanupTests PRIVATE shell32 ole32)
+    set_target_properties(ClawHUD.UninstallCleanupTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.UninstallCleanupTests COMMAND ClawHUD.UninstallCleanupTests)
 endif()
