@@ -41,6 +41,7 @@ public:
     void Exit();
     void SettingsDestroyed();
     bool StartWithWindows() const noexcept { return startWithWindows_; }
+    bool DiagnosticsTabEnabled() const noexcept { return diagnosticsTabEnabled_; }
     void SetStartWithWindows(bool enabled);
     HWND MessageWindow() const { return tray_.Window(); }
     const std::wstring& ExecutablePath() const { return executablePath_; }
@@ -151,4 +152,5 @@ private:
     bool intelVrrRangeFixEnabled_{ true };
     clawhud::TweakStartupCoordinator tweakStartupCoordinator_;
     bool startWithWindows_{true};
+    bool diagnosticsTabEnabled_{};
 };
