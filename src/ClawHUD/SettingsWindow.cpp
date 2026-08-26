@@ -199,12 +199,12 @@ void SettingsWindow::CreateSettingsControls()
         settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEnableHud)), instance_, nullptr);
     CreateWindowW(L"STATIC", L"Display mode", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
         settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kVisibilityLabel)), instance_, nullptr);
-    visibilityAlways_ = CreateWindowW(L"BUTTON", L"Always",
-        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | WS_GROUP, 0, 0, 0, 0,
-        settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kVisibilityAlways)), instance_, nullptr);
-    visibilityInGameOnly_ = CreateWindowW(L"BUTTON", L"In Game Only",
-        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON, 0, 0, 0, 0,
+    visibilityInGameOnly_ = CreateWindowW(L"BUTTON", L"In-game only",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | BS_PUSHLIKE | WS_GROUP, 0, 0, 0, 0,
         settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kVisibilityInGameOnly)), instance_, nullptr);
+    visibilityAlways_ = CreateWindowW(L"BUTTON", L"Always on",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | BS_PUSHLIKE, 0, 0, 0, 0,
+        settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kVisibilityAlways)), instance_, nullptr);
     CreateWindowW(L"STATIC", L"HUD Size", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
         settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kHudSizeLabel)), instance_, nullptr);
     hudSizeMinus_ = CreateWindowW(L"BUTTON", L"-", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
@@ -216,26 +216,26 @@ void SettingsWindow::CreateSettingsControls()
     CreateWindowW(L"STATIC", L"Alignment", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
         settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAlignmentLabel)), instance_, nullptr);
     alignmentLeft_ = CreateWindowW(L"BUTTON", L"Left",
-        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | WS_GROUP, 0, 0, 0, 0,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | BS_PUSHLIKE | WS_GROUP, 0, 0, 0, 0,
         settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAlignmentLeft)), instance_, nullptr);
     alignmentCenter_ = CreateWindowW(L"BUTTON", L"Center",
-        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON, 0, 0, 0, 0,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | BS_PUSHLIKE, 0, 0, 0, 0,
         settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAlignmentCenter)), instance_, nullptr);
     alignmentRight_ = CreateWindowW(L"BUTTON", L"Right",
-        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON, 0, 0, 0, 0,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | BS_PUSHLIKE, 0, 0, 0, 0,
         settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAlignmentRight)), instance_, nullptr);
     CreateWindowW(L"STATIC", L"Background width", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
         settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kBackgroundWidthLabel)), instance_, nullptr);
-    backgroundFull_ = CreateWindowW(L"BUTTON", L"Full Width",
-        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | WS_GROUP, 0, 0, 0, 0,
+    backgroundFull_ = CreateWindowW(L"BUTTON", L"Full width",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | BS_PUSHLIKE | WS_GROUP, 0, 0, 0, 0,
         settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kBackgroundFull)), instance_, nullptr);
-    backgroundContent_ = CreateWindowW(L"BUTTON", L"Content Width",
-        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON, 0, 0, 0, 0,
+    backgroundContent_ = CreateWindowW(L"BUTTON", L"Content width",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | BS_PUSHLIKE, 0, 0, 0, 0,
         settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kBackgroundContent)), instance_, nullptr);
     CreateWindowW(L"STATIC", L"Background opacity", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
         settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOpacityLabel)), instance_, nullptr);
     opacitySlider_ = CreateWindowExW(0, TRACKBAR_CLASSW, L"",
-        WS_CHILD | WS_VISIBLE | WS_TABSTOP | TBS_AUTOTICKS, 0, 0, 0, 0,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | TBS_NOTICKS, 0, 0, 0, 0,
         settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOpacitySlider)), instance_, nullptr);
     SendMessageW(opacitySlider_, TBM_SETRANGE, TRUE, MAKELONG(0, 100));
     opacityLabel_ = CreateWindowW(L"STATIC", L"50%", WS_CHILD | WS_VISIBLE,
@@ -249,7 +249,7 @@ void SettingsWindow::CreateTweaksControls()
     if (tweaksPanel_) SetWindowSubclass(tweaksPanel_, ForwardPanelNotifications, 3, 0);
     CreateWindowW(L"STATIC", L"Intel VRR Range Fix", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
         tweaksPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kTweaksHeading)), instance_, nullptr);
-    intelVrrToggle_ = CreateWindowW(L"BUTTON", L"Enabled",
+    intelVrrToggle_ = CreateWindowW(L"BUTTON", L"Enable Intel VRR Range Fix",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, 0, 0, 0, 0,
         tweaksPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIntelVrrToggle)), instance_, nullptr);
     CreateWindowW(L"STATIC", L"Restores the native VRR range on the affected MSI Claw display. Applied at application startup.",
@@ -345,28 +345,30 @@ void SettingsWindow::LayoutSettings()
     const int labelX = Scale(24);
     const int controlX = Scale(220);
     const int labelWidth = Scale(180);
-    const int rowHeight = Scale(28);
-    MoveControl(settingsPanel_, kGeneralHeading, labelX, Scale(8), labelWidth, rowHeight);
-    MoveWindow(startWithWindows_, labelX, Scale(40), Scale(260), rowHeight, TRUE);
-    MoveControl(settingsPanel_, kHudHeading, labelX, Scale(86), labelWidth, rowHeight);
-    MoveWindow(enableHud_, controlX, Scale(118), Scale(180), rowHeight, TRUE);
-    MoveControl(settingsPanel_, kVisibilityLabel, labelX, Scale(154), labelWidth, rowHeight);
-    MoveWindow(visibilityAlways_, controlX, Scale(150), Scale(90), rowHeight, TRUE);
-    MoveWindow(visibilityInGameOnly_, controlX + Scale(98), Scale(150), Scale(125), rowHeight, TRUE);
-    MoveControl(settingsPanel_, kHudSizeLabel, labelX, Scale(190), labelWidth, rowHeight);
-    MoveWindow(hudSizeMinus_, controlX, Scale(186), Scale(44), rowHeight, TRUE);
-    MoveWindow(hudSizeValue_, controlX + Scale(52), Scale(190), Scale(72), rowHeight, TRUE);
-    MoveWindow(hudSizePlus_, controlX + Scale(132), Scale(186), Scale(44), rowHeight, TRUE);
-    MoveControl(settingsPanel_, kAlignmentLabel, labelX, Scale(226), labelWidth, rowHeight);
-    MoveWindow(alignmentLeft_, controlX, Scale(222), Scale(90), rowHeight, TRUE);
-    MoveWindow(alignmentCenter_, controlX + Scale(98), Scale(222), Scale(90), rowHeight, TRUE);
-    MoveWindow(alignmentRight_, controlX + Scale(196), Scale(222), Scale(90), rowHeight, TRUE);
-    MoveControl(settingsPanel_, kBackgroundWidthLabel, labelX, Scale(262), labelWidth, rowHeight);
-    MoveWindow(backgroundFull_, controlX, Scale(258), Scale(110), rowHeight, TRUE);
-    MoveWindow(backgroundContent_, controlX + Scale(120), Scale(258), Scale(125), rowHeight, TRUE);
-    MoveControl(settingsPanel_, kOpacityLabel, labelX, Scale(298), labelWidth, rowHeight);
-    MoveWindow(opacitySlider_, controlX, Scale(294), Scale(260), Scale(32), TRUE);
-    MoveWindow(opacityLabel_, controlX + Scale(270), Scale(298), Scale(60), rowHeight, TRUE);
+    const int labelHeight = Scale(28);
+    const int checkboxHeight = Scale(30);
+    const int optionHeight = Scale(32);
+    MoveControl(settingsPanel_, kGeneralHeading, labelX, Scale(8), labelWidth, labelHeight);
+    MoveWindow(startWithWindows_, labelX, Scale(40), Scale(260), checkboxHeight, TRUE);
+    MoveControl(settingsPanel_, kHudHeading, labelX, Scale(86), labelWidth, labelHeight);
+    MoveWindow(enableHud_, controlX, Scale(118), Scale(220), checkboxHeight, TRUE);
+    MoveControl(settingsPanel_, kVisibilityLabel, labelX, Scale(154), labelWidth, labelHeight);
+    MoveWindow(visibilityInGameOnly_, controlX, Scale(150), Scale(130), optionHeight, TRUE);
+    MoveWindow(visibilityAlways_, controlX + Scale(138), Scale(150), Scale(100), optionHeight, TRUE);
+    MoveControl(settingsPanel_, kHudSizeLabel, labelX, Scale(190), labelWidth, labelHeight);
+    MoveWindow(hudSizeMinus_, controlX, Scale(186), Scale(44), optionHeight, TRUE);
+    MoveWindow(hudSizeValue_, controlX + Scale(52), Scale(190), Scale(72), labelHeight, TRUE);
+    MoveWindow(hudSizePlus_, controlX + Scale(132), Scale(186), Scale(44), optionHeight, TRUE);
+    MoveControl(settingsPanel_, kAlignmentLabel, labelX, Scale(226), labelWidth, labelHeight);
+    MoveWindow(alignmentLeft_, controlX, Scale(222), Scale(90), optionHeight, TRUE);
+    MoveWindow(alignmentCenter_, controlX + Scale(98), Scale(222), Scale(90), optionHeight, TRUE);
+    MoveWindow(alignmentRight_, controlX + Scale(196), Scale(222), Scale(90), optionHeight, TRUE);
+    MoveControl(settingsPanel_, kBackgroundWidthLabel, labelX, Scale(262), labelWidth, labelHeight);
+    MoveWindow(backgroundFull_, controlX, Scale(258), Scale(110), optionHeight, TRUE);
+    MoveWindow(backgroundContent_, controlX + Scale(120), Scale(258), Scale(130), optionHeight, TRUE);
+    MoveControl(settingsPanel_, kOpacityLabel, labelX, Scale(298), labelWidth, labelHeight);
+    MoveWindow(opacitySlider_, controlX, Scale(294), Scale(260), optionHeight, TRUE);
+    MoveWindow(opacityLabel_, controlX + Scale(270), Scale(298), Scale(60), labelHeight, TRUE);
 }
 
 void SettingsWindow::LayoutTweaks()
@@ -375,7 +377,7 @@ void SettingsWindow::LayoutTweaks()
     const int x = Scale(24);
     const int width = Scale(680);
     MoveControl(tweaksPanel_, kTweaksHeading, x, Scale(8), Scale(300), Scale(28));
-    MoveWindow(intelVrrToggle_, Scale(340), Scale(6), Scale(110), Scale(28), TRUE);
+    MoveWindow(intelVrrToggle_, Scale(340), Scale(4), Scale(220), Scale(32), TRUE);
     MoveControl(tweaksPanel_, kTweaksDescription, x, Scale(42), width, Scale(28));
     MoveWindow(intelVrrPanel_, x, Scale(78), width, Scale(24), TRUE);
     MoveWindow(intelVrrRange_, x, Scale(106), width, Scale(24), TRUE);
@@ -400,13 +402,13 @@ void SettingsWindow::LayoutDiagnostics()
     const int x = Scale(24);
     MoveControl(diagnosticsPanel_, kDiagnosticsVrrHeading, x, Scale(8), Scale(680), Scale(28));
     MoveControl(diagnosticsPanel_, kDiagnosticsVrrDescription, x, Scale(38), Scale(680), Scale(28));
-    MoveWindow(startVrrButton_, x, Scale(74), Scale(140), Scale(30), TRUE);
-    MoveWindow(stopVrrButton_, x + Scale(154), Scale(74), Scale(80), Scale(30), TRUE);
+    MoveWindow(startVrrButton_, x, Scale(74), Scale(140), Scale(32), TRUE);
+    MoveWindow(stopVrrButton_, x + Scale(152), Scale(74), Scale(80), Scale(32), TRUE);
     MoveWindow(vrrStatus_, x, Scale(110), Scale(680), Scale(24), TRUE);
     MoveControl(diagnosticsPanel_, kDiagnosticsEcHeading, x, Scale(150), Scale(680), Scale(28));
     MoveControl(diagnosticsPanel_, kDiagnosticsEcDescription, x, Scale(180), Scale(680), Scale(28));
-    MoveWindow(startEcButton_, x, Scale(216), Scale(140), Scale(30), TRUE);
-    MoveWindow(openLogsButton_, x + Scale(154), Scale(216), Scale(145), Scale(30), TRUE);
+    MoveWindow(startEcButton_, x, Scale(216), Scale(140), Scale(32), TRUE);
+    MoveWindow(openLogsButton_, x + Scale(152), Scale(216), Scale(145), Scale(32), TRUE);
     MoveWindow(diagnosticStatus_, x, Scale(252), Scale(680), Scale(24), TRUE);
 }
 
