@@ -120,6 +120,7 @@ App::~App()
 {
     Log(L"ClawHUD exiting");
     KillTimer(tray_.Window(), kMockHudTimerId);
+    CancelResumeRecovery();
     StopProductionEcSampling();
     StopGraphicsApiProbe();
     foregroundTracker_.Stop();
@@ -263,6 +264,103 @@ void App::StopVrrDiagnostic() { if (vrrDiagnostic_) vrrDiagnostic_->Stop(); }
 bool App::VrrDiagnosticRunning() const { return vrrDiagnostic_ && vrrDiagnostic_->Running(); }
 bool App::DiagnosticRunning() const { return EcDiagnosticRunning() || VrrDiagnosticRunning(); }
 void App::StopDiagnostic() { StopVrrDiagnostic(); StopEcDiagnostic(); }
+
+void App::HandleSystemSuspend()
+{
+    if (DiagnosticRunning() || suspended_)
+        return;
+    suspended_ = true;
+    CancelResumeRecovery();
+    KillTimer(tray_.Window(), kMockHudTimerId);
+    if (hudPresentation_ && hudPresentation_->Visible())
+    {
+        if (SUCCEEDED(hudPresentation_->Hide()))
+            Log(L"HUD suspended");
+        else
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+                L"HUD suspend hide failed");
+    }
+    PauseProductionSamplingForSuspend();
+    DiscardPendingPresentMonHudUpdates();
+    Log(L"System suspend detected");
+}
+
+void App::HandleSystemResume()
+{
+    if (!ResumeRecoveryShouldStart(suspended_, resumeRecoveryActive_) ||
+        DiagnosticRunning())
+        return;
+    suspended_ = false;
+    resumeRecoveryActive_ = true;
+    resumeRecoveryAttempts_ = 0;
+    SetTimer(tray_.Window(), kResumeRecoveryTimerId,
+        kResumeRecoveryIntervalMs, nullptr);
+    Log(L"System resume detected");
+    Log(L"HUD resume recovery started");
+}
+
+void App::TryResumeRecovery()
+{
+    if (!resumeRecoveryActive_)
+        return;
+    if (DiagnosticRunning())
+    {
+        CancelResumeRecovery();
+        return;
+    }
+
+    ++resumeRecoveryAttempts_;
+    foregroundTracker_.Reconcile();
+    const DWORD processId = foregroundTracker_.TrackedProcessId();
+    const bool processAlive = processId && ProcessAlive(processId);
+    const bool retainPresentMon = ResumeRecoveryCanRetainPresentMon(
+        processId, presentMonProcessId_,
+        presentMonHudTelemetry_ && presentMonHudTelemetry_->Running());
+    if (processAlive)
+        StartGraphicsApiProbe(processId);
+    else
+        StopGraphicsApiProbe();
+
+    const bool expectedVisible = mockHudEnabled_ &&
+        (manualHudVisibilityOverride_.has_value()
+            ? *manualHudVisibilityOverride_
+            : clawhud::ShouldShowHud(
+                hudOptions_.visibilityMode,
+                foregroundTracker_.ForegroundIsTrackedProcess()));
+    DiscardPendingPresentMonHudUpdates();
+    resumeRecoveryActive_ = false;
+    ReconcileHudVisibility();
+    if (expectedVisible && !MockHudVisible() && resumeRecoveryAttempts_ == 1)
+    {
+        RecreateHudPresentation(true);
+        ReconcileHudVisibility();
+    }
+
+    const bool recovered = !expectedVisible || MockHudVisible();
+    if (recovered)
+    {
+        if (retainPresentMon)
+            Log(L"PresentMon retained after resume pid=" + std::to_wstring(processId));
+        else if (processAlive && presentMonHudTelemetry_ &&
+            presentMonProcessId_ == processId && presentMonHudTelemetry_->Running())
+            Log(L"PresentMon restarted after resume pid=" + std::to_wstring(processId));
+        CancelResumeRecovery();
+        Log(L"HUD resume recovery completed attempt=" +
+            std::to_wstring(resumeRecoveryAttempts_));
+        return;
+    }
+
+    resumeRecoveryActive_ = true;
+    if (!ResumeRecoveryHasAttemptsRemaining(resumeRecoveryAttempts_))
+    {
+        CancelResumeRecovery();
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+            L"HUD resume recovery exhausted");
+        return;
+    }
+    SetTimer(tray_.Window(), kResumeRecoveryTimerId,
+        kResumeRecoveryIntervalMs, nullptr);
+}
 
 bool App::StartMockHud()
 {
@@ -603,7 +701,7 @@ void App::RenderProductionHud(bool allowHidden)
 
 void App::SampleProductionTelemetry()
 {
-    if (!mockHudEnabled_ || !hudPresentation_ || !hudPresentation_->Visible() ||
+    if (suspended_ || !mockHudEnabled_ || !hudPresentation_ || !hudPresentation_->Visible() ||
         diagnosticHudMode_.has_value())
         return;
     if (graphicsApiProcessId_ && !ProcessAlive(graphicsApiProcessId_))
@@ -624,7 +722,7 @@ void App::SampleProductionTelemetry()
 
 void App::SampleProductionBatteryTelemetry()
 {
-    if (!mockHudEnabled_ || !hudPresentation_ || !hudPresentation_->Visible() ||
+    if (suspended_ || !mockHudEnabled_ || !hudPresentation_ || !hudPresentation_->Visible() ||
         diagnosticHudMode_.has_value())
         return;
     latestPowerTelemetry_ = clawhud::ReadWindowsPowerTelemetry();
@@ -633,7 +731,7 @@ void App::SampleProductionBatteryTelemetry()
 
 void App::StartProductionEcSampling()
 {
-    if (diagnosticHudMode_.has_value() || !MockHudVisible())
+    if (suspended_ || diagnosticHudMode_.has_value() || !MockHudVisible())
         return;
     if (!ecHudSamplingActive_)
     {
@@ -644,6 +742,31 @@ void App::StartProductionEcSampling()
         SetTimer(tray_.Window(), kBatteryHudTimerId, kBatteryHudTimerIntervalMs, nullptr);
     }
     StartProductionPresentMonSampling();
+}
+
+void App::PauseProductionSamplingForSuspend()
+{
+    KillTimer(tray_.Window(), kEcHudTimerId);
+    KillTimer(tray_.Window(), kBatteryHudTimerId);
+    StopGraphicsApiProbe();
+    if (ecHudClient_)
+    {
+        ecHudClient_->Close();
+        ecHudClient_.reset();
+    }
+    ecHudTelemetry_ = {};
+    latestPowerTelemetry_.reset();
+    latestUsageTelemetry_.reset();
+    latestPresentMonDisplayedFps_.reset();
+    usageSampler_.Reset();
+    ecHudSamplingActive_ = false;
+}
+
+void App::CancelResumeRecovery()
+{
+    KillTimer(tray_.Window(), kResumeRecoveryTimerId);
+    resumeRecoveryActive_ = false;
+    resumeRecoveryAttempts_ = 0;
 }
 
 void App::StopProductionEcSampling()
@@ -665,7 +788,7 @@ void App::StopProductionEcSampling()
 
 void App::StartProductionPresentMonSampling()
 {
-    if (diagnosticHudMode_.has_value() || !mockHudEnabled_ || !MockHudVisible())
+    if (suspended_ || diagnosticHudMode_.has_value() || !mockHudEnabled_ || !MockHudVisible())
         return;
     const DWORD processId = foregroundTracker_.TrackedProcessId();
     if (!processId || !ProcessAlive(processId))
@@ -760,7 +883,8 @@ void App::TryGraphicsApiProbe()
 void App::HandlePresentMonHudUpdate(DWORD processId,
     std::optional<double> displayedFps)
 {
-    if (diagnosticHudMode_.has_value() || !presentMonHudTelemetry_ ||
+    if (suspended_ || resumeRecoveryActive_ || diagnosticHudMode_.has_value() ||
+        !presentMonHudTelemetry_ ||
         presentMonProcessId_ != processId || !MockHudVisible())
         return;
     if (!ProcessAlive(processId))
@@ -1025,6 +1149,12 @@ void App::ReconcileHudVisibility()
 {
     if (!hudPresentation_)
         return;
+    if (suspended_ || resumeRecoveryActive_)
+    {
+        KillTimer(tray_.Window(), kMockHudTimerId);
+        hudPresentation_->Hide();
+        return;
+    }
     if (graphicsApiProcessId_ && !ProcessAlive(graphicsApiProcessId_))
         StopGraphicsApiProbe();
     const bool resolvedShow = mockHudEnabled_ && (manualHudVisibilityOverride_.has_value()
@@ -1238,6 +1368,7 @@ void App::Exit()
 {
     if (exiting_) return;
     exiting_ = true;
+    CancelResumeRecovery();
     KillTimer(tray_.Window(), kMockHudTimerId);
     StopProductionEcSampling();
     StopGraphicsApiProbe();

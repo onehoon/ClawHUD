@@ -113,6 +113,22 @@ LRESULT CALLBACK TrayIcon::WindowProc(HWND window, UINT message, WPARAM wParam, 
         self->app_.HandleHudToggleHotkey();
         return 0;
     }
+    if (message == WM_POWERBROADCAST)
+    {
+        switch (wParam)
+        {
+        case PBT_APMSUSPEND:
+            self->app_.HandleSystemSuspend();
+            break;
+        case PBT_APMRESUMEAUTOMATIC:
+        case PBT_APMRESUMESUSPEND:
+            self->app_.HandleSystemResume();
+            break;
+        default:
+            break;
+        }
+        return TRUE;
+    }
     if (message == self->taskbarCreatedMessage_)
     {
         self->created_ = false;
@@ -127,6 +143,8 @@ LRESULT CALLBACK TrayIcon::WindowProc(HWND window, UINT message, WPARAM wParam, 
             self->app_.SampleProductionBatteryTelemetry();
         else if (wParam == kGraphicsApiRetryTimerId)
             self->app_.TryGraphicsApiProbe();
+        else if (wParam == kResumeRecoveryTimerId)
+            self->app_.TryResumeRecovery();
         else if (wParam == kMockHudTimerId)
             self->app_.RenderMockHud();
         return 0;

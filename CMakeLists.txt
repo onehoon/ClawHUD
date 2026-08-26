@@ -210,6 +210,13 @@ if(BUILD_TESTING)
     set_target_properties(ClawHUD.DiagnosticHudModeTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.DiagnosticHudModeTests COMMAND ClawHUD.DiagnosticHudModeTests)
 
+    add_executable(ClawHUD.SuspendResumeRecoveryTests tests/SuspendResumeRecoveryTests.cpp)
+    target_compile_features(ClawHUD.SuspendResumeRecoveryTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.SuspendResumeRecoveryTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.SuspendResumeRecoveryTests PRIVATE src/ClawHUD)
+    set_target_properties(ClawHUD.SuspendResumeRecoveryTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.SuspendResumeRecoveryTests COMMAND ClawHUD.SuspendResumeRecoveryTests)
+
     add_executable(ClawHUD.EcHelperProtocolTests tests/EcHelperProtocolTests.cpp)
     target_compile_features(ClawHUD.EcHelperProtocolTests PRIVATE cxx_std_20)
     target_include_directories(ClawHUD.EcHelperProtocolTests PRIVATE src/shared)

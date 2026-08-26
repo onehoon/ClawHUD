@@ -29,6 +29,25 @@ constexpr UINT_PTR kMockHudTimerId = 1;
 constexpr UINT_PTR kEcHudTimerId = 2;
 constexpr UINT_PTR kBatteryHudTimerId = 3;
 constexpr UINT_PTR kGraphicsApiRetryTimerId = 4;
+constexpr UINT_PTR kResumeRecoveryTimerId = 5;
+constexpr UINT kResumeRecoveryIntervalMs = 500;
+constexpr unsigned kResumeRecoveryMaxAttempts = 6;
+
+constexpr bool ResumeRecoveryShouldStart(bool suspended, bool active) noexcept
+{
+    return suspended && !active;
+}
+
+constexpr bool ResumeRecoveryHasAttemptsRemaining(unsigned attempts) noexcept
+{
+    return attempts < kResumeRecoveryMaxAttempts;
+}
+
+constexpr bool ResumeRecoveryCanRetainPresentMon(
+    DWORD trackedProcessId, DWORD presentMonProcessId, bool running) noexcept
+{
+    return trackedProcessId != 0 && trackedProcessId == presentMonProcessId && running;
+}
 
 class App
 {
@@ -55,6 +74,9 @@ public:
     bool VrrDiagnosticRunning() const;
     bool DiagnosticRunning() const;
     void StopDiagnostic();
+    void HandleSystemSuspend();
+    void HandleSystemResume();
+    void TryResumeRecovery();
     const std::wstring& VrrStatus() const { return vrrStatus_; }
     bool StartMockHud();
     void StopMockHud();
@@ -103,6 +125,8 @@ private:
     bool ApplyDiagnosticHudMode(DiagnosticHudMode mode);
     clawhud::MsiEcHudTelemetry ReadHudEcTelemetry();
     void StartProductionEcSampling();
+    void PauseProductionSamplingForSuspend();
+    void CancelResumeRecovery();
     void StopProductionEcSampling();
     void StartProductionPresentMonSampling();
     void StopProductionPresentMonSampling();
@@ -150,6 +174,9 @@ private:
     bool hudShowFailureLogged_{};
     bool hudHideFailureLogged_{};
     bool intelVrrRangeFixEnabled_{ true };
+    bool suspended_{};
+    bool resumeRecoveryActive_{};
+    unsigned resumeRecoveryAttempts_{};
     clawhud::TweakStartupCoordinator tweakStartupCoordinator_;
     bool startWithWindows_{true};
     bool diagnosticsTabEnabled_{};
