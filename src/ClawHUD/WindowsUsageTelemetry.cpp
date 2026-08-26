@@ -16,27 +16,13 @@ namespace
 {
 constexpr DWORD kPdhMoreData = 0x800007D2u;
 
-std::wstring LuidToken(const LUID& luid, bool highFirst)
+std::wstring LuidToken(const LUID& luid)
 {
     std::wostringstream output;
     output << L"luid_0x" << std::hex << std::setfill(L'0') << std::setw(8)
-        << (highFirst ? static_cast<std::uint32_t>(luid.HighPart)
-                      : luid.LowPart)
+        << static_cast<std::uint32_t>(luid.HighPart)
         << L"_0x" << std::setw(8)
-        << (highFirst ? luid.LowPart
-                      : static_cast<std::uint32_t>(luid.HighPart));
-    return output.str();
-}
-
-std::wstring ShortLuidToken(const LUID& luid, bool lowFirst, bool highWord)
-{
-    std::wostringstream output;
-    output << L"luid_0x" << std::hex << std::setfill(L'0') << std::setw(8)
-        << (lowFirst ? luid.LowPart : static_cast<std::uint32_t>(luid.HighPart))
-        << L"_0x" << std::setw(4)
-        << (lowFirst
-            ? static_cast<std::uint16_t>(highWord ? luid.HighPart >> 16 : luid.HighPart)
-            : static_cast<std::uint16_t>(highWord ? luid.LowPart >> 16 : luid.LowPart));
+        << luid.LowPart;
     return output.str();
 }
 
@@ -104,31 +90,24 @@ std::optional<double> MaxGpuUsagePercent(const std::vector<double>& values) noex
 bool IsIntelGpuMemoryCounterInstance(std::wstring_view instance,
     const LUID& adapterLuid)
 {
-    const auto highFirst = LuidToken(adapterLuid, true);
-    const auto lowFirst = LuidToken(adapterLuid, false);
-    const auto lowFirstShort = ShortLuidToken(adapterLuid, true, false);
-    const auto lowFirstShortHighWord = ShortLuidToken(adapterLuid, true, true);
-    const auto highFirstShort = ShortLuidToken(adapterLuid, false, false);
-    const auto highFirstShortHighWord = ShortLuidToken(adapterLuid, false, true);
-    return instance.find(highFirst) != std::wstring_view::npos ||
-        instance.find(lowFirst) != std::wstring_view::npos ||
-        instance.find(lowFirstShort) != std::wstring_view::npos ||
-        instance.find(lowFirstShortHighWord) != std::wstring_view::npos ||
-        instance.find(highFirstShort) != std::wstring_view::npos ||
-        instance.find(highFirstShortHighWord) != std::wstring_view::npos;
+    const auto token = LuidToken(adapterLuid);
+    const auto position = instance.find(token);
+    if (position == std::wstring_view::npos)
+        return false;
+    const auto suffix = position + token.size();
+    return suffix < instance.size() &&
+        instance.substr(suffix).starts_with(L"_phys_");
 }
 
 std::optional<std::uint64_t> CombineGpuMemoryBytes(
     std::optional<std::uint64_t> dedicated,
     std::optional<std::uint64_t> shared) noexcept
 {
-    if (!dedicated && !shared)
+    if (!dedicated || !shared)
         return std::nullopt;
-    const auto dedicatedValue = dedicated.value_or(0);
-    const auto sharedValue = shared.value_or(0);
-    if (dedicatedValue > std::numeric_limits<std::uint64_t>::max() - sharedValue)
+    if (*dedicated > std::numeric_limits<std::uint64_t>::max() - *shared)
         return std::nullopt;
-    return dedicatedValue + sharedValue;
+    return *dedicated + *shared;
 }
 
 WindowsUsageSampler::~WindowsUsageSampler()
@@ -223,7 +202,7 @@ bool WindowsUsageSampler::AddIntelGpuMemoryCounters()
         if (PdhAddEnglishCounterW(query_, path.c_str(), 0, &counter) == ERROR_SUCCESS)
             intelSharedMemoryCounters_.push_back(counter);
     }
-    return !intelDedicatedMemoryCounters_.empty() ||
+    return !intelDedicatedMemoryCounters_.empty() &&
         !intelSharedMemoryCounters_.empty();
 }
 
@@ -265,15 +244,17 @@ std::optional<std::uint64_t> WindowsUsageSampler::ReadByteCounter(
 std::optional<std::uint64_t> WindowsUsageSampler::ReadByteCounters(
     const std::vector<PDH_HCOUNTER>& counters) const
 {
+    if (counters.empty())
+        return std::nullopt;
     std::optional<std::uint64_t> total;
     for (const auto counter : counters)
     {
         const auto value = ReadByteCounter(counter);
         if (!value)
-            continue;
-        total = CombineGpuMemoryBytes(total, value);
-        if (!total)
             return std::nullopt;
+        if (total && *total > std::numeric_limits<std::uint64_t>::max() - *value)
+            return std::nullopt;
+        total = total.value_or(0) + *value;
     }
     return total;
 }

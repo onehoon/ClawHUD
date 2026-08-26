@@ -39,18 +39,21 @@ int main()
         L"luid_0x9abcdef0_0x12345678_phys_0", intelLuid),
         "matching Intel adapter LUID counter");
     ok &= Check(IsIntelGpuMemoryCounterInstance(
-        L"luid_0x12345678_0x9abc_phys_0", intelLuid),
-        "matching compact Intel adapter LUID counter");
+        L"luid_0x00000000_0x00013245_phys_0", LUID{0, 0x13245}),
+        "matching full LUID with shared leading digits");
     ok &= Check(!IsIntelGpuMemoryCounterInstance(
-        L"luid_0x11111111_0x22222222_phys_0", intelLuid),
-        "different adapter LUID counter ignored");
+        L"luid_0x00000000_0x0001368a_phys_0", LUID{0, 0x13245}),
+        "different full LUID with shared leading digits ignored");
+    ok &= Check(!IsIntelGpuMemoryCounterInstance(
+        L"luid_0x9abcdef0_0x12345678_phys_0_extra", intelLuid),
+        "non-physical LUID suffix is rejected");
     ok &= Check(CombineGpuMemoryBytes(2u, 3u).value() == 5u,
         "dedicated and shared memory are summed");
     ok &= Check(CombineGpuMemoryBytes(0u, 0u).value() == 0u,
         "zero memory remains available");
-    ok &= Check(CombineGpuMemoryBytes(4u, std::nullopt).value() == 4u &&
-        CombineGpuMemoryBytes(std::nullopt, 5u).value() == 5u,
-        "one invalid memory counter is ignored");
+    ok &= Check(!CombineGpuMemoryBytes(4u, std::nullopt) &&
+        !CombineGpuMemoryBytes(std::nullopt, 5u),
+        "one invalid memory counter makes VRAM unavailable");
     ok &= Check(!CombineGpuMemoryBytes(std::nullopt, std::nullopt),
         "missing Intel memory counters are unavailable");
     return ok ? 0 : 1;
