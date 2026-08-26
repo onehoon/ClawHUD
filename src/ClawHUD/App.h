@@ -148,6 +148,8 @@ private:
     void RefreshMockHud();
     bool EnsureMockHud();
     void ReconcileHudVisibility();
+    bool AdoptForegroundProductionTarget();
+    bool IsUsableProductionTarget(HWND window, DWORD processId) const;
     bool ApplyDiagnosticHudVisibility(bool visible);
     bool ApplyDiagnosticHudMode(DiagnosticHudMode mode);
     clawhud::MsiEcHudTelemetry ReadHudEcTelemetry();

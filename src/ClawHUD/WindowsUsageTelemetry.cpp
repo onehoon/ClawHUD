@@ -1,5 +1,7 @@
 #include "WindowsUsageTelemetry.h"
 
+#include "RuntimeLogger.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cwchar>
@@ -15,6 +17,19 @@ namespace clawhud
 namespace
 {
 constexpr DWORD kPdhMoreData = 0x800007D2u;
+
+void LogMemoryDiagnostic(const std::wstring& message)
+{
+    RuntimeLogger::Log(RuntimeLogLevel::Info, message);
+}
+
+std::wstring HexPdhStatus(PDH_STATUS status)
+{
+    std::wostringstream output;
+    output << L"0x" << std::hex << std::setfill(L'0') << std::setw(8)
+        << static_cast<DWORD>(status);
+    return output.str();
+}
 
 std::wstring LuidToken(const LUID& luid)
 {
@@ -125,6 +140,7 @@ void WindowsUsageSampler::Reset() noexcept
     intelDedicatedMemoryCounters_.clear();
     intelSharedMemoryCounters_.clear();
     primed_ = false;
+    memoryDiagnosticsLogged_ = false;
 }
 
 bool WindowsUsageSampler::Initialize()
@@ -179,29 +195,52 @@ bool WindowsUsageSampler::AddIntelGpuMemoryCounters()
     if (!adapterLuid)
         return false;
 
+    LogMemoryDiagnostic(L"Intel GPU adapter LUID=" + LuidToken(*adapterLuid));
+
     std::vector<std::wstring> dedicatedPaths;
     std::vector<std::wstring> sharedPaths;
-    if (!ExpandCounterPaths(L"\\GPU Adapter Memory(*)\\Dedicated Usage",
-        dedicatedPaths) || !ExpandCounterPaths(
-            L"\\GPU Adapter Memory(*)\\Shared Usage", sharedPaths))
+    const bool dedicatedExpanded = ExpandCounterPaths(
+        L"\\GPU Adapter Memory(*)\\Dedicated Usage", dedicatedPaths);
+    const bool sharedExpanded = ExpandCounterPaths(
+        L"\\GPU Adapter Memory(*)\\Shared Usage", sharedPaths);
+
+    LogMemoryDiagnostic(L"GPU memory dedicated paths=" +
+        std::to_wstring(dedicatedPaths.size()) + L" shared paths=" +
+        std::to_wstring(sharedPaths.size()));
+    if (!dedicatedExpanded || !sharedExpanded)
         return false;
+    std::size_t dedicatedMatches{};
+    std::size_t sharedMatches{};
 
     for (const auto& path : dedicatedPaths)
     {
         if (!IsIntelGpuMemoryCounterInstance(path, *adapterLuid))
             continue;
+        ++dedicatedMatches;
         PDH_HCOUNTER counter{};
-        if (PdhAddEnglishCounterW(query_, path.c_str(), 0, &counter) == ERROR_SUCCESS)
+        const PDH_STATUS status = PdhAddEnglishCounterW(
+            query_, path.c_str(), 0, &counter);
+        LogMemoryDiagnostic(L"GPU memory counter add kind=Dedicated path=" +
+            path + L" status=" + HexPdhStatus(status));
+        if (status == ERROR_SUCCESS)
             intelDedicatedMemoryCounters_.push_back(counter);
     }
     for (const auto& path : sharedPaths)
     {
         if (!IsIntelGpuMemoryCounterInstance(path, *adapterLuid))
             continue;
+        ++sharedMatches;
         PDH_HCOUNTER counter{};
-        if (PdhAddEnglishCounterW(query_, path.c_str(), 0, &counter) == ERROR_SUCCESS)
+        const PDH_STATUS status = PdhAddEnglishCounterW(
+            query_, path.c_str(), 0, &counter);
+        LogMemoryDiagnostic(L"GPU memory counter add kind=Shared path=" +
+            path + L" status=" + HexPdhStatus(status));
+        if (status == ERROR_SUCCESS)
             intelSharedMemoryCounters_.push_back(counter);
     }
+    LogMemoryDiagnostic(L"GPU memory dedicated matches=" +
+        std::to_wstring(dedicatedMatches) + L" shared matches=" +
+        std::to_wstring(sharedMatches));
     return !intelDedicatedMemoryCounters_.empty() &&
         !intelSharedMemoryCounters_.empty();
 }
@@ -277,9 +316,20 @@ std::optional<WindowsUsageTelemetry> WindowsUsageSampler::Sample()
             gpuValues.push_back(*value);
     }
     result.gpuUsagePercent = MaxGpuUsagePercent(gpuValues);
-    result.intelGpuMemoryUsedBytes = CombineGpuMemoryBytes(
-        ReadByteCounters(intelDedicatedMemoryCounters_),
-        ReadByteCounters(intelSharedMemoryCounters_));
+    const auto dedicated = ReadByteCounters(intelDedicatedMemoryCounters_);
+    const auto shared = ReadByteCounters(intelSharedMemoryCounters_);
+    result.intelGpuMemoryUsedBytes = CombineGpuMemoryBytes(dedicated, shared);
+    if (!memoryDiagnosticsLogged_)
+    {
+        const auto format = [](const auto& value)
+        {
+            return value ? std::to_wstring(*value) : std::wstring(L"unavailable");
+        };
+        LogMemoryDiagnostic(L"GPU memory dedicated first=" + format(dedicated) +
+            L" shared first=" + format(shared) + L" combined=" +
+            format(CombineGpuMemoryBytes(dedicated, shared)));
+        memoryDiagnosticsLogged_ = true;
+    }
     return result;
 }
 }

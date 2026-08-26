@@ -17,6 +17,7 @@
 #include <memory>
 #include <shobjidl.h>
 #include <shlobj.h>
+#include <cwctype>
 #include <string>
 
 namespace
@@ -185,6 +186,11 @@ int App::Run()
             else
                 Log(L"Foreground target cleared");
             ReconcileHudVisibility();
+        },
+        [this](HWND window, DWORD processId)
+        {
+            if (mockHudEnabled_)
+                AdoptForegroundProductionTarget();
         }))
     {
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
@@ -487,6 +493,7 @@ bool App::SetHudEnabled(bool enabled)
     if (!mockHudEnabled_) Log(L"HUD enabled");
     mockHudEnabled_ = true;
     mockFrameIndex_ = 0;
+    AdoptForegroundProductionTarget();
     manualHudVisibilityOverride_.reset();
     ReconcileHudVisibility();
     SaveHudEnabledSetting(true);
@@ -977,6 +984,64 @@ void App::TrackMockGameWindow(HWND window)
     }
 }
 
+bool App::AdoptForegroundProductionTarget()
+{
+    const DWORD trackedProcessId = foregroundTracker_.TrackedProcessId();
+    if (trackedProcessId && ProcessAlive(trackedProcessId))
+        return true;
+
+    HWND foreground = GetForegroundWindow();
+    DWORD processId{};
+    if (foreground)
+        GetWindowThreadProcessId(foreground, &processId);
+    if (!IsUsableProductionTarget(foreground, processId))
+    {
+        if (trackedProcessId && !ProcessAlive(trackedProcessId))
+            foregroundTracker_.SetTrackedProcessId(0);
+        return false;
+    }
+
+    foregroundTracker_.SetTrackedProcessId(processId);
+    usageSampler_.Reset();
+    latestUsageTelemetry_.reset();
+    StartGraphicsApiProbe(processId);
+    StartProductionPresentMonSampling();
+    return true;
+}
+
+bool App::IsUsableProductionTarget(HWND window, DWORD processId) const
+{
+    if (!window || !processId || processId == GetCurrentProcessId() ||
+        !IsWindowVisible(window) || GetShellWindow() == window ||
+        GetDesktopWindow() == window)
+        return false;
+
+    wchar_t imagePath[MAX_PATH]{};
+    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
+    if (!process)
+        return false;
+    DWORD length = ARRAYSIZE(imagePath);
+    const bool queried = QueryFullProcessImageNameW(process, 0, imagePath, &length) != FALSE;
+    CloseHandle(process);
+    if (!queried)
+        return false;
+
+    std::wstring image(imagePath, length);
+    const auto separator = image.find_last_of(L"\\/");
+    if (separator != std::wstring::npos)
+        image.erase(0, separator + 1);
+    std::transform(image.begin(), image.end(), image.begin(),
+        [](wchar_t value) { return static_cast<wchar_t>(std::towlower(value)); });
+    constexpr const wchar_t* rejected[] = {
+        L"explorer.exe", L"searchhost.exe", L"shellexperiencehost.exe",
+        L"startmenuexperiencehost.exe", L"applicationframehost.exe",
+        L"textinputhost.exe", L"chrome.exe", L"msedge.exe",
+        L"firefox.exe", L"brave.exe", L"opera.exe", L"vivaldi.exe"
+    };
+    return std::find(std::begin(rejected), std::end(rejected), image) ==
+        std::end(rejected);
+}
+
 void App::SetHudVisibilityMode(clawhud::HudVisibilityMode mode)
 {
     if (VrrDiagnosticRunning())
@@ -1012,6 +1077,7 @@ void App::HandleHudToggleHotkey()
         }
         mockHudEnabled_ = true;
         mockFrameIndex_ = 0;
+        AdoptForegroundProductionTarget();
         if (const DWORD processId = foregroundTracker_.TrackedProcessId())
             StartGraphicsApiProbe(processId);
     }
@@ -1197,6 +1263,9 @@ void App::ReconcileHudVisibility()
         hudPresentation_->Hide();
         return;
     }
+    if (mockHudEnabled_ && foregroundTracker_.TrackedProcessId() &&
+        !ProcessAlive(foregroundTracker_.TrackedProcessId()))
+        AdoptForegroundProductionTarget();
     if (graphicsApiProcessId_ && !ProcessAlive(graphicsApiProcessId_))
         StopGraphicsApiProbe();
     const bool resolvedShow = mockHudEnabled_ && (manualHudVisibilityOverride_.has_value()

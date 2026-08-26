@@ -155,6 +155,9 @@ int main()
             width(HudSegmentKind::Graphics, L"100 FPS")), "stable FPS slot");
         ok &= Check(Near(width(HudSegmentKind::Gpu, L"99%"),
             width(HudSegmentKind::Gpu, L"100%")), "stable percentage slot");
+        ok &= Check(width(HudSegmentKind::Gpu, L"0%") <
+            width(HudSegmentKind::Gpu, L"47% VRAM 3.4 GB"),
+            "GPU without VRAM does not reserve VRAM width");
         ok &= Check(Near(width(HudSegmentKind::Tdp, L"9.8 W"),
             width(HudSegmentKind::Tdp, L"10.1 W")), "stable power slot");
         ok &= Check(Near(width(HudSegmentKind::Fan, L"999 RPM"),
@@ -180,6 +183,28 @@ int main()
             {HudSegmentKind::Gpu, L"GPU", L"99%"}, {HudSegmentKind::Cpu, L"CPU", L"36%"}};
         ok &= Check(MeasureWidth(renderer, gpuAndCpu, stableOptions) >
             MeasureWidth(renderer, gpu, stableOptions), "missing run compacts");
+
+        const auto gpuOnlyMeasure = [&]()
+        {
+            HudMeasureResult measured{};
+            renderer.Measure({{HudSegmentKind::Gpu, L"GPU", L"0%"}},
+                stableOptions, measured);
+            return measured;
+        }();
+        const auto expectedContentMeasure = [&]()
+        {
+            HudMeasureResult measured{};
+            renderer.Measure({{HudSegmentKind::Cpu, L"CPU", L"16% 43°C"},
+                {HudSegmentKind::Gpu, L"GPU", L"47%"},
+                {HudSegmentKind::Tdp, L"TDP", L"5 W"},
+                {HudSegmentKind::Fan, L"FAN", L"4507 RPM"},
+                {HudSegmentKind::Battery, L"BAT", L"78%"}},
+                stableOptions, measured);
+            return measured;
+        }();
+        ok &= Check(gpuOnlyMeasure.contentWidth > 0.0f &&
+            expectedContentMeasure.contentWidth > gpuOnlyMeasure.contentWidth,
+            "ContentWidth measures only current runs");
     }
     return ok ? 0 : 1;
 }
