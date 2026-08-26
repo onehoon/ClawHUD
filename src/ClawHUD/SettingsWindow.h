@@ -26,6 +26,10 @@ private:
     void ShowTab(int index);
     void UpdateTweaksControls();
     void UpdateDiagnosticButtons();
+    void ApplyWindowStyle();
+    void RecreateFont();
+    void ApplyFont();
+    int Scale(int value) const noexcept;
 
     App& app_;
     HINSTANCE instance_{};
@@ -59,4 +63,6 @@ private:
     HWND startVrrButton_{};
     HWND stopVrrButton_{};
     HWND vrrStatus_{};
+    UINT dpi_{ 96 };
+    HFONT uiFont_{};
 };
