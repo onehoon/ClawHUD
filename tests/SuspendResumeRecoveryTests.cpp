@@ -31,5 +31,15 @@ int main()
         "dead PresentMon target is not retained");
     ok &= Check(!ResumeRecoveryCanRetainPresentMon(42, 43, true),
         "different PresentMon target is not retained");
+    ok &= Check(ResumeRecoveryShouldWaitForForeground(true, true, true, false, 1),
+        "live InGameOnly target waits for temporary non-game foreground");
+    ok &= Check(!ResumeRecoveryShouldWaitForForeground(true, true, true, false, 6),
+        "foreground wait is bounded");
+    ok &= Check(ResumeRecoveryMayShowHud(false, false),
+        "hidden HUD does not require a fresh frame");
+    ok &= Check(!ResumeRecoveryMayShowHud(true, false),
+        "visible HUD requires a fresh frame");
+    ok &= Check(ResumeRecoveryMayShowHud(true, true),
+        "fresh frame permits HUD restore");
     return ok ? 0 : 1;
 }

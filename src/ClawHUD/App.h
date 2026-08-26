@@ -49,6 +49,19 @@ constexpr bool ResumeRecoveryCanRetainPresentMon(
     return trackedProcessId != 0 && trackedProcessId == presentMonProcessId && running;
 }
 
+constexpr bool ResumeRecoveryShouldWaitForForeground(
+    bool hudEnabled, bool visibilityUsesForeground, bool processAlive,
+    bool foregroundMatches, unsigned attempts) noexcept
+{
+    return hudEnabled && visibilityUsesForeground && processAlive &&
+        !foregroundMatches && ResumeRecoveryHasAttemptsRemaining(attempts);
+}
+
+constexpr bool ResumeRecoveryMayShowHud(bool expectedVisible, bool freshFrameReady) noexcept
+{
+    return !expectedVisible || freshFrameReady;
+}
+
 class App
 {
 public:

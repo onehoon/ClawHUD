@@ -316,18 +316,53 @@ void App::TryResumeRecovery()
     const bool retainPresentMon = ResumeRecoveryCanRetainPresentMon(
         processId, presentMonProcessId_,
         presentMonHudTelemetry_ && presentMonHudTelemetry_->Running());
-    if (processAlive)
-        StartGraphicsApiProbe(processId);
-    else
-        StopGraphicsApiProbe();
-
     const bool expectedVisible = mockHudEnabled_ &&
         (manualHudVisibilityOverride_.has_value()
             ? *manualHudVisibilityOverride_
             : clawhud::ShouldShowHud(
                 hudOptions_.visibilityMode,
                 foregroundTracker_.ForegroundIsTrackedProcess()));
+    const bool visibilityUsesForeground = !manualHudVisibilityOverride_.has_value() &&
+        hudOptions_.visibilityMode == clawhud::HudVisibilityMode::InGameOnly;
     DiscardPendingPresentMonHudUpdates();
+    if (ResumeRecoveryShouldWaitForForeground(
+        mockHudEnabled_, visibilityUsesForeground, processAlive,
+        foregroundTracker_.ForegroundIsTrackedProcess(), resumeRecoveryAttempts_))
+    {
+        SetTimer(tray_.Window(), kResumeRecoveryTimerId,
+            kResumeRecoveryIntervalMs, nullptr);
+        return;
+    }
+
+    if (processAlive)
+        StartGraphicsApiProbe(processId);
+    else
+        StopGraphicsApiProbe();
+
+    bool freshFrameReady = !expectedVisible || hudPresentation_ != nullptr;
+    if (expectedVisible && hudPresentation_)
+    {
+        const HRESULT clearHr = hudPresentation_->Render(
+            clawhud::HudTelemetrySnapshot{}, BuildHudRenderOptions());
+        freshFrameReady = SUCCEEDED(clearHr);
+        if (!freshFrameReady && resumeRecoveryAttempts_ == 1)
+            freshFrameReady = RecreateHudPresentation(false);
+    }
+    if (!ResumeRecoveryMayShowHud(expectedVisible, freshFrameReady))
+    {
+        resumeRecoveryActive_ = true;
+        if (!ResumeRecoveryHasAttemptsRemaining(resumeRecoveryAttempts_))
+        {
+            CancelResumeRecovery();
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+                L"HUD resume recovery exhausted");
+            return;
+        }
+        SetTimer(tray_.Window(), kResumeRecoveryTimerId,
+            kResumeRecoveryIntervalMs, nullptr);
+        return;
+    }
+
     resumeRecoveryActive_ = false;
     ReconcileHudVisibility();
     if (expectedVisible && !MockHudVisible() && resumeRecoveryAttempts_ == 1)
@@ -339,14 +374,16 @@ void App::TryResumeRecovery()
     const bool recovered = !expectedVisible || MockHudVisible();
     if (recovered)
     {
-        if (retainPresentMon)
+        if (retainPresentMon && presentMonHudTelemetry_ &&
+            presentMonProcessId_ == processId && presentMonHudTelemetry_->Running())
             Log(L"PresentMon retained after resume pid=" + std::to_wstring(processId));
         else if (processAlive && presentMonHudTelemetry_ &&
             presentMonProcessId_ == processId && presentMonHudTelemetry_->Running())
             Log(L"PresentMon restarted after resume pid=" + std::to_wstring(processId));
+        const unsigned completedAttempt = resumeRecoveryAttempts_;
         CancelResumeRecovery();
         Log(L"HUD resume recovery completed attempt=" +
-            std::to_wstring(resumeRecoveryAttempts_));
+            std::to_wstring(completedAttempt));
         return;
     }
 
