@@ -150,6 +150,7 @@ private:
     void ReconcileHudVisibility();
     bool AdoptForegroundProductionTarget();
     bool AdoptForegroundProductionTarget(HWND window, DWORD processId);
+    void ConfirmForegroundProductionTarget(DWORD processId);
     bool IsUsableProductionTarget(HWND window, DWORD processId) const;
     bool ApplyDiagnosticHudVisibility(bool visible);
     bool ApplyDiagnosticHudMode(DiagnosticHudMode mode);
@@ -178,6 +179,7 @@ private:
     std::unique_ptr<clawhud::PresentMonHudTelemetry> presentMonHudTelemetry_;
     std::optional<double> latestPresentMonDisplayedFps_;
     DWORD presentMonProcessId_{};
+    DWORD pendingProductionTargetPid_{};
     std::optional<clawhud::WindowsPowerTelemetry> latestPowerTelemetry_;
     clawhud::WindowsUsageSampler usageSampler_;
     std::optional<clawhud::WindowsUsageTelemetry> latestUsageTelemetry_;

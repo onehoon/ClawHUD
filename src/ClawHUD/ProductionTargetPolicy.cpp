@@ -16,4 +16,22 @@ bool IsRejectedProductionTargetImage(std::wstring_view image) noexcept
             return true;
     return false;
 }
+
+bool ShouldRetainCommittedProductionTarget(DWORD processId, bool alive) noexcept
+{
+    return processId != 0 && alive;
+}
+
+bool ShouldConfirmProductionTarget(DWORD pendingProcessId, DWORD observedProcessId,
+    bool displayedFpsAvailable) noexcept
+{
+    return pendingProcessId != 0 && pendingProcessId == observedProcessId &&
+        displayedFpsAvailable;
+}
+
+bool ShouldConsiderForegroundProductionTarget(bool hudEnabled, bool diagnosticRunning,
+    bool suspended) noexcept
+{
+    return hudEnabled && !diagnosticRunning && !suspended;
+}
 }
