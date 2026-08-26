@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <memory>
+#include <shobjidl.h>
 #include <shlobj.h>
 #include <string>
 
@@ -26,6 +27,7 @@ constexpr UINT kBatteryHudTimerIntervalMs = 5000;
 constexpr UINT kGraphicsApiRetryIntervalMs = 500;
 constexpr unsigned kGraphicsApiMaxAttempts = 5;
 constexpr wchar_t kInstanceMutexName[] = L"Local\\ClawHUD.SingleInstance";
+constexpr wchar_t kStartupShortcutName[] = L"ClawHUD.lnk";
 
 struct HudVisibilityRequest
 {
@@ -55,6 +57,16 @@ std::wstring HudSettingsPath()
     std::wstring path(localAppData);
     CoTaskMemFree(localAppData);
     return path + L"\\ClawHUD\\settings.ini";
+}
+
+std::wstring StartupShortcutPath()
+{
+    PWSTR startup{};
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_Startup, KF_FLAG_DEFAULT, nullptr, &startup)))
+        return {};
+    std::wstring path(startup);
+    CoTaskMemFree(startup);
+    return path + L"\\" + kStartupShortcutName;
 }
 
 std::wstring ReadHudSetting(const std::wstring& path, const wchar_t* key,
@@ -142,6 +154,7 @@ int App::Run()
             L"ClawHUD", MB_OK | MB_ICONWARNING);
         return 0;
     }
+    ApplyStartupRegistration();
     if (!tray_.Create(instance_)) return 1;
     hudHotkeyRegistered_ = RegisterHotKey(tray_.Window(), kHudToggleHotkeyId,
         MOD_NOREPEAT, VK_F8) != FALSE;
@@ -169,6 +182,21 @@ void App::SetIntelVrrRangeFixEnabled(bool enabled)
 std::optional<clawhud::IntelVrrRunResult> App::IntelVrrLastResult() const
 {
     return clawhud::IntelVrrResultStore::Load();
+}
+
+void App::SetStartWithWindows(bool enabled)
+{
+    if (startWithWindows_ == enabled)
+        return;
+    const bool previous = startWithWindows_;
+    startWithWindows_ = enabled;
+    if (!ApplyStartupRegistration())
+    {
+        startWithWindows_ = previous;
+        Log(enabled ? L"Startup registration failed" : L"Startup shortcut removal failed");
+        return;
+    }
+    SaveHudSettings();
 }
 
 bool App::StartEcDiagnostic()
@@ -247,6 +275,26 @@ void App::StopMockHud()
     StopProductionEcSampling();
     StopGraphicsApiProbe();
     ReconcileHudVisibility();
+}
+
+bool App::SetHudEnabled(bool enabled)
+{
+    if (VrrDiagnosticRunning())
+    {
+        Log(L"HUD enable change ignored while VRR diagnostic is running");
+        return false;
+    }
+    if (!enabled)
+    {
+        StopMockHud();
+        return true;
+    }
+    if (!EnsureMockHud()) return false;
+    mockHudEnabled_ = true;
+    mockFrameIndex_ = 0;
+    manualHudVisibilityOverride_.reset();
+    ReconcileHudVisibility();
+    return true;
 }
 
 void App::SetHudAlignment(clawhud::HudAlignment alignment)
@@ -580,6 +628,8 @@ void App::SetHudVisibilityMode(clawhud::HudVisibilityMode mode)
         return;
     }
     hudOptions_.visibilityMode = mode;
+    manualHudVisibilityOverride_.reset();
+    SaveHudSettings();
     ReconcileHudVisibility();
 }
 
@@ -609,6 +659,7 @@ void App::HandleHudToggleHotkey()
     }
     manualHudVisibilityOverride_ = !MockHudVisible();
     ReconcileHudVisibility();
+    if (settings_) settings_->UpdateHudControls();
 }
 
 HudVisibilityState App::CaptureHudVisibilityState() const noexcept
@@ -835,12 +886,19 @@ void App::LoadHudSettings()
 {
     const auto path = HudSettingsPath();
     if (path.empty()) return;
+    wchar_t startup[8]{};
+    GetPrivateProfileStringW(L"General", L"StartWithWindows", L"1", startup,
+        ARRAYSIZE(startup), path.c_str());
+    startWithWindows_ = std::wcstol(startup, nullptr, 10) != 0;
     const auto alignment = ReadHudSetting(path, L"Alignment", L"Center");
     if (alignment == L"Left") hudOptions_.alignment = clawhud::HudAlignment::Left;
     else if (alignment == L"Right") hudOptions_.alignment = clawhud::HudAlignment::Right;
     const auto background = ReadHudSetting(path, L"BackgroundWidth", L"FullWidth");
     if (background == L"ContentWidth") hudOptions_.backgroundMode = clawhud::HudBackgroundMode::ContentWidth;
     else if (background == L"FullWidth") hudOptions_.backgroundMode = clawhud::HudBackgroundMode::FullWidth;
+    const auto visibility = ReadHudSetting(path, L"VisibilityMode", L"InGameOnly");
+    if (visibility == L"Always") hudOptions_.visibilityMode = clawhud::HudVisibilityMode::Always;
+    else if (visibility == L"InGameOnly") hudOptions_.visibilityMode = clawhud::HudVisibilityMode::InGameOnly;
     const auto opacityText = ReadHudSetting(path, L"BackgroundOpacity", L"50");
     wchar_t* end{};
     const long parsed = std::wcstol(opacityText.c_str(), &end, 10);
@@ -861,11 +919,47 @@ void App::SaveHudSettings() const
         hudOptions_.alignment == clawhud::HudAlignment::Right ? L"Right" : L"Center";
     const wchar_t* background = hudOptions_.backgroundMode == clawhud::HudBackgroundMode::ContentWidth
         ? L"ContentWidth" : L"FullWidth";
+    const wchar_t* visibility = hudOptions_.visibilityMode == clawhud::HudVisibilityMode::Always
+        ? L"Always" : L"InGameOnly";
     wchar_t opacity[8]{};
     swprintf_s(opacity, L"%d", static_cast<int>(hudOptions_.backgroundOpacity * 100.0f + 0.5f));
     WritePrivateProfileStringW(L"HUD", L"Alignment", alignment, path.c_str());
     WritePrivateProfileStringW(L"HUD", L"BackgroundWidth", background, path.c_str());
     WritePrivateProfileStringW(L"HUD", L"BackgroundOpacity", opacity, path.c_str());
+    WritePrivateProfileStringW(L"HUD", L"VisibilityMode", visibility, path.c_str());
+    WritePrivateProfileStringW(L"General", L"StartWithWindows", startWithWindows_ ? L"1" : L"0", path.c_str());
+}
+
+bool App::ApplyStartupRegistration() const
+{
+    const auto shortcut = StartupShortcutPath();
+    if (shortcut.empty()) return false;
+
+    if (!startWithWindows_)
+        return DeleteFileW(shortcut.c_str()) != FALSE || GetLastError() == ERROR_FILE_NOT_FOUND;
+
+    const HRESULT initialized = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    if (FAILED(initialized)) return false;
+
+    IShellLinkW* shellLink{};
+    IPersistFile* persistFile{};
+    HRESULT result = CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER,
+        IID_PPV_ARGS(&shellLink));
+    if (SUCCEEDED(result))
+    {
+        result = shellLink->SetPath(executablePath_.c_str());
+        if (SUCCEEDED(result))
+        {
+            const auto workingDirectory = std::filesystem::path(executablePath_).parent_path();
+            result = shellLink->SetWorkingDirectory(workingDirectory.c_str());
+        }
+        if (SUCCEEDED(result)) result = shellLink->QueryInterface(IID_PPV_ARGS(&persistFile));
+        if (SUCCEEDED(result)) result = persistFile->Save(shortcut.c_str(), TRUE);
+    }
+    if (persistFile) persistFile->Release();
+    if (shellLink) shellLink->Release();
+    CoUninitialize();
+    return SUCCEEDED(result);
 }
 
 void App::CheckForUpdates()

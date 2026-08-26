@@ -167,6 +167,8 @@ A major goal of ClawHUD is to remain lightweight when sitting in the tray.
 
 On fresh startup, the application should **not** create a settings window and hide it. The settings UI must not exist until the user explicitly requests it.
 
+The General tab provides a **Start ClawHUD with Windows** option. It defaults to enabled when no saved value exists and controls a per-user Startup-folder shortcut; it does not add a service, scheduled task, or elevated startup path.
+
 Fresh tray idle should be close to:
 
 ```text
@@ -202,11 +204,9 @@ create Settings window
 show window
 ```
 
-When closed, destroy it and release resources owned by the window.
+When minimized or closed, hide it to the tray while keeping ClawHUD running. Selecting Settings again restores the existing window.
 
-Do not keep it alive using only `ShowWindow(..., SW_HIDE)`.
-
-Recreating a small settings window on the next open is acceptable; conserving idle resources is more important than avoiding a trivial recreation cost.
+The Settings window remains lightweight and is not created until explicitly requested.
 
 The initial settings UI only needs a small native Windows surface. The project does not currently need WinUI 3, WPF, WebView, Electron, or another heavyweight UI framework.
 

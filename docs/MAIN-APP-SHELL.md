@@ -15,7 +15,9 @@ The tray menu contains:
 - Settings
 - Exit
 
-Settings is created only when selected. It contains the General, HUD, Tweaks, and Diagnostics tabs. The Diagnostics tab only creates its bounded MSI EC worker after **Start EC Test** is selected. The Tweaks tab only persists the Intel VRR Range Fix startup toggle and displays its last result; it never applies a profile from the UI. Closing it calls `DestroyWindow`; the owning `unique_ptr` is released after the destroy notification. Selecting Settings again creates a fresh window.
+Settings is created only when selected. It contains the General, HUD, Tweaks, and Diagnostics tabs. The Diagnostics tab only creates its bounded MSI EC worker after **Start EC Test** is selected. The Tweaks tab only persists the Intel VRR Range Fix startup toggle and displays its last result; it never applies a profile from the UI. The Settings minimize and close buttons hide the window to the tray while keeping ClawHUD running; selecting Settings again restores the same window.
+
+The General tab contains **Start ClawHUD with Windows**, enabled by default when the setting is absent. The setting is stored in `%LOCALAPPDATA%\\ClawHUD\\settings.ini`. When enabled, ClawHUD maintains its own `ClawHUD.lnk` in the current user's Startup folder; disabling it removes only that shortcut. The packaged Velopack release includes the Startup shortcut location as well.
 
 ## Build
 

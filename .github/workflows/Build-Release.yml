@@ -114,6 +114,7 @@ jobs:
             --packVersion "${{ steps.version.outputs.version }}" `
             --packDir .\stage\ `
             --mainExe ClawHUD.exe `
+            --shortcuts StartMenuRoot,Startup `
             --channel stable `
             --framework vcredist145-x64 `
             --outputDir .\release
