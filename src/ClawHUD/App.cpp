@@ -351,9 +351,28 @@ void App::SetHudAlignment(clawhud::HudAlignment alignment)
     }
     if (hudOptions_.alignment == alignment)
         return;
+    const auto previousAlignment = hudOptions_.alignment;
     hudOptions_.alignment = alignment;
+    if (hudOptions_.backgroundMode == clawhud::HudBackgroundMode::ContentWidth)
+    {
+        const bool restoreVisible = hudPresentation_ &&
+            hudPresentation_->Initialized() && hudPresentation_->Visible();
+        const bool recreated = RecreateHudPresentation(restoreVisible);
+        hudOptions_.alignment = clawhud::CommitHudAlignmentAfterRecreation(
+            previousAlignment, alignment, recreated);
+        if (!recreated)
+        {
+            RecreateHudPresentation(restoreVisible);
+            SaveHudSettings();
+            Log(L"HUD alignment change rolled back after presentation recreation failure");
+            return;
+        }
+    }
+    else
+    {
+        RefreshMockHud();
+    }
     SaveHudSettings();
-    RefreshMockHud();
 }
 
 void App::SetHudBackgroundMode(clawhud::HudBackgroundMode mode)
@@ -365,9 +384,21 @@ void App::SetHudBackgroundMode(clawhud::HudBackgroundMode mode)
     }
     if (hudOptions_.backgroundMode == mode)
         return;
+    const auto previousMode = hudOptions_.backgroundMode;
     hudOptions_.backgroundMode = mode;
+    const bool restoreVisible = hudPresentation_ &&
+        hudPresentation_->Initialized() && hudPresentation_->Visible();
+    const bool recreated = RecreateHudPresentation(restoreVisible);
+    hudOptions_.backgroundMode = clawhud::CommitHudBackgroundModeAfterRecreation(
+        previousMode, mode, recreated);
+    if (!recreated)
+    {
+        RecreateHudPresentation(restoreVisible);
+        SaveHudSettings();
+        Log(L"HUD background mode change rolled back after presentation recreation failure");
+        return;
+    }
     SaveHudSettings();
-    RefreshMockHud();
 }
 
 void App::SetHudBackgroundOpacity(float opacity, bool persist)
@@ -403,12 +434,12 @@ void App::SetHudSizeOffset(int offset)
     const bool restoreVisible = hudPresentation_ &&
         hudPresentation_->Initialized() && hudPresentation_->Visible();
     hudSizeOffset_ = offset;
-    const bool recreated = RecreateHudPresentationForSize(restoreVisible);
+    const bool recreated = RecreateHudPresentation(restoreVisible);
     hudSizeOffset_ = clawhud::CommitHudSizeOffsetAfterRecreation(
         previousOffset, offset, recreated);
     if (!recreated)
     {
-        RecreateHudPresentationForSize(restoreVisible);
+        RecreateHudPresentation(restoreVisible);
         Log(L"HUD size change rolled back after presentation recreation failure");
         return;
     }
@@ -421,7 +452,7 @@ clawhud::HudRenderOptions App::BuildHudRenderOptions() const
     return clawhud::BuildHudRenderOptionsForSize(hudSizeOffset_, hudOptions_);
 }
 
-bool App::RecreateHudPresentationForSize(bool restoreVisible)
+bool App::RecreateHudPresentation(bool restoreVisible)
 {
     if (!hudPresentation_)
         return true;
@@ -435,7 +466,7 @@ bool App::RecreateHudPresentationForSize(bool restoreVisible)
     HRESULT hr = hudPresentation_->Initialize(instance_, options);
     if (FAILED(hr))
     {
-        Log(L"HUD size presentation recreation failed");
+        Log(L"HUD presentation recreation failed");
         return false;
     }
     if (mockHudEnabled_)

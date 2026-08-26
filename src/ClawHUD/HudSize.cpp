@@ -31,6 +31,18 @@ int CommitHudSizeOffsetAfterRecreation(
     return recreationSucceeded ? ClampHudSizeOffset(requested) : previous;
 }
 
+HudAlignment CommitHudAlignmentAfterRecreation(
+    HudAlignment previous, HudAlignment requested, bool recreationSucceeded) noexcept
+{
+    return recreationSucceeded ? requested : previous;
+}
+
+HudBackgroundMode CommitHudBackgroundModeAfterRecreation(
+    HudBackgroundMode previous, HudBackgroundMode requested, bool recreationSucceeded) noexcept
+{
+    return recreationSucceeded ? requested : previous;
+}
+
 bool ShouldRestoreHudVisibility(bool wasVisible) noexcept
 {
     return wasVisible;

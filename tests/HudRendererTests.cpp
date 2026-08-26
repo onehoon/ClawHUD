@@ -1,4 +1,5 @@
 #include "HudRenderer.h"
+#include "HudWindowGeometry.h"
 
 #include <dwrite.h>
 #include <wrl/client.h>
@@ -47,18 +48,20 @@ int main()
     const D2D1_RECT_F viewport = D2D1::RectF(0, 0, 1000, 300);
     const HudMeasureResult measure{400.0f, 30.0f};
     auto geometry = CalculateHudGeometry(viewport, measure, options);
-    ok &= Check(Near(geometry.background.left, 300.0f) && Near(geometry.background.right, 700.0f),
-        "center content background");
+    ok &= Check(Near(geometry.background.left, 0.0f) && Near(geometry.background.right, 1000.0f),
+        "content background fills viewport");
     ok &= Check(Near(geometry.textOrigin.x, 308.0f), "center text origin");
 
     options.layout.alignment = HudAlignment::Left;
     geometry = CalculateHudGeometry(viewport, measure, options);
-    ok &= Check(Near(geometry.background.left, 0.0f) && Near(geometry.textOrigin.x, 8.0f),
-        "left content background");
+    ok &= Check(Near(geometry.background.left, 0.0f) &&
+        Near(geometry.background.right, 1000.0f) && Near(geometry.textOrigin.x, 8.0f),
+        "left content geometry");
     options.layout.alignment = HudAlignment::Right;
     geometry = CalculateHudGeometry(viewport, measure, options);
-    ok &= Check(Near(geometry.background.left, 600.0f) && Near(geometry.textOrigin.x, 608.0f),
-        "right content background");
+    ok &= Check(Near(geometry.background.left, 0.0f) &&
+        Near(geometry.background.right, 1000.0f) && Near(geometry.textOrigin.x, 608.0f),
+        "right content geometry");
 
     options.layout.backgroundMode = HudBackgroundMode::FullWidth;
     geometry = CalculateHudGeometry(viewport, measure, options);
@@ -75,7 +78,7 @@ int main()
         DipFromPhysicalPixels(400.0f, options.dpi),
         DipFromPhysicalPixels(30.0f, options.dpi)};
     geometry = CalculateHudGeometry(viewport, scaledMeasure, options);
-    ok &= Check(Near(geometry.background.right, 266.6667f), "144 DPI content width");
+    ok &= Check(Near(geometry.background.right, 1000.0f), "144 DPI content viewport");
     ok &= Check(Near(geometry.textOrigin.x, 5.3333f), "144 DPI physical padding");
 
     const HudRenderOptions geometryOptions{};
@@ -84,6 +87,28 @@ int main()
     ok &= Check(Near(RightAlignedOffset(100.0f, 80.0f), 20.0f) &&
         Near(RightAlignedOffset(100.0f, 100.0f), 0.0f) &&
         Near(RightAlignedOffset(100.0f, 120.0f), 0.0f), "right aligned value offset");
+
+    const RECT monitor{ -1920, -100, 0, 980 };
+    const auto fullWindow = CalculateHudWindowGeometry(
+        monitor, HudBackgroundMode::FullWidth, HudAlignment::Center, 500);
+    ok &= Check(fullWindow.xPx == -1920 && fullWindow.yPx == -100 &&
+        fullWindow.widthPx == 1920, "full width window geometry");
+    const auto leftWindow = CalculateHudWindowGeometry(
+        monitor, HudBackgroundMode::ContentWidth, HudAlignment::Left, 500);
+    const auto centerWindow = CalculateHudWindowGeometry(
+        monitor, HudBackgroundMode::ContentWidth, HudAlignment::Center, 500);
+    const auto rightWindow = CalculateHudWindowGeometry(
+        monitor, HudBackgroundMode::ContentWidth, HudAlignment::Right, 500);
+    ok &= Check(leftWindow.xPx == -1920 && leftWindow.widthPx == 500,
+        "content left window geometry");
+    ok &= Check(centerWindow.xPx == -1210 && centerWindow.widthPx == 500,
+        "content center window geometry");
+    ok &= Check(rightWindow.xPx == -500 && rightWindow.widthPx == 500,
+        "content right window geometry");
+    const auto clampedWindow = CalculateHudWindowGeometry(
+        monitor, HudBackgroundMode::ContentWidth, HudAlignment::Right, 3000);
+    ok &= Check(clampedWindow.xPx == -1920 && clampedWindow.widthPx == 1920,
+        "content window width clamps to monitor");
 
     const auto checkUnits = [&](const wchar_t* text, std::initializer_list<HudUnitRange> expected,
         const char* message)
@@ -137,6 +162,16 @@ int main()
         ok &= Check(Near(width(HudSegmentKind::Gpu, L"99% VRAM 3.4 GB"),
             width(HudSegmentKind::Gpu, L"100% VRAM 99.9 GB")),
             "stable GPU VRAM slot");
+        float reservedWidth{};
+        ok &= Check(SUCCEEDED(renderer.MeasureReservedHudWidth(stableOptions, reservedWidth)) &&
+            reservedWidth > 0.0f, "measure reserved HUD envelope");
+        HudRenderOptions alternateOptions = stableOptions;
+        alternateOptions.layout.alignment = HudAlignment::Right;
+        alternateOptions.layout.backgroundMode = HudBackgroundMode::ContentWidth;
+        float alternateReservedWidth{};
+        ok &= Check(SUCCEEDED(renderer.MeasureReservedHudWidth(alternateOptions,
+            alternateReservedWidth)) && Near(reservedWidth, alternateReservedWidth),
+            "reserved HUD envelope is layout-stable");
         ok &= Check(width(HudSegmentKind::Fan, L"10000 RPM") > width(HudSegmentKind::Fan, L"999 RPM"),
             "fan overflow expands");
 

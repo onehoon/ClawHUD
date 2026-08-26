@@ -54,6 +54,20 @@ int main()
         "failed recreation rolls back size");
     const int retryOffset = CommitHudSizeOffsetAfterRecreation(0, 2, true);
     ok &= Check(retryOffset == 2, "successful retry commits size");
+    ok &= Check(CommitHudAlignmentAfterRecreation(
+        HudAlignment::Left, HudAlignment::Right, false) == HudAlignment::Left,
+        "failed recreation rolls back alignment");
+    ok &= Check(CommitHudAlignmentAfterRecreation(
+        HudAlignment::Left, HudAlignment::Right, true) == HudAlignment::Right,
+        "successful recreation commits alignment");
+    ok &= Check(CommitHudBackgroundModeAfterRecreation(
+        HudBackgroundMode::FullWidth, HudBackgroundMode::ContentWidth, false) ==
+        HudBackgroundMode::FullWidth,
+        "failed recreation rolls back background mode");
+    ok &= Check(CommitHudBackgroundModeAfterRecreation(
+        HudBackgroundMode::FullWidth, HudBackgroundMode::ContentWidth, true) ==
+        HudBackgroundMode::ContentWidth,
+        "successful recreation commits background mode");
     ok &= Check(ShouldRestoreHudVisibility(true),
         "visible HUD remains visible after rollback retry");
     ok &= Check(!ShouldRestoreHudVisibility(false),

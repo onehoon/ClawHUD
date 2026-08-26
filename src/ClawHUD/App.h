@@ -94,7 +94,7 @@ private:
     void LoadHudSettings();
     void SaveHudSettings() const;
     clawhud::HudRenderOptions BuildHudRenderOptions() const;
-    bool RecreateHudPresentationForSize(bool restoreVisible);
+    bool RecreateHudPresentation(bool restoreVisible);
     bool ApplyStartupRegistration() const;
     void RefreshMockHud();
     bool EnsureMockHud();
