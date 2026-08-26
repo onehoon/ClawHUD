@@ -36,16 +36,50 @@ int main()
         "invalid display interval unavailable");
 
     const std::vector<std::string> headers{
-        "DisplayedTime", "MsBetweenDisplayChange", "FrameType"};
-    const auto application = ParseDisplayedFrame(headers, {"10.0", "8.33", "Application"});
+        "Application", "ProcessID", "SwapChainAddress", "PresentRuntime",
+        "SyncInterval", "PresentFlags", "AllowsTearing", "PresentMode",
+        "FrameType", "TimeInQPC", "MsBetweenSimulationStart",
+        "MsBetweenPresents", "MsBetweenDisplayChange", "MsInPresentAPI",
+        "MsRenderPresentLatency", "MsUntilDisplayed"};
+    const auto row = [](const char* interval, const char* frameType)
+    {
+        return std::vector<std::string>{"game.exe", "1234", "0x1", "DXGI",
+            "1", "0", "False", "Hardware: Independent Flip", frameType,
+            "10.0", "8.33", "8.33", interval, "1.0", "2.0", "3.0"};
+    };
+    const auto application = ParseDisplayedFrame(headers, row("8.33", "Application"));
     ok &= Check(application && application->frameType == "Application",
         "application frame accepted");
-    const auto generated = ParseDisplayedFrame(headers, {"18.0", "8.33", "Intel XeSS-FG"});
+    const auto generated = ParseDisplayedFrame(headers, row("8.33", "Intel XeSS-FG"));
     ok &= Check(generated && generated->frameType == "Intel XeSS-FG",
         "generated frame accepted");
-    ok &= Check(!ParseDisplayedFrame(headers, {"NA", "8.33", "Application"}),
+    auto headersWithoutFrameType = headers;
+    headersWithoutFrameType.erase(headersWithoutFrameType.begin() + 8);
+    auto rowWithoutFrameType = row("8.33", "Application");
+    rowWithoutFrameType.erase(rowWithoutFrameType.begin() + 8);
+    ok &= Check(ParseDisplayedFrame(headersWithoutFrameType, rowWithoutFrameType).has_value(),
+        "frame type remains optional");
+    ok &= Check(!ParseDisplayedFrame(headers, row("NA", "Application")),
         "not-displayed row ignored");
-    ok &= Check(!ParseDisplayedFrame(headers, {"10.0", "bad", "Application"}),
+    ok &= Check(!ParseDisplayedFrame(headers, row("0", "Application")),
+        "zero display interval ignored");
+    ok &= Check(!ParseDisplayedFrame(headers, row("-1", "Application")),
+        "negative display interval ignored");
+    ok &= Check(!ParseDisplayedFrame(headers, row("bad", "Application")),
         "malformed row ignored");
+
+    std::vector<std::vector<std::string>> rows;
+    rows.reserve(61);
+    for (std::size_t i = 0; i < 61; ++i)
+        rows.push_back(row("8.33", i % 2 == 0 ? "Application" : "Intel XeSS-FG"));
+    std::vector<double> intervals;
+    for (const auto& csvRow : rows)
+    {
+        const auto sample = ParseDisplayedFrame(headers, csvRow);
+        if (sample) intervals.push_back(sample->msBetweenDisplayChange);
+    }
+    ok &= Check(intervals.size() == 61, "displayed rows collected from default schema");
+    ok &= Check(Near(CalculateDisplayedFpsFromIntervals(intervals).value(), 120.0),
+        "default schema displayed FPS regression");
     return ok ? 0 : 1;
 }

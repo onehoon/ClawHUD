@@ -73,16 +73,15 @@ std::optional<PresentMonFrameSample> ParseDisplayedFrame(
     const std::vector<std::string>& headers,
     const std::vector<std::string>& row)
 {
-    const auto displayed = Column(headers, "DisplayedTime");
     const auto interval = Column(headers, "MsBetweenDisplayChange");
-    if (!displayed || !interval)
+    if (!interval)
         return std::nullopt;
-    const auto displayedTime = Field(row, displayed);
-    if (displayedTime.empty() || displayedTime == "NA")
+    const auto valueText = Field(row, interval);
+    if (valueText.empty() || valueText == "NA")
         return std::nullopt;
     try
     {
-        const double value = std::stod(Field(row, interval));
+        const double value = std::stod(valueText);
         if (!std::isfinite(value) || value <= 0.0)
             return std::nullopt;
         return PresentMonFrameSample{value, Field(row, Column(headers, "FrameType"))};
@@ -232,7 +231,8 @@ void PresentMonHudTelemetry::ReadLoop()
                 static_cast<unsigned char>(line[2]) == 0xBF)
                 line.erase(0, 3);
             const auto candidate = CsvLine(line);
-            if (Column(candidate, "DisplayedTime") &&
+            if (Column(candidate, "Application") &&
+                Column(candidate, "ProcessID") &&
                 Column(candidate, "MsBetweenDisplayChange"))
                 headers = candidate;
             return;
