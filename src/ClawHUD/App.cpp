@@ -4,6 +4,7 @@
 #include "HudPresentation.h"
 #include "Tweaks/IntelVrr/IntelVrrResultStore.h"
 #include "SupportedHardware.h"
+#include "HudSize.h"
 
 #include <Velopack.hpp>
 
@@ -250,8 +251,7 @@ bool App::EnsureMockHud()
 {
     if (!hudPresentation_)
         hudPresentation_ = std::make_unique<clawhud::HudPresentation>();
-    clawhud::HudRenderOptions options{};
-    options.layout = hudOptions_;
+    const auto options = BuildHudRenderOptions();
     HRESULT hr = hudPresentation_->Initialize(instance_, options);
     if (FAILED(hr)) return false;
     if (diagnosticHudMode_.has_value())
@@ -343,6 +343,59 @@ void App::SetHudBackgroundOpacity(float opacity, bool persist)
     RefreshMockHud();
 }
 
+void App::SetHudSizeOffset(int offset)
+{
+    if (VrrDiagnosticRunning())
+    {
+        Log(L"HUD size change ignored while VRR diagnostic is running");
+        return;
+    }
+    offset = clawhud::ClampHudSizeOffset(offset);
+    if (hudSizeOffset_ == offset)
+        return;
+    hudSizeOffset_ = offset;
+    SaveHudSettings();
+    RecreateHudPresentationForSize();
+}
+
+clawhud::HudRenderOptions App::BuildHudRenderOptions() const
+{
+    return clawhud::BuildHudRenderOptionsForSize(hudSizeOffset_, hudOptions_);
+}
+
+bool App::RecreateHudPresentationForSize()
+{
+    if (!hudPresentation_ || !hudPresentation_->Initialized())
+        return true;
+
+    const bool wasVisible = hudPresentation_->Visible();
+    const auto options = BuildHudRenderOptions();
+    hudPresentation_->Shutdown();
+    HRESULT hr = hudPresentation_->Initialize(instance_, options);
+    if (FAILED(hr))
+    {
+        Log(L"HUD size presentation recreation failed");
+        return false;
+    }
+    if (mockHudEnabled_)
+    {
+        if (diagnosticHudMode_.has_value())
+            RenderMockHud(true);
+        else
+            RenderProductionHud(true);
+    }
+    if (wasVisible)
+    {
+        hr = hudPresentation_->Show();
+        if (FAILED(hr))
+        {
+            Log(L"HUD size visibility restore failed");
+            return false;
+        }
+    }
+    return true;
+}
+
 void App::RefreshMockHud()
 {
     if (mockHudEnabled_ && hudPresentation_ && hudPresentation_->Visible())
@@ -354,9 +407,10 @@ void App::RefreshMockHud()
     }
 }
 
-void App::RenderMockHud()
+void App::RenderMockHud(bool allowHidden)
 {
-    if (!mockHudEnabled_ || !hudPresentation_ || !hudPresentation_->Visible())
+    if (!mockHudEnabled_ || !hudPresentation_ ||
+        (!allowHidden && !hudPresentation_->Visible()))
         return;
     auto snapshot = clawhud::MakeGameDcSample();
     const auto frame = mockFrameIndex_++;
@@ -368,8 +422,7 @@ void App::RenderMockHud()
     snapshot.fan1Rpm = phase == 1 ? 1000 : 999;
     snapshot.fan2Rpm = phase == 1 ? 1000 : 999;
     snapshot.batteryPercent = phase == 0 ? 9 : phase == 1 ? 10 : 100;
-    clawhud::HudRenderOptions options{};
-    options.layout = hudOptions_;
+    const auto options = BuildHudRenderOptions();
     const HRESULT hr = hudPresentation_->Render(snapshot, options);
     if (FAILED(hr)) Log(L"Mock HUD redraw failed");
 }
@@ -402,9 +455,10 @@ clawhud::MsiEcHudTelemetry App::ReadHudEcTelemetry()
     return result;
 }
 
-void App::RenderProductionHud()
+void App::RenderProductionHud(bool allowHidden)
 {
-    if (!mockHudEnabled_ || !hudPresentation_ || !hudPresentation_->Visible() ||
+    if (!mockHudEnabled_ || !hudPresentation_ ||
+        (!allowHidden && !hudPresentation_->Visible()) ||
         diagnosticHudMode_.has_value())
         return;
 
@@ -429,8 +483,7 @@ void App::RenderProductionHud()
             snapshot.remainingMinutes = latestPowerTelemetry_->remainingMinutes;
     }
 
-    clawhud::HudRenderOptions options{};
-    options.layout = hudOptions_;
+    const auto options = BuildHudRenderOptions();
     const HRESULT hr = hudPresentation_->Render(snapshot, options);
     if (FAILED(hr)) Log(L"Production EC HUD redraw failed");
 }
@@ -899,6 +952,7 @@ void App::LoadHudSettings()
     const auto visibility = ReadHudSetting(path, L"VisibilityMode", L"InGameOnly");
     if (visibility == L"Always") hudOptions_.visibilityMode = clawhud::HudVisibilityMode::Always;
     else if (visibility == L"InGameOnly") hudOptions_.visibilityMode = clawhud::HudVisibilityMode::InGameOnly;
+    hudSizeOffset_ = clawhud::ParseHudSizeOffset(ReadHudSetting(path, L"Size", L"0"));
     const auto opacityText = ReadHudSetting(path, L"BackgroundOpacity", L"50");
     wchar_t* end{};
     const long parsed = std::wcstol(opacityText.c_str(), &end, 10);
@@ -927,6 +981,9 @@ void App::SaveHudSettings() const
     WritePrivateProfileStringW(L"HUD", L"BackgroundWidth", background, path.c_str());
     WritePrivateProfileStringW(L"HUD", L"BackgroundOpacity", opacity, path.c_str());
     WritePrivateProfileStringW(L"HUD", L"VisibilityMode", visibility, path.c_str());
+    wchar_t size[8]{};
+    swprintf_s(size, L"%d", clawhud::ClampHudSizeOffset(hudSizeOffset_));
+    WritePrivateProfileStringW(L"HUD", L"Size", size, path.c_str());
     WritePrivateProfileStringW(L"General", L"StartWithWindows", startWithWindows_ ? L"1" : L"0", path.c_str());
 }
 

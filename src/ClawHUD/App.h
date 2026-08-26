@@ -22,7 +22,7 @@
 #include "Tweaks/IntelVrr/IntelVrrRunResult.h"
 
 class SettingsWindow;
-namespace clawhud { class HudPresentation; }
+namespace clawhud { class HudPresentation; struct HudRenderOptions; }
 
 constexpr int kHudToggleHotkeyId = 1;
 constexpr UINT_PTR kMockHudTimerId = 1;
@@ -57,18 +57,20 @@ public:
     const std::wstring& VrrStatus() const { return vrrStatus_; }
     bool StartMockHud();
     void StopMockHud();
-    void RenderMockHud();
+    void RenderMockHud(bool allowHidden = false);
     void SampleProductionTelemetry();
     void SampleProductionBatteryTelemetry();
-    void RenderProductionHud();
+    void RenderProductionHud(bool allowHidden = false);
     void TryGraphicsApiProbe();
     bool MockHudVisible() const noexcept;
     bool MockHudEnabled() const noexcept { return mockHudEnabled_; }
+    int HudSizeOffset() const noexcept { return hudSizeOffset_; }
     bool SetHudEnabled(bool enabled);
     const clawhud::HudLayoutOptions& HudOptions() const noexcept { return hudOptions_; }
     void SetHudAlignment(clawhud::HudAlignment alignment);
     void SetHudBackgroundMode(clawhud::HudBackgroundMode mode);
     void SetHudBackgroundOpacity(float opacity, bool persist = true);
+    void SetHudSizeOffset(int offset);
     void TrackMockGameWindow(HWND window);
     void SetHudVisibilityMode(clawhud::HudVisibilityMode mode);
     bool IsHudAlwaysVisible() const noexcept;
@@ -90,6 +92,8 @@ private:
     int ProcessMessages();
     void LoadHudSettings();
     void SaveHudSettings() const;
+    clawhud::HudRenderOptions BuildHudRenderOptions() const;
+    bool RecreateHudPresentationForSize();
     bool ApplyStartupRegistration() const;
     void RefreshMockHud();
     bool EnsureMockHud();
@@ -137,6 +141,7 @@ private:
     std::wstring ecStatus_{ L"Idle" };
     std::wstring vrrStatus_{ L"Idle" };
     std::wstring executablePath_;
+    int hudSizeOffset_{};
     bool hudHotkeyRegistered_{};
     bool ecHudSamplingActive_{};
     bool intelVrrRangeFixEnabled_{ true };

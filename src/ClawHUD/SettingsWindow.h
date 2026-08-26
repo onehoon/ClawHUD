@@ -50,6 +50,9 @@ private:
     HWND backgroundContent_{};
     HWND opacitySlider_{};
     HWND opacityLabel_{};
+    HWND hudSizeMinus_{};
+    HWND hudSizeValue_{};
+    HWND hudSizePlus_{};
     HWND startEcButton_{};
     HWND openLogsButton_{};
     HWND diagnosticStatus_{};
