@@ -33,6 +33,11 @@ constexpr UINT_PTR kResumeRecoveryTimerId = 5;
 constexpr UINT kResumeRecoveryIntervalMs = 500;
 constexpr unsigned kResumeRecoveryMaxAttempts = 6;
 
+constexpr bool ShouldRestorePersistedHud(bool enabled) noexcept
+{
+    return enabled;
+}
+
 constexpr bool ResumeRecoveryShouldStart(bool active) noexcept
 {
     return !active;
@@ -137,6 +142,7 @@ private:
     void CheckForUpdates();
     int ProcessMessages();
     void LoadHudSettings();
+    void SaveHudEnabledSetting(bool enabled) const;
     void SaveHudSettings() const;
     clawhud::HudRenderOptions BuildHudRenderOptions() const;
     bool RecreateHudPresentation(bool restoreVisible);

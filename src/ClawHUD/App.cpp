@@ -191,6 +191,18 @@ int App::Run()
             L"Foreground tracker initialization failed");
         return 1;
     }
+    if (ShouldRestorePersistedHud(mockHudEnabled_))
+    {
+        if (!EnsureMockHud())
+        {
+            mockHudEnabled_ = false;
+            Log(L"Persisted HUD enable restore failed during initialization");
+        }
+        else
+        {
+            ReconcileHudVisibility();
+        }
+    }
     tweakStartupCoordinator_.Start(intelVrrRangeFixEnabled_);
     return ProcessMessages();
 }
@@ -480,6 +492,7 @@ bool App::SetHudEnabled(bool enabled)
     if (!enabled)
     {
         StopMockHud();
+        SaveHudEnabledSetting(false);
         return true;
     }
     if (!EnsureMockHud()) return false;
@@ -488,6 +501,7 @@ bool App::SetHudEnabled(bool enabled)
     mockFrameIndex_ = 0;
     manualHudVisibilityOverride_.reset();
     ReconcileHudVisibility();
+    SaveHudEnabledSetting(true);
     return true;
 }
 
@@ -1272,8 +1286,10 @@ bool App::AcquireSingleInstance()
 
 void App::LoadHudSettings()
 {
+    mockHudEnabled_ = true;
     const auto path = HudSettingsPath();
     if (path.empty()) return;
+    mockHudEnabled_ = ReadBoolSetting(path, L"HUD", L"Enabled", true);
     diagnosticsTabEnabled_ = ReadBoolSetting(
         path, L"Developer", L"DiagnosticsTabEnabled", false);
     wchar_t startup[8]{};
@@ -1325,6 +1341,20 @@ void App::SaveHudSettings() const
         startWithWindows_ ? L"1" : L"0", path.c_str()) != FALSE && saved;
     if (!saved)
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error, L"Settings save failed");
+}
+
+void App::SaveHudEnabledSetting(bool enabled) const
+{
+    const auto path = HudSettingsPath();
+    if (path.empty()) return;
+    const auto separator = path.find_last_of(L'\\');
+    if (separator != std::wstring::npos)
+        CreateDirectoryW(path.substr(0, separator).c_str(), nullptr);
+    if (!WritePrivateProfileStringW(L"HUD", L"Enabled", enabled ? L"1" : L"0", path.c_str()))
+    {
+        clawhud::RuntimeLogger::Log(
+            clawhud::RuntimeLogLevel::Error, L"Settings save failed key=Enabled");
+    }
 }
 
 bool App::ApplyStartupRegistration() const
