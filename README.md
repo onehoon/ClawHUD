@@ -919,11 +919,13 @@ Meaning of each label:
 |---|---|---|
 | `DX11` / `DX12` / `VULKAN` + FPS | current graphics API label + frame rate | PresentMon / runtime validation path |
 | `CPU` | total CPU usage + live CPU temperature | PresentMon candidate for usage; MSI `Get_Temperature(0)[0]` for temperature |
-| `GPU` | GPU usage + live GPU temperature | PresentMon candidate for usage; MSI `Get_Temperature(0)[1]` for temperature |
+| `GPU` | GPU usage + Intel GPU VRAM usage + live GPU temperature | PDH GPU usage and Intel adapter memory counters; MSI `Get_Temperature(0)[1]` for temperature |
 | `TDP` | **current CPU Package Power**, not the configured PL1/TDP limit | MSI `Get_Data(221)` |
 | `SYS` | battery-side whole-system discharge power | MSI `Get_Data(70/71)` current × `Get_Data(74/75)` voltage |
 | `FAN` | average of the two Claw fan RPM values | MSI `Get_Fan(0)` |
 | `BAT` | battery percentage and, on DC only, estimated remaining time | Windows battery API + smoothed system power |
+
+VRAM reports memory usage of the built-in Intel GPU. External GPU (eGPU) memory is not included.
 
 The user-facing `TDP` label is intentionally concise. Internally the value should retain an accurate name such as `cpuPackagePowerW` so it is not confused with configured PL1/PL2 limits.
 

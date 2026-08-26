@@ -98,6 +98,8 @@ int main()
     checkUnits(L"100 FPS", {{4, 3}}, "FPS unit range");
     checkUnits(L"36% 67\u00B0C", {{2, 1}, {6, 2}}, "percentage and temperature unit ranges");
     checkUnits(L"10.1 W", {{5, 1}}, "power unit range");
+    checkUnits(L"87% VRAM 3.4 GB", {{2, 1}, {13, 2}},
+        "percentage and VRAM unit ranges");
     checkUnits(L"1000 RPM", {{5, 3}}, "fan unit range");
     checkUnits(L"72% 2.5h", {{2, 1}, {7, 1}}, "battery hours unit ranges");
     checkUnits(L"72% 45m", {{2, 1}, {6, 1}}, "battery minutes unit ranges");
@@ -132,6 +134,9 @@ int main()
             width(HudSegmentKind::Tdp, L"10.1 W")), "stable power slot");
         ok &= Check(Near(width(HudSegmentKind::Fan, L"999 RPM"),
             width(HudSegmentKind::Fan, L"1000 RPM")), "stable fan slot");
+        ok &= Check(Near(width(HudSegmentKind::Gpu, L"99% VRAM 3.4 GB"),
+            width(HudSegmentKind::Gpu, L"100% VRAM 99.9 GB")),
+            "stable GPU VRAM slot");
         ok &= Check(width(HudSegmentKind::Fan, L"10000 RPM") > width(HudSegmentKind::Fan, L"999 RPM"),
             "fan overflow expands");
 
