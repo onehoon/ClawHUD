@@ -1,10 +1,12 @@
 #include "PresentMonHudTelemetry.h"
+#include "RuntimeLogger.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
 #include <evntrace.h>
+#include <filesystem>
 #include <utility>
 
 namespace clawhud
@@ -124,11 +126,20 @@ bool PresentMonHudTelemetry::Start(const std::wstring& executable, DWORD process
     Stop();
     if (executable.empty() || !processId)
         return false;
+    if (!std::filesystem::exists(executable))
+    {
+        RuntimeLogger::Log(RuntimeLogLevel::Error, L"PresentMon executable missing");
+        return false;
+    }
 
     SECURITY_ATTRIBUTES security{sizeof(security), nullptr, TRUE};
     HANDLE outputRead{}, outputWrite{};
     if (!CreatePipe(&outputRead, &outputWrite, &security, 0))
+    {
+        RuntimeLogger::Log(RuntimeLogLevel::Error,
+            L"CreatePipe failed error=" + std::to_wstring(GetLastError()));
         return false;
+    }
     SetHandleInformation(outputRead, HANDLE_FLAG_INHERIT, 0);
 
     sessionName_ =
@@ -149,6 +160,8 @@ bool PresentMonHudTelemetry::Start(const std::wstring& executable, DWORD process
     CloseHandle(outputWrite);
     if (!created)
     {
+        RuntimeLogger::Log(RuntimeLogLevel::Error,
+            L"CreateProcess failed error=" + std::to_wstring(GetLastError()));
         CloseHandle(outputRead);
         sessionName_.clear();
         return false;
@@ -248,6 +261,13 @@ void PresentMonHudTelemetry::ReadLoop()
             if (!line.empty())
                 consumeLine(std::move(line));
         }
+    }
+    if (!stop_)
+    {
+        RuntimeLogger::Log(RuntimeLogLevel::Warn, L"PresentMon stdout closed unexpectedly");
+        if (headers.empty())
+            RuntimeLogger::Log(RuntimeLogLevel::Warn,
+                L"PresentMon CSV/header parse unavailable");
     }
     if (!stop_ && callback_)
         callback_(std::nullopt);

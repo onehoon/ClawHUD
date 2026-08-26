@@ -1,4 +1,5 @@
 #include "IntelGraphicsApiProbe.h"
+#include "RuntimeLogger.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -76,7 +77,7 @@ T Resolve(HMODULE module, const char* name)
 
 void Debug(const std::wstring& message)
 {
-    OutputDebugStringW((L"[ClawHUD] " + message + L"\n").c_str());
+    clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info, message);
 }
 
 std::wstring HexMask(std::uint32_t value)

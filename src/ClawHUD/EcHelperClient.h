@@ -39,4 +39,5 @@ private:
     std::wstring pipeName_;
     bool attempted_{};
     bool helperElevated_{};
+    bool runtimeFailureActive_{};
 };
