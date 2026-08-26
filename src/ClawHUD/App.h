@@ -142,6 +142,7 @@ private:
     void CheckForUpdates();
     int ProcessMessages();
     void LoadHudSettings();
+    void SaveHudEnabledSetting(bool enabled) const;
     void SaveHudSettings() const;
     clawhud::HudRenderOptions BuildHudRenderOptions() const;
     bool RecreateHudPresentation(bool restoreVisible);
