@@ -53,6 +53,12 @@ bool ParseDouble(const std::string& text, double& value)
         return false;
     }
 }
+
+void StripTrailingCarriageReturn(std::string& line) noexcept
+{
+    if (!line.empty() && line.back() == '\r')
+        line.pop_back();
+}
 }
 
 VrrCsvSummary ParseVrrCsvText(std::string_view text, std::string_view preferredSwapChain)
@@ -65,6 +71,7 @@ VrrCsvSummary ParseVrrCsvText(std::string_view text, std::string_view preferredS
         result.reason = "CSV is empty";
         return result;
     }
+    StripTrailingCarriageReturn(line);
     if (line.size() >= 3 && static_cast<unsigned char>(line[0]) == 0xEF &&
         static_cast<unsigned char>(line[1]) == 0xBB &&
         static_cast<unsigned char>(line[2]) == 0xBF)
@@ -100,6 +107,7 @@ VrrCsvSummary ParseVrrCsvText(std::string_view text, std::string_view preferredS
     std::map<std::string, std::size_t> swapCounts;
     while (std::getline(input, line))
     {
+        StripTrailingCarriageReturn(line);
         if (line.empty()) continue;
         auto fields = CsvLine(line);
         ++result.rows;

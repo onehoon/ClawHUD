@@ -63,6 +63,14 @@ int main()
     ok &= Expect(std::abs(clawhud::IndependentFlipPercentage(parsed) - 50.0) < 0.01,
         "Independent Flip percentage");
 
+    const std::string crlfCsv =
+        "ProcessID,SwapChainAddress,PresentMode,MsUntilDisplayed,MsBetweenPresents,MsBetweenDisplayChange\r\n"
+        "1,game,Hardware Composed: Independent Flip,1,16.6,16.6\r\n"
+        "1,game,Composed: Flip,1,16.7,16.7\r\n";
+    const auto parsedCrlf = clawhud::ParseVrrCsvText(crlfCsv);
+    ok &= Expect(parsedCrlf.valid && parsedCrlf.modes.size() == 2,
+        "Windows CRLF CSV parsing");
+
     const auto missing = clawhud::ParseVrrCsvText(
         "ProcessID,SwapChainAddress,MsUntilDisplayed,MsBetweenPresents,MsBetweenDisplayChange\n"
         "1,game,1,16.6,16.6\n");
