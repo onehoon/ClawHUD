@@ -1303,6 +1303,12 @@ int App::ProcessMessages()
             delete status;
             continue;
         }
+        if (settings_ && settings_->Window() &&
+            IsWindowVisible(settings_->Window()) &&
+            IsDialogMessageW(settings_->Window(), &message))
+        {
+            continue;
+        }
         TranslateMessage(&message);
         DispatchMessageW(&message);
     }

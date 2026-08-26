@@ -333,7 +333,7 @@ void SettingsWindow::ApplyScrollPosition()
 void SettingsWindow::CreateTabs()
 {
     tabs_ = CreateWindowExW(0, WC_TABCONTROLW, L"",
-        WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS, 0, 0, 0, 0,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_CLIPSIBLINGS, 0, 0, 0, 0,
         window_, nullptr, instance_, nullptr);
     const wchar_t* labels[kTabCount] = { L"Settings", L"Tweaks", L"About", L"Diagnostics" };
     const int tabCount = app_.DiagnosticsTabEnabled() ? kTabCount : kTabCount - 1;
@@ -356,8 +356,9 @@ void SettingsWindow::CreateTabs()
 
 void SettingsWindow::CreateSettingsControls()
 {
-    settingsPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
-        0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    settingsPanel_ = CreateWindowExW(WS_EX_CONTROLPARENT, L"STATIC", L"",
+        WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN, 0, 0, 0, 0,
+        window_, nullptr, instance_, nullptr);
     if (settingsPanel_) SetWindowSubclass(settingsPanel_, ForwardPanelNotifications, 3, 0);
     CreateWindowW(L"STATIC", L"General", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
         settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kGeneralHeading)), instance_, nullptr);
@@ -429,7 +430,8 @@ void SettingsWindow::CreateSettingsControls()
 
 void SettingsWindow::CreateTweaksControls()
 {
-    tweaksPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_CLIPCHILDREN, 0, 0, 0, 0,
+    tweaksPanel_ = CreateWindowExW(WS_EX_CONTROLPARENT, L"STATIC", L"",
+        WS_CHILD | WS_CLIPCHILDREN, 0, 0, 0, 0,
         window_, nullptr, instance_, nullptr);
     if (tweaksPanel_) SetWindowSubclass(tweaksPanel_, ForwardPanelNotifications, 3, 0);
     CreateWindowW(L"STATIC", L"Intel VRR Range Fix", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
@@ -452,7 +454,8 @@ void SettingsWindow::CreateTweaksControls()
 
 void SettingsWindow::CreateAboutControls()
 {
-    aboutPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_CLIPCHILDREN, 0, 0, 0, 0,
+    aboutPanel_ = CreateWindowExW(WS_EX_CONTROLPARENT, L"STATIC", L"",
+        WS_CHILD | WS_CLIPCHILDREN, 0, 0, 0, 0,
         window_, nullptr, instance_, nullptr);
     aboutIcon_ = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_ICON,
         0, 0, 0, 0, aboutPanel_, nullptr, instance_, nullptr);
@@ -474,7 +477,8 @@ void SettingsWindow::CreateAboutControls()
 
 void SettingsWindow::CreateDiagnosticsControls()
 {
-    diagnosticsPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_CLIPCHILDREN, 0, 0, 0, 0,
+    diagnosticsPanel_ = CreateWindowExW(WS_EX_CONTROLPARENT, L"STATIC", L"",
+        WS_CHILD | WS_CLIPCHILDREN, 0, 0, 0, 0,
         window_, nullptr, instance_, nullptr);
     if (diagnosticsPanel_) SetWindowSubclass(diagnosticsPanel_, ForwardPanelNotifications, 2, 0);
     CreateWindowW(L"STATIC", L"VRR / Presentation Test", WS_CHILD | WS_VISIBLE,
@@ -865,7 +869,7 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
     {
         if (wParam == SIZE_MINIMIZED)
         {
-            ShowWindow(window, SW_HIDE);
+            DestroyWindow(window);
             return 0;
         }
         self->Layout();
@@ -873,7 +877,7 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
     }
     if (message == WM_CLOSE)
     {
-        ShowWindow(window, SW_HIDE);
+        DestroyWindow(window);
         return 0;
     }
     if (message == WM_NCDESTROY)
