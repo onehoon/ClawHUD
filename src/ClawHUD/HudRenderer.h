@@ -42,9 +42,29 @@ struct HudRenderGeometry
     D2D1_POINT_2F textOrigin{};
 };
 
+struct HudSegmentMetrics
+{
+    float labelSlotWidth{};
+    float valueSlotWidth{};
+    float segmentWidth{};
+};
+
+struct HudSegmentLayout
+{
+    float labelX{};
+    float valueX{};
+    float segmentWidth{};
+};
+
 float DipFromPhysicalPixels(float pixels, float dpi) noexcept;
 std::vector<HudUnitRange> FindHudUnitRanges(const std::wstring& text);
 float RightAlignedOffset(float reservedWidth, float actualWidth) noexcept;
+HudSegmentLayout CalculateHudSegmentLayout(
+    float segmentStart,
+    const HudSegmentMetrics& metrics,
+    float actualLabelWidth,
+    float actualValueWidth,
+    float segmentGap) noexcept;
 HudRenderGeometry CalculateHudGeometry(
     const D2D1_RECT_F& viewport,
     const HudMeasureResult& measure,
