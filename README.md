@@ -5,6 +5,8 @@
 
 ClawHUD is an experimental, lightweight performance HUD for **Windows 11 + MSI Claw + Intel Arc**.
 
+Build requirements: Windows 11, MSVC (Visual Studio 2026), and the Windows SDK. MinGW is not supported.
+
 The project is intentionally narrow. It is not intended to become a generic overlay framework, hardware-control suite, or multi-device monitoring platform. The goal is a very small gaming add-on that can show useful performance and MSI Claw hardware telemetry while remaining compatible with Intel XeFG, OptiScaler, and VRR.
 
 This README is also an architectural reference for future implementation work. When code, experiments, or agent-generated changes conflict with the constraints below, the constraints in this document should be treated as the default project direction unless a later hardware result explicitly changes them.
