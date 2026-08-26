@@ -65,6 +65,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/IntelGraphicsApiProbe.cpp
     src/ClawHUD/SupportedHardware.cpp
     src/ClawHUD/VrrDiagnostic.cpp
+    src/ClawHUD/VrrDiagnosticAnalysis.cpp
     src/ClawHUD/IntelVrrDiagnosticProbe.cpp
     src/ClawHUD/Tweaks/TweakStartupCoordinator.cpp
     src/ClawHUD/Tweaks/IntelVrr/AffectedPanelDetector.cpp
@@ -78,6 +79,8 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/UninstallCleanup.cpp
     src/ClawHUD/HudRenderer.cpp
     src/ClawHUD/HudPresentation.cpp
+    src/ClawHUD/HudPresentationContract.cpp
+    src/ClawHUD/HudPresentationLifecycle.cpp
     src/ClawHUD/ForegroundTracker.cpp)
 target_compile_features(ClawHUD PRIVATE cxx_std_20)
 target_compile_definitions(ClawHUD PRIVATE
@@ -259,4 +262,29 @@ if(BUILD_TESTING)
     target_link_libraries(ClawHUD.UninstallCleanupTests PRIVATE shell32 ole32)
     set_target_properties(ClawHUD.UninstallCleanupTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.UninstallCleanupTests COMMAND ClawHUD.UninstallCleanupTests)
+
+    add_executable(ClawHUD.VrrDiagnosticAnalysisTests
+        tests/VrrDiagnosticAnalysisTests.cpp
+        src/ClawHUD/VrrDiagnosticAnalysis.cpp)
+    target_compile_features(ClawHUD.VrrDiagnosticAnalysisTests PRIVATE cxx_std_20)
+    target_include_directories(ClawHUD.VrrDiagnosticAnalysisTests PRIVATE src/ClawHUD)
+    set_target_properties(ClawHUD.VrrDiagnosticAnalysisTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.VrrDiagnosticAnalysisTests COMMAND ClawHUD.VrrDiagnosticAnalysisTests)
+
+    add_executable(ClawHUD.HudPresentationContractTests
+        tests/HudPresentationContractTests.cpp
+        src/ClawHUD/HudPresentationContract.cpp)
+    target_compile_features(ClawHUD.HudPresentationContractTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.HudPresentationContractTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.HudPresentationContractTests PRIVATE src/ClawHUD)
+    set_target_properties(ClawHUD.HudPresentationContractTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.HudPresentationContractTests COMMAND ClawHUD.HudPresentationContractTests)
+
+    add_executable(ClawHUD.HudPresentationLifecycleTests
+        tests/HudPresentationLifecycleTests.cpp
+        src/ClawHUD/HudPresentationLifecycle.cpp)
+    target_compile_features(ClawHUD.HudPresentationLifecycleTests PRIVATE cxx_std_20)
+    target_include_directories(ClawHUD.HudPresentationLifecycleTests PRIVATE src/ClawHUD)
+    set_target_properties(ClawHUD.HudPresentationLifecycleTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.HudPresentationLifecycleTests COMMAND ClawHUD.HudPresentationLifecycleTests)
 endif()
