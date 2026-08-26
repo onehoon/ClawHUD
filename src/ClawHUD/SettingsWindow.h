@@ -38,6 +38,7 @@ private:
     void ApplyWindowStyle();
     void RecreateFont();
     void ApplyFont();
+    void ApplyHeadingFont();
     int Scale(int value) const noexcept;
     void ScrollActivePanel(int delta);
     void ApplyScrollPosition();
@@ -89,5 +90,6 @@ private:
     LONG lastPanY_{};
     UINT dpi_{ 96 };
     HFONT uiFont_{};
+    HFONT headingFont_{};
     bool systemBackdropActive_{};
 };
