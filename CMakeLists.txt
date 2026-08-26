@@ -2,7 +2,10 @@ cmake_minimum_required(VERSION 3.25)
 project(ClawHUD LANGUAGES CXX)
 
 if(NOT WIN32)
-    message(FATAL_ERROR "ClawHUD Phase 0 requires Windows")
+    message(FATAL_ERROR "ClawHUD requires Windows")
+endif()
+if(NOT MSVC)
+    message(FATAL_ERROR "ClawHUD requires MSVC and the Windows SDK")
 endif()
 
 set(CLAWHUD_VERSION "0.1.0" CACHE STRING "ClawHUD package and displayed application version")
