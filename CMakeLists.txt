@@ -74,6 +74,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/Tweaks/IntelVrr/IntelVrrResultStore.cpp
     src/ClawHUD/Tweaks/IntelVrr/IntelVrrRunLogger.cpp
     src/ClawHUD/HudModel.cpp
+    src/ClawHUD/HudSize.cpp
     src/ClawHUD/HudRenderer.cpp
     src/ClawHUD/HudPresentation.cpp
     src/ClawHUD/ForegroundTracker.cpp)
@@ -238,4 +239,13 @@ if(BUILD_TESTING)
     target_link_libraries(ClawHUD.SupportedHardwareTests PRIVATE wbemuuid ole32 oleaut32)
     set_target_properties(ClawHUD.SupportedHardwareTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.SupportedHardwareTests COMMAND ClawHUD.SupportedHardwareTests)
+
+    add_executable(ClawHUD.HudSizeTests
+        tests/HudSizeTests.cpp
+        src/ClawHUD/HudSize.cpp)
+    target_compile_features(ClawHUD.HudSizeTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.HudSizeTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.HudSizeTests PRIVATE src/ClawHUD)
+    set_target_properties(ClawHUD.HudSizeTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.HudSizeTests COMMAND ClawHUD.HudSizeTests)
 endif()

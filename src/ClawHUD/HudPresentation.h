@@ -26,6 +26,7 @@ public:
     HRESULT Show();
     HRESULT Hide();
     bool Visible() const noexcept { return visible_; }
+    bool Initialized() const noexcept { return initialized_; }
     void Shutdown() noexcept;
 
 private:

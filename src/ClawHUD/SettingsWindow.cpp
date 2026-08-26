@@ -1,6 +1,7 @@
 #include "SettingsWindow.h"
 
 #include "App.h"
+#include "HudSize.h"
 #include "Version.h"
 #include "resource.h"
 
@@ -29,6 +30,8 @@ constexpr int kIntelVrrToggle = 1301;
 constexpr int kEnableHud = 1207;
 constexpr int kVisibilityAlways = 1208;
 constexpr int kVisibilityInGameOnly = 1209;
+constexpr int kHudSizeMinus = 1210;
+constexpr int kHudSizePlus = 1211;
 
 LRESULT CALLBACK ForwardPanelNotifications(HWND window, UINT message, WPARAM wParam,
     LPARAM lParam, UINT_PTR subclassId, DWORD_PTR)
@@ -132,6 +135,14 @@ void SettingsWindow::CreateTabs()
     SendMessageW(opacitySlider_, TBM_SETRANGE, TRUE, MAKELONG(0, 100));
     opacityLabel_ = CreateWindowW(L"STATIC", L"50%", WS_CHILD | WS_VISIBLE,
         310, 272, 60, 22, hudPanel_, nullptr, instance_, nullptr);
+    CreateWindowW(L"STATIC", L"HUD Size", WS_CHILD | WS_VISIBLE,
+        0, 314, 160, 22, hudPanel_, nullptr, instance_, nullptr);
+    hudSizeMinus_ = CreateWindowW(L"BUTTON", L"-", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+        0, 342, 44, 28, hudPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kHudSizeMinus)), instance_, nullptr);
+    hudSizeValue_ = CreateWindowW(L"STATIC", L"Default", WS_CHILD | WS_VISIBLE | SS_CENTER,
+        52, 346, 72, 22, hudPanel_, nullptr, instance_, nullptr);
+    hudSizePlus_ = CreateWindowW(L"BUTTON", L"+", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+        132, 342, 44, 28, hudPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kHudSizePlus)), instance_, nullptr);
     tweaksPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD, 24, 52, 940, 580, window_, nullptr, instance_, nullptr);
     if (tweaksPanel_) SetWindowSubclass(tweaksPanel_, ForwardPanelNotifications, 3, 0);
     CreateWindowW(L"STATIC", L"Intel VRR Range Fix", WS_CHILD | WS_VISIBLE, 0, 0, 300, 24, tweaksPanel_, nullptr, instance_, nullptr);
@@ -207,6 +218,17 @@ void SettingsWindow::UpdateHudControls()
         swprintf_s(text, L"%d%%", percent);
         SetWindowTextW(opacityLabel_, text);
     }
+    const int size = app_.HudSizeOffset();
+    if (hudSizeValue_)
+    {
+        const wchar_t* text = size == 0 ? L"Default" :
+            size > 0 ? (size == 1 ? L"+1" : L"+2") :
+            (size == -1 ? L"-1" : L"-2");
+        SetWindowTextW(hudSizeValue_, text);
+    }
+    const bool sizeChangeEnabled = !app_.VrrDiagnosticRunning();
+    if (hudSizeMinus_) EnableWindow(hudSizeMinus_, sizeChangeEnabled && size > clawhud::kMinHudSizeOffset);
+    if (hudSizePlus_) EnableWindow(hudSizePlus_, sizeChangeEnabled && size < clawhud::kMaxHudSizeOffset);
 }
 
 void SettingsWindow::UpdateTweaksControls()
@@ -296,6 +318,14 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
         case kAlignmentRight: self->app_.SetHudAlignment(clawhud::HudAlignment::Right); return 0;
         case kBackgroundFull: self->app_.SetHudBackgroundMode(clawhud::HudBackgroundMode::FullWidth); return 0;
         case kBackgroundContent: self->app_.SetHudBackgroundMode(clawhud::HudBackgroundMode::ContentWidth); return 0;
+        case kHudSizeMinus:
+            self->app_.SetHudSizeOffset(self->app_.HudSizeOffset() - 1);
+            self->UpdateHudControls();
+            return 0;
+        case kHudSizePlus:
+            self->app_.SetHudSizeOffset(self->app_.HudSizeOffset() + 1);
+            self->UpdateHudControls();
+            return 0;
         case kIntelVrrToggle: self->app_.SetIntelVrrRangeFixEnabled(SendMessageW(self->intelVrrToggle_, BM_GETCHECK, 0, 0) == BST_CHECKED); return 0;
         default: break;
         }
