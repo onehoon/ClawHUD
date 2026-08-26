@@ -239,6 +239,12 @@ void App::OpenDiagnosticLogFolder() { if (ecDiagnostic_) ecDiagnostic_->OpenLogF
 bool App::StartVrrDiagnostic()
 {
     if (!vrrDiagnostic_ || EcDiagnosticRunning()) return false;
+    if (!VrrDiagnosticCanWaitForF8(hudHotkeyRegistered_))
+    {
+        vrrStatus_ = L"F8 unavailable";
+        Log(L"VRR diagnostic start failed: global F8 hotkey is not registered");
+        return false;
+    }
     StopProductionEcSampling();
     StopGraphicsApiProbe();
     if (!vrrDiagnostic_->Start())
@@ -249,7 +255,7 @@ bool App::StartVrrDiagnostic()
             StartGraphicsApiProbe(processId);
         return false;
     }
-    vrrStatus_ = L"Waiting for game";
+    vrrStatus_ = L"Waiting for F8";
     if (settings_) settings_->RequestClose();
     return true;
 }
@@ -820,6 +826,12 @@ bool App::IsHudAlwaysVisible() const noexcept
 
 void App::HandleHudToggleHotkey()
 {
+    if (vrrDiagnostic_ && vrrDiagnostic_->WaitingForTrigger())
+    {
+        if (vrrDiagnostic_->TriggerFromForeground())
+            Log(L"VRR diagnostic triggered by F8");
+        return;
+    }
     if (VrrDiagnosticRunning())
     {
         Log(L"F8 ignored while VRR diagnostic is running");

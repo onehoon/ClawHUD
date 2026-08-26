@@ -18,5 +18,13 @@ int main()
     ok &= Check(!DiagnosticHudModeUsesPeriodicUpdates(DiagnosticHudMode::Off), "OFF stops periodic updates");
     ok &= Check(!DiagnosticHudModeUsesPeriodicUpdates(DiagnosticHudMode::Static), "STATIC stops periodic updates");
     ok &= Check(DiagnosticHudModeUsesPeriodicUpdates(DiagnosticHudMode::Dynamic), "DYNAMIC enables periodic updates");
+    ok &= Check(VrrDiagnosticStopReportsCancellation(VrrDiagnosticState::WaitingForTrigger),
+        "waiting-for-trigger stop reports cancellation");
+    ok &= Check(!VrrDiagnosticStopReportsCancellation(VrrDiagnosticState::Running),
+        "running stop uses phase cancellation status");
+    ok &= Check(!VrrDiagnosticCanWaitForF8(false),
+        "VRR diagnostic does not wait when F8 is unavailable");
+    ok &= Check(VrrDiagnosticCanWaitForF8(true),
+        "VRR diagnostic waits when F8 is registered");
     return ok ? 0 : 1;
 }
