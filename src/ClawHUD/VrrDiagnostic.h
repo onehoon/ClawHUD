@@ -39,6 +39,11 @@ constexpr bool VrrDiagnosticStopReportsCancellation(VrrDiagnosticState state) no
     return state == VrrDiagnosticState::WaitingForTrigger;
 }
 
+constexpr bool VrrDiagnosticCanWaitForF8(bool hotkeyRegistered) noexcept
+{
+    return hotkeyRegistered;
+}
+
 constexpr bool DiagnosticHudModeUsesPeriodicUpdates(DiagnosticHudMode mode) noexcept
 {
     return mode == DiagnosticHudMode::Dynamic;

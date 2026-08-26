@@ -239,6 +239,12 @@ void App::OpenDiagnosticLogFolder() { if (ecDiagnostic_) ecDiagnostic_->OpenLogF
 bool App::StartVrrDiagnostic()
 {
     if (!vrrDiagnostic_ || EcDiagnosticRunning()) return false;
+    if (!VrrDiagnosticCanWaitForF8(hudHotkeyRegistered_))
+    {
+        vrrStatus_ = L"F8 unavailable";
+        Log(L"VRR diagnostic start failed: global F8 hotkey is not registered");
+        return false;
+    }
     StopProductionEcSampling();
     StopGraphicsApiProbe();
     if (!vrrDiagnostic_->Start())

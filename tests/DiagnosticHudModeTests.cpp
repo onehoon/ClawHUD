@@ -22,5 +22,9 @@ int main()
         "waiting-for-trigger stop reports cancellation");
     ok &= Check(!VrrDiagnosticStopReportsCancellation(VrrDiagnosticState::Running),
         "running stop uses phase cancellation status");
+    ok &= Check(!VrrDiagnosticCanWaitForF8(false),
+        "VRR diagnostic does not wait when F8 is unavailable");
+    ok &= Check(VrrDiagnosticCanWaitForF8(true),
+        "VRR diagnostic waits when F8 is registered");
     return ok ? 0 : 1;
 }
