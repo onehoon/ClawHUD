@@ -353,7 +353,17 @@ void App::SetHudAlignment(clawhud::HudAlignment alignment)
         return;
     hudOptions_.alignment = alignment;
     SaveHudSettings();
-    RefreshMockHud();
+    if (hudOptions_.backgroundMode == clawhud::HudBackgroundMode::ContentWidth)
+    {
+        const bool restoreVisible = hudPresentation_ &&
+            hudPresentation_->Initialized() && hudPresentation_->Visible();
+        if (!RecreateHudPresentation(restoreVisible))
+            Log(L"HUD alignment presentation recreation failed");
+    }
+    else
+    {
+        RefreshMockHud();
+    }
 }
 
 void App::SetHudBackgroundMode(clawhud::HudBackgroundMode mode)
@@ -367,7 +377,10 @@ void App::SetHudBackgroundMode(clawhud::HudBackgroundMode mode)
         return;
     hudOptions_.backgroundMode = mode;
     SaveHudSettings();
-    RefreshMockHud();
+    const bool restoreVisible = hudPresentation_ &&
+        hudPresentation_->Initialized() && hudPresentation_->Visible();
+    if (!RecreateHudPresentation(restoreVisible))
+        Log(L"HUD background mode presentation recreation failed");
 }
 
 void App::SetHudBackgroundOpacity(float opacity, bool persist)
@@ -403,12 +416,12 @@ void App::SetHudSizeOffset(int offset)
     const bool restoreVisible = hudPresentation_ &&
         hudPresentation_->Initialized() && hudPresentation_->Visible();
     hudSizeOffset_ = offset;
-    const bool recreated = RecreateHudPresentationForSize(restoreVisible);
+    const bool recreated = RecreateHudPresentation(restoreVisible);
     hudSizeOffset_ = clawhud::CommitHudSizeOffsetAfterRecreation(
         previousOffset, offset, recreated);
     if (!recreated)
     {
-        RecreateHudPresentationForSize(restoreVisible);
+        RecreateHudPresentation(restoreVisible);
         Log(L"HUD size change rolled back after presentation recreation failure");
         return;
     }
@@ -421,7 +434,7 @@ clawhud::HudRenderOptions App::BuildHudRenderOptions() const
     return clawhud::BuildHudRenderOptionsForSize(hudSizeOffset_, hudOptions_);
 }
 
-bool App::RecreateHudPresentationForSize(bool restoreVisible)
+bool App::RecreateHudPresentation(bool restoreVisible)
 {
     if (!hudPresentation_)
         return true;
@@ -435,7 +448,7 @@ bool App::RecreateHudPresentationForSize(bool restoreVisible)
     HRESULT hr = hudPresentation_->Initialize(instance_, options);
     if (FAILED(hr))
     {
-        Log(L"HUD size presentation recreation failed");
+        Log(L"HUD presentation recreation failed");
         return false;
     }
     if (mockHudEnabled_)

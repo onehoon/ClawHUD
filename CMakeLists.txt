@@ -80,6 +80,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/UninstallCleanup.cpp
     src/ClawHUD/HudRenderer.cpp
     src/ClawHUD/HudPresentation.cpp
+    src/ClawHUD/HudWindowGeometry.cpp
     src/ClawHUD/HudPresentationContract.cpp
     src/ClawHUD/HudPresentationLifecycle.cpp
     src/ClawHUD/ForegroundTracker.cpp)
@@ -154,6 +155,7 @@ if(BUILD_TESTING)
     add_executable(ClawHUD.HudRendererTests
         tests/HudRendererTests.cpp
         src/ClawHUD/HudRenderer.cpp
+        src/ClawHUD/HudWindowGeometry.cpp
         src/ClawHUD/HudModel.cpp)
     target_compile_features(ClawHUD.HudRendererTests PRIVATE cxx_std_20)
     target_compile_definitions(ClawHUD.HudRendererTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)

@@ -2,6 +2,7 @@
 
 #include "HudPresentationContract.h"
 #include "HudRenderer.h"
+#include "HudWindowGeometry.h"
 
 #include <windows.h>
 #include <d2d1_1.h>
@@ -60,6 +61,7 @@ private:
     bool visible_{};
     bool initialized_{};
     bool displayChangePending_{};
+    HudRenderOptions initializationOptions_{};
 
     Microsoft::WRL::ComPtr<ID3D11Device> device_;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> deviceContext_;

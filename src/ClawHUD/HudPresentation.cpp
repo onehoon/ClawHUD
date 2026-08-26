@@ -31,6 +31,7 @@ HRESULT HudPresentation::Initialize(HINSTANCE instance, const HudRenderOptions& 
         return E_INVALIDARG;
 
     instance_ = instance;
+    initializationOptions_ = options;
     barPixelHeight_ = options.barPixelHeight;
     MONITORINFO monitor{ sizeof(monitor) };
     if (!GetMonitorInfoW(MonitorFromPoint(POINT{ 0, 0 }, MONITOR_DEFAULTTOPRIMARY), &monitor))
@@ -46,7 +47,33 @@ HRESULT HudPresentation::Initialize(HINSTANCE instance, const HudRenderOptions& 
     if (FAILED(hr)) { Shutdown(); return hr; }
     dpi_ = static_cast<float>(GetDpiForWindow(window_));
     if (dpi_ <= 0.0f) dpi_ = 96.0f;
+    initializationOptions_.dpi = dpi_;
     if (FAILED(hr = CreateGraphics())) { Shutdown(); return hr; }
+    if (options.layout.backgroundMode == HudBackgroundMode::ContentWidth)
+    {
+        float reservedWidthDip{};
+        if (FAILED(hr = renderer_->MeasureReservedHudWidth(
+            initializationOptions_, reservedWidthDip)))
+        {
+            Shutdown();
+            return hr;
+        }
+        const UINT reservedWidthPx = static_cast<UINT>(std::ceil(
+            reservedWidthDip * dpi_ / 96.0f));
+        const auto geometry = CalculateHudWindowGeometry(
+            monitor.rcMonitor, options.layout.backgroundMode,
+            options.layout.alignment, reservedWidthPx);
+        xPx_ = geometry.xPx;
+        yPx_ = geometry.yPx;
+        widthPx_ = geometry.widthPx;
+    }
+    if (!SetWindowPos(window_, HWND_TOPMOST, xPx_, yPx_,
+        static_cast<int>(widthPx_), static_cast<int>(heightPx_),
+        SWP_NOACTIVATE | SWP_NOOWNERZORDER))
+    {
+        Shutdown();
+        return LastErrorResult();
+    }
     if (FAILED(hr = CreatePresentationSurface())) { Shutdown(); return hr; }
     if (FAILED(hr = CreateBitmapTargets())) { Shutdown(); return hr; }
     displayChangePending_ = false;
@@ -205,9 +232,7 @@ HRESULT HudPresentation::RefreshDisplayIfNeeded()
     displayChangePending_ = false;
     const HINSTANCE instance = instance_;
     Shutdown();
-    HudRenderOptions options{};
-    options.barPixelHeight = barPixelHeight_;
-    HRESULT hr = Initialize(instance, options);
+    HRESULT hr = Initialize(instance, initializationOptions_);
     if (FAILED(hr) || !refreshPlan.restoreVisibility)
         return hr;
     hr = CommitVisibility(true);

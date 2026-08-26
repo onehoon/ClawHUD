@@ -313,9 +313,6 @@ HudRenderGeometry CalculateHudGeometry(const D2D1_RECT_F& viewport,
         D2D1::RectF(viewport.left, viewport.top, viewport.right,
             std::min(viewport.bottom, viewport.top + barHeight)),
         D2D1::Point2F(contentX + padding, textY)};
-    if (options.layout.backgroundMode == HudBackgroundMode::ContentWidth)
-        geometry.background = D2D1::RectF(contentX, viewport.top,
-            contentX + contentWidth, std::min(viewport.bottom, viewport.top + barHeight));
     return geometry;
 }
 
@@ -348,6 +345,25 @@ HRESULT HudRenderer::Measure(const std::vector<HudTextRun>& runs,
             result.contentWidth += SeparatorGap(options) * 2.0f + Width(separator.Get());
     }
     return S_OK;
+}
+
+HRESULT HudRenderer::MeasureReservedHudWidth(
+    const HudRenderOptions& options, float& width) const
+{
+    const std::vector<HudTextRun> reservedRuns{
+        { HudSegmentKind::Graphics, L"Vulkan", L"999 FPS" },
+        { HudSegmentKind::Cpu, L"CPU", L"100% 100\u00B0C" },
+        { HudSegmentKind::Gpu, L"GPU", L"100% VRAM 99.9 GB" },
+        { HudSegmentKind::Tdp, L"TDP", L"99.9 W" },
+        { HudSegmentKind::SystemPower, L"SYS", L"99.9 W" },
+        { HudSegmentKind::Fan, L"FAN", L"9999 RPM" },
+        { HudSegmentKind::Battery, L"BAT", L"100% 9.9h" },
+    };
+    HudMeasureResult result{};
+    const HRESULT hr = Measure(reservedRuns, options, result);
+    if (SUCCEEDED(hr))
+        width = result.contentWidth;
+    return hr;
 }
 
 HRESULT HudRenderer::Draw(ID2D1DeviceContext* context,

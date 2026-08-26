@@ -60,6 +60,10 @@ public:
         const HudRenderOptions& options,
         HudMeasureResult& result) const;
 
+    HRESULT MeasureReservedHudWidth(
+        const HudRenderOptions& options,
+        float& width) const;
+
     HRESULT Draw(
         ID2D1DeviceContext* context,
         const std::vector<HudTextRun>& runs,
