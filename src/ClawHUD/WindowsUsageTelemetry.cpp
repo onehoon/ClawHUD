@@ -28,14 +28,15 @@ std::wstring LuidToken(const LUID& luid, bool highFirst)
     return output.str();
 }
 
-std::wstring ShortLuidToken(const LUID& luid, bool lowFirst)
+std::wstring ShortLuidToken(const LUID& luid, bool lowFirst, bool highWord)
 {
     std::wostringstream output;
     output << L"luid_0x" << std::hex << std::setfill(L'0') << std::setw(8)
         << (lowFirst ? luid.LowPart : static_cast<std::uint32_t>(luid.HighPart))
         << L"_0x" << std::setw(4)
-        << (lowFirst ? static_cast<std::uint16_t>(luid.HighPart)
-                     : static_cast<std::uint16_t>(luid.LowPart));
+        << (lowFirst
+            ? static_cast<std::uint16_t>(highWord ? luid.HighPart >> 16 : luid.HighPart)
+            : static_cast<std::uint16_t>(highWord ? luid.LowPart >> 16 : luid.LowPart));
     return output.str();
 }
 
@@ -105,12 +106,16 @@ bool IsIntelGpuMemoryCounterInstance(std::wstring_view instance,
 {
     const auto highFirst = LuidToken(adapterLuid, true);
     const auto lowFirst = LuidToken(adapterLuid, false);
-    const auto lowFirstShort = ShortLuidToken(adapterLuid, true);
-    const auto highFirstShort = ShortLuidToken(adapterLuid, false);
+    const auto lowFirstShort = ShortLuidToken(adapterLuid, true, false);
+    const auto lowFirstShortHighWord = ShortLuidToken(adapterLuid, true, true);
+    const auto highFirstShort = ShortLuidToken(adapterLuid, false, false);
+    const auto highFirstShortHighWord = ShortLuidToken(adapterLuid, false, true);
     return instance.find(highFirst) != std::wstring_view::npos ||
         instance.find(lowFirst) != std::wstring_view::npos ||
         instance.find(lowFirstShort) != std::wstring_view::npos ||
-        instance.find(highFirstShort) != std::wstring_view::npos;
+        instance.find(lowFirstShortHighWord) != std::wstring_view::npos ||
+        instance.find(highFirstShort) != std::wstring_view::npos ||
+        instance.find(highFirstShortHighWord) != std::wstring_view::npos;
 }
 
 std::optional<std::uint64_t> CombineGpuMemoryBytes(
