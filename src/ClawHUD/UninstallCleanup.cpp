@@ -7,7 +7,6 @@
 namespace
 {
 constexpr wchar_t kStartupShortcutName[] = L"ClawHUD.lnk";
-constexpr wchar_t kUserDataDirectoryName[] = L"ClawHUD";
 
 std::filesystem::path KnownFolderPath(REFKNOWNFOLDERID folderId)
 {
@@ -36,29 +35,6 @@ void RemoveStartupShortcut(const std::filesystem::path& startupDirectory) noexce
     }
 }
 
-void RemoveUserData(const std::filesystem::path& localAppDataDirectory) noexcept
-{
-    try
-    {
-        if (localAppDataDirectory.empty())
-            return;
-
-        std::error_code ec;
-        std::filesystem::remove_all(
-            localAppDataDirectory / kUserDataDirectoryName, ec);
-    }
-    catch (...)
-    {
-    }
-}
-
-void CleanupForUninstallAtPaths(
-    const std::filesystem::path& startupDirectory,
-    const std::filesystem::path& localAppDataDirectory) noexcept
-{
-    RemoveStartupShortcut(startupDirectory);
-    RemoveUserData(localAppDataDirectory);
-}
 }
 
 namespace clawhud
@@ -81,23 +57,14 @@ void CleanupForUninstall() noexcept
     catch (...)
     {
     }
-
-    try
-    {
-        RemoveUserData(KnownFolderPath(FOLDERID_LocalAppData));
-    }
-    catch (...)
-    {
-    }
 }
 
 namespace testing
 {
 void CleanupForUninstall(
-    const std::filesystem::path& startupDirectory,
-    const std::filesystem::path& localAppDataDirectory) noexcept
+    const std::filesystem::path& startupDirectory) noexcept
 {
-    CleanupForUninstallAtPaths(startupDirectory, localAppDataDirectory);
+    RemoveStartupShortcut(startupDirectory);
 }
 }
 }

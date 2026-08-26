@@ -10,7 +10,6 @@ void CleanupForUninstall() noexcept;
 namespace testing
 {
 void CleanupForUninstall(
-    const std::filesystem::path& startupDirectory,
-    const std::filesystem::path& localAppDataDirectory) noexcept;
+    const std::filesystem::path& startupDirectory) noexcept;
 }
 }
