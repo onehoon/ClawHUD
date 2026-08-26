@@ -39,6 +39,13 @@ private:
     void RecreateFont();
     void ApplyFont();
     int Scale(int value) const noexcept;
+    void ScrollActivePanel(int delta);
+    void ApplyScrollPosition();
+    void ClampScrollOffsets();
+    int ActiveTab() const noexcept;
+    int ContentHeightForTab(int tab) const noexcept;
+    int ViewportHeight() const noexcept;
+    int& ScrollOffsetForTab(int tab) noexcept;
 
     App& app_;
     HINSTANCE instance_{};
@@ -73,6 +80,13 @@ private:
     HWND vrrStatus_{};
     HWND aboutPanel_{};
     HWND aboutIcon_{};
+    int settingsScrollY_{};
+    int tweaksScrollY_{};
+    int aboutScrollY_{};
+    int diagnosticsScrollY_{};
+    int wheelRemainder_{};
+    bool panActive_{};
+    LONG lastPanY_{};
     UINT dpi_{ 96 };
     HFONT uiFont_{};
     bool systemBackdropActive_{};

@@ -7,6 +7,7 @@
 
 #include <commctrl.h>
 #include <dwmapi.h>
+#include <windowsx.h>
 
 #include <algorithm>
 
@@ -53,11 +54,14 @@ constexpr int kAboutDescription = 2302;
 constexpr int kAboutVersion = 2303;
 constexpr int kAboutHowToUse = 2304;
 constexpr int kAboutInstructions = 2305;
+constexpr int kWheelStep = 48;
 
 LRESULT CALLBACK ForwardPanelNotifications(HWND window, UINT message, WPARAM wParam,
     LPARAM lParam, UINT_PTR subclassId, DWORD_PTR)
 {
     if (message == WM_COMMAND || message == WM_HSCROLL)
+        return SendMessageW(GetParent(window), message, wParam, lParam);
+    if (message == WM_MOUSEWHEEL)
         return SendMessageW(GetParent(window), message, wParam, lParam);
     if (message == WM_NCDESTROY)
         RemoveWindowSubclass(window, ForwardPanelNotifications, subclassId);
@@ -68,6 +72,12 @@ void MoveControl(HWND parent, int id, int x, int y, int width, int height)
 {
     if (HWND control = GetDlgItem(parent, id))
         MoveWindow(control, x, y, width, height, TRUE);
+}
+
+void EnableMouseWheelForwarding(HWND control)
+{
+    if (control)
+        SetWindowSubclass(control, ForwardPanelNotifications, 4, 0);
 }
 }
 
@@ -106,6 +116,13 @@ bool SettingsWindow::Show(HINSTANCE instance)
         dpi_ = GetDpiForWindow(window_);
         if (dpi_ == 0) dpi_ = 96;
         ApplyWindowStyle();
+        GESTURECONFIG config{};
+        config.dwID = GID_PAN;
+        config.dwWant = GC_PAN |
+            GC_PAN_WITH_SINGLE_FINGER_VERTICALLY |
+            GC_PAN_WITH_INERTIA;
+        config.dwBlock = GC_PAN_WITH_SINGLE_FINGER_HORIZONTALLY;
+        SetGestureConfig(window_, 0, 1, &config, sizeof(config));
         CreateTabs();
         RecreateFont();
         ApplyFont();
@@ -160,6 +177,74 @@ int SettingsWindow::Scale(int value) const noexcept
     return MulDiv(value, static_cast<int>(dpi_), 96);
 }
 
+int SettingsWindow::ActiveTab() const noexcept
+{
+    const int tab = tabs_ ? TabCtrl_GetCurSel(tabs_) : kTabSettings;
+    return tab >= kTabSettings && tab <= kTabDiagnostics ? tab : kTabSettings;
+}
+
+int SettingsWindow::ContentHeightForTab(int tab) const noexcept
+{
+    switch (tab)
+    {
+    case kTabSettings: return 360;
+    case kTabTweaks: return 190;
+    case kTabAbout: return 250;
+    case kTabDiagnostics: return 300;
+    default: return 0;
+    }
+}
+
+int SettingsWindow::ViewportHeight() const noexcept
+{
+    if (!window_) return 0;
+    RECT client{};
+    GetClientRect(window_, &client);
+    const int physicalHeight = std::max(0,
+        static_cast<int>(client.bottom) - Scale(64));
+    return MulDiv(physicalHeight, 96, static_cast<int>(dpi_));
+}
+
+int& SettingsWindow::ScrollOffsetForTab(int tab) noexcept
+{
+    switch (tab)
+    {
+    case kTabTweaks: return tweaksScrollY_;
+    case kTabAbout: return aboutScrollY_;
+    case kTabDiagnostics: return diagnosticsScrollY_;
+    case kTabSettings:
+    default: return settingsScrollY_;
+    }
+}
+
+void SettingsWindow::ClampScrollOffsets()
+{
+    for (int tab = kTabSettings; tab <= kTabDiagnostics; ++tab)
+    {
+        int& offset = ScrollOffsetForTab(tab);
+        const int maxScroll = std::max(0,
+            ContentHeightForTab(tab) - ViewportHeight());
+        offset = std::clamp(offset, 0, maxScroll);
+    }
+}
+
+void SettingsWindow::ScrollActivePanel(int delta)
+{
+    if (delta == 0) return;
+    int& offset = ScrollOffsetForTab(ActiveTab());
+    offset += delta;
+    ClampScrollOffsets();
+    ApplyScrollPosition();
+}
+
+void SettingsWindow::ApplyScrollPosition()
+{
+    LayoutSettings();
+    LayoutTweaks();
+    LayoutAbout();
+    LayoutDiagnostics();
+}
+
 void SettingsWindow::CreateTabs()
 {
     tabs_ = CreateWindowExW(0, WC_TABCONTROLW, L"",
@@ -184,7 +269,7 @@ void SettingsWindow::CreateTabs()
 
 void SettingsWindow::CreateSettingsControls()
 {
-    settingsPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE,
+    settingsPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
         0, 0, 0, 0, window_, nullptr, instance_, nullptr);
     if (settingsPanel_) SetWindowSubclass(settingsPanel_, ForwardPanelNotifications, 3, 0);
     CreateWindowW(L"STATIC", L"General", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
@@ -240,11 +325,23 @@ void SettingsWindow::CreateSettingsControls()
     SendMessageW(opacitySlider_, TBM_SETRANGE, TRUE, MAKELONG(0, 100));
     opacityLabel_ = CreateWindowW(L"STATIC", L"50%", WS_CHILD | WS_VISIBLE,
         0, 0, 0, 0, settingsPanel_, nullptr, instance_, nullptr);
+    EnableMouseWheelForwarding(startWithWindows_);
+    EnableMouseWheelForwarding(enableHud_);
+    EnableMouseWheelForwarding(visibilityInGameOnly_);
+    EnableMouseWheelForwarding(visibilityAlways_);
+    EnableMouseWheelForwarding(hudSizeMinus_);
+    EnableMouseWheelForwarding(hudSizePlus_);
+    EnableMouseWheelForwarding(alignmentLeft_);
+    EnableMouseWheelForwarding(alignmentCenter_);
+    EnableMouseWheelForwarding(alignmentRight_);
+    EnableMouseWheelForwarding(backgroundFull_);
+    EnableMouseWheelForwarding(backgroundContent_);
+    EnableMouseWheelForwarding(opacitySlider_);
 }
 
 void SettingsWindow::CreateTweaksControls()
 {
-    tweaksPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD, 0, 0, 0, 0,
+    tweaksPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_CLIPCHILDREN, 0, 0, 0, 0,
         window_, nullptr, instance_, nullptr);
     if (tweaksPanel_) SetWindowSubclass(tweaksPanel_, ForwardPanelNotifications, 3, 0);
     CreateWindowW(L"STATIC", L"Intel VRR Range Fix", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
@@ -261,11 +358,12 @@ void SettingsWindow::CreateTweaksControls()
         0, 0, 0, 0, tweaksPanel_, nullptr, instance_, nullptr);
     intelVrrResult_ = CreateWindowW(L"STATIC", L"Last result: No result yet", WS_CHILD | WS_VISIBLE,
         0, 0, 0, 0, tweaksPanel_, nullptr, instance_, nullptr);
+    EnableMouseWheelForwarding(intelVrrToggle_);
 }
 
 void SettingsWindow::CreateAboutControls()
 {
-    aboutPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD, 0, 0, 0, 0,
+    aboutPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_CLIPCHILDREN, 0, 0, 0, 0,
         window_, nullptr, instance_, nullptr);
     aboutIcon_ = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_ICON,
         0, 0, 0, 0, aboutPanel_, nullptr, instance_, nullptr);
@@ -286,7 +384,7 @@ void SettingsWindow::CreateAboutControls()
 
 void SettingsWindow::CreateDiagnosticsControls()
 {
-    diagnosticsPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD, 0, 0, 0, 0,
+    diagnosticsPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_CLIPCHILDREN, 0, 0, 0, 0,
         window_, nullptr, instance_, nullptr);
     if (diagnosticsPanel_) SetWindowSubclass(diagnosticsPanel_, ForwardPanelNotifications, 2, 0);
     CreateWindowW(L"STATIC", L"VRR / Presentation Test", WS_CHILD | WS_VISIBLE,
@@ -314,6 +412,10 @@ void SettingsWindow::CreateDiagnosticsControls()
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOpenLogs)), instance_, nullptr);
     diagnosticStatus_ = CreateWindowW(L"STATIC", L"Status: Idle", WS_CHILD | WS_VISIBLE,
         0, 0, 0, 0, diagnosticsPanel_, nullptr, instance_, nullptr);
+    EnableMouseWheelForwarding(startVrrButton_);
+    EnableMouseWheelForwarding(stopVrrButton_);
+    EnableMouseWheelForwarding(startEcButton_);
+    EnableMouseWheelForwarding(openLogsButton_);
 }
 
 void SettingsWindow::Layout()
@@ -333,10 +435,8 @@ void SettingsWindow::Layout()
     MoveWindow(tweaksPanel_, panelX, panelY, panelWidth, panelHeight, TRUE);
     MoveWindow(aboutPanel_, panelX, panelY, panelWidth, panelHeight, TRUE);
     MoveWindow(diagnosticsPanel_, panelX, panelY, panelWidth, panelHeight, TRUE);
-    LayoutSettings();
-    LayoutTweaks();
-    LayoutAbout();
-    LayoutDiagnostics();
+    ClampScrollOffsets();
+    ApplyScrollPosition();
 }
 
 void SettingsWindow::LayoutSettings()
@@ -348,27 +448,28 @@ void SettingsWindow::LayoutSettings()
     const int labelHeight = Scale(28);
     const int checkboxHeight = Scale(30);
     const int optionHeight = Scale(32);
-    MoveControl(settingsPanel_, kGeneralHeading, labelX, Scale(8), labelWidth, labelHeight);
-    MoveWindow(startWithWindows_, labelX, Scale(40), Scale(260), checkboxHeight, TRUE);
-    MoveControl(settingsPanel_, kHudHeading, labelX, Scale(86), labelWidth, labelHeight);
-    MoveWindow(enableHud_, controlX, Scale(118), Scale(220), checkboxHeight, TRUE);
-    MoveControl(settingsPanel_, kVisibilityLabel, labelX, Scale(154), labelWidth, labelHeight);
-    MoveWindow(visibilityInGameOnly_, controlX, Scale(150), Scale(130), optionHeight, TRUE);
-    MoveWindow(visibilityAlways_, controlX + Scale(138), Scale(150), Scale(100), optionHeight, TRUE);
-    MoveControl(settingsPanel_, kHudSizeLabel, labelX, Scale(190), labelWidth, labelHeight);
-    MoveWindow(hudSizeMinus_, controlX, Scale(186), Scale(44), optionHeight, TRUE);
-    MoveWindow(hudSizeValue_, controlX + Scale(52), Scale(190), Scale(72), labelHeight, TRUE);
-    MoveWindow(hudSizePlus_, controlX + Scale(132), Scale(186), Scale(44), optionHeight, TRUE);
-    MoveControl(settingsPanel_, kAlignmentLabel, labelX, Scale(226), labelWidth, labelHeight);
-    MoveWindow(alignmentLeft_, controlX, Scale(222), Scale(90), optionHeight, TRUE);
-    MoveWindow(alignmentCenter_, controlX + Scale(98), Scale(222), Scale(90), optionHeight, TRUE);
-    MoveWindow(alignmentRight_, controlX + Scale(196), Scale(222), Scale(90), optionHeight, TRUE);
-    MoveControl(settingsPanel_, kBackgroundWidthLabel, labelX, Scale(262), labelWidth, labelHeight);
-    MoveWindow(backgroundFull_, controlX, Scale(258), Scale(110), optionHeight, TRUE);
-    MoveWindow(backgroundContent_, controlX + Scale(120), Scale(258), Scale(130), optionHeight, TRUE);
-    MoveControl(settingsPanel_, kOpacityLabel, labelX, Scale(298), labelWidth, labelHeight);
-    MoveWindow(opacitySlider_, controlX, Scale(294), Scale(260), optionHeight, TRUE);
-    MoveWindow(opacityLabel_, controlX + Scale(270), Scale(298), Scale(60), labelHeight, TRUE);
+    const int scrollY = Scale(settingsScrollY_);
+    MoveControl(settingsPanel_, kGeneralHeading, labelX, Scale(8) - scrollY, labelWidth, labelHeight);
+    MoveWindow(startWithWindows_, labelX, Scale(40) - scrollY, Scale(260), checkboxHeight, TRUE);
+    MoveControl(settingsPanel_, kHudHeading, labelX, Scale(86) - scrollY, labelWidth, labelHeight);
+    MoveWindow(enableHud_, controlX, Scale(118) - scrollY, Scale(220), checkboxHeight, TRUE);
+    MoveControl(settingsPanel_, kVisibilityLabel, labelX, Scale(154) - scrollY, labelWidth, labelHeight);
+    MoveWindow(visibilityInGameOnly_, controlX, Scale(150) - scrollY, Scale(130), optionHeight, TRUE);
+    MoveWindow(visibilityAlways_, controlX + Scale(138), Scale(150) - scrollY, Scale(100), optionHeight, TRUE);
+    MoveControl(settingsPanel_, kHudSizeLabel, labelX, Scale(190) - scrollY, labelWidth, labelHeight);
+    MoveWindow(hudSizeMinus_, controlX, Scale(186) - scrollY, Scale(44), optionHeight, TRUE);
+    MoveWindow(hudSizeValue_, controlX + Scale(52), Scale(190) - scrollY, Scale(72), labelHeight, TRUE);
+    MoveWindow(hudSizePlus_, controlX + Scale(132), Scale(186) - scrollY, Scale(44), optionHeight, TRUE);
+    MoveControl(settingsPanel_, kAlignmentLabel, labelX, Scale(226) - scrollY, labelWidth, labelHeight);
+    MoveWindow(alignmentLeft_, controlX, Scale(222) - scrollY, Scale(90), optionHeight, TRUE);
+    MoveWindow(alignmentCenter_, controlX + Scale(98), Scale(222) - scrollY, Scale(90), optionHeight, TRUE);
+    MoveWindow(alignmentRight_, controlX + Scale(196), Scale(222) - scrollY, Scale(90), optionHeight, TRUE);
+    MoveControl(settingsPanel_, kBackgroundWidthLabel, labelX, Scale(262) - scrollY, labelWidth, labelHeight);
+    MoveWindow(backgroundFull_, controlX, Scale(258) - scrollY, Scale(110), optionHeight, TRUE);
+    MoveWindow(backgroundContent_, controlX + Scale(120), Scale(258) - scrollY, Scale(130), optionHeight, TRUE);
+    MoveControl(settingsPanel_, kOpacityLabel, labelX, Scale(298) - scrollY, labelWidth, labelHeight);
+    MoveWindow(opacitySlider_, controlX, Scale(294) - scrollY, Scale(260), optionHeight, TRUE);
+    MoveWindow(opacityLabel_, controlX + Scale(270), Scale(298) - scrollY, Scale(60), labelHeight, TRUE);
 }
 
 void SettingsWindow::LayoutTweaks()
@@ -376,40 +477,43 @@ void SettingsWindow::LayoutTweaks()
     if (!tweaksPanel_) return;
     const int x = Scale(24);
     const int width = Scale(680);
-    MoveControl(tweaksPanel_, kTweaksHeading, x, Scale(8), Scale(300), Scale(28));
-    MoveWindow(intelVrrToggle_, Scale(340), Scale(4), Scale(220), Scale(32), TRUE);
-    MoveControl(tweaksPanel_, kTweaksDescription, x, Scale(42), width, Scale(28));
-    MoveWindow(intelVrrPanel_, x, Scale(78), width, Scale(24), TRUE);
-    MoveWindow(intelVrrRange_, x, Scale(106), width, Scale(24), TRUE);
-    MoveWindow(intelVrrResult_, x, Scale(134), width, Scale(24), TRUE);
+    const int scrollY = Scale(tweaksScrollY_);
+    MoveControl(tweaksPanel_, kTweaksHeading, x, Scale(8) - scrollY, Scale(300), Scale(28));
+    MoveWindow(intelVrrToggle_, Scale(340), Scale(4) - scrollY, Scale(220), Scale(32), TRUE);
+    MoveControl(tweaksPanel_, kTweaksDescription, x, Scale(42) - scrollY, width, Scale(28));
+    MoveWindow(intelVrrPanel_, x, Scale(78) - scrollY, width, Scale(24), TRUE);
+    MoveWindow(intelVrrRange_, x, Scale(106) - scrollY, width, Scale(24), TRUE);
+    MoveWindow(intelVrrResult_, x, Scale(134) - scrollY, width, Scale(24), TRUE);
 }
 
 void SettingsWindow::LayoutAbout()
 {
     if (!aboutPanel_) return;
     const int x = Scale(24);
-    MoveWindow(aboutIcon_, x, Scale(12), Scale(48), Scale(48), TRUE);
-    MoveControl(aboutPanel_, kAboutTitle, Scale(88), Scale(8), Scale(400), Scale(28));
-    MoveControl(aboutPanel_, kAboutDescription, Scale(88), Scale(38), Scale(520), Scale(28));
-    MoveControl(aboutPanel_, kAboutVersion, Scale(88), Scale(66), Scale(300), Scale(24));
-    MoveControl(aboutPanel_, kAboutHowToUse, x, Scale(120), Scale(400), Scale(28));
-    MoveControl(aboutPanel_, kAboutInstructions, x, Scale(152), Scale(600), Scale(80));
+    const int scrollY = Scale(aboutScrollY_);
+    MoveWindow(aboutIcon_, x, Scale(12) - scrollY, Scale(48), Scale(48), TRUE);
+    MoveControl(aboutPanel_, kAboutTitle, Scale(88), Scale(8) - scrollY, Scale(400), Scale(28));
+    MoveControl(aboutPanel_, kAboutDescription, Scale(88), Scale(38) - scrollY, Scale(520), Scale(28));
+    MoveControl(aboutPanel_, kAboutVersion, Scale(88), Scale(66) - scrollY, Scale(300), Scale(24));
+    MoveControl(aboutPanel_, kAboutHowToUse, x, Scale(120) - scrollY, Scale(400), Scale(28));
+    MoveControl(aboutPanel_, kAboutInstructions, x, Scale(152) - scrollY, Scale(600), Scale(80));
 }
 
 void SettingsWindow::LayoutDiagnostics()
 {
     if (!diagnosticsPanel_) return;
     const int x = Scale(24);
-    MoveControl(diagnosticsPanel_, kDiagnosticsVrrHeading, x, Scale(8), Scale(680), Scale(28));
-    MoveControl(diagnosticsPanel_, kDiagnosticsVrrDescription, x, Scale(38), Scale(680), Scale(28));
-    MoveWindow(startVrrButton_, x, Scale(74), Scale(140), Scale(32), TRUE);
-    MoveWindow(stopVrrButton_, x + Scale(152), Scale(74), Scale(80), Scale(32), TRUE);
-    MoveWindow(vrrStatus_, x, Scale(110), Scale(680), Scale(24), TRUE);
-    MoveControl(diagnosticsPanel_, kDiagnosticsEcHeading, x, Scale(150), Scale(680), Scale(28));
-    MoveControl(diagnosticsPanel_, kDiagnosticsEcDescription, x, Scale(180), Scale(680), Scale(28));
-    MoveWindow(startEcButton_, x, Scale(216), Scale(140), Scale(32), TRUE);
-    MoveWindow(openLogsButton_, x + Scale(152), Scale(216), Scale(145), Scale(32), TRUE);
-    MoveWindow(diagnosticStatus_, x, Scale(252), Scale(680), Scale(24), TRUE);
+    const int scrollY = Scale(diagnosticsScrollY_);
+    MoveControl(diagnosticsPanel_, kDiagnosticsVrrHeading, x, Scale(8) - scrollY, Scale(680), Scale(28));
+    MoveControl(diagnosticsPanel_, kDiagnosticsVrrDescription, x, Scale(38) - scrollY, Scale(680), Scale(28));
+    MoveWindow(startVrrButton_, x, Scale(74) - scrollY, Scale(140), Scale(32), TRUE);
+    MoveWindow(stopVrrButton_, x + Scale(152), Scale(74) - scrollY, Scale(80), Scale(32), TRUE);
+    MoveWindow(vrrStatus_, x, Scale(110) - scrollY, Scale(680), Scale(24), TRUE);
+    MoveControl(diagnosticsPanel_, kDiagnosticsEcHeading, x, Scale(150) - scrollY, Scale(680), Scale(28));
+    MoveControl(diagnosticsPanel_, kDiagnosticsEcDescription, x, Scale(180) - scrollY, Scale(680), Scale(28));
+    MoveWindow(startEcButton_, x, Scale(216) - scrollY, Scale(140), Scale(32), TRUE);
+    MoveWindow(openLogsButton_, x + Scale(152), Scale(216) - scrollY, Scale(145), Scale(32), TRUE);
+    MoveWindow(diagnosticStatus_, x, Scale(252) - scrollY, Scale(680), Scale(24), TRUE);
 }
 
 void SettingsWindow::UpdateGeneralControls()
@@ -534,6 +638,47 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
             GetSysColorBrush(COLOR_WINDOW));
         return TRUE;
     }
+    if (message == WM_MOUSEWHEEL)
+    {
+        self->wheelRemainder_ += GET_WHEEL_DELTA_WPARAM(wParam);
+        while (self->wheelRemainder_ >= WHEEL_DELTA)
+        {
+            self->ScrollActivePanel(-kWheelStep);
+            self->wheelRemainder_ -= WHEEL_DELTA;
+        }
+        while (self->wheelRemainder_ <= -WHEEL_DELTA)
+        {
+            self->ScrollActivePanel(kWheelStep);
+            self->wheelRemainder_ += WHEEL_DELTA;
+        }
+        return 0;
+    }
+    if (message == WM_GESTURE)
+    {
+        GESTUREINFO info{};
+        info.cbSize = sizeof(info);
+        const HGESTUREINFO gesture = reinterpret_cast<HGESTUREINFO>(lParam);
+        if (GetGestureInfo(gesture, &info) && info.dwID == GID_PAN)
+        {
+            const LONG y = info.ptsLocation.y;
+            if (info.dwFlags & GF_BEGIN)
+            {
+                self->panActive_ = true;
+                self->lastPanY_ = y;
+            }
+            else if (self->panActive_)
+            {
+                const int delta = MulDiv(static_cast<int>(y - self->lastPanY_),
+                    96, static_cast<int>(self->dpi_));
+                self->lastPanY_ = y;
+                self->ScrollActivePanel(-delta);
+            }
+            if (info.dwFlags & GF_END)
+                self->panActive_ = false;
+        }
+        CloseGestureInfoHandle(gesture);
+        return 0;
+    }
     if (message == WM_COMMAND && HIWORD(wParam) == BN_CLICKED)
     {
         switch (LOWORD(wParam))
@@ -603,7 +748,9 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
     }
     if (message == WM_NOTIFY && reinterpret_cast<NMHDR*>(lParam)->code == TCN_SELCHANGE)
     {
-        self->ShowTab(TabCtrl_GetCurSel(self->tabs_)); return 0;
+        self->ShowTab(TabCtrl_GetCurSel(self->tabs_));
+        self->Layout();
+        return 0;
     }
     if (message == WM_DPICHANGED)
     {
