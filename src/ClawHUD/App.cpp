@@ -3,6 +3,7 @@
 #include "SettingsWindow.h"
 #include "HudPresentation.h"
 #include "Tweaks/IntelVrr/IntelVrrResultStore.h"
+#include "SupportedHardware.h"
 
 #include <Velopack.hpp>
 
@@ -127,6 +128,20 @@ int App::Run()
 {
     if (!AcquireSingleInstance()) return 0;
     CheckForUpdates();
+    const auto hardware = CheckSupportedHardware();
+    if (hardware == HardwareSupport::Unsupported)
+    {
+        MessageBoxW(nullptr, L"This device is not supported by ClawHUD.", L"ClawHUD",
+            MB_OK | MB_ICONWARNING);
+        return 0;
+    }
+    if (hardware == HardwareSupport::Indeterminate)
+    {
+        MessageBoxW(nullptr,
+            L"This device could not be identified. ClawHUD will exit without making any changes.",
+            L"ClawHUD", MB_OK | MB_ICONWARNING);
+        return 0;
+    }
     if (!tray_.Create(instance_)) return 1;
     hudHotkeyRegistered_ = RegisterHotKey(tray_.Window(), kHudToggleHotkeyId,
         MOD_NOREPEAT, VK_F8) != FALSE;

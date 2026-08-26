@@ -59,6 +59,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/WindowsPowerTelemetry.cpp
     src/ClawHUD/WindowsUsageTelemetry.cpp
     src/ClawHUD/IntelGraphicsApiProbe.cpp
+    src/ClawHUD/SupportedHardware.cpp
     src/ClawHUD/VrrDiagnostic.cpp
     src/ClawHUD/IntelVrrDiagnosticProbe.cpp
     src/ClawHUD/Tweaks/TweakStartupCoordinator.cpp
@@ -222,4 +223,14 @@ if(BUILD_TESTING)
     target_include_directories(ClawHUD.IntelGraphicsApiProbeTests PRIVATE src/ClawHUD)
     set_target_properties(ClawHUD.IntelGraphicsApiProbeTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.IntelGraphicsApiProbeTests COMMAND ClawHUD.IntelGraphicsApiProbeTests)
+
+    add_executable(ClawHUD.SupportedHardwareTests
+        tests/SupportedHardwareTests.cpp
+        src/ClawHUD/SupportedHardware.cpp)
+    target_compile_features(ClawHUD.SupportedHardwareTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.SupportedHardwareTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.SupportedHardwareTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.SupportedHardwareTests PRIVATE wbemuuid ole32 oleaut32)
+    set_target_properties(ClawHUD.SupportedHardwareTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.SupportedHardwareTests COMMAND ClawHUD.SupportedHardwareTests)
 endif()
