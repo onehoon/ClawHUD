@@ -33,9 +33,14 @@ constexpr UINT_PTR kResumeRecoveryTimerId = 5;
 constexpr UINT kResumeRecoveryIntervalMs = 500;
 constexpr unsigned kResumeRecoveryMaxAttempts = 6;
 
-constexpr bool ResumeRecoveryShouldStart(bool suspended, bool active) noexcept
+constexpr bool ResumeRecoveryShouldStart(bool active) noexcept
 {
-    return suspended && !active;
+    return !active;
+}
+
+constexpr bool ResumeRecoveryNeedsSuspendFallback(bool suspended) noexcept
+{
+    return !suspended;
 }
 
 constexpr bool ResumeRecoveryHasAttemptsRemaining(unsigned attempts) noexcept

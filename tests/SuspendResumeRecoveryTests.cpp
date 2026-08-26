@@ -17,9 +17,13 @@ int main()
     bool ok = true;
     ok &= Check(kResumeRecoveryIntervalMs == 500, "recovery uses a 500 ms timer");
     ok &= Check(kResumeRecoveryMaxAttempts == 6, "recovery has six maximum attempts");
-    ok &= Check(ResumeRecoveryShouldStart(true, false),
+    ok &= Check(ResumeRecoveryShouldStart(false),
         "first resume starts recovery");
-    ok &= Check(!ResumeRecoveryShouldStart(true, true),
+    ok &= Check(ResumeRecoveryNeedsSuspendFallback(false),
+        "automatic resume has a fallback when suspend was missed");
+    ok &= Check(!ResumeRecoveryNeedsSuspendFallback(true),
+        "recorded suspend does not repeat fallback preparation");
+    ok &= Check(!ResumeRecoveryShouldStart(true),
         "duplicate resume does not start recovery");
     ok &= Check(ResumeRecoveryHasAttemptsRemaining(5),
         "recovery retries before the limit");

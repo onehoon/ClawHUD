@@ -287,9 +287,17 @@ void App::HandleSystemSuspend()
 
 void App::HandleSystemResume()
 {
-    if (!ResumeRecoveryShouldStart(suspended_, resumeRecoveryActive_) ||
-        DiagnosticRunning())
+    if (!ResumeRecoveryShouldStart(resumeRecoveryActive_) || DiagnosticRunning())
         return;
+    if (ResumeRecoveryNeedsSuspendFallback(suspended_))
+    {
+        KillTimer(tray_.Window(), kMockHudTimerId);
+        if (hudPresentation_ && hudPresentation_->Visible())
+            hudPresentation_->Hide();
+        PauseProductionSamplingForSuspend();
+        DiscardPendingPresentMonHudUpdates();
+        Log(L"Suspend notification was missed; resume fallback prepared");
+    }
     suspended_ = false;
     resumeRecoveryActive_ = true;
     resumeRecoveryAttempts_ = 0;
