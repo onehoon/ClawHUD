@@ -23,6 +23,15 @@ public:
 private:
     static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     void CreateTabs();
+    void CreateSettingsControls();
+    void CreateTweaksControls();
+    void CreateAboutControls();
+    void CreateDiagnosticsControls();
+    void Layout();
+    void LayoutSettings();
+    void LayoutTweaks();
+    void LayoutAbout();
+    void LayoutDiagnostics();
     void ShowTab(int index);
     void UpdateTweaksControls();
     void UpdateDiagnosticButtons();
@@ -35,9 +44,8 @@ private:
     HINSTANCE instance_{};
     HWND window_{};
     HWND tabs_{};
-    HWND generalPanel_{};
+    HWND settingsPanel_{};
     HWND startWithWindows_{};
-    HWND hudPanel_{};
     HWND enableHud_{};
     HWND visibilityAlways_{};
     HWND visibilityInGameOnly_{};
@@ -63,6 +71,8 @@ private:
     HWND startVrrButton_{};
     HWND stopVrrButton_{};
     HWND vrrStatus_{};
+    HWND aboutPanel_{};
+    HWND aboutIcon_{};
     UINT dpi_{ 96 };
     HFONT uiFont_{};
     bool systemBackdropActive_{};

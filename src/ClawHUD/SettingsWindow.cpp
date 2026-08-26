@@ -8,12 +8,14 @@
 #include <commctrl.h>
 #include <dwmapi.h>
 
+#include <algorithm>
+
 namespace
 {
 constexpr wchar_t kSettingsClassName[] = L"ClawHUD.SettingsWindow";
-constexpr int kTabGeneral = 0;
-constexpr int kTabHud = 1;
-constexpr int kTabTweaks = 2;
+constexpr int kTabSettings = 0;
+constexpr int kTabTweaks = 1;
+constexpr int kTabAbout = 2;
 constexpr int kTabDiagnostics = 3;
 constexpr int kTabCount = 4;
 constexpr int kStartWithWindows = 1001;
@@ -33,6 +35,24 @@ constexpr int kVisibilityAlways = 1208;
 constexpr int kVisibilityInGameOnly = 1209;
 constexpr int kHudSizeMinus = 1210;
 constexpr int kHudSizePlus = 1211;
+constexpr int kGeneralHeading = 2001;
+constexpr int kHudHeading = 2002;
+constexpr int kVisibilityLabel = 2003;
+constexpr int kHudSizeLabel = 2004;
+constexpr int kAlignmentLabel = 2005;
+constexpr int kBackgroundWidthLabel = 2006;
+constexpr int kOpacityLabel = 2007;
+constexpr int kTweaksHeading = 2101;
+constexpr int kTweaksDescription = 2102;
+constexpr int kDiagnosticsVrrHeading = 2201;
+constexpr int kDiagnosticsVrrDescription = 2202;
+constexpr int kDiagnosticsEcHeading = 2203;
+constexpr int kDiagnosticsEcDescription = 2204;
+constexpr int kAboutTitle = 2301;
+constexpr int kAboutDescription = 2302;
+constexpr int kAboutVersion = 2303;
+constexpr int kAboutHowToUse = 2304;
+constexpr int kAboutInstructions = 2305;
 
 LRESULT CALLBACK ForwardPanelNotifications(HWND window, UINT message, WPARAM wParam,
     LPARAM lParam, UINT_PTR subclassId, DWORD_PTR)
@@ -42,6 +62,12 @@ LRESULT CALLBACK ForwardPanelNotifications(HWND window, UINT message, WPARAM wPa
     if (message == WM_NCDESTROY)
         RemoveWindowSubclass(window, ForwardPanelNotifications, subclassId);
     return DefSubclassProc(window, message, wParam, lParam);
+}
+
+void MoveControl(HWND parent, int id, int x, int y, int width, int height)
+{
+    if (HWND control = GetDlgItem(parent, id))
+        MoveWindow(control, x, y, width, height, TRUE);
 }
 }
 
@@ -71,9 +97,11 @@ bool SettingsWindow::Show(HINSTANCE instance)
         windowClass.hIcon = LoadIconW(instance_, MAKEINTRESOURCEW(IDI_CLAWHUD));
         windowClass.lpszClassName = kSettingsClassName;
         RegisterClassW(&windowClass);
+        dpi_ = GetDpiForSystem();
+        if (dpi_ == 0) dpi_ = 96;
         window_ = CreateWindowExW(WS_EX_TOOLWINDOW, kSettingsClassName, L"ClawHUD Settings",
             WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-            CW_USEDEFAULT, CW_USEDEFAULT, 1040, 720, nullptr, nullptr, instance_, this);
+            CW_USEDEFAULT, CW_USEDEFAULT, Scale(760), Scale(600), nullptr, nullptr, instance_, this);
         if (!window_) return false;
         dpi_ = GetDpiForWindow(window_);
         if (dpi_ == 0) dpi_ = 96;
@@ -81,6 +109,7 @@ bool SettingsWindow::Show(HINSTANCE instance)
         CreateTabs();
         RecreateFont();
         ApplyFont();
+        Layout();
     }
     ShowWindow(window_, SW_SHOWNORMAL);
     UpdateWindow(window_);
@@ -134,9 +163,9 @@ int SettingsWindow::Scale(int value) const noexcept
 void SettingsWindow::CreateTabs()
 {
     tabs_ = CreateWindowExW(0, WC_TABCONTROLW, L"",
-        WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
-        8, 8, 1008, 660, window_, nullptr, instance_, nullptr);
-    const wchar_t* labels[kTabCount] = { L"General", L"HUD", L"Tweaks", L"Diagnostics" };
+        WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS, 0, 0, 0, 0,
+        window_, nullptr, instance_, nullptr);
+    const wchar_t* labels[kTabCount] = { L"Settings", L"Tweaks", L"About", L"Diagnostics" };
     for (int i = 0; i < kTabCount; ++i)
     {
         TCITEMW item{};
@@ -144,83 +173,241 @@ void SettingsWindow::CreateTabs()
         item.pszText = const_cast<wchar_t*>(labels[i]);
         TabCtrl_InsertItem(tabs_, i, &item);
     }
-    generalPanel_ = CreateWindowW(L"STATIC", L"ClawHUD\r\nVersion: " CLAWHUD_VERSION,
-        WS_CHILD | WS_VISIBLE, 24, 52, 940, 580, window_, nullptr, instance_, nullptr);
-    if (generalPanel_) SetWindowSubclass(generalPanel_, ForwardPanelNotifications, 3, 0);
-    startWithWindows_ = CreateWindowW(L"BUTTON", L"Start ClawHUD with Windows",
-        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
-        0, 56, 260, 24, generalPanel_,
-        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kStartWithWindows)), instance_, nullptr);
-    hudPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD, 24, 52, 940, 580, window_, nullptr, instance_, nullptr);
-    if (hudPanel_) SetWindowSubclass(hudPanel_, ForwardPanelNotifications, 1, 0);
-    enableHud_ = CreateWindowW(L"BUTTON", L"Enable HUD", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
-        0, 0, 180, 24, hudPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEnableHud)), instance_, nullptr);
-    CreateWindowW(L"STATIC", L"Visibility", WS_CHILD | WS_VISIBLE,
-        0, 34, 160, 22, hudPanel_, nullptr, instance_, nullptr);
-    visibilityAlways_ = CreateWindowW(L"BUTTON", L"Always", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | WS_GROUP,
-        0, 62, 90, 24, hudPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kVisibilityAlways)), instance_, nullptr);
-    visibilityInGameOnly_ = CreateWindowW(L"BUTTON", L"In Game Only", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON,
-        95, 62, 125, 24, hudPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kVisibilityInGameOnly)), instance_, nullptr);
-    CreateWindowW(L"STATIC", L"Alignment", WS_CHILD | WS_VISIBLE,
-        0, 100, 160, 22, hudPanel_, nullptr, instance_, nullptr);
-    alignmentLeft_ = CreateWindowW(L"BUTTON", L"Left", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | WS_GROUP,
-        0, 128, 90, 24, hudPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAlignmentLeft)), instance_, nullptr);
-    alignmentCenter_ = CreateWindowW(L"BUTTON", L"Center", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON,
-        95, 128, 90, 24, hudPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAlignmentCenter)), instance_, nullptr);
-    alignmentRight_ = CreateWindowW(L"BUTTON", L"Right", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON,
-        190, 128, 90, 24, hudPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAlignmentRight)), instance_, nullptr);
-    CreateWindowW(L"STATIC", L"Background Width", WS_CHILD | WS_VISIBLE,
-        0, 170, 180, 22, hudPanel_, nullptr, instance_, nullptr);
-    backgroundFull_ = CreateWindowW(L"BUTTON", L"Full Width", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | WS_GROUP,
-        0, 198, 110, 24, hudPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kBackgroundFull)), instance_, nullptr);
-    backgroundContent_ = CreateWindowW(L"BUTTON", L"Content Width", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON,
-        115, 198, 125, 24, hudPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kBackgroundContent)), instance_, nullptr);
-    CreateWindowW(L"STATIC", L"Background Opacity", WS_CHILD | WS_VISIBLE,
-        0, 240, 180, 22, hudPanel_, nullptr, instance_, nullptr);
-    opacitySlider_ = CreateWindowExW(0, TRACKBAR_CLASSW, L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | TBS_AUTOTICKS,
-        0, 268, 300, 32, hudPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOpacitySlider)), instance_, nullptr);
-    SendMessageW(opacitySlider_, TBM_SETRANGE, TRUE, MAKELONG(0, 100));
-    opacityLabel_ = CreateWindowW(L"STATIC", L"50%", WS_CHILD | WS_VISIBLE,
-        310, 272, 60, 22, hudPanel_, nullptr, instance_, nullptr);
-    CreateWindowW(L"STATIC", L"HUD Size", WS_CHILD | WS_VISIBLE,
-        0, 314, 160, 22, hudPanel_, nullptr, instance_, nullptr);
-    hudSizeMinus_ = CreateWindowW(L"BUTTON", L"-", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-        0, 342, 44, 28, hudPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kHudSizeMinus)), instance_, nullptr);
-    hudSizeValue_ = CreateWindowW(L"STATIC", L"Default", WS_CHILD | WS_VISIBLE | SS_CENTER,
-        52, 346, 72, 22, hudPanel_, nullptr, instance_, nullptr);
-    hudSizePlus_ = CreateWindowW(L"BUTTON", L"+", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-        132, 342, 44, 28, hudPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kHudSizePlus)), instance_, nullptr);
-    tweaksPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD, 24, 52, 940, 580, window_, nullptr, instance_, nullptr);
-    if (tweaksPanel_) SetWindowSubclass(tweaksPanel_, ForwardPanelNotifications, 3, 0);
-    CreateWindowW(L"STATIC", L"Intel VRR Range Fix", WS_CHILD | WS_VISIBLE, 0, 0, 300, 24, tweaksPanel_, nullptr, instance_, nullptr);
-    intelVrrToggle_ = CreateWindowW(L"BUTTON", L"Enabled", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
-        320, -2, 110, 28, tweaksPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIntelVrrToggle)), instance_, nullptr);
-    CreateWindowW(L"STATIC", L"Restores the native VRR range on the affected MSI Claw display. Applied at application startup.", WS_CHILD | WS_VISIBLE,
-        0, 34, 900, 24, tweaksPanel_, nullptr, instance_, nullptr);
-    intelVrrPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 70, 900, 24, tweaksPanel_, nullptr, instance_, nullptr);
-    intelVrrRange_ = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 96, 900, 24, tweaksPanel_, nullptr, instance_, nullptr);
-    intelVrrResult_ = CreateWindowW(L"STATIC", L"Last result: No result yet", WS_CHILD | WS_VISIBLE, 0, 122, 900, 24, tweaksPanel_, nullptr, instance_, nullptr);
-    diagnosticsPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD, 24, 52, 940, 580, window_, nullptr, instance_, nullptr);
-    if (diagnosticsPanel_) SetWindowSubclass(diagnosticsPanel_, ForwardPanelNotifications, 2, 0);
-    CreateWindowW(L"STATIC", L"VRR / Presentation Test\r\nRuns HUD OFF / STATIC HUD / DYNAMIC HUD phases for presentation validation.", WS_CHILD | WS_VISIBLE,
-        0, 0, 900, 35, diagnosticsPanel_, nullptr, instance_, nullptr);
-    startVrrButton_ = CreateWindowW(L"BUTTON", L"Start VRR Test", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-        0, 42, 130, 28, diagnosticsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kStartVrr)), instance_, nullptr);
-    stopVrrButton_ = CreateWindowW(L"BUTTON", L"Stop", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-        145, 42, 80, 28, diagnosticsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kStopVrr)), instance_, nullptr);
-    vrrStatus_ = CreateWindowW(L"STATIC", L"Status: Idle", WS_CHILD | WS_VISIBLE,
-        0, 74, 900, 24, diagnosticsPanel_, nullptr, instance_, nullptr);
-    CreateWindowW(L"STATIC", L"MSI EC Read Test\r\nReads MSI Claw telemetry without changing hardware state.", WS_CHILD | WS_VISIBLE,
-        0, 106, 900, 35, diagnosticsPanel_, nullptr, instance_, nullptr);
-    startEcButton_ = CreateWindowW(L"BUTTON", L"Start EC Test", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-        0, 147, 130, 28, diagnosticsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kStartEc)), instance_, nullptr);
-    openLogsButton_ = CreateWindowW(L"BUTTON", L"Open Log Folder", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-        145, 147, 135, 28, diagnosticsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOpenLogs)), instance_, nullptr);
-    diagnosticStatus_ = CreateWindowW(L"STATIC", L"Status: Idle", WS_CHILD | WS_VISIBLE,
-        0, 179, 900, 24, diagnosticsPanel_, nullptr, instance_, nullptr);
-    ShowTab(kTabGeneral);
+    CreateSettingsControls();
+    CreateTweaksControls();
+    CreateAboutControls();
+    CreateDiagnosticsControls();
+    ShowTab(kTabSettings);
     UpdateGeneralControls();
     UpdateHudControls();
+}
+
+void SettingsWindow::CreateSettingsControls()
+{
+    settingsPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE,
+        0, 0, 0, 0, window_, nullptr, instance_, nullptr);
+    if (settingsPanel_) SetWindowSubclass(settingsPanel_, ForwardPanelNotifications, 3, 0);
+    CreateWindowW(L"STATIC", L"General", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
+        settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kGeneralHeading)), instance_, nullptr);
+    startWithWindows_ = CreateWindowW(L"BUTTON", L"Start ClawHUD with Windows",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, 0, 0, 0, 0,
+        settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kStartWithWindows)), instance_, nullptr);
+    CreateWindowW(L"STATIC", L"HUD", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
+        settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kHudHeading)), instance_, nullptr);
+    enableHud_ = CreateWindowW(L"BUTTON", L"Enable HUD",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, 0, 0, 0, 0,
+        settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kEnableHud)), instance_, nullptr);
+    CreateWindowW(L"STATIC", L"Display mode", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
+        settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kVisibilityLabel)), instance_, nullptr);
+    visibilityAlways_ = CreateWindowW(L"BUTTON", L"Always",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | WS_GROUP, 0, 0, 0, 0,
+        settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kVisibilityAlways)), instance_, nullptr);
+    visibilityInGameOnly_ = CreateWindowW(L"BUTTON", L"In Game Only",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON, 0, 0, 0, 0,
+        settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kVisibilityInGameOnly)), instance_, nullptr);
+    CreateWindowW(L"STATIC", L"HUD Size", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
+        settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kHudSizeLabel)), instance_, nullptr);
+    hudSizeMinus_ = CreateWindowW(L"BUTTON", L"-", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+        0, 0, 0, 0, settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kHudSizeMinus)), instance_, nullptr);
+    hudSizeValue_ = CreateWindowW(L"STATIC", L"Default", WS_CHILD | WS_VISIBLE | SS_CENTER,
+        0, 0, 0, 0, settingsPanel_, nullptr, instance_, nullptr);
+    hudSizePlus_ = CreateWindowW(L"BUTTON", L"+", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+        0, 0, 0, 0, settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kHudSizePlus)), instance_, nullptr);
+    CreateWindowW(L"STATIC", L"Alignment", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
+        settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAlignmentLabel)), instance_, nullptr);
+    alignmentLeft_ = CreateWindowW(L"BUTTON", L"Left",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | WS_GROUP, 0, 0, 0, 0,
+        settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAlignmentLeft)), instance_, nullptr);
+    alignmentCenter_ = CreateWindowW(L"BUTTON", L"Center",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON, 0, 0, 0, 0,
+        settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAlignmentCenter)), instance_, nullptr);
+    alignmentRight_ = CreateWindowW(L"BUTTON", L"Right",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON, 0, 0, 0, 0,
+        settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAlignmentRight)), instance_, nullptr);
+    CreateWindowW(L"STATIC", L"Background width", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
+        settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kBackgroundWidthLabel)), instance_, nullptr);
+    backgroundFull_ = CreateWindowW(L"BUTTON", L"Full Width",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | WS_GROUP, 0, 0, 0, 0,
+        settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kBackgroundFull)), instance_, nullptr);
+    backgroundContent_ = CreateWindowW(L"BUTTON", L"Content Width",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON, 0, 0, 0, 0,
+        settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kBackgroundContent)), instance_, nullptr);
+    CreateWindowW(L"STATIC", L"Background opacity", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
+        settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOpacityLabel)), instance_, nullptr);
+    opacitySlider_ = CreateWindowExW(0, TRACKBAR_CLASSW, L"",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | TBS_AUTOTICKS, 0, 0, 0, 0,
+        settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOpacitySlider)), instance_, nullptr);
+    SendMessageW(opacitySlider_, TBM_SETRANGE, TRUE, MAKELONG(0, 100));
+    opacityLabel_ = CreateWindowW(L"STATIC", L"50%", WS_CHILD | WS_VISIBLE,
+        0, 0, 0, 0, settingsPanel_, nullptr, instance_, nullptr);
+}
+
+void SettingsWindow::CreateTweaksControls()
+{
+    tweaksPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD, 0, 0, 0, 0,
+        window_, nullptr, instance_, nullptr);
+    if (tweaksPanel_) SetWindowSubclass(tweaksPanel_, ForwardPanelNotifications, 3, 0);
+    CreateWindowW(L"STATIC", L"Intel VRR Range Fix", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
+        tweaksPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kTweaksHeading)), instance_, nullptr);
+    intelVrrToggle_ = CreateWindowW(L"BUTTON", L"Enabled",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, 0, 0, 0, 0,
+        tweaksPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIntelVrrToggle)), instance_, nullptr);
+    CreateWindowW(L"STATIC", L"Restores the native VRR range on the affected MSI Claw display. Applied at application startup.",
+        WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, tweaksPanel_,
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kTweaksDescription)), instance_, nullptr);
+    intelVrrPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE,
+        0, 0, 0, 0, tweaksPanel_, nullptr, instance_, nullptr);
+    intelVrrRange_ = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE,
+        0, 0, 0, 0, tweaksPanel_, nullptr, instance_, nullptr);
+    intelVrrResult_ = CreateWindowW(L"STATIC", L"Last result: No result yet", WS_CHILD | WS_VISIBLE,
+        0, 0, 0, 0, tweaksPanel_, nullptr, instance_, nullptr);
+}
+
+void SettingsWindow::CreateAboutControls()
+{
+    aboutPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD, 0, 0, 0, 0,
+        window_, nullptr, instance_, nullptr);
+    aboutIcon_ = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_ICON,
+        0, 0, 0, 0, aboutPanel_, nullptr, instance_, nullptr);
+    SendMessageW(aboutIcon_, STM_SETIMAGE, IMAGE_ICON,
+        reinterpret_cast<LPARAM>(LoadIconW(instance_, MAKEINTRESOURCEW(IDI_CLAWHUD))));
+    CreateWindowW(L"STATIC", L"ClawHUD", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
+        aboutPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAboutTitle)), instance_, nullptr);
+    CreateWindowW(L"STATIC", L"Lightweight performance HUD for MSI Claw", WS_CHILD | WS_VISIBLE,
+        0, 0, 0, 0, aboutPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAboutDescription)), instance_, nullptr);
+    CreateWindowW(L"STATIC", L"Version: " CLAWHUD_VERSION, WS_CHILD | WS_VISIBLE,
+        0, 0, 0, 0, aboutPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAboutVersion)), instance_, nullptr);
+    CreateWindowW(L"STATIC", L"How to use", WS_CHILD | WS_VISIBLE,
+        0, 0, 0, 0, aboutPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAboutHowToUse)), instance_, nullptr);
+    CreateWindowW(L"STATIC", L"ClawHUD runs from the system tray.\r\nConfigure HUD behavior from the Settings tab.\r\nF8 toggles HUD visibility.",
+        WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, aboutPanel_,
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAboutInstructions)), instance_, nullptr);
+}
+
+void SettingsWindow::CreateDiagnosticsControls()
+{
+    diagnosticsPanel_ = CreateWindowW(L"STATIC", L"", WS_CHILD, 0, 0, 0, 0,
+        window_, nullptr, instance_, nullptr);
+    if (diagnosticsPanel_) SetWindowSubclass(diagnosticsPanel_, ForwardPanelNotifications, 2, 0);
+    CreateWindowW(L"STATIC", L"VRR / Presentation Test", WS_CHILD | WS_VISIBLE,
+        0, 0, 0, 0, diagnosticsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kDiagnosticsVrrHeading)), instance_, nullptr);
+    CreateWindowW(L"STATIC", L"Runs HUD OFF / STATIC HUD / DYNAMIC HUD phases for presentation validation.",
+        WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, diagnosticsPanel_,
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kDiagnosticsVrrDescription)), instance_, nullptr);
+    startVrrButton_ = CreateWindowW(L"BUTTON", L"Start VRR Test",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, 0, 0, diagnosticsPanel_,
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kStartVrr)), instance_, nullptr);
+    stopVrrButton_ = CreateWindowW(L"BUTTON", L"Stop",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, 0, 0, diagnosticsPanel_,
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kStopVrr)), instance_, nullptr);
+    vrrStatus_ = CreateWindowW(L"STATIC", L"Status: Idle", WS_CHILD | WS_VISIBLE,
+        0, 0, 0, 0, diagnosticsPanel_, nullptr, instance_, nullptr);
+    CreateWindowW(L"STATIC", L"MSI EC Read Test", WS_CHILD | WS_VISIBLE,
+        0, 0, 0, 0, diagnosticsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kDiagnosticsEcHeading)), instance_, nullptr);
+    CreateWindowW(L"STATIC", L"Reads MSI Claw telemetry without changing hardware state.", WS_CHILD | WS_VISIBLE,
+        0, 0, 0, 0, diagnosticsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kDiagnosticsEcDescription)), instance_, nullptr);
+    startEcButton_ = CreateWindowW(L"BUTTON", L"Start EC Test",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, 0, 0, diagnosticsPanel_,
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kStartEc)), instance_, nullptr);
+    openLogsButton_ = CreateWindowW(L"BUTTON", L"Open Log Folder",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, 0, 0, diagnosticsPanel_,
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOpenLogs)), instance_, nullptr);
+    diagnosticStatus_ = CreateWindowW(L"STATIC", L"Status: Idle", WS_CHILD | WS_VISIBLE,
+        0, 0, 0, 0, diagnosticsPanel_, nullptr, instance_, nullptr);
+}
+
+void SettingsWindow::Layout()
+{
+    if (!window_) return;
+    RECT client{};
+    GetClientRect(window_, &client);
+    const int margin = Scale(8);
+    MoveWindow(tabs_, margin, margin,
+        std::max(0, static_cast<int>(client.right) - margin * 2),
+        std::max(0, static_cast<int>(client.bottom) - margin * 2), TRUE);
+    const int panelX = Scale(24);
+    const int panelY = Scale(52);
+    const int panelWidth = std::max(0, static_cast<int>(client.right) - Scale(48));
+    const int panelHeight = std::max(0, static_cast<int>(client.bottom) - Scale(64));
+    MoveWindow(settingsPanel_, panelX, panelY, panelWidth, panelHeight, TRUE);
+    MoveWindow(tweaksPanel_, panelX, panelY, panelWidth, panelHeight, TRUE);
+    MoveWindow(aboutPanel_, panelX, panelY, panelWidth, panelHeight, TRUE);
+    MoveWindow(diagnosticsPanel_, panelX, panelY, panelWidth, panelHeight, TRUE);
+    LayoutSettings();
+    LayoutTweaks();
+    LayoutAbout();
+    LayoutDiagnostics();
+}
+
+void SettingsWindow::LayoutSettings()
+{
+    if (!settingsPanel_) return;
+    const int labelX = Scale(24);
+    const int controlX = Scale(220);
+    const int labelWidth = Scale(180);
+    const int rowHeight = Scale(28);
+    MoveControl(settingsPanel_, kGeneralHeading, labelX, Scale(8), labelWidth, rowHeight);
+    MoveWindow(startWithWindows_, labelX, Scale(40), Scale(260), rowHeight, TRUE);
+    MoveControl(settingsPanel_, kHudHeading, labelX, Scale(86), labelWidth, rowHeight);
+    MoveWindow(enableHud_, controlX, Scale(118), Scale(180), rowHeight, TRUE);
+    MoveControl(settingsPanel_, kVisibilityLabel, labelX, Scale(154), labelWidth, rowHeight);
+    MoveWindow(visibilityAlways_, controlX, Scale(150), Scale(90), rowHeight, TRUE);
+    MoveWindow(visibilityInGameOnly_, controlX + Scale(98), Scale(150), Scale(125), rowHeight, TRUE);
+    MoveControl(settingsPanel_, kHudSizeLabel, labelX, Scale(190), labelWidth, rowHeight);
+    MoveWindow(hudSizeMinus_, controlX, Scale(186), Scale(44), rowHeight, TRUE);
+    MoveWindow(hudSizeValue_, controlX + Scale(52), Scale(190), Scale(72), rowHeight, TRUE);
+    MoveWindow(hudSizePlus_, controlX + Scale(132), Scale(186), Scale(44), rowHeight, TRUE);
+    MoveControl(settingsPanel_, kAlignmentLabel, labelX, Scale(226), labelWidth, rowHeight);
+    MoveWindow(alignmentLeft_, controlX, Scale(222), Scale(90), rowHeight, TRUE);
+    MoveWindow(alignmentCenter_, controlX + Scale(98), Scale(222), Scale(90), rowHeight, TRUE);
+    MoveWindow(alignmentRight_, controlX + Scale(196), Scale(222), Scale(90), rowHeight, TRUE);
+    MoveControl(settingsPanel_, kBackgroundWidthLabel, labelX, Scale(262), labelWidth, rowHeight);
+    MoveWindow(backgroundFull_, controlX, Scale(258), Scale(110), rowHeight, TRUE);
+    MoveWindow(backgroundContent_, controlX + Scale(120), Scale(258), Scale(125), rowHeight, TRUE);
+    MoveControl(settingsPanel_, kOpacityLabel, labelX, Scale(298), labelWidth, rowHeight);
+    MoveWindow(opacitySlider_, controlX, Scale(294), Scale(260), Scale(32), TRUE);
+    MoveWindow(opacityLabel_, controlX + Scale(270), Scale(298), Scale(60), rowHeight, TRUE);
+}
+
+void SettingsWindow::LayoutTweaks()
+{
+    if (!tweaksPanel_) return;
+    const int x = Scale(24);
+    const int width = Scale(680);
+    MoveControl(tweaksPanel_, kTweaksHeading, x, Scale(8), Scale(300), Scale(28));
+    MoveWindow(intelVrrToggle_, Scale(340), Scale(6), Scale(110), Scale(28), TRUE);
+    MoveControl(tweaksPanel_, kTweaksDescription, x, Scale(42), width, Scale(28));
+    MoveWindow(intelVrrPanel_, x, Scale(78), width, Scale(24), TRUE);
+    MoveWindow(intelVrrRange_, x, Scale(106), width, Scale(24), TRUE);
+    MoveWindow(intelVrrResult_, x, Scale(134), width, Scale(24), TRUE);
+}
+
+void SettingsWindow::LayoutAbout()
+{
+    if (!aboutPanel_) return;
+    const int x = Scale(24);
+    MoveWindow(aboutIcon_, x, Scale(12), Scale(48), Scale(48), TRUE);
+    MoveControl(aboutPanel_, kAboutTitle, Scale(88), Scale(8), Scale(400), Scale(28));
+    MoveControl(aboutPanel_, kAboutDescription, Scale(88), Scale(38), Scale(520), Scale(28));
+    MoveControl(aboutPanel_, kAboutVersion, Scale(88), Scale(66), Scale(300), Scale(24));
+    MoveControl(aboutPanel_, kAboutHowToUse, x, Scale(120), Scale(400), Scale(28));
+    MoveControl(aboutPanel_, kAboutInstructions, x, Scale(152), Scale(600), Scale(80));
+}
+
+void SettingsWindow::LayoutDiagnostics()
+{
+    if (!diagnosticsPanel_) return;
+    const int x = Scale(24);
+    MoveControl(diagnosticsPanel_, kDiagnosticsVrrHeading, x, Scale(8), Scale(680), Scale(28));
+    MoveControl(diagnosticsPanel_, kDiagnosticsVrrDescription, x, Scale(38), Scale(680), Scale(28));
+    MoveWindow(startVrrButton_, x, Scale(74), Scale(140), Scale(30), TRUE);
+    MoveWindow(stopVrrButton_, x + Scale(154), Scale(74), Scale(80), Scale(30), TRUE);
+    MoveWindow(vrrStatus_, x, Scale(110), Scale(680), Scale(24), TRUE);
+    MoveControl(diagnosticsPanel_, kDiagnosticsEcHeading, x, Scale(150), Scale(680), Scale(28));
+    MoveControl(diagnosticsPanel_, kDiagnosticsEcDescription, x, Scale(180), Scale(680), Scale(28));
+    MoveWindow(startEcButton_, x, Scale(216), Scale(140), Scale(30), TRUE);
+    MoveWindow(openLogsButton_, x + Scale(154), Scale(216), Scale(145), Scale(30), TRUE);
+    MoveWindow(diagnosticStatus_, x, Scale(252), Scale(680), Scale(24), TRUE);
 }
 
 void SettingsWindow::UpdateGeneralControls()
@@ -232,9 +419,9 @@ void SettingsWindow::UpdateGeneralControls()
 
 void SettingsWindow::ShowTab(int index)
 {
-    if (generalPanel_) ShowWindow(generalPanel_, index == kTabGeneral ? SW_SHOW : SW_HIDE);
-    if (hudPanel_) ShowWindow(hudPanel_, index == kTabHud ? SW_SHOW : SW_HIDE);
+    if (settingsPanel_) ShowWindow(settingsPanel_, index == kTabSettings ? SW_SHOW : SW_HIDE);
     if (tweaksPanel_) ShowWindow(tweaksPanel_, index == kTabTweaks ? SW_SHOW : SW_HIDE);
+    if (aboutPanel_) ShowWindow(aboutPanel_, index == kTabAbout ? SW_SHOW : SW_HIDE);
     if (diagnosticsPanel_) ShowWindow(diagnosticsPanel_, index == kTabDiagnostics ? SW_SHOW : SW_HIDE);
 }
 
@@ -429,11 +616,17 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
         }
         self->RecreateFont();
         self->ApplyFont();
+        self->Layout();
         return 0;
     }
-    if (message == WM_SIZE && wParam == SIZE_MINIMIZED)
+    if (message == WM_SIZE)
     {
-        ShowWindow(window, SW_HIDE);
+        if (wParam == SIZE_MINIMIZED)
+        {
+            ShowWindow(window, SW_HIDE);
+            return 0;
+        }
+        self->Layout();
         return 0;
     }
     if (message == WM_CLOSE)
