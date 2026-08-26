@@ -351,19 +351,28 @@ void App::SetHudAlignment(clawhud::HudAlignment alignment)
     }
     if (hudOptions_.alignment == alignment)
         return;
+    const auto previousAlignment = hudOptions_.alignment;
     hudOptions_.alignment = alignment;
-    SaveHudSettings();
     if (hudOptions_.backgroundMode == clawhud::HudBackgroundMode::ContentWidth)
     {
         const bool restoreVisible = hudPresentation_ &&
             hudPresentation_->Initialized() && hudPresentation_->Visible();
-        if (!RecreateHudPresentation(restoreVisible))
-            Log(L"HUD alignment presentation recreation failed");
+        const bool recreated = RecreateHudPresentation(restoreVisible);
+        hudOptions_.alignment = clawhud::CommitHudAlignmentAfterRecreation(
+            previousAlignment, alignment, recreated);
+        if (!recreated)
+        {
+            RecreateHudPresentation(restoreVisible);
+            SaveHudSettings();
+            Log(L"HUD alignment change rolled back after presentation recreation failure");
+            return;
+        }
     }
     else
     {
         RefreshMockHud();
     }
+    SaveHudSettings();
 }
 
 void App::SetHudBackgroundMode(clawhud::HudBackgroundMode mode)
@@ -375,12 +384,21 @@ void App::SetHudBackgroundMode(clawhud::HudBackgroundMode mode)
     }
     if (hudOptions_.backgroundMode == mode)
         return;
+    const auto previousMode = hudOptions_.backgroundMode;
     hudOptions_.backgroundMode = mode;
-    SaveHudSettings();
     const bool restoreVisible = hudPresentation_ &&
         hudPresentation_->Initialized() && hudPresentation_->Visible();
-    if (!RecreateHudPresentation(restoreVisible))
-        Log(L"HUD background mode presentation recreation failed");
+    const bool recreated = RecreateHudPresentation(restoreVisible);
+    hudOptions_.backgroundMode = clawhud::CommitHudBackgroundModeAfterRecreation(
+        previousMode, mode, recreated);
+    if (!recreated)
+    {
+        RecreateHudPresentation(restoreVisible);
+        SaveHudSettings();
+        Log(L"HUD background mode change rolled back after presentation recreation failure");
+        return;
+    }
+    SaveHudSettings();
 }
 
 void App::SetHudBackgroundOpacity(float opacity, bool persist)
