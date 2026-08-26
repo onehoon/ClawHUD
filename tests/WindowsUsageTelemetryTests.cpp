@@ -38,14 +38,15 @@ int main()
     ok &= Check(IsIntelGpuMemoryCounterInstance(
         L"luid_0x9abcdef0_0x12345678_phys_0", intelLuid),
         "matching Intel adapter LUID counter");
+    const LUID sharedPrefixTarget{0x00013245, 0};
     ok &= Check(IsIntelGpuMemoryCounterInstance(
-        L"luid_0x00000000_0x00013245_phys_0", LUID{0, 0x13245}),
+        L"luid_0x00000000_0x00013245_phys_0", sharedPrefixTarget),
         "matching full LUID with shared leading digits");
     ok &= Check(!IsIntelGpuMemoryCounterInstance(
-        L"luid_0x00000000_0x0001368a_phys_0", LUID{0, 0x13245}),
+        L"luid_0x00000000_0x0001368a_phys_0", sharedPrefixTarget),
         "different full LUID with shared leading digits ignored");
     ok &= Check(!IsIntelGpuMemoryCounterInstance(
-        L"luid_0x9abcdef0_0x12345678_phys_0_extra", intelLuid),
+        L"luid_0x9abcdef0_0x12345678_other_0", intelLuid),
         "non-physical LUID suffix is rejected");
     ok &= Check(CombineGpuMemoryBytes(2u, 3u).value() == 5u,
         "dedicated and shared memory are summed");
