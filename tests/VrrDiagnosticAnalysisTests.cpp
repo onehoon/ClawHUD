@@ -86,5 +86,17 @@ int main()
         "usable PresentMode sample count");
     ok &= Expect(clawhud::EvaluateVrrComparison(sparse, Summary(95), Summary(95)).verdict ==
         clawhud::VrrDiagnosticVerdict::Inconclusive, "insufficient usable PresentMode samples");
+
+    std::string recreatedCsv =
+        "ProcessID,SwapChainAddress,PresentMode,MsUntilDisplayed,MsBetweenPresents,MsBetweenDisplayChange\n";
+    for (int i = 0; i < 20; ++i)
+        recreatedCsv += "1,baseline,Hardware Composed: Independent Flip,1,16.6,16.6\n";
+    for (int i = 0; i < 100; ++i)
+        recreatedCsv += "1,replacement,Composed: Flip,1,16.6,16.6\n";
+    const auto recreated = clawhud::ParseVrrCsvText(recreatedCsv, "baseline");
+    ok &= Expect(recreated.valid && recreated.dominantSwapChain == "replacement" &&
+        !recreated.preferredSwapChainUsed, "stale preferred swapchain is not selected");
+    ok &= Expect(clawhud::EvaluateVrrComparison(Summary(95), Summary(95), recreated).verdict ==
+        clawhud::VrrDiagnosticVerdict::Fail, "recreated swapchain regression fails");
     return ok ? 0 : 1;
 }

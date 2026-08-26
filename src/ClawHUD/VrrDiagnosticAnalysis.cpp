@@ -120,20 +120,23 @@ VrrCsvSummary ParseVrrCsvText(std::string_view text, std::string_view preferredS
         return result;
     }
 
-    if (!preferredSwapChain.empty() && swapCounts.contains(std::string(preferredSwapChain)))
+    for (const auto& [swap, count] : swapCounts)
     {
-        result.dominantSwapChain = std::string(preferredSwapChain);
-        result.preferredSwapChainUsed = true;
-    }
-    else
-    {
-        for (const auto& [swap, count] : swapCounts)
+        if (count > result.dominantRows)
         {
-            if (count > result.dominantRows)
-            {
-                result.dominantSwapChain = swap;
-                result.dominantRows = count;
-            }
+            result.dominantSwapChain = swap;
+            result.dominantRows = count;
+        }
+    }
+
+    if (!preferredSwapChain.empty())
+    {
+        const auto preferred = swapCounts.find(std::string(preferredSwapChain));
+        if (preferred != swapCounts.end() && preferred->second >= result.dominantRows)
+        {
+            result.dominantSwapChain = preferred->first;
+            result.dominantRows = preferred->second;
+            result.preferredSwapChainUsed = true;
         }
     }
     result.dominantRows = swapCounts[result.dominantSwapChain];

@@ -365,6 +365,10 @@ void VrrDiagnostic::RunImpl()
         writeComparison(L"STATIC vs DYNAMIC", staticHud, dynamicHud);
         writeComparison(L"OFF vs DYNAMIC", off, dynamicHud);
         const auto evaluation = clawhud::EvaluateVrrComparison(off.csv, staticHud.csv, dynamicHud.csv);
+        const bool phaseOk = !stop_ && offOk && staticOk && dynamicOk;
+        const auto finalVerdict = phaseOk ? evaluation.verdict : clawhud::VrrDiagnosticVerdict::Fail;
+        const std::string finalReason = phaseOk ? evaluation.reason :
+            "A diagnostic phase failed before the VRR result was authoritative.";
         const auto writeVerdictPhase = [&](const wchar_t* name, const clawhud::VrrCsvSummary& summary)
         {
             const auto dominantMode = clawhud::DominantPresentMode(summary);
@@ -382,11 +386,9 @@ void VrrDiagnostic::RunImpl()
         writeVerdictPhase(L"DYNAMIC HUD", dynamicHud.csv);
         log << L"Delta vs OFF: " << std::fixed << std::setprecision(1)
             << clawhud::IndependentFlipPercentage(dynamicHud.csv) - clawhud::IndependentFlipPercentage(off.csv) << L" pp\n"
-            << L"Final Verdict: " << clawhud::VrrDiagnosticVerdictName(evaluation.verdict)
-            << L"\nReason: " << std::wstring(evaluation.reason.begin(), evaluation.reason.end()) << L"\n"
+            << L"Final Verdict: " << clawhud::VrrDiagnosticVerdictName(finalVerdict)
+            << L"\nReason: " << std::wstring(finalReason.begin(), finalReason.end()) << L"\n"
             << L"Supporting evidence: IGCL VBlank timing is not an authoritative VRR-active signal.\n";
-        const bool phaseOk = !stop_ && offOk && staticOk && dynamicOk;
-        const auto finalVerdict = phaseOk ? evaluation.verdict : clawhud::VrrDiagnosticVerdict::Fail;
         log << L"Result: " << clawhud::VrrDiagnosticVerdictName(finalVerdict) << L"\n";
         Status(stop_ ? L"Cancelled" :
             finalVerdict == clawhud::VrrDiagnosticVerdict::Pass ? L"Passed" :
