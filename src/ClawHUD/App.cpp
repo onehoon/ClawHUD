@@ -344,8 +344,8 @@ void App::TryResumeRecovery()
     {
         const HRESULT clearHr = hudPresentation_->Render(
             clawhud::HudTelemetrySnapshot{}, BuildHudRenderOptions());
-        freshFrameReady = SUCCEEDED(clearHr);
-        if (!freshFrameReady && resumeRecoveryAttempts_ == 1)
+        freshFrameReady = ResumeRecoveryFrameWasPresented(clearHr);
+        if (!freshFrameReady && clearHr != S_FALSE && resumeRecoveryAttempts_ == 1)
             freshFrameReady = RecreateHudPresentation(false);
     }
     if (!ResumeRecoveryMayShowHud(expectedVisible, freshFrameReady))

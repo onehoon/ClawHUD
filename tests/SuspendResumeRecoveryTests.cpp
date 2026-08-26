@@ -41,5 +41,11 @@ int main()
         "visible HUD requires a fresh frame");
     ok &= Check(ResumeRecoveryMayShowHud(true, true),
         "fresh frame permits HUD restore");
+    ok &= Check(ResumeRecoveryFrameWasPresented(S_OK),
+        "S_OK means a fresh frame was presented");
+    ok &= Check(!ResumeRecoveryFrameWasPresented(S_FALSE),
+        "S_FALSE does not mean a fresh frame was presented");
+    ok &= Check(!ResumeRecoveryFrameWasPresented(E_FAIL),
+        "failed render does not mean a fresh frame was presented");
     return ok ? 0 : 1;
 }

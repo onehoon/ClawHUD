@@ -62,6 +62,11 @@ constexpr bool ResumeRecoveryMayShowHud(bool expectedVisible, bool freshFrameRea
     return !expectedVisible || freshFrameReady;
 }
 
+constexpr bool ResumeRecoveryFrameWasPresented(HRESULT renderResult) noexcept
+{
+    return renderResult == S_OK;
+}
+
 class App
 {
 public:
