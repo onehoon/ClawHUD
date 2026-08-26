@@ -68,6 +68,19 @@ LRESULT CALLBACK ForwardPanelNotifications(HWND window, UINT message, WPARAM wPa
     return DefSubclassProc(window, message, wParam, lParam);
 }
 
+LRESULT CALLBACK ForwardPanGesture(HWND window, UINT message, WPARAM wParam,
+    LPARAM lParam, UINT_PTR subclassId, DWORD_PTR)
+{
+    if (message == WM_GESTURE)
+    {
+        if (HWND root = GetAncestor(window, GA_ROOT))
+            return SendMessageW(root, message, wParam, lParam);
+    }
+    if (message == WM_NCDESTROY)
+        RemoveWindowSubclass(window, ForwardPanGesture, subclassId);
+    return DefSubclassProc(window, message, wParam, lParam);
+}
+
 void MoveControl(HWND parent, int id, int x, int y, int width, int height)
 {
     if (HWND control = GetDlgItem(parent, id))
@@ -78,6 +91,22 @@ void EnableMouseWheelForwarding(HWND control)
 {
     if (control)
         SetWindowSubclass(control, ForwardPanelNotifications, 4, 0);
+}
+
+void EnableStaticPanForwarding(HWND panel)
+{
+    if (!panel)
+        return;
+
+    SetWindowSubclass(panel, ForwardPanGesture, 5, 0);
+    EnumChildWindows(panel, [](HWND child, LPARAM) -> BOOL
+    {
+        wchar_t className[32]{};
+        GetClassNameW(child, className, _countof(className));
+        if (_wcsicmp(className, L"Static") == 0)
+            SetWindowSubclass(child, ForwardPanGesture, 5, 0);
+        return TRUE;
+    }, 0);
 }
 }
 
@@ -337,6 +366,7 @@ void SettingsWindow::CreateSettingsControls()
     EnableMouseWheelForwarding(backgroundFull_);
     EnableMouseWheelForwarding(backgroundContent_);
     EnableMouseWheelForwarding(opacitySlider_);
+    EnableStaticPanForwarding(settingsPanel_);
 }
 
 void SettingsWindow::CreateTweaksControls()
@@ -359,6 +389,7 @@ void SettingsWindow::CreateTweaksControls()
     intelVrrResult_ = CreateWindowW(L"STATIC", L"Last result: No result yet", WS_CHILD | WS_VISIBLE,
         0, 0, 0, 0, tweaksPanel_, nullptr, instance_, nullptr);
     EnableMouseWheelForwarding(intelVrrToggle_);
+    EnableStaticPanForwarding(tweaksPanel_);
 }
 
 void SettingsWindow::CreateAboutControls()
@@ -380,6 +411,7 @@ void SettingsWindow::CreateAboutControls()
     CreateWindowW(L"STATIC", L"ClawHUD runs from the system tray.\r\nConfigure HUD behavior from the Settings tab.\r\nF8 toggles HUD visibility.",
         WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, aboutPanel_,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAboutInstructions)), instance_, nullptr);
+    EnableStaticPanForwarding(aboutPanel_);
 }
 
 void SettingsWindow::CreateDiagnosticsControls()
@@ -416,6 +448,7 @@ void SettingsWindow::CreateDiagnosticsControls()
     EnableMouseWheelForwarding(stopVrrButton_);
     EnableMouseWheelForwarding(startEcButton_);
     EnableMouseWheelForwarding(openLogsButton_);
+    EnableStaticPanForwarding(diagnosticsPanel_);
 }
 
 void SettingsWindow::Layout()
