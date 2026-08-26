@@ -54,6 +54,10 @@ int main()
         "failed recreation rolls back size");
     const int retryOffset = CommitHudSizeOffsetAfterRecreation(0, 2, true);
     ok &= Check(retryOffset == 2, "successful retry commits size");
+    ok &= Check(ShouldRestoreHudVisibility(true),
+        "visible HUD remains visible after rollback retry");
+    ok &= Check(!ShouldRestoreHudVisibility(false),
+        "hidden HUD remains hidden after rollback retry");
 
     HudLayoutOptions customLayout{};
     customLayout.visibilityMode = HudVisibilityMode::Always;

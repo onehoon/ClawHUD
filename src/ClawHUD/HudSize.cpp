@@ -31,6 +31,11 @@ int CommitHudSizeOffsetAfterRecreation(
     return recreationSucceeded ? ClampHudSizeOffset(requested) : previous;
 }
 
+bool ShouldRestoreHudVisibility(bool wasVisible) noexcept
+{
+    return wasVisible;
+}
+
 HudRenderOptions BuildHudRenderOptionsForSize(
     int offset, const HudLayoutOptions& layout) noexcept
 {
