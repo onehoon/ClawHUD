@@ -6,6 +6,7 @@
 #include "resource.h"
 
 #include <commctrl.h>
+#include <dwmapi.h>
 
 namespace
 {
@@ -51,6 +52,7 @@ SettingsWindow::SettingsWindow(App& app) : app_(app)
 SettingsWindow::~SettingsWindow()
 {
     if (window_) DestroyWindow(window_);
+    if (uiFont_) DeleteObject(uiFont_);
 }
 
 bool SettingsWindow::Show(HINSTANCE instance)
@@ -65,7 +67,7 @@ bool SettingsWindow::Show(HINSTANCE instance)
         windowClass.lpfnWndProc = WindowProc;
         windowClass.hInstance = instance_;
         windowClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-        windowClass.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+        windowClass.hbrBackground = nullptr;
         windowClass.hIcon = LoadIconW(instance_, MAKEINTRESOURCEW(IDI_CLAWHUD));
         windowClass.lpszClassName = kSettingsClassName;
         RegisterClassW(&windowClass);
@@ -73,7 +75,12 @@ bool SettingsWindow::Show(HINSTANCE instance)
             WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
             CW_USEDEFAULT, CW_USEDEFAULT, 1040, 720, nullptr, nullptr, instance_, this);
         if (!window_) return false;
+        dpi_ = GetDpiForWindow(window_);
+        if (dpi_ == 0) dpi_ = 96;
+        ApplyWindowStyle();
         CreateTabs();
+        RecreateFont();
+        ApplyFont();
     }
     ShowWindow(window_, SW_SHOWNORMAL);
     UpdateWindow(window_);
@@ -82,6 +89,46 @@ bool SettingsWindow::Show(HINSTANCE instance)
     SetDiagnosticStatus(app_.EcStatus()); SetVrrStatus(app_.VrrStatus());
     UpdateTweaksControls();
     return true;
+}
+
+void SettingsWindow::ApplyWindowStyle()
+{
+    if (!window_) return;
+    const DWM_SYSTEMBACKDROP_TYPE backdrop = DWMSBT_MAINWINDOW;
+    systemBackdropActive_ = SUCCEEDED(DwmSetWindowAttribute(
+        window_, DWMWA_SYSTEMBACKDROP_TYPE, &backdrop, sizeof(backdrop)));
+}
+
+void SettingsWindow::RecreateFont()
+{
+    if (uiFont_)
+    {
+        DeleteObject(uiFont_);
+        uiFont_ = nullptr;
+    }
+
+    NONCLIENTMETRICSW metrics{};
+    metrics.cbSize = sizeof(metrics);
+    if (SystemParametersInfoForDpi(
+            SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0, dpi_))
+    {
+        uiFont_ = CreateFontIndirectW(&metrics.lfMessageFont);
+    }
+}
+
+void SettingsWindow::ApplyFont()
+{
+    if (!window_ || !uiFont_) return;
+    EnumChildWindows(window_, [](HWND child, LPARAM parameter) -> BOOL
+    {
+        SendMessageW(child, WM_SETFONT, parameter, TRUE);
+        return TRUE;
+    }, reinterpret_cast<LPARAM>(uiFont_));
+}
+
+int SettingsWindow::Scale(int value) const noexcept
+{
+    return MulDiv(value, static_cast<int>(dpi_), 96);
 }
 
 void SettingsWindow::CreateTabs()
@@ -287,6 +334,17 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
         SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
     }
     if (!self) return DefWindowProcW(window, message, wParam, lParam);
+    if (message == WM_ERASEBKGND)
+    {
+        if (self->systemBackdropActive_)
+            return TRUE;
+
+        RECT rect{};
+        GetClientRect(window, &rect);
+        FillRect(reinterpret_cast<HDC>(wParam), &rect,
+            GetSysColorBrush(COLOR_WINDOW));
+        return TRUE;
+    }
     if (message == WM_COMMAND && HIWORD(wParam) == BN_CLICKED)
     {
         switch (LOWORD(wParam))
@@ -358,6 +416,21 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
     {
         self->ShowTab(TabCtrl_GetCurSel(self->tabs_)); return 0;
     }
+    if (message == WM_DPICHANGED)
+    {
+        self->dpi_ = HIWORD(wParam);
+        if (self->dpi_ == 0) self->dpi_ = 96;
+        const auto* rect = reinterpret_cast<const RECT*>(lParam);
+        if (rect)
+        {
+            SetWindowPos(window, nullptr, rect->left, rect->top,
+                rect->right - rect->left, rect->bottom - rect->top,
+                SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+        self->RecreateFont();
+        self->ApplyFont();
+        return 0;
+    }
     if (message == WM_SIZE && wParam == SIZE_MINIMIZED)
     {
         ShowWindow(window, SW_HIDE);
@@ -370,6 +443,11 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
     }
     if (message == WM_NCDESTROY)
     {
+        if (self->uiFont_)
+        {
+            DeleteObject(self->uiFont_);
+            self->uiFont_ = nullptr;
+        }
         self->window_ = nullptr;
         self->tabs_ = nullptr;
         PostMessageW(self->app_.MessageWindow(), WM_APP + 1, 0, 0);
