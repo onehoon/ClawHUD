@@ -36,13 +36,16 @@ constexpr int kVisibilityAlways = 1208;
 constexpr int kVisibilityInGameOnly = 1209;
 constexpr int kHudSizeMinus = 1210;
 constexpr int kHudSizePlus = 1211;
+constexpr int kFontUnispace = 1212;
+constexpr int kFontSegoeUiVariable = 1213;
 constexpr int kGeneralHeading = 2001;
 constexpr int kHudHeading = 2002;
 constexpr int kVisibilityLabel = 2003;
 constexpr int kHudSizeLabel = 2004;
-constexpr int kAlignmentLabel = 2005;
-constexpr int kBackgroundWidthLabel = 2006;
-constexpr int kOpacityLabel = 2007;
+constexpr int kFontLabel = 2005;
+constexpr int kAlignmentLabel = 2006;
+constexpr int kBackgroundWidthLabel = 2007;
+constexpr int kOpacityLabel = 2008;
 constexpr int kTweaksHeading = 2101;
 constexpr int kTweaksDescription = 2102;
 constexpr int kDiagnosticsVrrHeading = 2201;
@@ -272,7 +275,7 @@ int SettingsWindow::ContentHeightForTab(int tab) const noexcept
 {
     switch (tab)
     {
-    case kTabSettings: return 410;
+    case kTabSettings: return 454;
     case kTabTweaks: return 230;
     case kTabAbout: return 260;
     case kTabDiagnostics: return 340;
@@ -386,6 +389,14 @@ void SettingsWindow::CreateSettingsControls()
         0, 0, 0, 0, settingsPanel_, nullptr, instance_, nullptr);
     hudSizePlus_ = CreateWindowW(L"BUTTON", L"+", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
         0, 0, 0, 0, settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kHudSizePlus)), instance_, nullptr);
+    CreateWindowW(L"STATIC", L"Font", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
+        settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kFontLabel)), instance_, nullptr);
+    fontUnispace_ = CreateWindowW(L"BUTTON", L"Unispace",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | BS_PUSHLIKE | WS_GROUP,
+        0, 0, 0, 0, settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kFontUnispace)), instance_, nullptr);
+    fontSegoeUiVariable_ = CreateWindowW(L"BUTTON", L"Segoe UI Variable",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | BS_PUSHLIKE,
+        0, 0, 0, 0, settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kFontSegoeUiVariable)), instance_, nullptr);
     CreateWindowW(L"STATIC", L"Alignment", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
         settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAlignmentLabel)), instance_, nullptr);
     alignmentLeft_ = CreateWindowW(L"BUTTON", L"Left",
@@ -419,6 +430,8 @@ void SettingsWindow::CreateSettingsControls()
     EnableMouseWheelForwarding(visibilityAlways_);
     EnableMouseWheelForwarding(hudSizeMinus_);
     EnableMouseWheelForwarding(hudSizePlus_);
+    EnableMouseWheelForwarding(fontUnispace_);
+    EnableMouseWheelForwarding(fontSegoeUiVariable_);
     EnableMouseWheelForwarding(alignmentLeft_);
     EnableMouseWheelForwarding(alignmentCenter_);
     EnableMouseWheelForwarding(alignmentRight_);
@@ -556,16 +569,19 @@ void SettingsWindow::LayoutSettings()
     MoveWindow(hudSizeMinus_, controlX, Scale(206) - scrollY, Scale(44), optionHeight, TRUE);
     MoveWindow(hudSizeValue_, controlX + Scale(52), Scale(210) - scrollY, Scale(72), labelHeight, TRUE);
     MoveWindow(hudSizePlus_, controlX + Scale(132), Scale(206) - scrollY, Scale(44), optionHeight, TRUE);
-    MoveControl(settingsPanel_, kAlignmentLabel, labelX, Scale(254) - scrollY, labelWidth, labelHeight);
-    MoveWindow(alignmentLeft_, controlX, Scale(250) - scrollY, Scale(90), optionHeight, TRUE);
-    MoveWindow(alignmentCenter_, controlX + Scale(98), Scale(250) - scrollY, Scale(90), optionHeight, TRUE);
-    MoveWindow(alignmentRight_, controlX + Scale(196), Scale(250) - scrollY, Scale(90), optionHeight, TRUE);
-    MoveControl(settingsPanel_, kBackgroundWidthLabel, labelX, Scale(298) - scrollY, labelWidth, labelHeight);
-    MoveWindow(backgroundFull_, controlX, Scale(294) - scrollY, Scale(110), optionHeight, TRUE);
-    MoveWindow(backgroundContent_, controlX + Scale(120), Scale(294) - scrollY, Scale(130), optionHeight, TRUE);
-    MoveControl(settingsPanel_, kOpacityLabel, labelX, Scale(342) - scrollY, labelWidth, labelHeight);
-    MoveWindow(opacitySlider_, controlX, Scale(338) - scrollY, Scale(260), optionHeight, TRUE);
-    MoveWindow(opacityLabel_, controlX + Scale(270), Scale(342) - scrollY, Scale(60), labelHeight, TRUE);
+    MoveControl(settingsPanel_, kFontLabel, labelX, Scale(254) - scrollY, labelWidth, labelHeight);
+    MoveWindow(fontUnispace_, controlX, Scale(250) - scrollY, Scale(120), optionHeight, TRUE);
+    MoveWindow(fontSegoeUiVariable_, controlX + Scale(128), Scale(250) - scrollY, Scale(165), optionHeight, TRUE);
+    MoveControl(settingsPanel_, kAlignmentLabel, labelX, Scale(298) - scrollY, labelWidth, labelHeight);
+    MoveWindow(alignmentLeft_, controlX, Scale(294) - scrollY, Scale(90), optionHeight, TRUE);
+    MoveWindow(alignmentCenter_, controlX + Scale(98), Scale(294) - scrollY, Scale(90), optionHeight, TRUE);
+    MoveWindow(alignmentRight_, controlX + Scale(196), Scale(294) - scrollY, Scale(90), optionHeight, TRUE);
+    MoveControl(settingsPanel_, kBackgroundWidthLabel, labelX, Scale(342) - scrollY, labelWidth, labelHeight);
+    MoveWindow(backgroundFull_, controlX, Scale(338) - scrollY, Scale(110), optionHeight, TRUE);
+    MoveWindow(backgroundContent_, controlX + Scale(120), Scale(338) - scrollY, Scale(130), optionHeight, TRUE);
+    MoveControl(settingsPanel_, kOpacityLabel, labelX, Scale(386) - scrollY, labelWidth, labelHeight);
+    MoveWindow(opacitySlider_, controlX, Scale(382) - scrollY, Scale(260), optionHeight, TRUE);
+    MoveWindow(opacityLabel_, controlX + Scale(270), Scale(386) - scrollY, Scale(60), labelHeight, TRUE);
 }
 
 void SettingsWindow::LayoutTweaks()
@@ -649,6 +665,10 @@ void SettingsWindow::UpdateHudControls()
         options.alignment == clawhud::HudAlignment::Center ? BST_CHECKED : BST_UNCHECKED, 0);
     if (alignmentRight_) SendMessageW(alignmentRight_, BM_SETCHECK,
         options.alignment == clawhud::HudAlignment::Right ? BST_CHECKED : BST_UNCHECKED, 0);
+    if (fontUnispace_) SendMessageW(fontUnispace_, BM_SETCHECK,
+        app_.HudFont() == clawhud::HudFont::Unispace ? BST_CHECKED : BST_UNCHECKED, 0);
+    if (fontSegoeUiVariable_) SendMessageW(fontSegoeUiVariable_, BM_SETCHECK,
+        app_.HudFont() == clawhud::HudFont::SegoeUiVariable ? BST_CHECKED : BST_UNCHECKED, 0);
     if (enableHud_) SendMessageW(enableHud_, BM_SETCHECK,
         app_.MockHudEnabled() ? BST_CHECKED : BST_UNCHECKED, 0);
     if (visibilityAlways_) SendMessageW(visibilityAlways_, BM_SETCHECK,
@@ -815,6 +835,8 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
             self->app_.SetHudVisibilityMode(clawhud::HudVisibilityMode::InGameOnly);
             self->UpdateHudControls();
             return 0;
+        case kFontUnispace: self->app_.SetHudFont(clawhud::HudFont::Unispace); return 0;
+        case kFontSegoeUiVariable: self->app_.SetHudFont(clawhud::HudFont::SegoeUiVariable); return 0;
         case kAlignmentLeft: self->app_.SetHudAlignment(clawhud::HudAlignment::Left); return 0;
         case kAlignmentCenter: self->app_.SetHudAlignment(clawhud::HudAlignment::Center); return 0;
         case kAlignmentRight: self->app_.SetHudAlignment(clawhud::HudAlignment::Right); return 0;

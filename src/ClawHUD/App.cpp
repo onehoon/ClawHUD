@@ -571,6 +571,26 @@ void App::SetHudAlignment(clawhud::HudAlignment alignment)
     SaveHudSettings();
 }
 
+void App::SetHudFont(clawhud::HudFont font)
+{
+    if (hudFont_ == font)
+        return;
+    const auto previousFont = hudFont_;
+    const bool restoreVisible = hudPresentation_ &&
+        hudPresentation_->Initialized() && hudPresentation_->Visible();
+    hudFont_ = font;
+    if (!RecreateHudPresentation(restoreVisible))
+    {
+        hudFont_ = previousFont;
+        RecreateHudPresentation(restoreVisible);
+        Log(L"HUD font change rolled back after presentation recreation failure");
+        return;
+    }
+    SaveHudSettings();
+    if (settings_)
+        settings_->UpdateHudControls();
+}
+
 void App::SetHudBackgroundMode(clawhud::HudBackgroundMode mode)
 {
     if (VrrDiagnosticRunning())
@@ -651,7 +671,7 @@ void App::SetHudSizeOffset(int offset)
 
 clawhud::HudRenderOptions App::BuildHudRenderOptions() const
 {
-    return clawhud::BuildHudRenderOptionsForSize(hudSizeOffset_, hudOptions_);
+    return clawhud::BuildHudRenderOptionsForSize(hudSizeOffset_, hudOptions_, hudFont_);
 }
 
 bool App::RecreateHudPresentation(bool restoreVisible)
@@ -1505,6 +1525,7 @@ void App::LoadHudSettings()
     const auto alignment = ReadHudSetting(path, L"Alignment", L"Center");
     if (alignment == L"Left") hudOptions_.alignment = clawhud::HudAlignment::Left;
     else if (alignment == L"Right") hudOptions_.alignment = clawhud::HudAlignment::Right;
+    hudFont_ = clawhud::ParseHudFont(ReadHudSetting(path, L"Font", L"Unispace"));
     const auto background = ReadHudSetting(path, L"BackgroundWidth", L"FullWidth");
     if (background == L"ContentWidth") hudOptions_.backgroundMode = clawhud::HudBackgroundMode::ContentWidth;
     else if (background == L"FullWidth") hudOptions_.backgroundMode = clawhud::HudBackgroundMode::FullWidth;
@@ -1534,10 +1555,12 @@ void App::SaveHudSettings() const
         ? L"ContentWidth" : L"FullWidth";
     const wchar_t* visibility = hudOptions_.visibilityMode == clawhud::HudVisibilityMode::Always
         ? L"Always" : L"InGameOnly";
+    const wchar_t* font = clawhud::HudFontIniToken(hudFont_);
     wchar_t opacity[8]{};
     swprintf_s(opacity, L"%ld", clawhud::HudBackgroundOpacityToPercent(
         hudOptions_.backgroundOpacity));
     bool saved = WritePrivateProfileStringW(L"HUD", L"Alignment", alignment, path.c_str()) != FALSE;
+    saved = WritePrivateProfileStringW(L"HUD", L"Font", font, path.c_str()) != FALSE && saved;
     saved = WritePrivateProfileStringW(L"HUD", L"BackgroundWidth", background, path.c_str()) != FALSE && saved;
     saved = WritePrivateProfileStringW(L"HUD", L"BackgroundOpacity", opacity, path.c_str()) != FALSE && saved;
     saved = WritePrivateProfileStringW(L"HUD", L"VisibilityMode", visibility, path.c_str()) != FALSE && saved;

@@ -25,6 +25,17 @@ int ParseHudSizeOffset(std::wstring_view value)
     return ClampHudSizeOffset(static_cast<int>(parsed));
 }
 
+HudFont ParseHudFont(std::wstring_view value)
+{
+    return _wcsicmp(std::wstring(value).c_str(), L"SegoeUIVariable") == 0
+        ? HudFont::SegoeUiVariable : HudFont::Unispace;
+}
+
+const wchar_t* HudFontIniToken(HudFont font) noexcept
+{
+    return font == HudFont::SegoeUiVariable ? L"SegoeUIVariable" : L"Unispace";
+}
+
 int CommitHudSizeOffsetAfterRecreation(
     int previous, int requested, bool recreationSucceeded) noexcept
 {
@@ -49,7 +60,7 @@ bool ShouldRestoreHudVisibility(bool wasVisible) noexcept
 }
 
 HudRenderOptions BuildHudRenderOptionsForSize(
-    int offset, const HudLayoutOptions& layout) noexcept
+    int offset, const HudLayoutOptions& layout, HudFont font) noexcept
 {
     constexpr float kBaseFontSize = 20.0f;
     constexpr float kUnitScale = 0.55f;
@@ -63,6 +74,7 @@ HudRenderOptions BuildHudRenderOptionsForSize(
 
     HudRenderOptions options{};
     options.layout = layout;
+    options.font = font;
     options.fontPixelSize = mainFont;
     options.unitFontPixelSize = mainFont * kUnitScale;
     options.barPixelHeight = kBaseBarHeight;

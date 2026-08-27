@@ -15,7 +15,17 @@ namespace
 using Microsoft::WRL::ComPtr;
 
 constexpr float kMaxLayoutDimension = 100000.0f;
-constexpr wchar_t kFontName[] = L"Unispace";
+
+const wchar_t* FontFamilyName(HudFont font) noexcept
+{
+    return font == HudFont::SegoeUiVariable ? L"Segoe UI Variable" : L"Unispace";
+}
+
+IDWriteFontCollection* FontCollectionFor(HudFont font,
+    IDWriteFontCollection* privateCollection) noexcept
+{
+    return font == HudFont::Unispace ? privateCollection : nullptr;
+}
 
 float Padding(const HudRenderOptions& options) noexcept
 {
@@ -41,7 +51,8 @@ HRESULT CreateTextFormat(IDWriteFactory* factory, IDWriteFontCollection* collect
 
     const float size = DipFromPhysicalPixels(
         unit ? options.unitFontPixelSize : options.fontPixelSize, options.dpi);
-    HRESULT hr = factory->CreateTextFormat(kFontName, collection,
+    HRESULT hr = factory->CreateTextFormat(FontFamilyName(options.font),
+        FontCollectionFor(options.font, collection),
         DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
         DWRITE_FONT_STRETCH_NORMAL, size, L"", &format);
     if (FAILED(hr))
@@ -177,7 +188,8 @@ HRESULT CreatePrivateFontCollection(IDWriteFactory* factory, const std::wstring&
     if (FAILED(hr = factory3->CreateFontCollectionFromFontSet(set.Get(), &collection1))) return hr;
     UINT32 familyIndex{};
     BOOL exists{};
-    if (FAILED(hr = collection1->FindFamilyName(kFontName, &familyIndex, &exists)) || !exists)
+    if (FAILED(hr = collection1->FindFamilyName(FontFamilyName(HudFont::Unispace),
+            &familyIndex, &exists)) || !exists)
         return FAILED(hr) ? hr : DWRITE_E_NOFONT;
     collection = collection1;
     return S_OK;

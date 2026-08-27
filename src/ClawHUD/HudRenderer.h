@@ -26,6 +26,7 @@ inline constexpr float kHudSeparatorOuterPx = 3.0f;
 struct HudRenderOptions
 {
     HudLayoutOptions layout{};
+    HudFont font{HudFont::Unispace};
     float fontPixelSize{20.0f};
     float unitFontPixelSize{11.0f};
     float barPixelHeight{30.0f};

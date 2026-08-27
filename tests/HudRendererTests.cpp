@@ -242,6 +242,14 @@ int main()
         hr = renderer.Measure(runs, options, measured);
         ok &= Check(SUCCEEDED(hr) && measured.contentWidth > 0 && measured.contentHeight > 0,
             "measure sample runs");
+        HudRenderOptions unispaceOptions = options;
+        unispaceOptions.font = HudFont::Unispace;
+        ok &= Check(SUCCEEDED(privateRenderer.Measure(runs, unispaceOptions, measured)) &&
+            measured.contentWidth > 0, "measure with private Unispace collection");
+        HudRenderOptions segoeOptions = options;
+        segoeOptions.font = HudFont::SegoeUiVariable;
+        ok &= Check(SUCCEEDED(renderer.Measure(runs, segoeOptions, measured)) &&
+            measured.contentWidth > 0, "measure with Segoe UI Variable system font");
         ok &= Check(renderer.Measure({}, options, measured) == S_OK && measured.contentWidth > 0,
             "measure empty runs");
 
@@ -312,6 +320,18 @@ int main()
         ok &= Check(width(HudSegmentKind::Fan, L"FAN", L"10000RPM") >
             width(HudSegmentKind::Fan, L"FAN", L"999RPM"),
             "fan overflow expands");
+        const auto segoeWidth = [&](HudSegmentKind kind, const wchar_t* label,
+            const wchar_t* value)
+        {
+            return MeasureWidth(renderer, {{kind, label, value}}, segoeOptions);
+        };
+        ok &= Check(Near(segoeWidth(HudSegmentKind::Gpu, L"GPU", L"9%"),
+                segoeWidth(HudSegmentKind::Gpu, L"GPU", L"99%")) &&
+            Near(segoeWidth(HudSegmentKind::Tdp, L"TDP", L"7W"),
+                segoeWidth(HudSegmentKind::Tdp, L"TDP", L"99.9W")) &&
+            Near(segoeWidth(HudSegmentKind::Fan, L"FAN", L"999RPM"),
+                segoeWidth(HudSegmentKind::Fan, L"FAN", L"9999RPM")),
+            "Segoe UI Variable segment widths stay reserved");
 
         const std::vector<HudTextRun> gpu{{HudSegmentKind::Gpu, L"GPU", L"99%"}};
         const std::vector<HudTextRun> gpuAndCpu{

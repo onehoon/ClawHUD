@@ -117,7 +117,9 @@ public:
     int HudSizeOffset() const noexcept { return hudSizeOffset_; }
     bool SetHudEnabled(bool enabled);
     const clawhud::HudLayoutOptions& HudOptions() const noexcept { return hudOptions_; }
+    clawhud::HudFont HudFont() const noexcept { return hudFont_; }
     void SetHudAlignment(clawhud::HudAlignment alignment);
+    void SetHudFont(clawhud::HudFont font);
     void SetHudBackgroundMode(clawhud::HudBackgroundMode mode);
     void SetHudBackgroundOpacity(float opacity, bool persist = true);
     void SetHudSizeOffset(int offset);
@@ -190,6 +192,7 @@ private:
     unsigned graphicsApiAttempts_{};
     ForegroundTracker foregroundTracker_;
     clawhud::HudLayoutOptions hudOptions_{};
+    clawhud::HudFont hudFont_{clawhud::HudFont::Unispace};
     std::optional<bool> manualHudVisibilityOverride_;
     std::optional<DiagnosticHudMode> diagnosticHudMode_;
     bool mockHudEnabled_{};
