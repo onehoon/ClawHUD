@@ -10,13 +10,15 @@ No `Set_*`, TDP, fan-control, charge-limit, or ownership operation is implemente
 
 ## VRR orchestration
 
-The Diagnostics tab also contains a user-started VRR / Presentation orchestration test. After **Start VRR Test**, the Settings window closes and the diagnostic waits indefinitely for the existing global **F8** hotkey. At the instant F8 is received, the UI thread validates and captures the current non-ClawHUD foreground process and fixes that PID for the complete test. Invalid foreground windows leave the diagnostic waiting for another F8. The test uses the real main `ClawHUD.exe` presentation path for three phases:
+The Diagnostics tab also contains a user-started VRR / Presentation orchestration test. After **Start VRR Test**, the Settings window closes and the diagnostic waits indefinitely for the existing global **F8** hotkey. At the instant F8 is received, the UI thread validates and captures the current foreground process and fixes that PID for the complete test. The validation rejects ClawHUD, Explorer, browsers, Steam/BPM, and known Windows shell/FSE helper processes; it does not attempt to identify every possible game. If validation fails, the diagnostic remains armed and waits for another F8 press. The test uses the real main `ClawHUD.exe` presentation path for three phases:
 
 1. **HUD OFF** — the main HUD is hidden and its update timer is stopped.
 2. **STATIC HUD** — one deterministic HUD frame is rendered and shown; the 100 ms update timer is not started and no periodic redraw is issued.
 3. **DYNAMIC HUD** — the same `HudPresentation` instance is kept visible and the existing 100 ms mock update path is resumed.
 
 PresentMon samples 28 seconds in each phase. No `ClawHUD.VrrPoc.exe` child, test overlay, or second presentation path is created; the prior main-HUD visibility state is restored after completion, failure, or cancellation.
+
+Return to the running game and press F8 after starting the test. A short Windows system sound confirms that the game target was validated and the diagnostic started. The phases then run automatically as **HUD OFF → STATIC HUD → DYNAMIC HUD**, approximately 28 seconds each. A second Windows system sound is played only after all phases complete successfully and cleanup/restoration has run. Invalid F8 targets, capture failures, cancellation, and application shutdown do not play either success sound. Sounds are asynchronous Windows system aliases; no audio files are bundled.
 
 This PR records the same lifecycle evidence and adds raw PresentMon capture. The build pins the official `PresentMon-2.5.1-x64.exe` standalone asset and copies it to `tools/PresentMon.exe`; it does not download anything at runtime or request elevation. Each phase runs a 28-second PID-targeted capture with the default CSV schema, preserving the raw `-off.csv`, `-static.csv`, and `-dynamic.csv` files unchanged. The TXT report summarizes `PresentMode`, displayed versus non-displayed rows derived from default-schema `MsUntilDisplayed`, dominant swapchain, and `MsBetweenPresents` / `MsBetweenDisplayChange` statistics, plus OFF/STATIC/DYNAMIC comparisons.
 
