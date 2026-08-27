@@ -30,8 +30,11 @@ int main()
         !VrrDiagnosticCompletionSoundAllowed(true, false) &&
         !VrrDiagnosticCompletionSoundAllowed(false, true),
         "completion sound requires successful phases and HUD restoration");
-    ok &= Check(VrrDiagnosticShouldStopPresentMonGracefully(false) &&
-        !VrrDiagnosticShouldStopPresentMonGracefully(true),
-        "non-cancelled diagnostics request graceful PresentMon stop");
+    ok &= Check(!VrrDiagnosticShouldForceTerminatePresentMon(false, false),
+        "successful diagnostic lets PresentMon finish its timed capture");
+    ok &= Check(VrrDiagnosticShouldForceTerminatePresentMon(true, false),
+        "cancelled diagnostic force-stops PresentMon");
+    ok &= Check(VrrDiagnosticShouldForceTerminatePresentMon(false, true),
+        "failed diagnostic may stop PresentMon early");
     return ok ? 0 : 1;
 }
