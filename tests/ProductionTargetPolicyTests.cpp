@@ -48,10 +48,15 @@ int main()
         !clawhud::ShouldPreservePendingProductionValidation(200, 100, true) &&
         !clawhud::ShouldPreservePendingProductionValidation(200, 200, false),
         "hidden HUD preserves only the active pending PresentMon validation");
-    ok &= Check(clawhud::ShouldDeferPendingProductionValidation(200, 0, true) &&
-        !clawhud::ShouldDeferPendingProductionValidation(200, 0, false) &&
-        !clawhud::ShouldDeferPendingProductionValidation(200, 100, true),
-        "transient foreground loss defers a live pending candidate");
+    ok &= Check(clawhud::ShouldDeferPendingProductionValidation(200, 0, false, true) &&
+        clawhud::ShouldDeferPendingProductionValidation(
+            200, 100, !clawhud::IsRejectedProductionTargetImage(L"explorer.exe"), true) &&
+        clawhud::ShouldDeferPendingProductionValidation(
+            200, 101, !clawhud::IsRejectedProductionTargetImage(L"steam.exe"), true) &&
+        clawhud::ShouldDeferPendingProductionValidation(200, 100, false, true) &&
+        !clawhud::ShouldDeferPendingProductionValidation(200, 0, false, false) &&
+        !clawhud::ShouldDeferPendingProductionValidation(200, 100, true, true),
+        "PID 0, Explorer, or Steam foreground defers a live pending candidate");
     ok &= Check(clawhud::ShouldRetryProductionPresentMon(0, 0, 100) &&
         clawhud::ShouldRetryProductionPresentMon(100, 1, 200) &&
         !clawhud::ShouldRetryProductionPresentMon(100, 1, 100),

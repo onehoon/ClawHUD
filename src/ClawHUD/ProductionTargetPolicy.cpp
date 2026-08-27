@@ -58,9 +58,11 @@ bool ShouldPreservePendingProductionValidation(DWORD pendingProcessId,
 }
 
 bool ShouldDeferPendingProductionValidation(DWORD pendingProcessId,
-    DWORD foregroundProcessId, bool candidateProcessAlive) noexcept
+    DWORD foregroundProcessId, bool foregroundUsable,
+    bool candidateProcessAlive) noexcept
 {
-    return pendingProcessId != 0 && foregroundProcessId == 0 && candidateProcessAlive;
+    return pendingProcessId != 0 && candidateProcessAlive &&
+        (foregroundProcessId == 0 || !foregroundUsable);
 }
 
 bool ShouldRetryProductionPresentMon(DWORD retryProcessId,

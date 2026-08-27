@@ -964,6 +964,10 @@ void App::StartProductionPresentMonSampling()
     if (presentMonHudTelemetry_ && presentMonProcessId_ == processId &&
         presentMonHudTelemetry_->Running())
         return;
+    if (committedProcessId == processId && !presentMonHudTelemetry_ &&
+        !clawhud::ShouldRetryProductionPresentMon(
+            presentMonRestartPid_, presentMonRestartAttempts_, processId))
+        return;
 
     StopProductionPresentMonSampling(L"target-handoff", false);
     const auto executable = std::filesystem::path(executablePath_).parent_path() /
@@ -990,6 +994,20 @@ void App::StartProductionPresentMonSampling()
         presentMonProcessId_ = 0;
         if (!committedProcessId)
             latestPresentMonDisplayedFps_.reset();
+        else
+        {
+            if (presentMonRestartPid_ != committedProcessId)
+            {
+                presentMonRestartPid_ = committedProcessId;
+                presentMonRestartAttempts_ = 0;
+            }
+            else if (presentMonRestartAttempts_ < 1)
+                ++presentMonRestartAttempts_;
+            if (presentMonRestartAttempts_ >= 1)
+                clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+                    L"PresentMon recovery exhausted pid=" +
+                    std::to_wstring(committedProcessId));
+        }
     }
 }
 
@@ -1179,8 +1197,7 @@ bool App::AdoptForegroundProductionTarget(HWND window, DWORD processId)
     std::wstring imageName;
     if (!IsUsableProductionTarget(window, processId, imageName))
     {
-        const bool transientForegroundLoss = !window || processId == 0;
-        if (transientForegroundLoss && pendingProductionTargetPid_ &&
+        if (pendingProductionTargetPid_ &&
             ProcessAlive(pendingProductionTargetPid_))
             return true;
         Log(L"Production target rejected pid=" + std::to_wstring(processId) +
@@ -1235,8 +1252,13 @@ void App::ConfirmForegroundProductionTarget(DWORD processId)
     if (!clawhud::ShouldConfirmProductionTarget(
         pendingProductionTargetPid_, processId, foregroundProcessId, true))
     {
+        std::wstring foregroundImage;
+        const bool foregroundUsable = foregroundProcessId != 0 &&
+            IsUsableProductionTarget(
+                foreground, foregroundProcessId, foregroundImage);
         if (clawhud::ShouldDeferPendingProductionValidation(
-            pendingProductionTargetPid_, foregroundProcessId, ProcessAlive(processId)))
+            pendingProductionTargetPid_, foregroundProcessId, foregroundUsable,
+            ProcessAlive(processId)))
             return;
         Log(L"Production target validation discarded pid=" +
             std::to_wstring(processId) + L" reason=foreground-changed");
@@ -1563,7 +1585,7 @@ void App::ReconcileHudVisibility()
         if (FAILED(hr))
             hudHideFailureLogged_ = true;
         KillTimer(tray_.Window(), kMockHudTimerId);
-        if (!foregroundTracker_.TrackedProcessId() && !pendingProductionTargetPid_)
+        if (!diagnosticHudMode_.has_value())
             StopProductionEcSampling(false);
     }
 }

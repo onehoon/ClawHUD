@@ -20,7 +20,8 @@ bool ShouldRetainCommittedProductionTarget(DWORD committedProcessId,
 bool ShouldPreservePendingProductionValidation(DWORD pendingProcessId,
     DWORD presentMonProcessId, bool presentMonRunning) noexcept;
 bool ShouldDeferPendingProductionValidation(DWORD pendingProcessId,
-    DWORD foregroundProcessId, bool candidateProcessAlive) noexcept;
+    DWORD foregroundProcessId, bool foregroundUsable,
+    bool candidateProcessAlive) noexcept;
 bool ShouldRetryProductionPresentMon(DWORD retryProcessId,
     unsigned retryAttempts, DWORD processId) noexcept;
 bool ShouldReevaluateForegroundAfterResume(bool hudEnabled,
