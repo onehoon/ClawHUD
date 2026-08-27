@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <map>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -36,7 +37,7 @@ public:
         stamp_ = name.str();
         name.str(L"");
         name.clear();
-        name << L"logs/vrr-poc-" << stamp_ << L".log";
+        name << L"logs/vrr-layered-poc-" << stamp_ << L".log";
         file_.open(name.str(), std::ios::out | std::ios::app);
     }
 
@@ -49,7 +50,7 @@ public:
     const std::wstring& Stamp() const { return stamp_; }
     std::filesystem::path CsvPath() const
     {
-        return std::filesystem::path(L"logs") / (L"vrr-poc-" + stamp_ + L".csv");
+        return std::filesystem::path(L"logs") / (L"vrr-layered-poc-" + stamp_ + L".csv");
     }
 
 private:
@@ -223,14 +224,52 @@ private:
         wc.lpszClassName = L"ClawHUD.VrrPoc";
         RegisterClassW(&wc);
         constexpr DWORD overlayExStyle = WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW |
-            WS_EX_TRANSPARENT | WS_EX_NOREDIRECTIONBITMAP | WS_EX_TOPMOST;
+            WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_TOPMOST;
         hwnd_ = CreateWindowExW(overlayExStyle,
-            wc.lpszClassName, L"ClawHUD VRR TEST", WS_POPUP, 24, 24, 520, 72,
+            wc.lpszClassName, L"ClawHUD VRR Layered PoC", WS_POPUP, 24, 24, 520, 72,
             nullptr, nullptr, wc.hInstance, this);
         if (!hwnd_) Fail(log_, L"CreateWindowEx", HRESULT_FROM_WIN32(GetLastError()));
+        if (!SetLayeredWindowAttributes(hwnd_, 0, 255, LWA_ALPHA))
+            Fail(log_, L"SetLayeredWindowAttributes", HRESULT_FROM_WIN32(GetLastError()));
+        log_.Write(L"SetLayeredWindowAttributes(alpha=255, LWA_ALPHA): SUCCESS");
+        VerifyWindowStyle();
         if (!SetWindowPos(hwnd_, HWND_TOPMOST, 24, 24, 520, 72, SWP_NOACTIVATE))
             Fail(log_, L"SetWindowPos", HRESULT_FROM_WIN32(GetLastError()));
         log_.Write(L"SetWindowPos(HWND_TOPMOST): success");
+        log_.Write(L"Mouse click-through contract:");
+        log_.Write(L"  WS_EX_TRANSPARENT: YES");
+        log_.Write(L"  WM_NCHITTEST: HTTRANSPARENT");
+        log_.Write(L"  WM_MOUSEACTIVATE: MA_NOACTIVATE");
+    }
+
+    void VerifyWindowStyle()
+    {
+        const LONG_PTR actualExStyle = GetWindowLongPtrW(hwnd_, GWL_EXSTYLE);
+        const bool layered = (actualExStyle & WS_EX_LAYERED) != 0;
+        const bool noRedirection = (actualExStyle & WS_EX_NOREDIRECTIONBITMAP) != 0;
+        const bool transparent = (actualExStyle & WS_EX_TRANSPARENT) != 0;
+        const bool noActivate = (actualExStyle & WS_EX_NOACTIVATE) != 0;
+        const bool toolWindow = (actualExStyle & WS_EX_TOOLWINDOW) != 0;
+        const bool topmost = (actualExStyle & WS_EX_TOPMOST) != 0;
+
+        log_.Write(L"=== POC WINDOW STYLE VERIFICATION ===");
+        std::wstringstream styleLog;
+        styleLog << L"Actual EXSTYLE: 0x" << std::hex << std::uppercase << std::setfill(L'0')
+            << std::setw(8) << (static_cast<unsigned long long>(actualExStyle) & 0xffffffffULL);
+        log_.Write(styleLog.str());
+        log_.Write(std::wstring(L"WS_EX_LAYERED: ") + (layered ? L"YES" : L"NO"));
+        log_.Write(std::wstring(L"WS_EX_NOREDIRECTIONBITMAP: ") +
+            (noRedirection ? L"YES" : L"NO"));
+        log_.Write(std::wstring(L"WS_EX_TRANSPARENT: ") + (transparent ? L"YES" : L"NO"));
+        log_.Write(std::wstring(L"WS_EX_NOACTIVATE: ") + (noActivate ? L"YES" : L"NO"));
+        log_.Write(std::wstring(L"WS_EX_TOOLWINDOW: ") + (toolWindow ? L"YES" : L"NO"));
+        log_.Write(std::wstring(L"WS_EX_TOPMOST: ") + (topmost ? L"YES" : L"NO"));
+        if (!layered || noRedirection)
+        {
+            log_.Write(L"TEST FAILED");
+            log_.Write(L"Reason: Layered PoC HWND style does not match expected contract");
+            throw std::runtime_error("Invalid Layered PoC window style");
+        }
     }
 
     void CreateD3DDevice()
@@ -347,6 +386,8 @@ private:
         const BOOL supported = factory_->IsPresentationSupportedWithIndependentFlip();
         log_.Write(L"Composition Swapchain: initialized");
         log_.Write(std::wstring(L"Independent Flip Presentation Support: ") + (supported ? L"YES" : L"NO"));
+        log_.Write(std::wstring(L"Independent Flip Capability: ") + (supported ? L"YES" : L"NO"));
+        log_.Write(L"Runtime Independent Flip usage will be determined from PresentMon CSV.");
         if (!supported) throw std::runtime_error("Independent flip presentation is not supported");
         hr = factory_->CreatePresentationManager(&manager_);
         LogResult(log_, L"CreatePresentationManager", hr);
@@ -472,9 +513,19 @@ private:
         hr = manager_->AddBufferFromResource(texture_.Get(), &buffer_);
         LogResult(log_, L"AddBufferFromResource", hr);
         if (FAILED(hr)) Fail(log_, L"IPresentationManager::AddBufferFromResource", hr);
+        displayableBufferCount_ = 1;
         hr = presentationSurface_->SetBuffer(buffer_.Get());
         LogResult(log_, L"SetBuffer", hr);
         if (FAILED(hr)) Fail(log_, L"IPresentationSurface::SetBuffer", hr);
+        log_.Write(L"=== POC PRESENTATION CONTRACT ===");
+        log_.Write(L"D3D API: D3D11");
+        log_.Write(L"Presentation API: IPresentationManager");
+        log_.Write(L"DirectComposition Target: HWND");
+        log_.Write(L"Texture Format: BGRA8");
+        log_.Write(L"Texture Buffers: " + std::to_wstring(displayableBufferCount_));
+        log_.Write(L"DISPLAYABLE resource: YES");
+        log_.Write(L"Alpha Mode: PREMULTIPLIED");
+        log_.Write(L"Independent Flip Support Required: YES");
     }
 
     void RenderBuffer()
@@ -552,6 +603,7 @@ private:
     ComPtr<IPresentationBuffer> buffer_;
     ComPtr<ID3D11Texture2D> texture_;
     ComPtr<ID3D11RenderTargetView> renderTarget_;
+    std::size_t displayableBufferCount_{};
 };
 }
 
@@ -585,6 +637,134 @@ struct PresentMonResult
     bool csvCreated{};
 };
 
+std::vector<std::string> ParseCsvLine(const std::string& line)
+{
+    std::vector<std::string> fields;
+    std::string field;
+    bool quoted = false;
+    for (std::size_t index = 0; index < line.size(); ++index)
+    {
+        const char value = line[index];
+        if (value == '"')
+        {
+            if (quoted && index + 1 < line.size() && line[index + 1] == '"')
+                field += line[++index];
+            else
+                quoted = !quoted;
+        }
+        else if (value == ',' && !quoted)
+        {
+            fields.push_back(std::move(field));
+            field.clear();
+        }
+        else
+        {
+            field += value;
+        }
+    }
+    fields.push_back(std::move(field));
+    return fields;
+}
+
+std::wstring AsciiToWide(const std::string& value)
+{
+    return std::wstring(value.begin(), value.end());
+}
+
+enum class CaptureAnalysis
+{
+    Unavailable,
+    IndependentFlip,
+    ComposedRegression,
+    Other
+};
+
+CaptureAnalysis AnalyzeCapture(Logger& log, const std::filesystem::path& csv)
+{
+    log.Write(L"=== PRESENTMON RESULT ===");
+    std::ifstream input(csv);
+    if (!input.is_open())
+    {
+        log.Write(L"PresentMode: UNAVAILABLE");
+        log.Write(L"Independent Flip: UNAVAILABLE");
+        return CaptureAnalysis::Unavailable;
+    }
+
+    std::string line;
+    if (!std::getline(input, line))
+    {
+        log.Write(L"PresentMode: UNAVAILABLE");
+        log.Write(L"Independent Flip: UNAVAILABLE");
+        return CaptureAnalysis::Unavailable;
+    }
+    if (line.size() >= 3 && static_cast<unsigned char>(line[0]) == 0xEF &&
+        static_cast<unsigned char>(line[1]) == 0xBB && static_cast<unsigned char>(line[2]) == 0xBF)
+        line.erase(0, 3);
+    const auto headers = ParseCsvLine(line);
+    std::map<std::string, std::size_t> columns;
+    for (std::size_t index = 0; index < headers.size(); ++index) columns[headers[index]] = index;
+    const auto modeColumn = columns.find("PresentMode");
+    const auto tearingColumn = columns.find("AllowsTearing");
+    const auto presentColumn = columns.find("MsBetweenPresents");
+    const auto displayChangeColumn = columns.find("MsBetweenDisplayChange");
+    if (modeColumn == columns.end()) log.Write(L"PresentMode: UNAVAILABLE (CSV column missing)");
+
+    std::map<std::string, std::size_t> modes;
+    std::size_t tearingYes{};
+    std::size_t tearingNo{};
+    std::size_t rows{};
+    double presentSum{};
+    double displayChangeSum{};
+    std::size_t presentCount{};
+    std::size_t displayChangeCount{};
+    while (std::getline(input, line))
+    {
+        const auto fields = ParseCsvLine(line);
+        if (modeColumn != columns.end() && modeColumn->second < fields.size() &&
+            !fields[modeColumn->second].empty())
+            ++modes[fields[modeColumn->second]];
+        if (tearingColumn != columns.end() && tearingColumn->second < fields.size())
+        {
+            if (fields[tearingColumn->second] == "1" || fields[tearingColumn->second] == "true" ||
+                fields[tearingColumn->second] == "TRUE") ++tearingYes;
+            else if (!fields[tearingColumn->second].empty()) ++tearingNo;
+        }
+        auto parseTiming = [&](const auto& column, double& sum, std::size_t& count)
+        {
+            if (column == columns.end() || column->second >= fields.size() || fields[column->second].empty()) return;
+            try { sum += std::stod(fields[column->second]); ++count; }
+            catch (const std::exception&) { }
+        };
+        parseTiming(presentColumn, presentSum, presentCount);
+        parseTiming(displayChangeColumn, displayChangeSum, displayChangeCount);
+        ++rows;
+    }
+
+    if (modes.empty())
+    {
+        log.Write(L"Dominant PresentMode: UNAVAILABLE");
+        log.Write(L"Independent Flip: UNAVAILABLE");
+        return CaptureAnalysis::Unavailable;
+    }
+    const auto dominant = std::max_element(modes.begin(), modes.end(),
+        [](const auto& left, const auto& right) { return left.second < right.second; });
+    log.Write(L"Dominant PresentMode: " + AsciiToWide(dominant->first));
+    for (const auto& [mode, count] : modes)
+        log.Write(L"PresentMode: " + AsciiToWide(mode) + L" (" + std::to_wstring(count) + L")");
+    const bool independent = dominant->first.find("Independent Flip") != std::string::npos;
+    log.Write(std::wstring(L"Independent Flip: ") + (independent ? L"YES" : L"NO"));
+    if (tearingYes || tearingNo)
+        log.Write(std::wstring(L"AllowsTearing: ") + (tearingYes >= tearingNo ? L"YES" : L"NO") +
+            L" (YES=" + std::to_wstring(tearingYes) + L", NO=" + std::to_wstring(tearingNo) + L")");
+    else
+        log.Write(L"AllowsTearing: UNAVAILABLE");
+    log.Write(L"MsBetweenPresents: " + (presentCount ? std::to_wstring(presentSum / presentCount) : L"UNAVAILABLE"));
+    log.Write(L"MsBetweenDisplayChange: " +
+        (displayChangeCount ? std::to_wstring(displayChangeSum / displayChangeCount) : L"UNAVAILABLE"));
+    log.Write(L"CSV Rows: " + std::to_wstring(rows));
+    return independent ? CaptureAnalysis::IndependentFlip : CaptureAnalysis::ComposedRegression;
+}
+
 bool StartPresentMon(Logger& log, const TargetProcess& target, PROCESS_INFORMATION& process)
 {
     const auto presentMon = ExecutableDirectory() / L"PresentMon.exe";
@@ -603,6 +783,14 @@ bool StartPresentMon(Logger& log, const TargetProcess& target, PROCESS_INFORMATI
     const std::wstring command = L"\"" + presentMon.wstring() + L"\" --process_id " +
         std::to_wstring(target.pid) + L" --output_file \"" + csv.wstring() +
         L"\" --timed 60 --terminate_after_timed --no_console_stats --qpc_time_ms --session_name " + session;
+    log.Write(L"=== PRESENTMON CAPTURE ===");
+    log.Write(L"PresentMon Mode: LAST-KNOWN-GOOD STANDALONE COMMAND");
+    log.Write(L"Command: " + command);
+    log.Write(L"Capture Duration: 60 sec");
+    log.Write(L"GPU tracking override: NONE");
+    log.Write(L"Input tracking override: NONE");
+    log.Write(L"Elevation: NO");
+    log.Write(L"Stdout/stderr redirection: NO");
     std::vector<wchar_t> commandLine(command.begin(), command.end());
     commandLine.push_back(L'\0');
     STARTUPINFOW startup{ sizeof(startup) };
@@ -637,7 +825,9 @@ PresentMonResult FinishPresentMon(Logger& log, PROCESS_INFORMATION& process,
     GetExitCodeProcess(process.hProcess, &result.exitCode);
     result.csvCreated = std::filesystem::exists(csv) && std::filesystem::file_size(csv) > 0;
     log.Write(L"PresentMon Exit Code: " + std::to_wstring(result.exitCode));
-    log.Write(std::wstring(L"Capture CSV Created: ") + (result.csvCreated ? L"YES" : L"NO"));
+    log.Write(std::wstring(L"CSV Created: ") + (result.csvCreated ? L"YES" : L"NO"));
+    const auto csvSize = result.csvCreated ? std::filesystem::file_size(csv) : 0;
+    log.Write(L"CSV Size: " + std::to_wstring(csvSize));
     CloseHandle(process.hProcess);
     process.hProcess = nullptr;
     return result;
@@ -728,9 +918,39 @@ bool RunAutomaticTest(Logger& log, PresentationOverlay& overlay, const TargetPro
 
         const PresentMonResult result = FinishPresentMon(log, presentMon, csv, !success);
         const bool targetAlive = TargetAlive(target);
-        log.Write(std::wstring(L"Target still alive: ") + (targetAlive ? L"YES" : L"NO"));
+        log.Write(std::wstring(L"Target Alive After Capture: ") + (targetAlive ? L"YES" : L"NO"));
         if (!targetAlive) success = false;
         if (result.exitCode != 0 || !result.csvCreated) success = false;
+
+        const CaptureAnalysis analysis = result.csvCreated ? AnalyzeCapture(log, csv) : CaptureAnalysis::Unavailable;
+        log.Write(L"=== LAYERED WINDOW VRR POC RESULT ===");
+        log.Write(L"PoC Variant: WS_EX_LAYERED");
+        if (!result.csvCreated)
+        {
+            log.Write(L"Result: INCONCLUSIVE");
+            log.Write(L"Reason: PresentMon capture unavailable.");
+        }
+        else if (result.exitCode != 0)
+        {
+            log.Write(L"Result: INCONCLUSIVE");
+            log.Write(L"Reason: PresentMon did not exit successfully.");
+        }
+        else if (analysis == CaptureAnalysis::IndependentFlip)
+        {
+            log.Write(L"Runtime Independent Flip: OBSERVED");
+            log.Write(L"Result: PASS CANDIDATE");
+        }
+        else if (analysis == CaptureAnalysis::ComposedRegression)
+        {
+            log.Write(L"Runtime Independent Flip: NOT OBSERVED");
+            log.Write(L"Result: FAIL CANDIDATE");
+            log.Write(L"Reason: Independent Flip regression observed with Layered PoC.");
+        }
+        else
+        {
+            log.Write(L"Result: INCONCLUSIVE");
+            log.Write(L"Reason: PresentMode was unavailable in the CSV.");
+        }
 
         log.Write(L"=== TEST END ===");
         log.Write(L"Wall Time: " + WallClock());
@@ -755,14 +975,29 @@ bool RunAutomaticTest(Logger& log, PresentationOverlay& overlay, const TargetPro
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
 {
     Logger log;
+    log.Write(L"============================================================");
+    log.Write(L"CLAWHUD VRR PRESENTATION POC");
+    log.Write(L"TEST MODE: LAYERED WINDOW CLICK-THROUGH / VRR VALIDATION");
+    log.Write(L"NOT PRODUCTION HUD");
+    log.Write(L"============================================================");
+    log.Write(L"PoC Presentation Variant: WS_EX_LAYERED");
+    log.Write(L"WS_EX_NOREDIRECTIONBITMAP: DISABLED");
+    log.Write(L"WS_EX_LAYERED: ENABLED");
+    log.Write(L"SetLayeredWindowAttributes: REQUIRED");
+    log.Write(L"Layered Global Alpha: 255");
     if (!SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2))
         Fail(log, L"SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2)",
             HRESULT_FROM_WIN32(GetLastError()));
-    log.Write(L"ClawHUD VRR PoC");
+    log.Write(L"ClawHUD VRR Layered PoC");
     log.Write(L"OS: Windows 11 (required; no compatibility fallback)");
-    log.Write(L"Test mode: PresentMon 60-second static HUD ON/OFF comparison");
+    log.Write(L"Test mode: PresentMon 60-second Layered HUD ON/OFF comparison");
     TargetProcess target{};
     if (!AcquireTarget(log, target)) return 1;
+    log.Write(L"=== TARGET GAME ===");
+    log.Write(L"Target Process: " + target.path);
+    log.Write(L"Target PID: " + std::to_wstring(target.pid));
+    log.Write(std::wstring(L"Target Alive Before Capture: ") +
+        (TargetAlive(target) ? L"YES" : L"NO"));
     try
     {
         PresentationOverlay overlay(log);

@@ -12,9 +12,22 @@ cmake --build build --config Release
 build\Release\ClawHUD.VrrPoc.exe
 ```
 
-The program writes the console output and a `logs/vrr-poc-YYYYMMDD-HHMMSS.log` file. It prints the adapter name, Composition Swapchain initialization, and the result of `IPresentationFactory::IsPresentationSupportedWithIndependentFlip()`. A `NO` result is a Phase 0 finding; there is no layered-window or DXGI fallback.
+The program writes the console output and a `logs/vrr-layered-poc-YYYYMMDD-HHMMSS.log` file, plus a matching CSV. It is a non-production, hardware-validation-only experiment. The startup banner identifies the `WS_EX_LAYERED` variant, verifies the actual HWND extended style, and records the result of `SetLayeredWindowAttributes(alpha=255, LWA_ALPHA)`. A `NO` capability result is a Phase 0 finding; runtime Independent Flip must be judged from the captured PresentMon CSV.
 
-The window is a top-level `WS_EX_NOACTIVATE | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW` popup hosted by DirectComposition. Rendering is still performed by a D3D11 displayable texture registered with `IPresentationManager`; the window is not a layered-window renderer. `F8` removes/adds the visual content and commits the DirectComposition tree, while `ESC` exits. OFF is therefore an actual content removal rather than an alpha-zero frame.
+The window is a top-level `WS_EX_NOACTIVATE | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_LAYERED` popup hosted by DirectComposition. `WS_EX_NOREDIRECTIONBITMAP` is disabled. Rendering is still performed by the unchanged D3D11 displayable texture and `IPresentationManager` path, with premultiplied alpha; the layered flag is the only presentation-window experiment variable. During the 60-second capture the existing automatic 5-second toggle removes/adds the visual content and commits the DirectComposition tree; `ESC` exits. OFF is therefore an actual content removal rather than an alpha-zero frame.
+
+## Hardware validation runbook
+
+1. Launch the game.
+2. Enter actual gameplay.
+3. Launch `ClawHUD.VrrPoc.exe`.
+4. Immediately return to the game.
+5. Keep the game foreground while the PoC acquires the target (up to 15 seconds).
+6. Leave the game running for the 60-second PresentMon capture.
+7. Verify mouse click-through while the PoC HUD is visible.
+8. Collect the generated layered PoC log and CSV.
+
+The PresentMon invocation is the last-known-good standalone command: PID-targeted, 60 seconds, direct launch, no elevation, no stdout/stderr redirection, and no GPU/input tracking overrides. The result is intentionally reported as `PASS CANDIDATE`, `FAIL CANDIDATE`, or `INCONCLUSIVE`; it is not an assertion that PresentMon alone proves every hardware VRR state. Do not merge or connect this PoC to the production HUD based on capability output or synthetic build/test results.
 
 ## Hardware validation
 
