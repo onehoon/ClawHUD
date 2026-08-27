@@ -54,16 +54,7 @@ std::wstring CpuValue(const HudTelemetrySnapshot& snapshot)
 
 std::wstring GpuValue(const HudTelemetrySnapshot& snapshot)
 {
-    std::wstring value;
-    if (snapshot.gpuUsagePercent)
-        value = Integer(*snapshot.gpuUsagePercent) + L"%";
-    if (snapshot.gpuMemoryUsedBytes)
-    {
-        if (!value.empty())
-            value += L" ";
-        value += L"VRAM " + Gigabytes(*snapshot.gpuMemoryUsedBytes) + L" GB";
-    }
-    return value;
+    return snapshot.gpuUsagePercent ? Integer(*snapshot.gpuUsagePercent) + L"%" : L"";
 }
 }
 
@@ -93,6 +84,8 @@ std::vector<HudTextRun> FormatHud(const HudTelemetrySnapshot& snapshot)
     const auto gpu = GpuValue(snapshot);
     if (!gpu.empty())
         Add(runs, HudSegmentKind::Gpu, L"GPU", gpu);
+    if (snapshot.gpuMemoryUsedBytes)
+        Add(runs, HudSegmentKind::Vram, L"VRAM", Gigabytes(*snapshot.gpuMemoryUsedBytes) + L" GB");
 
     if (snapshot.cpuPackagePowerW)
         Add(runs, HudSegmentKind::Tdp, L"TDP", Number(*snapshot.cpuPackagePowerW) + L" W");

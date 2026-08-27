@@ -1,8 +1,13 @@
 #include "HudRenderer.h"
 
+#include "RuntimeLogger.h"
+
 #include <algorithm>
+#include <filesystem>
+#include <sstream>
 
 #include <wrl/client.h>
+#include <dwrite_3.h>
 
 namespace clawhud
 {
@@ -11,7 +16,10 @@ namespace
 using Microsoft::WRL::ComPtr;
 
 constexpr float kMaxLayoutDimension = 100000.0f;
-constexpr wchar_t kFontName[] = L"Segoe UI Variable";
+constexpr wchar_t kFontName[] = L"Unispace";
+constexpr float kTextOutlinePx = 1.5f;
+constexpr float kSeparatorInnerWidthPx = 1.0f;
+constexpr float kSeparatorOuterWidthPx = 3.0f;
 
 float Padding(const HudRenderOptions& options) noexcept
 {
@@ -28,7 +36,8 @@ float SeparatorGap(const HudRenderOptions& options) noexcept
     return DipFromPhysicalPixels(options.separatorGapPx, options.dpi);
 }
 
-HRESULT CreateTextFormat(IDWriteFactory* factory, const HudRenderOptions& options,
+HRESULT CreateTextFormat(IDWriteFactory* factory, IDWriteFontCollection* collection,
+    const HudRenderOptions& options,
     ComPtr<IDWriteTextFormat>& format, bool unit = false)
 {
     if (!factory)
@@ -36,7 +45,7 @@ HRESULT CreateTextFormat(IDWriteFactory* factory, const HudRenderOptions& option
 
     const float size = DipFromPhysicalPixels(
         unit ? options.unitFontPixelSize : options.fontPixelSize, options.dpi);
-    HRESULT hr = factory->CreateTextFormat(kFontName, nullptr,
+    HRESULT hr = factory->CreateTextFormat(kFontName, collection,
         DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
         DWRITE_FONT_STRETCH_NORMAL, size, L"", &format);
     if (FAILED(hr))
@@ -105,6 +114,27 @@ HRESULT ApplyUnitTypography(IDWriteTextLayout* layout, const std::wstring& text,
     return S_OK;
 }
 
+HRESULT CreatePrivateFontCollection(IDWriteFactory* factory, const std::wstring& path,
+    ComPtr<IDWriteFontCollection>& collection)
+{
+    if (!factory || path.empty()) return E_INVALIDARG;
+    ComPtr<IDWriteFactory3> factory3;
+    HRESULT hr = factory->QueryInterface(IID_PPV_ARGS(&factory3));
+    if (FAILED(hr)) return hr;
+    ComPtr<IDWriteFontSetBuilder> builder;
+    if (FAILED(hr = factory3->CreateFontSetBuilder(&builder))) return hr;
+    ComPtr<IDWriteFontFaceReference> face;
+    if (FAILED(hr = factory3->CreateFontFaceReference(path.c_str(), nullptr, 0,
+        DWRITE_FONT_SIMULATIONS_NONE, &face))) return hr;
+    if (FAILED(hr = builder->AddFontFaceReference(face.Get(), nullptr, 0))) return hr;
+    ComPtr<IDWriteFontSet> set;
+    if (FAILED(hr = builder->CreateFontSet(&set))) return hr;
+    ComPtr<IDWriteFontCollection1> collection1;
+    if (FAILED(hr = factory3->CreateFontCollectionFromFontSet(set.Get(), &collection1))) return hr;
+    collection = collection1;
+    return S_OK;
+}
+
 HRESULT CreateLayout(IDWriteFactory* factory, IDWriteTextFormat* format,
     const std::wstring& text, const HudRenderOptions& options, bool tabular,
     bool styleUnits, ComPtr<IDWriteTextLayout>& layout)
@@ -151,6 +181,7 @@ const wchar_t* LabelExemplar(HudSegmentKind kind) noexcept
     case HudSegmentKind::Graphics: return L"Vulkan";
     case HudSegmentKind::Cpu: return L"CPU";
     case HudSegmentKind::Gpu: return L"GPU";
+    case HudSegmentKind::Vram: return L"VRAM";
     case HudSegmentKind::Tdp: return L"TDP";
     case HudSegmentKind::SystemPower: return L"SYS";
     case HudSegmentKind::Fan: return L"FAN";
@@ -165,7 +196,8 @@ const wchar_t* ValueExemplar(HudSegmentKind kind) noexcept
     {
     case HudSegmentKind::Graphics: return L"999 FPS";
     case HudSegmentKind::Cpu: return L"100% 100\u00B0C";
-    case HudSegmentKind::Gpu: return L"100% VRAM 99.9 GB";
+    case HudSegmentKind::Gpu: return L"100%";
+    case HudSegmentKind::Vram: return L"99.9 GB";
     case HudSegmentKind::Tdp:
     case HudSegmentKind::SystemPower: return L"99.9 W";
     case HudSegmentKind::Fan: return L"9999 RPM";
@@ -191,13 +223,18 @@ HRESULT MeasureSegmentMetrics(IDWriteFactory* factory, IDWriteTextFormat* format
     return S_OK;
 }
 
+void DrawOutlinedLayout(ID2D1DeviceContext* context, IDWriteTextLayout* layout,
+    float x, float y, ID2D1Brush* textBrush, ID2D1Brush* outlineBrush,
+    const HudRenderOptions& options);
+
 HRESULT DrawValue(ID2D1DeviceContext* context, IDWriteFactory* factory,
+    IDWriteFontCollection* collection,
     IDWriteTextFormat* mainFormat,
     const std::wstring& text, const HudRenderOptions& options,
-    float x, float y, ID2D1Brush* brush)
+    float x, float y, ID2D1Brush* brush, ID2D1Brush* outlineBrush)
 {
     ComPtr<IDWriteTextFormat> unitFormat;
-    HRESULT hr = CreateTextFormat(factory, options, unitFormat, true);
+    HRESULT hr = CreateTextFormat(factory, collection, options, unitFormat, true);
     if (FAILED(hr)) return hr;
     std::size_t cursor = 0;
     for (const auto& range : FindHudUnitRangesImpl(text))
@@ -208,14 +245,14 @@ HRESULT DrawValue(ID2D1DeviceContext* context, IDWriteFactory* factory,
             hr = CreateLayout(factory, mainFormat, text.substr(cursor, range.start - cursor),
                 options, true, false, layout);
             if (FAILED(hr)) return hr;
-            context->DrawTextLayout(D2D1::Point2F(x, y), layout.Get(), brush);
+            DrawOutlinedLayout(context, layout.Get(), x, y, brush, outlineBrush, options);
             x += Width(layout.Get());
         }
         ComPtr<IDWriteTextLayout> unit;
         const std::wstring unitText = text.substr(range.start, range.length);
         hr = CreateLayout(factory, unitFormat.Get(), unitText, options, true, false, unit);
         if (FAILED(hr)) return hr;
-        context->DrawTextLayout(D2D1::Point2F(x, y), unit.Get(), brush);
+        DrawOutlinedLayout(context, unit.Get(), x, y, brush, outlineBrush, options);
         x += Width(unit.Get());
         cursor = range.start + range.length;
     }
@@ -224,7 +261,7 @@ HRESULT DrawValue(ID2D1DeviceContext* context, IDWriteFactory* factory,
         ComPtr<IDWriteTextLayout> layout;
         hr = CreateLayout(factory, mainFormat, text.substr(cursor), options, true, false, layout);
         if (FAILED(hr)) return hr;
-        context->DrawTextLayout(D2D1::Point2F(x, y), layout.Get(), brush);
+        DrawOutlinedLayout(context, layout.Get(), x, y, brush, outlineBrush, options);
     }
     return S_OK;
 }
@@ -256,9 +293,35 @@ D2D1_COLOR_F LabelColor(HudSegmentKind kind) noexcept
     {
     case HudSegmentKind::Cpu: return D2D1::ColorF(0x2E97CB, 1.0f);
     case HudSegmentKind::Gpu: return D2D1::ColorF(0x2E9762, 1.0f);
+    case HudSegmentKind::Vram: return D2D1::ColorF(0xAD64C1, 1.0f);
+    case HudSegmentKind::Graphics: return D2D1::ColorF(0xEB5B5B, 1.0f);
+    case HudSegmentKind::SystemPower:
     case HudSegmentKind::Battery: return D2D1::ColorF(0xFF9078, 1.0f);
+    case HudSegmentKind::Tdp: return D2D1::ColorF(0x2E97CB, 1.0f);
+    case HudSegmentKind::Fan: return D2D1::ColorF(0xEB5B5B, 1.0f);
     default: return D2D1::ColorF(D2D1::ColorF::White, 1.0f);
     }
+}
+
+float SeparatorWidth(const HudRenderOptions& options) noexcept
+{
+    return DipFromPhysicalPixels(kSeparatorOuterWidthPx, options.dpi);
+}
+
+float SeparatorHeight(const HudRenderOptions& options) noexcept
+{
+    return DipFromPhysicalPixels(options.fontPixelSize * 0.85f, options.dpi);
+}
+
+void DrawOutlinedLayout(ID2D1DeviceContext* context, IDWriteTextLayout* layout,
+    float x, float y, ID2D1Brush* textBrush, ID2D1Brush* outlineBrush,
+    const HudRenderOptions& options)
+{
+    const float offset = DipFromPhysicalPixels(kTextOutlinePx, options.dpi);
+    for (const auto& point : { D2D1::Point2F(x - offset, y), D2D1::Point2F(x + offset, y),
+        D2D1::Point2F(x, y - offset), D2D1::Point2F(x, y + offset) })
+        context->DrawTextLayout(point, layout, outlineBrush);
+    context->DrawTextLayout(D2D1::Point2F(x, y), layout, textBrush);
 }
 
 struct TextAntialiasModeGuard
@@ -277,6 +340,33 @@ struct TextAntialiasModeGuard
         context->SetTextAntialiasMode(previous);
     }
 };
+}
+
+HudRenderer::HudRenderer(IDWriteFactory* factory, const std::wstring& fontFilePath) noexcept
+    : factory_(factory)
+{
+    if (!factory_ || fontFilePath.empty()) return;
+    const HRESULT hr = CreatePrivateFontCollection(factory_, fontFilePath, fontCollection_);
+    if (FAILED(hr))
+    {
+        std::wostringstream message;
+        message << L"Unispace private font load failed (0x" << std::hex
+            << static_cast<unsigned long>(hr) << L"); using DirectWrite fallback";
+        RuntimeLogger::Log(RuntimeLogLevel::Error, message.str());
+    }
+}
+
+HRESULT HudRenderer::MeasureMainTextHeight(const HudRenderOptions& options, float& heightPx) const
+{
+    heightPx = 0.0f;
+    ComPtr<IDWriteTextFormat> format;
+    HRESULT hr = CreateTextFormat(factory_, fontCollection_.Get(), options, format);
+    if (FAILED(hr)) return hr;
+    ComPtr<IDWriteTextLayout> layout;
+    hr = CreateLayout(factory_, format.Get(), L"Ag", options, false, false, layout);
+    if (FAILED(hr)) return hr;
+    heightPx = Height(layout.Get()) * options.dpi / 96.0f;
+    return S_OK;
 }
 
 float DipFromPhysicalPixels(float pixels, float dpi) noexcept
@@ -351,17 +441,13 @@ HRESULT HudRenderer::Measure(const std::vector<HudTextRun>& runs,
 {
     result = {};
     ComPtr<IDWriteTextFormat> format;
-    HRESULT hr = CreateTextFormat(factory_, options, format);
+    HRESULT hr = CreateTextFormat(factory_, fontCollection_.Get(), options, format);
     if (FAILED(hr))
         return hr;
 
     result.contentWidth = Padding(options) * 2.0f;
     result.contentHeight = DipFromPhysicalPixels(options.barPixelHeight, options.dpi);
-    ComPtr<IDWriteTextLayout> separator;
-    hr = CreateLayout(factory_, format.Get(), L"|", options, false, false, separator);
-    if (FAILED(hr))
-        return hr;
-    result.textHeight = Height(separator.Get());
+    result.textHeight = 0.0f;
     for (size_t i = 0; i < runs.size(); ++i)
     {
         float width{};
@@ -372,7 +458,7 @@ HRESULT HudRenderer::Measure(const std::vector<HudTextRun>& runs,
         result.textHeight = std::max(result.textHeight, height);
         result.contentWidth += width;
         if (i + 1 < runs.size())
-            result.contentWidth += SeparatorGap(options) * 2.0f + Width(separator.Get());
+            result.contentWidth += SeparatorGap(options) * 2.0f + SeparatorWidth(options);
     }
     return S_OK;
 }
@@ -383,7 +469,8 @@ HRESULT HudRenderer::MeasureReservedHudWidth(
     const std::vector<HudTextRun> reservedRuns{
         { HudSegmentKind::Graphics, L"Vulkan", L"999 FPS" },
         { HudSegmentKind::Cpu, L"CPU", L"100% 100\u00B0C" },
-        { HudSegmentKind::Gpu, L"GPU", L"100% VRAM 99.9 GB" },
+        { HudSegmentKind::Gpu, L"GPU", L"100%" },
+        { HudSegmentKind::Vram, L"VRAM", L"99.9 GB" },
         { HudSegmentKind::Tdp, L"TDP", L"99.9 W" },
         { HudSegmentKind::SystemPower, L"SYS", L"99.9 W" },
         { HudSegmentKind::Fan, L"FAN", L"9999 RPM" },
@@ -416,17 +503,13 @@ HRESULT HudRenderer::Draw(ID2D1DeviceContext* context,
     if (FAILED(hr)) return hr;
     hr = context->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::White, 1.0f), &white);
     if (FAILED(hr)) return hr;
-    hr = context->CreateSolidColorBrush(D2D1::ColorF(0xD0D0D0, 1.0f), &separatorBrush);
+    hr = context->CreateSolidColorBrush(D2D1::ColorF(0xAD64C1, 1.0f), &separatorBrush);
     if (FAILED(hr)) return hr;
     background->SetOpacity(std::clamp(options.layout.backgroundOpacity, 0.0f, 1.0f));
 
     ComPtr<IDWriteTextFormat> format;
-    hr = CreateTextFormat(factory_, options, format);
+    hr = CreateTextFormat(factory_, fontCollection_.Get(), options, format);
     if (FAILED(hr)) return hr;
-    ComPtr<IDWriteTextLayout> separator;
-    hr = CreateLayout(factory_, format.Get(), L"|", options, false, false, separator);
-    if (FAILED(hr)) return hr;
-
     TextAntialiasModeGuard antialiasMode(context);
     context->FillRectangle(geometry.background, background.Get());
     float x = geometry.textOrigin.x;
@@ -448,17 +531,29 @@ HRESULT HudRenderer::Draw(ID2D1DeviceContext* context,
         ComPtr<ID2D1SolidColorBrush> labelBrush;
         hr = context->CreateSolidColorBrush(LabelColor(runs[i].kind), &labelBrush);
         if (FAILED(hr)) return hr;
-        context->DrawTextLayout(D2D1::Point2F(layout.labelX, geometry.textOrigin.y),
-            label.Get(), labelBrush.Get());
-        hr = DrawValue(context, factory_, format.Get(), runs[i].value, options,
-            layout.valueX, geometry.textOrigin.y, white.Get());
+        ComPtr<ID2D1SolidColorBrush> outlineBrush;
+        hr = context->CreateSolidColorBrush(D2D1::ColorF(0x000000, 1.0f), &outlineBrush);
+        if (FAILED(hr)) return hr;
+        DrawOutlinedLayout(context, label.Get(), layout.labelX, geometry.textOrigin.y,
+            labelBrush.Get(), outlineBrush.Get(), options);
+        hr = DrawValue(context, factory_, fontCollection_.Get(), format.Get(), runs[i].value, options,
+            layout.valueX, geometry.textOrigin.y, white.Get(), outlineBrush.Get());
         if (FAILED(hr)) return hr;
         x += layout.segmentWidth;
         if (i + 1 < runs.size())
         {
             x += SeparatorGap(options);
-            context->DrawTextLayout(D2D1::Point2F(x, geometry.textOrigin.y), separator.Get(), separatorBrush.Get());
-            x += Width(separator.Get()) + SeparatorGap(options);
+            const float separatorHeight = SeparatorHeight(options);
+            const float separatorY = viewport.top +
+                std::max(0.0f, (geometry.background.bottom - geometry.background.top - separatorHeight) / 2.0f);
+            const float centerX = x + SeparatorWidth(options) / 2.0f;
+            context->DrawLine(D2D1::Point2F(centerX, separatorY),
+                D2D1::Point2F(centerX, separatorY + separatorHeight),
+                outlineBrush.Get(), DipFromPhysicalPixels(kSeparatorOuterWidthPx, options.dpi));
+            context->DrawLine(D2D1::Point2F(centerX, separatorY),
+                D2D1::Point2F(centerX, separatorY + separatorHeight),
+                separatorBrush.Get(), DipFromPhysicalPixels(kSeparatorInnerWidthPx, options.dpi));
+            x += SeparatorWidth(options) + SeparatorGap(options);
         }
     }
     return S_OK;

@@ -4,6 +4,7 @@
 
 #include <d2d1_1.h>
 #include <dwrite.h>
+#include <wrl/client.h>
 
 #include <cstdint>
 #include <string>
@@ -17,10 +18,11 @@ struct HudRenderOptions
     float fontPixelSize{20.0f};
     float unitFontPixelSize{11.0f};
     float barPixelHeight{30.0f};
-    float horizontalPaddingPx{8.0f};
-    float segmentGapPx{6.0f};
-    float separatorGapPx{10.0f};
+    float horizontalPaddingPx{5.0f};
+    float segmentGapPx{8.0f};
+    float separatorGapPx{8.0f};
     float dpi{96.0f};
+    std::wstring fontFilePath;
 };
 
 struct HudMeasureResult
@@ -73,7 +75,9 @@ HudRenderGeometry CalculateHudGeometry(
 class HudRenderer
 {
 public:
-    explicit HudRenderer(IDWriteFactory* factory) noexcept : factory_(factory) {}
+    explicit HudRenderer(IDWriteFactory* factory, const std::wstring& fontFilePath = {}) noexcept;
+
+    HRESULT MeasureMainTextHeight(const HudRenderOptions& options, float& heightPx) const;
 
     HRESULT Measure(
         const std::vector<HudTextRun>& runs,
@@ -92,5 +96,6 @@ public:
 
 private:
     IDWriteFactory* factory_{};
+    Microsoft::WRL::ComPtr<IDWriteFontCollection> fontCollection_;
 };
 }

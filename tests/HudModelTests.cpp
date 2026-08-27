@@ -84,11 +84,19 @@ int main()
         "zero GPU usage without VRAM formatting");
     vram.gpuUsagePercent = 87.0;
     vram.gpuMemoryUsedBytes = static_cast<std::uint64_t>(3.4 * 1024.0 * 1024.0 * 1024.0);
-    ok &= Check(JoinHudRuns(FormatHud(vram)) == L"GPU 87% VRAM 3.4 GB",
+    ok &= Check(JoinHudRuns(FormatHud(vram)) == L"GPU 87% | VRAM 3.4 GB",
         "GPU usage and VRAM formatting");
     vram.gpuUsagePercent.reset();
-    ok &= Check(JoinHudRuns(FormatHud(vram)) == L"GPU VRAM 3.4 GB",
+    ok &= Check(JoinHudRuns(FormatHud(vram)) == L"VRAM 3.4 GB",
         "VRAM-only formatting");
+    vram.gpuMemoryUsedBytes.reset();
+    vram.gpuUsagePercent = 87.0;
+    ok &= Check(JoinHudRuns(FormatHud(vram)) == L"GPU 87%",
+        "GPU without VRAM omits the slot");
+    vram.gpuUsagePercent.reset();
+    vram.gpuMemoryUsedBytes = static_cast<std::uint64_t>(3.4 * 1024.0 * 1024.0 * 1024.0);
+    ok &= Check(JoinHudRuns(FormatHud(vram)) == L"VRAM 3.4 GB",
+        "VRAM without GPU usage remains visible");
 
     return ok ? 0 : 1;
 }

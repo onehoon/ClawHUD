@@ -32,6 +32,40 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
+## MangoHud
+
+- Purpose: visual style reference and adapted visual implementation
+- License: MIT
+- Project: https://github.com/flightlessmango/MangoHud
+- Reference revision: `00b63717ed7220e4476df7936cf047a11964ea2d`
+
+```text
+Copyright (c) MangoHud contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+```
+
+## Unispace
+
+- Component: bundled `fonts/Unispace.otf`
+- Designer: Ray Larabie / Typodermic Fonts
+- Purpose: private HUD font
+- License: public domain (CC0), according to the official Typodermic Fonts distribution
+- Source: https://typodermicfonts.com/public-domain/
+- Bundled source notice: `fonts/Unispace-LICENSE.txt`
+
 ## PresentMon
 
 - Component: PresentMon `tools/PresentMon.exe`

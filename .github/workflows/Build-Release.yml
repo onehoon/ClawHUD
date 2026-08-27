@@ -93,6 +93,7 @@ jobs:
           $stage = Join-Path $pwd 'stage'
           Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path (Join-Path $stage 'tools') | Out-Null
+          New-Item -ItemType Directory -Force -Path (Join-Path $stage 'fonts') | Out-Null
 
           $release = Join-Path $pwd 'build\Release'
           Copy-Item (Join-Path $release 'ClawHUD.exe') $stage
@@ -100,13 +101,17 @@ jobs:
           Copy-Item (Join-Path $release 'velopack_libc.dll') $stage
           Copy-Item (Join-Path $release 'tools\PresentMon.exe') (Join-Path $stage 'tools')
           Copy-Item (Join-Path $release 'tools\PresentMon-LICENSE.txt') (Join-Path $stage 'tools')
+          Copy-Item (Join-Path $release 'fonts\Unispace.otf') (Join-Path $stage 'fonts')
+          Copy-Item (Join-Path $release 'fonts\Unispace-LICENSE.txt') (Join-Path $stage 'fonts')
 
           $required = @(
             'ClawHUD.exe',
             'ClawHUD.EcHelper.exe',
             'velopack_libc.dll',
             'tools\PresentMon.exe',
-            'tools\PresentMon-LICENSE.txt'
+            'tools\PresentMon-LICENSE.txt',
+            'fonts\Unispace.otf',
+            'fonts\Unispace-LICENSE.txt'
           )
           foreach ($relative in $required) {
             if (-not (Test-Path (Join-Path $stage $relative))) {

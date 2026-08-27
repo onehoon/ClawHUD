@@ -1,8 +1,10 @@
 #include "HudPresentation.h"
 #include "HudPresentationLifecycle.h"
+#include "RuntimeLogger.h"
 #include "resource.h"
 
 #include <cmath>
+#include <filesystem>
 
 using Microsoft::WRL::ComPtr;
 
@@ -39,7 +41,7 @@ HRESULT HudPresentation::Initialize(HINSTANCE instance, const HudRenderOptions& 
     xPx_ = monitor.rcMonitor.left;
     yPx_ = monitor.rcMonitor.top;
     widthPx_ = static_cast<UINT>(monitor.rcMonitor.right - monitor.rcMonitor.left);
-    heightPx_ = static_cast<UINT>(std::lround(options.barPixelHeight));
+    heightPx_ = 1;
     if (!widthPx_ || !heightPx_)
         return E_INVALIDARG;
 
@@ -49,6 +51,19 @@ HRESULT HudPresentation::Initialize(HINSTANCE instance, const HudRenderOptions& 
     if (dpi_ <= 0.0f) dpi_ = 96.0f;
     initializationOptions_.dpi = dpi_;
     if (FAILED(hr = CreateGraphics())) { Shutdown(); return hr; }
+    float measuredTextHeightPx{};
+    if (SUCCEEDED(renderer_->MeasureMainTextHeight(initializationOptions_, measuredTextHeightPx)) &&
+        measuredTextHeightPx > 0.0f)
+    {
+        barPixelHeight_ = measuredTextHeightPx + 10.0f;
+        initializationOptions_.barPixelHeight = barPixelHeight_;
+    }
+    else
+    {
+        RuntimeLogger::Log(RuntimeLogLevel::Warn,
+            L"Unispace text metrics unavailable; using configured HUD bar height");
+    }
+    heightPx_ = static_cast<UINT>(std::max(1.0f, std::ceil(barPixelHeight_)));
     if (options.layout.backgroundMode == HudBackgroundMode::ContentWidth)
     {
         float reservedWidthDip{};
@@ -128,7 +143,16 @@ HRESULT HudPresentation::CreateGraphics()
     if (FAILED(hr = d2dDevice->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &d2dContext_))) return hr;
     if (FAILED(hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
         reinterpret_cast<IUnknown**>(writeFactory_.ReleaseAndGetAddressOf())))) return hr;
-    renderer_ = std::make_unique<HudRenderer>(writeFactory_.Get());
+    if (initializationOptions_.fontFilePath.empty())
+    {
+        wchar_t modulePath[MAX_PATH]{};
+        const DWORD length = GetModuleFileNameW(instance_, modulePath, ARRAYSIZE(modulePath));
+        if (length > 0 && length < ARRAYSIZE(modulePath))
+            initializationOptions_.fontFilePath =
+                (std::filesystem::path(modulePath).parent_path() / L"fonts" / L"Unispace.otf").wstring();
+    }
+    renderer_ = std::make_unique<HudRenderer>(writeFactory_.Get(),
+        initializationOptions_.fontFilePath);
     return S_OK;
 }
 
@@ -209,6 +233,7 @@ HRESULT HudPresentation::Render(const HudTelemetrySnapshot& snapshot, const HudR
         return hr;
     HudRenderOptions effective = options;
     effective.dpi = dpi_;
+    effective.barPixelHeight = initializationOptions_.barPixelHeight;
     const auto runs = FormatHud(snapshot);
     const float widthDip = DipFromPhysicalPixels(static_cast<float>(widthPx_), dpi_);
     const float heightDip = DipFromPhysicalPixels(static_cast<float>(heightPx_), dpi_);

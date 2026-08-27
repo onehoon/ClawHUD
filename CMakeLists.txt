@@ -105,12 +105,19 @@ target_link_libraries(ClawHUD.EcHelper PRIVATE wbemuuid ole32 oleaut32)
 set_target_properties(ClawHUD.EcHelper PROPERTIES CXX_EXTENSIONS OFF)
 add_custom_command(TARGET ClawHUD POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:ClawHUD>/tools"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:ClawHUD>/fonts"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${PRESENTMON_EXE}"
         "$<TARGET_FILE_DIR:ClawHUD>/tools/PresentMon.exe"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${PRESENTMON_LICENSE}"
         "$<TARGET_FILE_DIR:ClawHUD>/tools/PresentMon-LICENSE.txt"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/third_party/unispace/Unispace.otf"
+        "$<TARGET_FILE_DIR:ClawHUD>/fonts/Unispace.otf"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/third_party/unispace/Unispace-LICENSE.txt"
+        "$<TARGET_FILE_DIR:ClawHUD>/fonts/Unispace-LICENSE.txt"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${VELOPACK_ROOT}/lib/velopack_libc_win_x64_msvc.dll"
         "$<TARGET_FILE_DIR:ClawHUD>/velopack_libc.dll"
@@ -156,12 +163,13 @@ if(BUILD_TESTING)
     add_executable(ClawHUD.HudRendererTests
         tests/HudRendererTests.cpp
         src/ClawHUD/HudRenderer.cpp
+        src/ClawHUD/RuntimeLogger.cpp
         src/ClawHUD/HudWindowGeometry.cpp
         src/ClawHUD/HudModel.cpp)
     target_compile_features(ClawHUD.HudRendererTests PRIVATE cxx_std_20)
     target_compile_definitions(ClawHUD.HudRendererTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
     target_include_directories(ClawHUD.HudRendererTests PRIVATE src/ClawHUD)
-    target_link_libraries(ClawHUD.HudRendererTests PRIVATE d2d1 dwrite)
+    target_link_libraries(ClawHUD.HudRendererTests PRIVATE d2d1 dwrite shell32 ole32)
     set_target_properties(ClawHUD.HudRendererTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.HudRendererTests COMMAND ClawHUD.HudRendererTests)
 
