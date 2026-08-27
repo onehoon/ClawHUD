@@ -400,12 +400,11 @@ PresentMonCaptureResult CapturePresentMonAttempt(
         {
             const DWORD terminateError = GetLastError();
             log << L"PresentMon force termination failed error=" << terminateError
-                << L"; waiting for timed exit\n";
-            auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                << L"; waiting within watchdog bound\n";
+            const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
                 deadline - std::chrono::steady_clock::now());
-            if (remaining < std::chrono::seconds(5))
-                remaining = std::chrono::seconds(5);
-            WaitForSingleObject(processHandle, static_cast<DWORD>(remaining.count()));
+            if (remaining.count() > 0)
+                WaitForSingleObject(processHandle, static_cast<DWORD>(remaining.count()));
         }
         else
         {
@@ -415,8 +414,8 @@ PresentMonCaptureResult CapturePresentMonAttempt(
     }
     if (childStillRunning)
     {
-        log << L"PresentMon: FAILED\nReason: child still running during cleanup\n";
-        WaitForSingleObject(processHandle, INFINITE);
+        timeout = true;
+        log << L"PresentMon: FAILED\nReason: child still running at cleanup deadline\n";
     }
     result.endQpcMs = QpcMilliseconds();
 
