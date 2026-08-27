@@ -26,15 +26,19 @@ int main()
         "Explorer is not a production target");
     ok &= Check(!clawhud::IsRejectedProductionTargetImage(L"game.exe"),
         "game process remains an eligible candidate");
-    ok &= Check(!clawhud::ShouldRetainCommittedProductionTarget(0, true),
-        "uncommitted foreground candidate is replaceable");
-    ok &= Check(clawhud::ShouldRetainCommittedProductionTarget(42, true) &&
-        !clawhud::ShouldRetainCommittedProductionTarget(42, false),
-        "live committed game is retained but exited game is not");
-    ok &= Check(!clawhud::ShouldConfirmProductionTarget(42, 43, true) &&
-        !clawhud::ShouldConfirmProductionTarget(42, 42, false) &&
-        clawhud::ShouldConfirmProductionTarget(42, 42, true),
-        "only matching candidate FPS confirms the target");
+    ok &= Check(clawhud::ShouldEvaluateForegroundCandidate(100, 200) &&
+        !clawhud::ShouldEvaluateForegroundCandidate(100, 100) &&
+        clawhud::ShouldEvaluateForegroundCandidate(0, 200),
+        "new foreground candidate is evaluated even with a live committed PID");
+    ok &= Check(clawhud::ShouldReplacePendingCandidate(100, 200) &&
+        !clawhud::ShouldReplacePendingCandidate(100, 100) &&
+        !clawhud::ShouldReplacePendingCandidate(100, 0),
+        "foreground B replaces pending candidate A");
+    ok &= Check(!clawhud::ShouldConfirmProductionTarget(42, 43, 43, true) &&
+        !clawhud::ShouldConfirmProductionTarget(42, 42, 43, true) &&
+        !clawhud::ShouldConfirmProductionTarget(42, 42, 42, false) &&
+        clawhud::ShouldConfirmProductionTarget(42, 42, 42, true),
+        "only current foreground candidate FPS confirms the target");
     ok &= Check(!clawhud::ShouldConsiderForegroundProductionTarget(true, true, false) &&
         !clawhud::ShouldConsiderForegroundProductionTarget(true, false, true) &&
         clawhud::ShouldConsiderForegroundProductionTarget(true, false, false),

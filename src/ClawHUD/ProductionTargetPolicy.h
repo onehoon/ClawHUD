@@ -7,9 +7,12 @@
 namespace clawhud
 {
 bool IsRejectedProductionTargetImage(std::wstring_view image) noexcept;
-bool ShouldRetainCommittedProductionTarget(DWORD processId, bool alive) noexcept;
+bool ShouldEvaluateForegroundCandidate(DWORD committedProcessId,
+    DWORD foregroundProcessId) noexcept;
+bool ShouldReplacePendingCandidate(DWORD pendingProcessId,
+    DWORD foregroundProcessId) noexcept;
 bool ShouldConfirmProductionTarget(DWORD pendingProcessId, DWORD observedProcessId,
-    bool displayedFpsAvailable) noexcept;
+    DWORD foregroundProcessId, bool displayedFpsAvailable) noexcept;
 bool ShouldConsiderForegroundProductionTarget(bool hudEnabled, bool diagnosticRunning,
     bool suspended) noexcept;
 }

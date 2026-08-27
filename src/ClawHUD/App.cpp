@@ -950,8 +950,7 @@ void App::HandlePresentMonHudUpdate(DWORD processId,
         presentMonProcessId_ != processId ||
         (!MockHudVisible() && pendingProductionTargetPid_ != processId))
         return;
-    if (clawhud::ShouldConfirmProductionTarget(
-        pendingProductionTargetPid_, processId, displayedFps.has_value()))
+    if (pendingProductionTargetPid_ == processId && displayedFps)
     {
         latestPresentMonDisplayedFps_ = displayedFps;
         ConfirmForegroundProductionTarget(processId);
@@ -1015,12 +1014,15 @@ bool App::AdoptForegroundProductionTarget(HWND window, DWORD processId)
         mockHudEnabled_, DiagnosticRunning(), suspended_))
         return false;
     const DWORD trackedProcessId = foregroundTracker_.TrackedProcessId();
-    if (clawhud::ShouldRetainCommittedProductionTarget(
-        trackedProcessId, ProcessAlive(trackedProcessId)))
+    if (trackedProcessId && processId == trackedProcessId &&
+        ProcessAlive(trackedProcessId))
         return true;
 
-    if (!IsUsableProductionTarget(window, processId))
+    std::wstring imageName;
+    if (!IsUsableProductionTarget(window, processId, imageName))
     {
+        Log(L"Production target rejected pid=" + std::to_wstring(processId) +
+            L" image=" + (imageName.empty() ? L"<unavailable>" : imageName));
         if (trackedProcessId && !ProcessAlive(trackedProcessId))
             foregroundTracker_.SetTrackedProcessId(0);
         if (pendingProductionTargetPid_)
@@ -1032,12 +1034,22 @@ bool App::AdoptForegroundProductionTarget(HWND window, DWORD processId)
         return false;
     }
 
-    const bool newCandidate = pendingProductionTargetPid_ != processId;
+    const bool newCandidate = clawhud::ShouldReplacePendingCandidate(
+        pendingProductionTargetPid_, processId);
     if (newCandidate)
     {
+        const DWORD oldProcessId = pendingProductionTargetPid_
+            ? pendingProductionTargetPid_ : trackedProcessId;
+        Log(L"Production target foreground changed old=" +
+            std::to_wstring(oldProcessId) + L" new=" +
+            std::to_wstring(processId));
         pendingProductionTargetPid_ = processId;
         StopProductionPresentMonSampling();
         StopGraphicsApiProbe();
+        Log(L"Production target candidate pid=" + std::to_wstring(processId) +
+            L" image=" + imageName);
+        Log(L"Production target validation started pid=" +
+            std::to_wstring(processId));
         StartGraphicsApiProbe(processId);
     }
     else if (graphicsApiProcessId_ != processId)
@@ -1049,19 +1061,43 @@ bool App::AdoptForegroundProductionTarget(HWND window, DWORD processId)
 void App::ConfirmForegroundProductionTarget(DWORD processId)
 {
     if (pendingProductionTargetPid_ != processId ||
-        DiagnosticRunning() || suspended_ || !mockHudEnabled_ ||
+        !clawhud::ShouldConsiderForegroundProductionTarget(
+            mockHudEnabled_, DiagnosticRunning(), suspended_) ||
         !ProcessAlive(processId))
         return;
+    HWND foreground = GetForegroundWindow();
+    DWORD foregroundProcessId{};
+    if (foreground)
+        GetWindowThreadProcessId(foreground, &foregroundProcessId);
+    if (!clawhud::ShouldConfirmProductionTarget(
+        pendingProductionTargetPid_, processId, foregroundProcessId, true))
+    {
+        Log(L"Production target validation discarded pid=" +
+            std::to_wstring(processId) + L" reason=foreground-changed");
+        pendingProductionTargetPid_ = 0;
+        if (presentMonProcessId_ == processId)
+            StopProductionPresentMonSampling();
+        if (graphicsApiProcessId_ == processId)
+            StopGraphicsApiProbe();
+        return;
+    }
+    const DWORD previousProcessId = foregroundTracker_.TrackedProcessId();
     pendingProductionTargetPid_ = 0;
     foregroundTracker_.SetTrackedProcessId(processId);
     usageSampler_.Reset();
     latestUsageTelemetry_.reset();
     StartGraphicsApiProbe(processId);
+    Log(L"Production target confirmed pid=" + std::to_wstring(processId));
+    if (previousProcessId && previousProcessId != processId)
+        Log(L"Production target handoff old=" + std::to_wstring(previousProcessId) +
+            L" new=" + std::to_wstring(processId));
     ReconcileHudVisibility();
 }
 
-bool App::IsUsableProductionTarget(HWND window, DWORD processId) const
+bool App::IsUsableProductionTarget(HWND window, DWORD processId,
+    std::wstring& imageName) const
 {
+    imageName.clear();
     if (!window || !processId || processId == GetCurrentProcessId() ||
         !IsWindowVisible(window) || GetShellWindow() == window ||
         GetDesktopWindow() == window)
@@ -1083,6 +1119,7 @@ bool App::IsUsableProductionTarget(HWND window, DWORD processId) const
         image.erase(0, separator + 1);
     std::transform(image.begin(), image.end(), image.begin(),
         [](wchar_t value) { return static_cast<wchar_t>(std::towlower(value)); });
+    imageName = image;
     return !clawhud::IsRejectedProductionTargetImage(image);
 }
 

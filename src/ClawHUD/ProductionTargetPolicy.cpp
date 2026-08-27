@@ -19,16 +19,23 @@ bool IsRejectedProductionTargetImage(std::wstring_view image) noexcept
     return false;
 }
 
-bool ShouldRetainCommittedProductionTarget(DWORD processId, bool alive) noexcept
+bool ShouldEvaluateForegroundCandidate(DWORD committedProcessId,
+    DWORD foregroundProcessId) noexcept
 {
-    return processId != 0 && alive;
+    return foregroundProcessId != 0 && foregroundProcessId != committedProcessId;
+}
+
+bool ShouldReplacePendingCandidate(DWORD pendingProcessId,
+    DWORD foregroundProcessId) noexcept
+{
+    return foregroundProcessId != 0 && foregroundProcessId != pendingProcessId;
 }
 
 bool ShouldConfirmProductionTarget(DWORD pendingProcessId, DWORD observedProcessId,
-    bool displayedFpsAvailable) noexcept
+    DWORD foregroundProcessId, bool displayedFpsAvailable) noexcept
 {
     return pendingProcessId != 0 && pendingProcessId == observedProcessId &&
-        displayedFpsAvailable;
+        foregroundProcessId == observedProcessId && displayedFpsAvailable;
 }
 
 bool ShouldConsiderForegroundProductionTarget(bool hudEnabled, bool diagnosticRunning,
