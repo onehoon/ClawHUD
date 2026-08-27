@@ -299,7 +299,22 @@ PresentMonCaptureResult CapturePresentMonAttempt(
     PresentMonCaptureResult result;
     result.launchMode = elevated ? PresentMonLaunchMode::Elevated : PresentMonLaunchMode::Standard;
     std::error_code removeError;
-    std::filesystem::remove(csv, removeError);
+    const bool staleCsvExists = std::filesystem::exists(csv, removeError);
+    if (removeError)
+    {
+        log << L"PresentMon: FAILED\nReason: could not inspect stale phase CSV\n";
+        return result;
+    }
+    if (staleCsvExists)
+    {
+        std::filesystem::remove(csv, removeError);
+        const bool staleCsvRemains = std::filesystem::exists(csv, removeError);
+        if (removeError || staleCsvRemains)
+        {
+            log << L"PresentMon: FAILED\nReason: could not remove stale phase CSV\n";
+            return result;
+        }
+    }
     const auto parameters = PresentMonParameters(pid, csv, session);
     const std::wstring command = L"\"" + executable.wstring() + L"\" " + parameters;
     HANDLE processHandle{};
@@ -424,17 +439,19 @@ PresentMonCaptureResult CapturePresentMonPhase(
     const std::atomic_bool& stop,
     std::wofstream& log,
     const wchar_t* phase,
-    bool& elevationRequired)
+    bool& elevationRequired,
+    bool& elevatedFallbackAttempted)
 {
     if (elevationRequired)
         return CapturePresentMonAttempt(executable, pid, csv, session, stop, log, phase, true);
 
     auto result = CapturePresentMonAttempt(
         executable, pid, csv, session, stop, log, phase, false);
-    if (result.ok || stop.load()) return result;
+    if (!ShouldRetryPresentMonElevated(result.ok, stop.load())) return result;
 
     log << L"Standard capture produced no usable CSV.\n"
         << L"Retrying this phase elevated.\n";
+    elevatedFallbackAttempted = true;
     result = CapturePresentMonAttempt(executable, pid, csv, session, stop, log, phase, true);
     if (result.ok) elevationRequired = true;
     return result;
@@ -619,6 +636,7 @@ bool VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
 
         const std::string sessionStamp = Narrow(stamp);
         bool elevationRequired = false;
+        bool elevatedFallbackAttempted = false;
         struct PhaseResult
         {
             clawhud::VrrCsvSummary csv;
@@ -658,7 +676,7 @@ bool VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
             igcl.StartSampling();
             const auto capture = CapturePresentMonPhase(pm, targetPid, csvPath,
                 "ClawHUD-VRR-" + std::to_string(targetPid) + "-" + sessionMode + "-" + sessionStamp,
-                stop_, log, title, elevationRequired);
+                stop_, log, title, elevationRequired, elevatedFallbackAttempted);
             result.vblank = igcl.StopSampling(log, title);
             result.captureOk = capture.ok;
             result.targetAlive = Alive(targetPid);
@@ -767,7 +785,9 @@ bool VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
             << (diagnosticComplete ? L"COMPLETE" : L"FAILED")
             << L"\nVRR Verdict: " << clawhud::VrrDiagnosticVerdictName(finalVerdict)
             << L"\nReason: " << std::wstring(finalReason.begin(), finalReason.end())
-            << L"\nPresentMon elevated fallback used: "
+            << L"\nPresentMon elevated fallback attempted: "
+            << (elevatedFallbackAttempted ? L"YES" : L"NO")
+            << L"\nPresentMon elevated mode retained for remaining phases: "
             << (elevationRequired ? L"YES" : L"NO") << L"\n";
         writeVerdictPhase(L"HUD OFF", off.csv);
         writeVerdictPhase(L"STATIC HUD", staticHud.csv);
