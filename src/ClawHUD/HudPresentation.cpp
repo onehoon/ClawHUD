@@ -228,11 +228,7 @@ HRESULT HudPresentation::CreateBitmapTargets()
     return S_OK;
 }
 
-HRESULT HudPresentation::Render(
-    const HudTelemetrySnapshot& snapshot,
-    const HudRenderOptions& options,
-    HudRenderObserver observer,
-    void* observerContext)
+HRESULT HudPresentation::Render(const HudTelemetrySnapshot& snapshot, const HudRenderOptions& options)
 {
     if (!initialized_ || !renderer_)
         return E_UNEXPECTED;
@@ -258,18 +254,7 @@ HRESULT HudPresentation::Render(
     if (FAILED(endHr)) return endHr;
     deviceContext_->Flush();
     if (FAILED(hr = presentationSurface_->SetBuffer(buffer->presentationBuffer.Get()))) return hr;
-    return CommitHudRenderFrame(
-        effective.layout.backgroundOpacity,
-        &HudPresentation::PresentFrame,
-        this,
-        observer,
-        observerContext);
-}
-
-HRESULT HudPresentation::PresentFrame(void* context) noexcept
-{
-    auto* presentation = static_cast<HudPresentation*>(context);
-    return presentation->presentationManager_->Present();
+    return presentationManager_->Present();
 }
 
 HRESULT HudPresentation::RefreshDisplayIfNeeded()
