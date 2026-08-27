@@ -63,12 +63,23 @@ bool IsWordBoundary(const std::wstring& text, std::size_t start, std::size_t len
         (start + length >= text.size() || !isWord(text[start + length]));
 }
 
-bool IsNumericAttachedUnit(const std::wstring& text, std::size_t start) noexcept
+bool IsNumericAttachedUnit(const std::wstring& text, std::size_t start,
+    std::size_t length) noexcept
 {
     if (start == 0)
         return false;
     const wchar_t previous = text[start - 1];
-    return (previous >= L'0' && previous <= L'9') || previous == L'.';
+    const bool numericBefore = (previous >= L'0' && previous <= L'9') || previous == L'.';
+    if (!numericBefore)
+        return false;
+
+    const std::size_t end = start + length;
+    const auto isWord = [](wchar_t value)
+    {
+        return value >= L'A' && value <= L'Z' || value >= L'a' && value <= L'z' ||
+            value >= L'0' && value <= L'9' || value == L'_';
+    };
+    return end >= text.size() || !isWord(text[end]);
 }
 
 std::vector<HudUnitRange> FindHudUnitRangesImpl(const std::wstring& text)
@@ -81,7 +92,7 @@ std::vector<HudUnitRange> FindHudUnitRangesImpl(const std::wstring& text)
             start = text.find(token, start + length))
         {
             if (!wordBoundary || IsWordBoundary(text, start, length) ||
-                IsNumericAttachedUnit(text, start))
+                IsNumericAttachedUnit(text, start, length))
                 ranges.push_back({static_cast<std::uint32_t>(start), static_cast<std::uint32_t>(length)});
         }
     };

@@ -218,6 +218,10 @@ int main()
     checkUnits(L"87% VRAM 3.4GB", {{2, 1}, {12, 2}},
         "percentage and VRAM unit ranges");
     checkUnits(L"1000RPM", {{4, 3}}, "fan unit range");
+    checkUnits(L"10Windows", {}, "power substring without trailing boundary");
+    checkUnits(L"3GBps", {}, "VRAM substring without trailing boundary");
+    checkUnits(L"60FPSCounter", {}, "FPS substring without trailing boundary");
+    checkUnits(L"1000RPMValue", {}, "fan substring without trailing boundary");
     checkUnits(L"72% 2.5h", {{2, 1}, {7, 1}}, "battery hours unit ranges");
     checkUnits(L"72% 45m", {{2, 1}, {6, 1}}, "battery minutes unit ranges");
 
