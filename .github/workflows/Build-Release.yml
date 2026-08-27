@@ -25,17 +25,6 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.ref }}
 
-      - name: Capture release source SHA
-        id: source
-        shell: pwsh
-        run: |
-          $sha = (git rev-parse HEAD).Trim()
-          if ($sha -notmatch '^[0-9a-f]{40}$') {
-            throw "Unable to resolve the release source commit: $sha"
-          }
-          Write-Host "Release source SHA: $sha"
-          "sha=$sha" >> $env:GITHUB_OUTPUT
-
       - name: Resolve next version
         id: version
         shell: pwsh
@@ -151,31 +140,7 @@ jobs:
             --framework vcredist145-x64 `
             --outputDir .\release
 
-      - name: Create release tag at packaged source
-        id: source_tag
-        shell: pwsh
-        run: |
-          $tag = "v${{ steps.version.outputs.version }}"
-          $buildSha = "${{ steps.source.outputs.sha }}"
-
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git tag $tag $buildSha
-          git push origin "refs/tags/$tag"
-
-          $remote = git ls-remote --tags origin "refs/tags/$tag"
-          if ([string]::IsNullOrWhiteSpace($remote)) {
-            throw "Release tag was not created: $tag"
-          }
-
-          $remoteSha = ($remote -split '\s+')[0]
-          if ($remoteSha -ne $buildSha) {
-            throw "Release tag source mismatch before publish: built=$buildSha tagSha=$remoteSha"
-          }
-          Write-Host "Release tag $tag points to the packaged source commit $buildSha before publish"
-
       - name: Upload GitHub Release
-        id: publish
         shell: pwsh
         env:
           VPK_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -186,47 +151,6 @@ jobs:
             --outputDir .\release `
             --publish `
             --tag "v${{ steps.version.outputs.version }}"
-
-      - name: Roll back unpublished source tag
-        if: ${{ failure() && steps.source_tag.outcome == 'success' && steps.publish.outcome == 'failure' }}
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $tag = "v${{ steps.version.outputs.version }}"
-          $buildSha = "${{ steps.source.outputs.sha }}"
-
-          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
-          if ($LASTEXITCODE -eq 0) {
-            Write-Host "Release $tag exists; keeping the source tag"
-            exit 0
-          }
-
-          $remote = git ls-remote --tags origin "refs/tags/$tag"
-          if ([string]::IsNullOrWhiteSpace($remote)) {
-            Write-Host "Source tag $tag is already absent"
-            exit 0
-          }
-
-          $remoteSha = ($remote -split '\s+')[0]
-          if ($remoteSha -ne $buildSha) {
-            throw "Refusing to remove source tag with unexpected source: built=$buildSha tagSha=$remoteSha"
-          }
-
-          git push origin ":refs/tags/$tag"
-          Write-Host "Removed unpublished source tag $tag"
-
-      - name: Verify release tag source
-        shell: pwsh
-        run: |
-          git fetch --tags --force
-          $tag = "v${{ steps.version.outputs.version }}"
-          $tagSha = (git rev-list -n 1 $tag).Trim()
-          $buildSha = "${{ steps.source.outputs.sha }}"
-          if ([string]::IsNullOrWhiteSpace($tagSha) -or $tagSha -ne $buildSha) {
-            throw "Release source mismatch: built=$buildSha tag=$tag tagSha=$tagSha"
-          }
-          Write-Host "Release tag $tag points to the packaged source commit $buildSha"
 
       - name: Prune old ClawHUD releases and tags
         shell: pwsh
