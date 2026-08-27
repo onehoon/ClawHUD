@@ -194,6 +194,9 @@ void SettingsWindow::ApplyWindowStyle()
     const DWM_SYSTEMBACKDROP_TYPE backdrop = DWMSBT_MAINWINDOW;
     systemBackdropActive_ = SUCCEEDED(DwmSetWindowAttribute(
         window_, DWMWA_SYSTEMBACKDROP_TYPE, &backdrop, sizeof(backdrop)));
+    const COLORREF borderColor = DWMWA_COLOR_NONE;
+    DwmSetWindowAttribute(window_, DWMWA_BORDER_COLOR, &borderColor,
+        sizeof(borderColor));
 }
 
 void SettingsWindow::RecreateFont()
