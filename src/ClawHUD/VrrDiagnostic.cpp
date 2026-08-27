@@ -2,10 +2,12 @@
 
 #include "App.h"
 #include "IntelVrrDiagnosticProbe.h"
+#include "ProductionTargetPolicy.h"
 #include "VrrDiagnosticAnalysis.h"
 
 #include <d3d11.h>
 #include <dxgi1_6.h>
+#include <mmsystem.h>
 #include <wrl/client.h>
 
 #include <algorithm>
@@ -62,9 +64,19 @@ std::optional<ForegroundTargetInfo> CaptureForegroundTarget()
     const bool ok = QueryFullProcessImageNameW(process, 0, path, &size) != FALSE; CloseHandle(process);
     if (!ok) return std::nullopt;
     const std::wstring processPath(path, size);
-    std::wstring name = processPath; std::transform(name.begin(), name.end(), name.begin(), towlower);
-    if (name.ends_with(L"\\explorer.exe") || name.ends_with(L"\\clawhud.exe")) return std::nullopt;
+    std::wstring name = processPath.substr(processPath.find_last_of(L"\\/") + 1);
+    std::transform(name.begin(), name.end(), name.begin(), towlower);
+    if (name == L"clawhud.exe" || name == L"clawhud.echelper.exe" ||
+        clawhud::IsRejectedProductionTargetImage(name))
+        return std::nullopt;
     return ForegroundTargetInfo{ window, processId, processPath };
+}
+
+void PlayDiagnosticSound(bool completed) noexcept
+{
+    const LPCWSTR alias = MAKEINTRESOURCEW(static_cast<WORD>(
+        completed ? SND_ALIAS_SYSTEMDEFAULT : SND_ALIAS_SYSTEMASTERISK));
+    PlaySoundW(alias, nullptr, SND_ALIAS_ID | SND_ASYNC | SND_NODEFAULT);
 }
 
 bool Alive(DWORD pid)
@@ -262,7 +274,7 @@ void VrrDiagnostic::Run()
         foregroundWindow = targetWindow_;
         targetPath = targetPath_;
     }
-    RunImpl(targetPid, foregroundWindow, targetPath);
+    const bool completed = RunImpl(targetPid, foregroundWindow, targetPath);
     if (!stop_.load() && hudStateSaved_)
     {
         const bool restored = app_.RequestDiagnosticHudState(savedHudState_);
@@ -271,6 +283,8 @@ void VrrDiagnostic::Run()
         else if (!stop_.load())
             hudStateSaved_ = false;
     }
+    if (!stop_.load() && completed)
+        PlayDiagnosticSound(true);
     state_ = VrrDiagnosticState::Idle;
     running_ = false;
 }
@@ -294,6 +308,7 @@ bool VrrDiagnostic::TriggerFromForeground()
         state_ = VrrDiagnosticState::Running;
     }
     triggerCondition_.notify_one();
+    PlayDiagnosticSound(false);
     return true;
 }
 
@@ -325,7 +340,7 @@ bool VrrDiagnostic::Capture(const std::filesystem::path& executable, DWORD pid, 
     return true;
 }
 
-void VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
+bool VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
     const std::wstring& targetPath)
 {
     std::wofstream log;
@@ -336,7 +351,7 @@ void VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
         const auto offCsv = folder / (L"vrr-" + stamp + L"-off.csv");
         const auto staticCsv = folder / (L"vrr-" + stamp + L"-static.csv");
         const auto dynamicCsv = folder / (L"vrr-" + stamp + L"-dynamic.csv"); log.open(txt);
-        if (!log.is_open()) { Status(L"Failed"); return; }
+        if (!log.is_open()) { Status(L"Failed"); return false; }
         log << L"=== CLAWHUD VRR DIAGNOSTIC ===\nTimestamp: " << Now() << L"\nPresentMon: 2.5.1\n"
             << L"Display tracking: enabled (no --no_track_display)\n"
             << L"Pinned v2.5.1 console asset does not expose --write_display_metadata; standard display timing columns are retained.\n"
@@ -346,7 +361,7 @@ void VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
         igcl.Initialize(log);
         igcl.LogState(log);
         const auto pm = std::filesystem::path(app_.ExecutablePath()).parent_path() / L"tools" / L"PresentMon.exe";
-        if (!std::filesystem::exists(pm)) { log << L"PresentMon: FAILED\nReason: tools\\PresentMon.exe not found\n"; Status(L"Failed"); return; }
+        if (!std::filesystem::exists(pm)) { log << L"PresentMon: FAILED\nReason: tools\\PresentMon.exe not found\n"; Status(L"Failed"); return false; }
         log << L"=== VRR DIAGNOSTIC TRIGGER ===\nTrigger: F8\nForeground HWND: "
             << reinterpret_cast<const void*>(foregroundWindow) << L"\nTarget PID: " << targetPid
             << L"\nTarget Process: " << targetPath << L"\n\n";
@@ -389,13 +404,13 @@ void VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
 
         PhaseResult off, staticHud, dynamicHud;
         const bool offOk = runPhase(L"PHASE A - HUD OFF", L"HUD OFF", DiagnosticHudMode::Off, offCsv, "OFF", {}, off);
-        if (stop_) { log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); return; }
-        if (!offOk) { log << L"RESULT: Failed\nReason: HUD-OFF phase failed\n"; Status(L"Failed"); return; }
+        if (stop_) { log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); return false; }
+        if (!offOk) { log << L"RESULT: Failed\nReason: HUD-OFF phase failed\n"; Status(L"Failed"); return false; }
         const bool staticOk = runPhase(L"PHASE B - STATIC HUD", L"STATIC HUD", DiagnosticHudMode::Static, staticCsv, "STATIC", off.csv.dominantSwapChain, staticHud);
-        if (stop_) { log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); return; }
-        if (!staticOk) { log << L"RESULT: Failed\nReason: STATIC HUD phase failed\n"; Status(L"Failed"); return; }
+        if (stop_) { log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); return false; }
+        if (!staticOk) { log << L"RESULT: Failed\nReason: STATIC HUD phase failed\n"; Status(L"Failed"); return false; }
         const bool dynamicOk = runPhase(L"PHASE C - DYNAMIC HUD", L"DYNAMIC HUD", DiagnosticHudMode::Dynamic, dynamicCsv, "DYNAMIC", off.csv.dominantSwapChain, dynamicHud);
-        if (stop_) { log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); return; }
+        if (stop_) { log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); return false; }
         auto writeComparison = [&](const wchar_t* name, const PhaseResult& left, const PhaseResult& right)
         {
             const auto leftMedian = clawhud::UsableVblankMedian(left.vblank);
@@ -451,6 +466,7 @@ void VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
         Status(stop_ ? L"Cancelled" :
             finalVerdict == clawhud::VrrDiagnosticVerdict::Pass ? L"Passed" :
             finalVerdict == clawhud::VrrDiagnosticVerdict::Inconclusive ? L"Inconclusive" : L"Failed");
+        return phaseOk;
     }
-    catch (...) { if (log.is_open()) log << L"RESULT: Failed\n"; Status(L"Failed"); }
+    catch (...) { if (log.is_open()) log << L"RESULT: Failed\n"; Status(L"Failed"); return false; }
 }

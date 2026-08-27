@@ -65,7 +65,7 @@ public:
 
 private:
     void Run();
-    void RunImpl(DWORD targetPid, HWND foregroundWindow, const std::wstring& targetPath);
+    bool RunImpl(DWORD targetPid, HWND foregroundWindow, const std::wstring& targetPath);
     void Status(const wchar_t* text) const;
     bool Capture(const std::filesystem::path& executable, DWORD pid, const std::filesystem::path& csv,
         const std::string& session, std::wofstream& log);
