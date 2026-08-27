@@ -9,6 +9,7 @@
 #include <iomanip>
 #include <limits>
 #include <sstream>
+#include <string_view>
 
 #include <wrl/client.h>
 
@@ -17,6 +18,7 @@ namespace clawhud
 namespace
 {
 constexpr DWORD kPdhMoreData = 0x800007D2u;
+constexpr unsigned int kMaxIntelMemoryRebindAttempts = 3;
 
 void LogMemoryDiagnostic(const std::wstring& message)
 {
@@ -102,16 +104,67 @@ std::optional<double> MaxGpuUsagePercent(const std::vector<double>& values) noex
     return maximum;
 }
 
+int HexDigit(wchar_t value) noexcept
+{
+    if (value >= L'0' && value <= L'9') return value - L'0';
+    if (value >= L'a' && value <= L'f') return value - L'a' + 10;
+    if (value >= L'A' && value <= L'F') return value - L'A' + 10;
+    return -1;
+}
+
+std::optional<std::uint32_t> ParseHex32(std::wstring_view text,
+    std::size_t& position) noexcept
+{
+    if (position + 2 > text.size() || text[position] != L'0' ||
+        (text[position + 1] != L'x' && text[position + 1] != L'X'))
+        return std::nullopt;
+    position += 2;
+    std::uint32_t result{};
+    std::size_t digits{};
+    while (position < text.size())
+    {
+        const int digit = HexDigit(text[position]);
+        if (digit < 0)
+            break;
+        if (digits == 8 || result > (std::numeric_limits<std::uint32_t>::max() -
+            static_cast<std::uint32_t>(digit)) / 16u)
+            return std::nullopt;
+        result = result * 16u + static_cast<std::uint32_t>(digit);
+        ++position;
+        ++digits;
+    }
+    return digits ? std::optional<std::uint32_t>(result) : std::nullopt;
+}
+
+std::optional<LUID> ParseGpuMemoryInstanceLuid(std::wstring_view instance)
+{
+    constexpr std::wstring_view prefix = L"luid_";
+    constexpr std::wstring_view physicalSuffix = L"_phys_";
+    std::size_t position = instance.find(prefix);
+    if (position == std::wstring_view::npos)
+        return std::nullopt;
+    position += prefix.size();
+    const auto high = ParseHex32(instance, position);
+    if (!high || position >= instance.size() || instance[position++] != L'_')
+        return std::nullopt;
+    const auto low = ParseHex32(instance, position);
+    if (!low || instance.substr(position).find(physicalSuffix) != 0)
+        return std::nullopt;
+    position += physicalSuffix.size();
+    if (position == instance.size())
+        return std::nullopt;
+    LUID result{};
+    result.LowPart = *low;
+    result.HighPart = static_cast<LONG>(*high);
+    return result;
+}
+
 bool IsIntelGpuMemoryCounterInstance(std::wstring_view instance,
     const LUID& adapterLuid)
 {
-    const auto token = LuidToken(adapterLuid);
-    const auto position = instance.find(token);
-    if (position == std::wstring_view::npos)
-        return false;
-    const auto suffix = position + token.size();
-    return suffix < instance.size() &&
-        instance.substr(suffix).starts_with(L"_phys_");
+    const auto parsed = ParseGpuMemoryInstanceLuid(instance);
+    return parsed && parsed->LowPart == adapterLuid.LowPart &&
+        parsed->HighPart == adapterLuid.HighPart;
 }
 
 std::optional<std::uint64_t> CombineGpuMemoryBytes(
@@ -123,6 +176,13 @@ std::optional<std::uint64_t> CombineGpuMemoryBytes(
     if (*dedicated > std::numeric_limits<std::uint64_t>::max() - *shared)
         return std::nullopt;
     return *dedicated + *shared;
+}
+
+bool ShouldRetryIntelGpuMemoryCounters(bool dedicatedEmpty,
+    bool sharedEmpty, unsigned int attempts) noexcept
+{
+    return (dedicatedEmpty || sharedEmpty) &&
+        attempts < kMaxIntelMemoryRebindAttempts;
 }
 
 WindowsUsageSampler::~WindowsUsageSampler()
@@ -141,6 +201,7 @@ void WindowsUsageSampler::Reset() noexcept
     intelSharedMemoryCounters_.clear();
     primed_ = false;
     memoryDiagnosticsLogged_ = false;
+    intelMemoryRebindAttempts_ = 0;
 }
 
 bool WindowsUsageSampler::Initialize()
@@ -156,7 +217,8 @@ bool WindowsUsageSampler::Initialize()
         return false;
     }
     AddGpuCounters();
-    AddIntelGpuMemoryCounters();
+    if (!TryBindIntelGpuMemoryCounters())
+        LogMemoryDiagnostic(L"Initial Intel GPU memory counter binding unavailable; bounded retry enabled");
     if (PdhCollectQueryData(query_) != ERROR_SUCCESS)
     {
         Reset();
@@ -245,6 +307,24 @@ bool WindowsUsageSampler::AddIntelGpuMemoryCounters()
         !intelSharedMemoryCounters_.empty();
 }
 
+bool WindowsUsageSampler::TryBindIntelGpuMemoryCounters()
+{
+    if (!ShouldRetryIntelGpuMemoryCounters(
+            intelDedicatedMemoryCounters_.empty(),
+            intelSharedMemoryCounters_.empty(), intelMemoryRebindAttempts_))
+        return !intelDedicatedMemoryCounters_.empty() &&
+            !intelSharedMemoryCounters_.empty();
+
+    ++intelMemoryRebindAttempts_;
+    for (const auto counter : intelDedicatedMemoryCounters_)
+        PdhRemoveCounter(counter);
+    for (const auto counter : intelSharedMemoryCounters_)
+        PdhRemoveCounter(counter);
+    intelDedicatedMemoryCounters_.clear();
+    intelSharedMemoryCounters_.clear();
+    return AddIntelGpuMemoryCounters();
+}
+
 bool WindowsUsageSampler::IsValidCounter(
     const PDH_FMT_COUNTERVALUE& value) noexcept
 {
@@ -302,6 +382,10 @@ std::optional<WindowsUsageTelemetry> WindowsUsageSampler::Sample()
 {
     if (!query_ || PdhCollectQueryData(query_) != ERROR_SUCCESS)
         return std::nullopt;
+    if (ShouldRetryIntelGpuMemoryCounters(
+            intelDedicatedMemoryCounters_.empty(),
+            intelSharedMemoryCounters_.empty(), intelMemoryRebindAttempts_))
+        TryBindIntelGpuMemoryCounters();
     if (!primed_)
     {
         primed_ = true;
