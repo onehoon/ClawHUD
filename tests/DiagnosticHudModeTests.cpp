@@ -36,5 +36,11 @@ int main()
         "cancelled diagnostic force-stops PresentMon");
     ok &= Check(VrrDiagnosticShouldForceTerminatePresentMon(false, true),
         "failed diagnostic may stop PresentMon early");
+    ok &= Check(ShouldRetryPresentMonElevated(false, false),
+        "missing CSV retries PresentMon elevated");
+    ok &= Check(!ShouldRetryPresentMonElevated(true, false),
+        "successful standard capture does not retry elevated");
+    ok &= Check(!ShouldRetryPresentMonElevated(false, true),
+        "cancelled capture does not retry elevated");
     return ok ? 0 : 1;
 }
