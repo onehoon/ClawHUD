@@ -102,7 +102,7 @@ int main()
         clawhud::VrrDiagnosticVerdict::Fail, "recreated swapchain regression fails");
 
     const std::string rangedCsv =
-        "ProcessID,SwapChainAddress,PresentMode,MsUntilDisplayed,MsBetweenPresents,MsBetweenDisplayChange,QpcTimeMs\n"
+        "ProcessID,SwapChainAddress,PresentMode,MsUntilDisplayed,MsBetweenPresents,MsBetweenDisplayChange,CPUStartQPCTimeInMs\n"
         "1,game,Hardware Composed: Independent Flip,1,16.6,16.6,0\n"
         "1,game,Hardware Composed: Independent Flip,1,16.6,16.6,14000\n"
         "1,game,Hardware Composed: Independent Flip,1,16.6,16.6,28000\n"
@@ -124,7 +124,7 @@ int main()
     const auto boundaryRange = clawhud::ParseVrrCsvText(rangedCsv, {}, 0.0, 20000.0);
     ok &= Expect(boundaryRange.sufficientCoverage, "coverage at the 70 percent boundary remains usable");
     const std::string shortCsv =
-        "ProcessID,SwapChainAddress,PresentMode,MsUntilDisplayed,MsBetweenPresents,MsBetweenDisplayChange,QpcTimeMs\n"
+        "ProcessID,SwapChainAddress,PresentMode,MsUntilDisplayed,MsBetweenPresents,MsBetweenDisplayChange,CPUStartQPCTimeInMs\n"
         "1,game,Hardware Composed: Independent Flip,1,16.6,16.6,0\n"
         "1,game,Hardware Composed: Independent Flip,1,16.6,16.6,9000\n";
     const auto insufficient = clawhud::ParseVrrCsvText(shortCsv, {}, 0.0, 28000.0);

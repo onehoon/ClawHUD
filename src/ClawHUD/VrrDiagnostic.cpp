@@ -449,6 +449,20 @@ bool VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
             << L"\nTarget Process: " << targetPath << L"\nTarget Alive: "
             << (Alive(targetPid) ? L"YES" : L"NO") << L"\n\n";
 
+        log << L"=== HUD OFF SETUP ===\n";
+        if (!app_.RequestDiagnosticHudMode(DiagnosticHudMode::Off) ||
+            !app_.RequestDiagnosticHudVisibilityMatches(false))
+        {
+            log << L"Main HUD OFF setup: FAILED\n";
+            Status(L"Failed"); return false;
+        }
+        log << L"Main HUD OFF setup: confirmed\n";
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        if (stop_)
+        {
+            log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); return false;
+        }
+
         const std::string session = "ClawHUD-VRR-" + std::to_string(targetPid) + "-" + Narrow(stamp);
         PresentMonCapture capture;
         log << L"PresentMon Start Time: " << Now() << L"\nCSV: " << csv.wstring() << L"\n"
@@ -481,18 +495,28 @@ bool VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
         {
             log << L"=== " << title << L" ===\nStart: " << Now() << L"\n";
             Status(status);
-            if (!app_.RequestDiagnosticHudMode(mode))
-            {
-                log << L"Main HUD mode request: FAILED\n"; return false;
-            }
             const bool expectedVisible = mode != DiagnosticHudMode::Off;
-            result.hudVisible = app_.RequestDiagnosticHudVisibilityMatches(expectedVisible);
+            if (mode != DiagnosticHudMode::Off)
+            {
+                if (!app_.RequestDiagnosticHudMode(mode))
+                {
+                    log << L"Main HUD mode request: FAILED\n"; return false;
+                }
+                result.hudVisible = app_.RequestDiagnosticHudVisibilityMatches(expectedVisible);
+                if (!result.hudVisible)
+                {
+                    log << L"Main HUD visibility: FAILED\n"; return false;
+                }
+                log << L"Transition exclusion: 1000 ms\n";
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+            }
+            else
+                result.hudVisible = app_.RequestDiagnosticHudVisibilityMatches(false);
             if (!result.hudVisible)
             {
                 log << L"Main HUD visibility: FAILED\n"; return false;
             }
-            log << L"Main HUD mode: confirmed\nTransition exclusion: 1000 ms\n";
-            std::this_thread::sleep_for(std::chrono::seconds(1));
+            log << L"Main HUD mode: confirmed\n";
             if (stop_) return false;
             result.range.mode = mode;
             result.range.beginQpcMs = QpcMilliseconds();

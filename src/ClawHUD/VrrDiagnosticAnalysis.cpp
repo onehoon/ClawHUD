@@ -95,7 +95,7 @@ VrrCsvSummary ParseVrrCsvText(std::string_view text, std::string_view preferredS
     }
     const bool filterByQpc = qpcBeginMs >= 0.0 && qpcEndMs >= qpcBeginMs;
     std::optional<std::size_t> qpcColumn;
-    for (const auto name : { "QpcTimeMs", "QPCTimeMs", "QPC Time (ms)" })
+    for (const auto name : { "CPUStartQPCTimeInMs", "QpcTimeMs", "QPCTimeMs", "QPC Time (ms)" })
     {
         if (columns.contains(name)) { qpcColumn = columns.at(name); break; }
     }
