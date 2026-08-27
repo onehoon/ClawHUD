@@ -37,11 +37,11 @@ int main()
         ok &= Check(Near(options.separatorGapPx, separatorGap), "separator gap");
     };
 
-    check(-2, 18.0f, 9.9f, 27.0f, 7.2f, 5.4f, 9.0f);
-    check(-1, 19.0f, 10.45f, 29.0f, 7.6f, 5.7f, 9.5f);
-    check(0, 20.0f, 11.0f, 30.0f, 8.0f, 6.0f, 10.0f);
-    check(1, 21.0f, 11.55f, 32.0f, 8.4f, 6.3f, 10.5f);
-    check(2, 22.0f, 12.1f, 33.0f, 8.8f, 6.6f, 11.0f);
+    check(-2, 18.0f, 9.9f, 30.0f, 5.0f, 8.0f, 8.0f);
+    check(-1, 19.0f, 10.45f, 30.0f, 5.0f, 8.0f, 8.0f);
+    check(0, 20.0f, 11.0f, 30.0f, 5.0f, 8.0f, 8.0f);
+    check(1, 21.0f, 11.55f, 30.0f, 5.0f, 8.0f, 8.0f);
+    check(2, 22.0f, 12.1f, 30.0f, 5.0f, 8.0f, 8.0f);
 
     ok &= Check(ClampHudSizeOffset(-100) == -2, "minimum clamp");
     ok &= Check(ClampHudSizeOffset(100) == 2, "maximum clamp");

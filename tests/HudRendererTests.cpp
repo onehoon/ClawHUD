@@ -51,17 +51,17 @@ int main()
     ok &= Check(Near(geometry.background.left, 300.0f) &&
         Near(geometry.background.right, 700.0f),
         "center ContentWidth background uses measured content");
-    ok &= Check(Near(geometry.textOrigin.x, 308.0f), "center text origin");
+    ok &= Check(Near(geometry.textOrigin.x, 305.0f), "center text origin");
 
     options.layout.alignment = HudAlignment::Left;
     geometry = CalculateHudGeometry(viewport, measure, options);
     ok &= Check(Near(geometry.background.left, 0.0f) &&
-        Near(geometry.background.right, 400.0f) && Near(geometry.textOrigin.x, 8.0f),
+        Near(geometry.background.right, 400.0f) && Near(geometry.textOrigin.x, 5.0f),
         "left ContentWidth geometry");
     options.layout.alignment = HudAlignment::Right;
     geometry = CalculateHudGeometry(viewport, measure, options);
     ok &= Check(Near(geometry.background.left, 600.0f) &&
-        Near(geometry.background.right, 1000.0f) && Near(geometry.textOrigin.x, 608.0f),
+        Near(geometry.background.right, 1000.0f) && Near(geometry.textOrigin.x, 605.0f),
         "right ContentWidth geometry");
 
     options.layout.backgroundMode = HudBackgroundMode::FullWidth;
@@ -80,7 +80,7 @@ int main()
         DipFromPhysicalPixels(30.0f, options.dpi)};
     geometry = CalculateHudGeometry(viewport, scaledMeasure, options);
     ok &= Check(Near(geometry.background.right, 266.6667f), "144 DPI content width");
-    ok &= Check(Near(geometry.textOrigin.x, 5.3333f), "144 DPI physical padding");
+    ok &= Check(Near(geometry.textOrigin.x, 3.3333f), "144 DPI physical padding");
 
     const HudRenderOptions geometryOptions{};
     geometry = CalculateHudGeometry(viewport, HudMeasureResult{400.0f, 42.0f, 32.0f}, geometryOptions);
@@ -176,11 +176,10 @@ int main()
             {L"1% 40\u00B0C", L"36% 67\u00B0C", L"100% 100\u00B0C"},
             "stable CPU slot");
         sameWidth(HudSegmentKind::Gpu, L"GPU",
-            {L"1%", L"47% VRAM 3.4 GB", L"100% VRAM 99.9 GB"},
+            {L"1%", L"47%", L"100%"},
             "stable GPU slot");
-        ok &= Check(Near(width(HudSegmentKind::Gpu, L"GPU", L"47%"),
-            width(HudSegmentKind::Gpu, L"GPU", L"47% VRAM 3.4 GB")),
-            "GPU reserves VRAM slot when unavailable");
+        sameWidth(HudSegmentKind::Vram, L"VRAM",
+            {L"0.1 GB", L"3.4 GB", L"99.9 GB"}, "stable VRAM slot");
         sameWidth(HudSegmentKind::Tdp, L"TDP",
             {L"5 W", L"18 W", L"99.9 W"}, "stable TDP slot");
         sameWidth(HudSegmentKind::SystemPower, L"SYS",
@@ -195,6 +194,17 @@ int main()
         float reservedWidth{};
         ok &= Check(SUCCEEDED(renderer.MeasureReservedHudWidth(stableOptions, reservedWidth)) &&
             reservedWidth > 0.0f, "measure reserved HUD envelope");
+        HudMeasureResult withVram{};
+        HudMeasureResult withoutVram{};
+        renderer.Measure({{HudSegmentKind::Gpu, L"GPU", L"74%"},
+            {HudSegmentKind::Vram, L"VRAM", L"3.4 GB"},
+            {HudSegmentKind::Tdp, L"TDP", L"18 W"}}, stableOptions, withVram);
+        renderer.Measure({{HudSegmentKind::Gpu, L"GPU", L"74%"},
+            {HudSegmentKind::Tdp, L"TDP", L"18 W"}}, stableOptions, withoutVram);
+        ok &= Check(withVram.contentWidth > withoutVram.contentWidth,
+            "visible ContentWidth omits missing VRAM slot");
+        ok &= Check(reservedWidth > withVram.contentWidth,
+            "reserved envelope remains maximum and includes VRAM");
         HudRenderOptions alternateOptions = stableOptions;
         alternateOptions.layout.alignment = HudAlignment::Right;
         alternateOptions.layout.backgroundMode = HudBackgroundMode::ContentWidth;

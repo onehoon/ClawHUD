@@ -1,0 +1,10 @@
+Unispace
+
+Designed by Ray Larabie (Typodermic Fonts), 2000.
+
+The official Typodermic Fonts public-domain listing states that Unispace has
+been released into the public domain. The source distribution used by ClawHUD
+is available at:
+https://typodermicfonts.com/public-domain/
+
+This file accompanies the regular Unispace font bundled with ClawHUD.

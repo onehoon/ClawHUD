@@ -62,6 +62,7 @@ enum class HudSegmentKind
     Graphics,
     Cpu,
     Gpu,
+    Vram,
     Tdp,
     SystemPower,
     Fan,
