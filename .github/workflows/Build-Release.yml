@@ -25,6 +25,17 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.ref }}
 
+      - name: Capture release source SHA
+        id: source
+        shell: pwsh
+        run: |
+          $sha = (git rev-parse HEAD).Trim()
+          if ($sha -notmatch '^[0-9a-f]{40}$') {
+            throw "Unable to resolve the release source commit: $sha"
+          }
+          Write-Host "Release source SHA: $sha"
+          "sha=$sha" >> $env:GITHUB_OUTPUT
+
       - name: Resolve next version
         id: version
         shell: pwsh
@@ -151,6 +162,18 @@ jobs:
             --outputDir .\release `
             --publish `
             --tag "v${{ steps.version.outputs.version }}"
+
+      - name: Verify release tag source
+        shell: pwsh
+        run: |
+          git fetch --tags --force
+          $tag = "v${{ steps.version.outputs.version }}"
+          $tagSha = (git rev-list -n 1 $tag).Trim()
+          $buildSha = "${{ steps.source.outputs.sha }}"
+          if ([string]::IsNullOrWhiteSpace($tagSha) -or $tagSha -ne $buildSha) {
+            throw "Release source mismatch: built=$buildSha tag=$tag tagSha=$tagSha"
+          }
+          Write-Host "Release tag $tag points to the packaged source commit $buildSha"
 
       - name: Prune old ClawHUD releases and tags
         shell: pwsh
