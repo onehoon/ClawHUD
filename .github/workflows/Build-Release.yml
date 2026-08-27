@@ -151,6 +151,28 @@ jobs:
             --framework vcredist145-x64 `
             --outputDir .\release
 
+      - name: Create release tag at packaged source
+        shell: pwsh
+        run: |
+          $tag = "v${{ steps.version.outputs.version }}"
+          $buildSha = "${{ steps.source.outputs.sha }}"
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag $tag $buildSha
+          git push origin "refs/tags/$tag"
+
+          $remote = git ls-remote --tags origin "refs/tags/$tag"
+          if ([string]::IsNullOrWhiteSpace($remote)) {
+            throw "Release tag was not created: $tag"
+          }
+
+          $remoteSha = ($remote -split '\s+')[0]
+          if ($remoteSha -ne $buildSha) {
+            throw "Release tag source mismatch before publish: built=$buildSha tagSha=$remoteSha"
+          }
+          Write-Host "Release tag $tag points to the packaged source commit $buildSha before publish"
+
       - name: Upload GitHub Release
         shell: pwsh
         env:
