@@ -3,6 +3,7 @@
 #include "App.h"
 #include "IntelVrrDiagnosticProbe.h"
 #include "ProductionTargetPolicy.h"
+#include "RuntimeLogger.h"
 #include "VrrDiagnosticAnalysis.h"
 
 #include <d3d11.h>
@@ -25,7 +26,9 @@ namespace
 {
 using Microsoft::WRL::ComPtr;
 constexpr auto kCaptureDuration = std::chrono::seconds(28);
-constexpr auto kCaptureWatchdog = std::chrono::seconds(35);
+constexpr auto kDiagnosticCaptureDuration = std::chrono::seconds(86);
+constexpr auto kCaptureWatchdog = std::chrono::seconds(95);
+constexpr std::size_t kMaximumPresentMonOutputBytes = 64u * 1024u;
 
 std::wstring Now(bool fileName = false)
 {
@@ -39,12 +42,6 @@ std::string Narrow(const std::wstring& value)
     std::string result; result.reserve(value.size());
     for (const wchar_t character : value) result.push_back(static_cast<char>(character));
     return result;
-}
-
-std::filesystem::path LogFolder(const App& app)
-{
-    const auto path = std::filesystem::path(app.ExecutablePath()).parent_path() / L"logs" / L"diagnostics";
-    std::filesystem::create_directories(path); return path;
 }
 
 struct ForegroundTargetInfo
@@ -89,6 +86,10 @@ void WriteSummary(std::wofstream& log, const wchar_t* phase, const std::filesyst
 {
     log << L"=== " << phase << L" SUMMARY ===\nCSV: " << csv.wstring() << L"\n";
     if (!summary.valid) { log << L"Summary: unavailable\nReason: " << std::wstring(summary.reason.begin(), summary.reason.end()) << L"\n"; return; }
+    if (summary.hasCoverageRange)
+        log << L"QPC coverage: " << summary.coverageMs << L" ms ("
+            << summary.coverageRatio * 100.0 << L"%)\nCoverage sufficient: "
+            << (summary.sufficientCoverage ? L"YES" : L"NO") << L"\n";
     log << L"Rows: " << summary.rows << L"\nDominant SwapChain: " << std::wstring(summary.dominantSwapChain.begin(), summary.dominantSwapChain.end())
         << L"\nDominant Rows: " << summary.dominantRows << L"\nUsable PresentMode samples: " << summary.presentModeSamples
         << L"\nPresentMode distribution:\n";
@@ -101,8 +102,9 @@ void WriteSummary(std::wofstream& log, const wchar_t* phase, const std::filesyst
         log << L"  " << std::wstring(mode.begin(), mode.end()) << L": " << count
             << L" (" << std::fixed << std::setprecision(1) << percentage << L"%)\n";
     }
+    const auto independentFlip = clawhud::IndependentFlipPercentageIfAvailable(summary);
     log << L"Independent Flip: " << std::fixed << std::setprecision(1)
-        << clawhud::IndependentFlipPercentage(summary) << L"%\n";
+        << (independentFlip ? std::to_wstring(*independentFlip) + L"%" : L"Unavailable") << L"\n";
     log << L"Average MsBetweenPresents: " << summary.presentAverage << L"\nAverage MsBetweenDisplayChange: " << summary.displayAverage
         << L"\nMin MsBetweenDisplayChange: " << summary.displayMin << L"\nMax MsBetweenDisplayChange: " << summary.displayMax
         << L"\nDisplayed frames: " << summary.displayed << L"\nNot-displayed frames: " << summary.notDisplayed << L"\n";
@@ -202,10 +204,104 @@ void LogMpoCapability(std::wofstream& log)
     log << L"D3DKMT MPO plane caps: unavailable / deferred\n\n";
 }
 
-bool Launch(const std::wstring& command, PROCESS_INFORMATION& process)
+double QpcMilliseconds()
 {
-    std::vector<wchar_t> line(command.begin(), command.end()); line.push_back(L'\0'); STARTUPINFOW startup{ sizeof(startup) };
-    return CreateProcessW(nullptr, line.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process) != FALSE;
+    LARGE_INTEGER counter{}, frequency{};
+    QueryPerformanceCounter(&counter);
+    QueryPerformanceFrequency(&frequency);
+    return frequency.QuadPart == 0 ? 0.0 :
+        1000.0 * static_cast<double>(counter.QuadPart) /
+        static_cast<double>(frequency.QuadPart);
+}
+
+struct PresentMonCapture
+{
+    PROCESS_INFORMATION process{};
+    HANDLE outputRead{};
+    std::thread outputReader;
+    std::string output;
+    std::wstring command;
+};
+
+bool StartPresentMon(const std::filesystem::path& executable, DWORD pid,
+    const std::filesystem::path& csv, const std::string& session,
+    PresentMonCapture& capture)
+{
+    SECURITY_ATTRIBUTES security{ sizeof(security), nullptr, TRUE };
+    HANDLE outputWrite{};
+    if (!CreatePipe(&capture.outputRead, &outputWrite, &security, 0)) return false;
+    SetHandleInformation(capture.outputRead, HANDLE_FLAG_INHERIT, 0);
+    capture.command = L"\"" + executable.wstring() + L"\" --process_id " + std::to_wstring(pid) +
+        L" --output_file \"" + csv.wstring() + L"\" --timed " +
+        std::to_wstring(kDiagnosticCaptureDuration.count()) +
+        L" --terminate_after_timed --no_console_stats --qpc_time_ms --session_name " +
+        std::wstring(session.begin(), session.end());
+    std::vector<wchar_t> line(capture.command.begin(), capture.command.end());
+    line.push_back(L'\0');
+    STARTUPINFOW startup{ sizeof(startup) };
+    startup.dwFlags = STARTF_USESTDHANDLES;
+    startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    startup.hStdOutput = outputWrite;
+    startup.hStdError = outputWrite;
+    const bool started = CreateProcessW(nullptr, line.data(), nullptr, nullptr, TRUE,
+        CREATE_NO_WINDOW, nullptr, nullptr, &startup, &capture.process) != FALSE;
+    CloseHandle(outputWrite);
+    if (!started)
+    {
+        CloseHandle(capture.outputRead);
+        capture.outputRead = nullptr;
+        return false;
+    }
+    capture.outputReader = std::thread([&capture]
+    {
+        char buffer[4096]; DWORD read{};
+        while (ReadFile(capture.outputRead, buffer, sizeof(buffer), &read, nullptr) && read)
+        {
+            if (capture.output.size() < kMaximumPresentMonOutputBytes)
+                capture.output.append(buffer, std::min<std::size_t>(read,
+                    kMaximumPresentMonOutputBytes - capture.output.size()));
+        }
+    });
+    return true;
+}
+
+bool StopPresentMon(PresentMonCapture& capture, bool stop, bool terminateEarly,
+    std::wofstream& log,
+    const std::filesystem::path& csv)
+{
+    bool timeout = false;
+    const auto deadline = std::chrono::steady_clock::now() + kCaptureWatchdog;
+    while (WaitForSingleObject(capture.process.hProcess, 100) != WAIT_OBJECT_0)
+    {
+        if (terminateEarly || std::chrono::steady_clock::now() >= deadline)
+        {
+            timeout = !stop && !terminateEarly;
+            TerminateProcess(capture.process.hProcess, stop ? 2 : 3);
+            WaitForSingleObject(capture.process.hProcess, 5000);
+            break;
+        }
+    }
+    DWORD code = STILL_ACTIVE;
+    GetExitCodeProcess(capture.process.hProcess, &code);
+    CloseHandle(capture.process.hThread);
+    CloseHandle(capture.process.hProcess);
+    if (capture.outputReader.joinable()) capture.outputReader.join();
+    CloseHandle(capture.outputRead);
+    capture.outputRead = nullptr;
+    std::error_code error;
+    const bool csvExists = std::filesystem::exists(csv, error) && !error;
+    const auto csvSize = csvExists ? std::filesystem::file_size(csv, error) : 0;
+    log << L"=== PRESENTMON CAPTURE ===\nCommand: " << capture.command
+        << L"\nPresentMon PID: " << capture.process.dwProcessId
+        << L"\nExit Code: " << code << L"\nCSV Created: " << (csvExists ? L"YES" : L"NO")
+        << L"\nCSV Size: " << (error ? 0 : csvSize) << L"\nStop Time: " << Now() << L"\n"
+        << L"Captured stdout/stderr bytes: " << capture.output.size() << L"\n";
+    if (!capture.output.empty())
+        log << L"=== PRESENTMON OUTPUT ===\n" << std::wstring(capture.output.begin(), capture.output.end()) << L"\n";
+    if (stop) log << L"PresentMon: Cancelled\n";
+    else if (terminateEarly) log << L"PresentMon: terminated after diagnostic phase failure\n";
+    if (timeout) log << L"PresentMon: watchdog timeout\n";
+    return !stop && !terminateEarly && !timeout && code == 0 && csvExists && csvSize != 0;
 }
 }
 
@@ -319,28 +415,6 @@ void VrrDiagnostic::Status(const wchar_t* text) const
     if (!PostMessageW(notifyWindow_, kVrrDiagnosticStatus, reinterpret_cast<WPARAM>(value), 0)) delete value;
 }
 
-bool VrrDiagnostic::Capture(const std::filesystem::path& executable, DWORD pid, const std::filesystem::path& csv,
-    const std::string& session, std::wofstream& log)
-{
-    const std::wstring command = L"\"" + executable.wstring() + L"\" --process_id " + std::to_wstring(pid) +
-        L" --output_file \"" + csv.wstring() + L"\" --timed " + std::to_wstring(kCaptureDuration.count()) +
-        L" --terminate_after_timed --no_console_stats --qpc_time_ms --session_name " + std::wstring(session.begin(), session.end());
-    PROCESS_INFORMATION process{}; if (!Launch(command, process)) { log << L"PresentMon: FAILED\nReason: CreateProcess failed\n"; return false; }
-    const auto deadline = std::chrono::steady_clock::now() + kCaptureWatchdog; bool timeout = false;
-    while (!stop_)
-    {
-        const DWORD wait = WaitForSingleObject(process.hProcess, 100); if (wait == WAIT_OBJECT_0) break;
-        if (wait == WAIT_FAILED || std::chrono::steady_clock::now() >= deadline) { timeout = true; break; }
-    }
-    if ((stop_ || timeout) && WaitForSingleObject(process.hProcess, 0) == WAIT_TIMEOUT) { TerminateProcess(process.hProcess, stop_ ? 2 : 3); WaitForSingleObject(process.hProcess, 5000); }
-    DWORD code = STILL_ACTIVE; GetExitCodeProcess(process.hProcess, &code); CloseHandle(process.hThread); CloseHandle(process.hProcess);
-    const bool csvCreated = std::filesystem::exists(csv) && std::filesystem::file_size(csv) != 0;
-    log << L"PresentMon Exit Code: " << code << L"\nCapture CSV Created: " << (csvCreated ? L"YES" : L"NO") << L"\n";
-    if (stop_) { log << L"PresentMon: Cancelled\n"; return false; }
-    if (timeout || code != 0 || !csvCreated) { log << L"PresentMon: FAILED\n"; return false; }
-    return true;
-}
-
 bool VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
     const std::wstring& targetPath)
 {
@@ -348,125 +422,153 @@ bool VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
     clawhud::IntelVrrDiagnosticProbe igcl;
     try
     {
-        const auto folder = LogFolder(app_); const auto stamp = Now(true); const auto txt = folder / (L"vrr-" + stamp + L".txt");
-        const auto offCsv = folder / (L"vrr-" + stamp + L"-off.csv");
-        const auto staticCsv = folder / (L"vrr-" + stamp + L"-static.csv");
-        const auto dynamicCsv = folder / (L"vrr-" + stamp + L"-dynamic.csv"); log.open(txt);
+        const auto folder = clawhud::LogDirectory();
+        const auto stamp = Now(true);
+        const auto txt = folder / (L"vrr-" + stamp + L".txt");
+        const auto csv = folder / (L"vrr-" + stamp + L".csv");
+        log.open(txt);
         if (!log.is_open()) { Status(L"Failed"); return false; }
         log << L"=== CLAWHUD VRR DIAGNOSTIC ===\nTimestamp: " << Now() << L"\nPresentMon: 2.5.1\n"
+            << L"PresentMon lifecycle: one process for OFF / STATIC / DYNAMIC\n"
             << L"Display tracking: enabled (no --no_track_display)\n"
-            << L"Pinned v2.5.1 console asset does not expose --write_display_metadata; standard display timing columns are retained.\n"
-            << L"VRR Analysis: automatic PASS/FAIL/INCONCLUSIVE verdict follows; manual review remains recommended.\nNOTE: PresentMon captures application presents and OS-visible display timing.\n"
-            << L"Intel UMD XeFG-generated output frames may not all be observable here.\nDo not treat this capture as authoritative true XeFG displayed FPS.\n\n";
+            << L"VRR verdict is authoritative only when all phase captures meet coverage requirements.\n"
+            << L"NOTE: PresentMon captures application presents and OS-visible display timing.\n"
+            << L"Intel UMD XeFG-generated output frames may not all be observable here.\n"
+            << L"Do not treat this capture as authoritative true XeFG displayed FPS.\n\n";
         LogMpoCapability(log);
         igcl.Initialize(log);
         igcl.LogState(log);
         const auto pm = std::filesystem::path(app_.ExecutablePath()).parent_path() / L"tools" / L"PresentMon.exe";
-        if (!std::filesystem::exists(pm)) { log << L"PresentMon: FAILED\nReason: tools\\PresentMon.exe not found\n"; Status(L"Failed"); return false; }
+        if (!std::filesystem::exists(pm))
+        {
+            log << L"PresentMon: FAILED\nReason: tools\\PresentMon.exe not found\n";
+            Status(L"Failed"); return false;
+        }
         log << L"=== VRR DIAGNOSTIC TRIGGER ===\nTrigger: F8\nForeground HWND: "
             << reinterpret_cast<const void*>(foregroundWindow) << L"\nTarget PID: " << targetPid
-            << L"\nTarget Process: " << targetPath << L"\n\n";
-        const std::string sessionStamp = Narrow(stamp);
-        struct PhaseResult { clawhud::VrrCsvSummary csv; std::vector<clawhud::VblankSummary> vblank; bool captureOk{}; bool targetAlive{}; bool hudVisible{}; };
-        auto runPhase = [&](const wchar_t* title, const wchar_t* status, DiagnosticHudMode mode,
-            const std::filesystem::path& csvPath, const char* sessionMode,
-            std::string_view preferredSwapChain, PhaseResult& result) -> bool
+            << L"\nTarget Process: " << targetPath << L"\nTarget Alive: "
+            << (Alive(targetPid) ? L"YES" : L"NO") << L"\n\n";
+
+        const std::string session = "ClawHUD-VRR-" + std::to_string(targetPid) + "-" + Narrow(stamp);
+        PresentMonCapture capture;
+        log << L"PresentMon Start Time: " << Now() << L"\nCSV: " << csv.wstring() << L"\n"
+            << L"PresentMon Session: " << std::wstring(session.begin(), session.end()) << L"\n";
+        if (!StartPresentMon(pm, targetPid, csv, session, capture))
         {
-            log << L"=== " << title << L" ===\nStart: " << Now() << L"\nCSV: " << csvPath.wstring() << L"\n";
+            log << L"PresentMon: FAILED\nReason: CreateProcess or stdout pipe setup failed\n";
+            Status(L"Failed"); return false;
+        }
+
+        struct PhaseRange { DiagnosticHudMode mode{}; double beginQpcMs{}; double endQpcMs{}; };
+        struct PhaseResult
+        {
+            clawhud::VrrCsvSummary csv;
+            std::vector<clawhud::VblankSummary> vblank;
+            PhaseRange range;
+            bool targetAlive{};
+            bool hudVisible{};
+            bool phaseRan{};
+        };
+        auto waitPhase = [&]()
+        {
+            const auto deadline = std::chrono::steady_clock::now() + kCaptureDuration;
+            while (!stop_ && std::chrono::steady_clock::now() < deadline)
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            return !stop_;
+        };
+        auto runPhase = [&](const wchar_t* title, const wchar_t* status,
+            DiagnosticHudMode mode, PhaseResult& result) -> bool
+        {
+            log << L"=== " << title << L" ===\nStart: " << Now() << L"\n";
             Status(status);
             if (!app_.RequestDiagnosticHudMode(mode))
             {
-                log << L"Main HUD mode request: FAILED\n";
-                return false;
+                log << L"Main HUD mode request: FAILED\n"; return false;
             }
             const bool expectedVisible = mode != DiagnosticHudMode::Off;
             result.hudVisible = app_.RequestDiagnosticHudVisibilityMatches(expectedVisible);
             if (!result.hudVisible)
             {
-                log << L"Main HUD visibility: FAILED\n";
-                return false;
+                log << L"Main HUD visibility: FAILED\n"; return false;
             }
-            log << L"Main HUD mode: confirmed\n";
-            if (stop_) return false;
+            log << L"Main HUD mode: confirmed\nTransition exclusion: 1000 ms\n";
             std::this_thread::sleep_for(std::chrono::seconds(1));
+            if (stop_) return false;
+            result.range.mode = mode;
+            result.range.beginQpcMs = QpcMilliseconds();
             igcl.StartSampling();
-            result.captureOk = Capture(pm, targetPid, csvPath,
-                "ClawHUD-VRR-" + std::to_string(targetPid) + "-" + sessionMode + "-" + sessionStamp, log);
+            const bool completed = waitPhase();
+            result.range.endQpcMs = QpcMilliseconds();
             result.vblank = igcl.StopSampling(log, title);
             result.targetAlive = Alive(targetPid);
             result.hudVisible = app_.RequestDiagnosticHudVisibilityMatches(expectedVisible);
-            result.csv = clawhud::ParseVrrCsvFile(csvPath, preferredSwapChain);
-            WriteSummary(log, title, csvPath, result.csv);
-            log << L"End: " << Now() << L"\n";
+            result.phaseRan = completed;
+            log << L"QPC range: " << result.range.beginQpcMs << L" - "
+                << result.range.endQpcMs << L" ms\nEnd: " << Now() << L"\n";
             if (!result.targetAlive) log << L"Reason: Target process exited\n";
             if (!result.hudVisible) log << L"Reason: Main HUD visibility did not match phase\n";
-            return !stop_ && result.captureOk && result.targetAlive && result.hudVisible;
+            return completed && result.targetAlive && result.hudVisible;
         };
 
         PhaseResult off, staticHud, dynamicHud;
-        const bool offOk = runPhase(L"PHASE A - HUD OFF", L"HUD OFF", DiagnosticHudMode::Off, offCsv, "OFF", {}, off);
-        if (stop_) { log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); return false; }
-        if (!offOk) { log << L"RESULT: Failed\nReason: HUD-OFF phase failed\n"; Status(L"Failed"); return false; }
-        const bool staticOk = runPhase(L"PHASE B - STATIC HUD", L"STATIC HUD", DiagnosticHudMode::Static, staticCsv, "STATIC", off.csv.dominantSwapChain, staticHud);
-        if (stop_) { log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); return false; }
-        if (!staticOk) { log << L"RESULT: Failed\nReason: STATIC HUD phase failed\n"; Status(L"Failed"); return false; }
-        const bool dynamicOk = runPhase(L"PHASE C - DYNAMIC HUD", L"DYNAMIC HUD", DiagnosticHudMode::Dynamic, dynamicCsv, "DYNAMIC", off.csv.dominantSwapChain, dynamicHud);
-        if (stop_) { log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); return false; }
-        auto writeComparison = [&](const wchar_t* name, const PhaseResult& left, const PhaseResult& right)
+        const bool offOk = runPhase(L"PHASE A - HUD OFF", L"HUD OFF", DiagnosticHudMode::Off, off);
+        const bool staticOk = offOk && runPhase(L"PHASE B - STATIC HUD", L"STATIC HUD", DiagnosticHudMode::Static, staticHud);
+        const bool dynamicOk = staticOk && runPhase(L"PHASE C - DYNAMIC HUD", L"DYNAMIC HUD", DiagnosticHudMode::Dynamic, dynamicHud);
+        const bool pmOk = StopPresentMon(capture, stop_, !dynamicOk, log, csv);
+        if (stop_)
         {
-            const auto leftMedian = clawhud::UsableVblankMedian(left.vblank);
-            const auto rightMedian = clawhud::UsableVblankMedian(right.vblank);
-            log << name << L"\nPresentMode set comparison is informational; distribution is authoritative.\n"
-                << L"Game swapchain continuity: "
-                << ((!left.csv.valid || !right.csv.valid) ? L"Unavailable" :
-                    (left.csv.dominantSwapChain == right.csv.dominantSwapChain ? L"SAME" : L"RECREATED"))
-                << L"\n";
-            if (left.csv.valid && right.csv.valid)
+            log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); return false;
+        }
+
+        std::ifstream csvFile(csv, std::ios::binary);
+        std::ostringstream csvText;
+        if (csvFile.is_open()) csvText << csvFile.rdbuf();
+        const std::string csvContents = csvText.str();
+        const auto parsePhase = [&](const PhaseResult& phase, std::string_view preferred)
+        {
+            if (!phase.phaseRan)
             {
-                log << L"Average MsBetweenDisplayChange: " << left.csv.displayAverage << L" vs " << right.csv.displayAverage
-                    << L"\nMin/Max MsBetweenDisplayChange: " << left.csv.displayMin << L"/" << left.csv.displayMax
-                    << L" vs " << right.csv.displayMin << L"/" << right.csv.displayMax
-                    << L"\nDisplayed / not-displayed: " << left.csv.displayed << L"/" << left.csv.notDisplayed
-                    << L" vs " << right.csv.displayed << L"/" << right.csv.notDisplayed << L"\n";
+                clawhud::VrrCsvSummary unavailable;
+                unavailable.reason = "Phase did not run";
+                return unavailable;
             }
-            else
-                log << L"PresentMon timing comparison: Unavailable\n";
-            log << L"VBlank median: " << (leftMedian ? std::to_wstring(*leftMedian) : L"Unavailable")
-                << L" us vs " << (rightMedian ? std::to_wstring(*rightMedian) : L"Unavailable") << L" us\n\n";
+            return clawhud::ParseVrrCsvText(csvContents, preferred,
+                phase.range.beginQpcMs, phase.range.endQpcMs);
         };
-        log << L"=== COMPARISON ===\n";
-        writeComparison(L"OFF vs STATIC", off, staticHud);
-        writeComparison(L"STATIC vs DYNAMIC", staticHud, dynamicHud);
-        writeComparison(L"OFF vs DYNAMIC", off, dynamicHud);
+        off.csv = parsePhase(off, {});
+        staticHud.csv = parsePhase(staticHud, off.csv.dominantSwapChain);
+        dynamicHud.csv = parsePhase(dynamicHud, off.csv.dominantSwapChain);
+        WriteSummary(log, L"PHASE A - HUD OFF", csv, off.csv);
+        WriteSummary(log, L"PHASE B - STATIC HUD", csv, staticHud.csv);
+        WriteSummary(log, L"PHASE C - DYNAMIC HUD", csv, dynamicHud.csv);
+        log << L"=== PHASE RANGES ===\nOFF: " << off.range.beginQpcMs << L" - " << off.range.endQpcMs
+            << L" ms\nSTATIC: " << staticHud.range.beginQpcMs << L" - " << staticHud.range.endQpcMs
+            << L" ms\nDYNAMIC: " << dynamicHud.range.beginQpcMs << L" - " << dynamicHud.range.endQpcMs << L" ms\n\n";
+
         const auto evaluation = clawhud::EvaluateVrrComparison(off.csv, staticHud.csv, dynamicHud.csv);
-        const bool phaseOk = !stop_ && offOk && staticOk && dynamicOk;
-        const auto finalVerdict = phaseOk ? evaluation.verdict : clawhud::VrrDiagnosticVerdict::Fail;
+        const bool phaseOk = pmOk && offOk && staticOk && dynamicOk && off.csv.sufficientCoverage &&
+            staticHud.csv.sufficientCoverage && dynamicHud.csv.sufficientCoverage;
+        const auto finalVerdict = phaseOk ? evaluation.verdict : clawhud::VrrDiagnosticVerdict::Inconclusive;
         const std::string finalReason = phaseOk ? evaluation.reason :
-            "A diagnostic phase failed before the VRR result was authoritative.";
+            "PresentMon capture did not provide sufficient samples for every diagnostic phase.";
         const auto writeVerdictPhase = [&](const wchar_t* name, const clawhud::VrrCsvSummary& summary)
         {
+            const auto percentage = clawhud::IndependentFlipPercentageIfAvailable(summary);
             const auto dominantMode = clawhud::DominantPresentMode(summary);
-            log << name << L"\nIndependent Flip: " << std::fixed << std::setprecision(1)
-                << clawhud::IndependentFlipPercentage(summary) << L"%\n"
-                << L"Dominant PresentMode: "
-                << std::wstring(dominantMode.begin(), dominantMode.end())
-                << L"\n";
+            log << name << L"\nIndependent Flip: "
+                << (percentage ? std::to_wstring(*percentage) + L"%" : L"Unavailable")
+                << L"\nDominant PresentMode: "
+                << (dominantMode.empty() ? L"Unavailable" : std::wstring(dominantMode.begin(), dominantMode.end())) << L"\n";
         };
-        log << L"=== VRR VERDICT ===\n";
+        log << L"=== VRR VERDICT ===\nDiagnostic Status: " << (phaseOk ? L"COMPLETE" : L"FAILED")
+            << L"\nVRR Verdict: " << clawhud::VrrDiagnosticVerdictName(finalVerdict)
+            << L"\nReason: " << std::wstring(finalReason.begin(), finalReason.end()) << L"\n";
         writeVerdictPhase(L"HUD OFF", off.csv);
         writeVerdictPhase(L"STATIC HUD", staticHud.csv);
-        log << L"Delta vs OFF: " << std::fixed << std::setprecision(1)
-            << clawhud::IndependentFlipPercentage(staticHud.csv) - clawhud::IndependentFlipPercentage(off.csv) << L" pp\n";
         writeVerdictPhase(L"DYNAMIC HUD", dynamicHud.csv);
-        log << L"Delta vs OFF: " << std::fixed << std::setprecision(1)
-            << clawhud::IndependentFlipPercentage(dynamicHud.csv) - clawhud::IndependentFlipPercentage(off.csv) << L" pp\n"
-            << L"Final Verdict: " << clawhud::VrrDiagnosticVerdictName(finalVerdict)
-            << L"\nReason: " << std::wstring(finalReason.begin(), finalReason.end()) << L"\n"
-            << L"Supporting evidence: IGCL VBlank timing is not an authoritative VRR-active signal.\n";
-        log << L"Result: " << clawhud::VrrDiagnosticVerdictName(finalVerdict) << L"\n";
-        Status(stop_ ? L"Cancelled" :
-            finalVerdict == clawhud::VrrDiagnosticVerdict::Pass ? L"Passed" :
-            finalVerdict == clawhud::VrrDiagnosticVerdict::Inconclusive ? L"Inconclusive" : L"Failed");
+        log << L"Supporting evidence: IGCL VBlank timing is not an authoritative VRR-active signal.\n"
+            << L"Result: " << clawhud::VrrDiagnosticVerdictName(finalVerdict) << L"\n";
+        Status(phaseOk ? (finalVerdict == clawhud::VrrDiagnosticVerdict::Pass ? L"Passed" : L"Failed") : L"Failed");
         return phaseOk;
     }
     catch (...) { if (log.is_open()) log << L"RESULT: Failed\n"; Status(L"Failed"); return false; }

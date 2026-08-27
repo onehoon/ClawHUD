@@ -99,6 +99,13 @@ void InitializeLocked()
 }
 }
 
+std::filesystem::path LogDirectory()
+{
+    std::lock_guard lock(g_mutex);
+    InitializeLocked();
+    return g_directory;
+}
+
 void RuntimeLogger::Initialize() noexcept
 {
     try

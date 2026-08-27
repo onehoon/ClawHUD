@@ -62,6 +62,8 @@ int main()
         "CSV distribution parsing");
     ok &= Expect(std::abs(clawhud::IndependentFlipPercentage(parsed) - 50.0) < 0.01,
         "Independent Flip percentage");
+    ok &= Expect(clawhud::IndependentFlipPercentageIfAvailable(parsed).has_value(),
+        "available summary exposes Independent Flip percentage");
 
     const std::string crlfCsv =
         "ProcessID,SwapChainAddress,PresentMode,MsUntilDisplayed,MsBetweenPresents,MsBetweenDisplayChange\r\n"
@@ -98,5 +100,43 @@ int main()
         !recreated.preferredSwapChainUsed, "stale preferred swapchain is not selected");
     ok &= Expect(clawhud::EvaluateVrrComparison(Summary(95), Summary(95), recreated).verdict ==
         clawhud::VrrDiagnosticVerdict::Fail, "recreated swapchain regression fails");
+
+    const std::string rangedCsv =
+        "ProcessID,SwapChainAddress,PresentMode,MsUntilDisplayed,MsBetweenPresents,MsBetweenDisplayChange,QpcTimeMs\n"
+        "1,game,Hardware Composed: Independent Flip,1,16.6,16.6,0\n"
+        "1,game,Hardware Composed: Independent Flip,1,16.6,16.6,14000\n"
+        "1,game,Hardware Composed: Independent Flip,1,16.6,16.6,28000\n"
+        "1,game,Composed: Flip,1,16.6,16.6,29000\n"
+        "1,game,Composed: Flip,1,16.6,16.6,41000\n"
+        "1,game,Composed: Flip,1,16.6,16.6,57000\n"
+        "1,game,Hardware Composed: Independent Flip,1,16.6,16.6,58000\n"
+        "1,game,Hardware Composed: Independent Flip,1,16.6,16.6,72000\n"
+        "1,game,Hardware Composed: Independent Flip,1,16.6,16.6,86000\n";
+    const auto offRange = clawhud::ParseVrrCsvText(rangedCsv, {}, 0.0, 28000.0);
+    const auto staticRange = clawhud::ParseVrrCsvText(rangedCsv, "game", 29000.0, 57000.0);
+    const auto dynamicRange = clawhud::ParseVrrCsvText(rangedCsv, "game", 58000.0, 86000.0);
+    ok &= Expect(offRange.valid && offRange.rows == 3 && offRange.sufficientCoverage,
+        "OFF QPC range and full coverage");
+    ok &= Expect(staticRange.valid && staticRange.rows == 3 && staticRange.sufficientCoverage,
+        "STATIC QPC range excludes transition");
+    ok &= Expect(dynamicRange.valid && dynamicRange.rows == 3 && dynamicRange.sufficientCoverage,
+        "DYNAMIC QPC range excludes transition");
+    const auto boundaryRange = clawhud::ParseVrrCsvText(rangedCsv, {}, 0.0, 20000.0);
+    ok &= Expect(boundaryRange.sufficientCoverage, "coverage at the 70 percent boundary remains usable");
+    const std::string shortCsv =
+        "ProcessID,SwapChainAddress,PresentMode,MsUntilDisplayed,MsBetweenPresents,MsBetweenDisplayChange,QpcTimeMs\n"
+        "1,game,Hardware Composed: Independent Flip,1,16.6,16.6,0\n"
+        "1,game,Hardware Composed: Independent Flip,1,16.6,16.6,9000\n";
+    const auto insufficient = clawhud::ParseVrrCsvText(shortCsv, {}, 0.0, 28000.0);
+    ok &= Expect(!insufficient.sufficientCoverage, "insufficient QPC coverage is rejected");
+    const std::string twentyFourSecondCsv = shortCsv +
+        "1,game,Hardware Composed: Independent Flip,1,16.6,16.6,24000\n";
+    const auto twentyFourSeconds = clawhud::ParseVrrCsvText(twentyFourSecondCsv, {}, 0.0, 28000.0);
+    ok &= Expect(twentyFourSeconds.sufficientCoverage, "24 seconds of a 28 second phase is usable");
+    VrrCsvSummary unavailable;
+    ok &= Expect(!clawhud::IndependentFlipPercentageIfAvailable(unavailable).has_value(),
+        "missing phase Independent Flip is unavailable");
+    ok &= Expect(clawhud::EvaluateVrrComparison(offRange, staticRange, unavailable).verdict ==
+        clawhud::VrrDiagnosticVerdict::Inconclusive, "missing phase is diagnostic inconclusive");
     return ok ? 0 : 1;
 }
