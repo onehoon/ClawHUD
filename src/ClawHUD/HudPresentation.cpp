@@ -254,7 +254,16 @@ HRESULT HudPresentation::Render(const HudTelemetrySnapshot& snapshot, const HudR
     if (FAILED(endHr)) return endHr;
     deviceContext_->Flush();
     if (FAILED(hr = presentationSurface_->SetBuffer(buffer->presentationBuffer.Get()))) return hr;
-    return presentationManager_->Present();
+    return CommitHudRenderFrame(
+        effective.layout.backgroundOpacity,
+        &HudPresentation::PresentFrame,
+        this);
+}
+
+HRESULT HudPresentation::PresentFrame(void* context) noexcept
+{
+    auto* presentation = static_cast<HudPresentation*>(context);
+    return presentation->presentationManager_->Present();
 }
 
 HRESULT HudPresentation::RefreshDisplayIfNeeded()

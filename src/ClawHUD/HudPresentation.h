@@ -29,6 +29,22 @@ inline HudRenderOptions BuildEffectiveHudRenderOptions(
     return effective;
 }
 
+using HudPresentCallback = HRESULT (*)(void* context) noexcept;
+using HudRenderObserver = void (*)(float backgroundOpacity, HRESULT presentResult, void* context) noexcept;
+
+inline HRESULT CommitHudRenderFrame(
+    float backgroundOpacity,
+    HudPresentCallback present,
+    void* presentContext,
+    HudRenderObserver observer = nullptr,
+    void* observerContext = nullptr) noexcept
+{
+    const HRESULT result = present(presentContext);
+    if (observer != nullptr)
+        observer(backgroundOpacity, result, observerContext);
+    return result;
+}
+
 class HudPresentation
 {
 public:
@@ -52,6 +68,7 @@ private:
     };
 
     static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
+    static HRESULT PresentFrame(void* context) noexcept;
     HRESULT CreateWindowHost(HINSTANCE instance);
     HRESULT CreateGraphics();
     HRESULT CreatePresentationSurface();

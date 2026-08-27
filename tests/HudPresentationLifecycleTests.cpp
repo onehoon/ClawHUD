@@ -2,6 +2,30 @@
 #include "HudPresentationLifecycle.h"
 
 #include <iostream>
+#include <vector>
+
+namespace
+{
+struct RenderProbe
+{
+    int presentCount{};
+    std::vector<float> observedOpacity;
+};
+
+HRESULT Present(void* context) noexcept
+{
+    auto* probe = static_cast<RenderProbe*>(context);
+    ++probe->presentCount;
+    return S_OK;
+}
+
+void Observe(float opacity, HRESULT result, void* context) noexcept
+{
+    auto* probe = static_cast<RenderProbe*>(context);
+    if (SUCCEEDED(result))
+        probe->observedOpacity.push_back(opacity);
+}
+}
 
 int main()
 {
@@ -32,5 +56,16 @@ int main()
     const auto opaque = clawhud::BuildEffectiveHudRenderOptions(requested, initialized, 144.0f);
     expect(opaque.layout.backgroundOpacity == 1.0f,
         "runtime opacity propagates to opaque render boundary");
+
+    RenderProbe probe;
+    expect(clawhud::CommitHudRenderFrame(transparent.layout.backgroundOpacity,
+        &Present, &probe, &Observe, &probe) == S_OK,
+        "transparent frame reaches presentation boundary");
+    expect(clawhud::CommitHudRenderFrame(opaque.layout.backgroundOpacity,
+        &Present, &probe, &Observe, &probe) == S_OK,
+        "opaque frame reaches presentation boundary");
+    expect(probe.presentCount == 2 && probe.observedOpacity.size() == 2 &&
+        probe.observedOpacity[0] == 0.0f && probe.observedOpacity[1] == 1.0f,
+        "same initialized presentation boundary observes both runtime opacities");
     return ok ? 0 : 1;
 }
