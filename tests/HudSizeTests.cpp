@@ -50,6 +50,17 @@ int main()
     ok &= Check(ParseHudSizeOffset(L"-100") == -2, "persisted minimum clamp");
     ok &= Check(ParseHudSizeOffset(L"100") == 2, "persisted maximum clamp");
     ok &= Check(ParseHudSizeOffset(L"2") == 2, "persisted size restore");
+    ok &= Check(ParseHudFont(L"") == HudFont::Unispace,
+        "missing font defaults to Unispace");
+    ok &= Check(ParseHudFont(L"Unispace") == HudFont::Unispace,
+        "Unispace font parses");
+    ok &= Check(ParseHudFont(L"SegoeUIVariable") == HudFont::SegoeUiVariable,
+        "Segoe UI Variable font parses");
+    ok &= Check(ParseHudFont(L"unknown") == HudFont::Unispace,
+        "unknown font falls back to Unispace");
+    ok &= Check(std::wstring(HudFontIniToken(HudFont::Unispace)) == L"Unispace" &&
+        std::wstring(HudFontIniToken(HudFont::SegoeUiVariable)) == L"SegoeUIVariable",
+        "font INI tokens");
     ok &= Check(CommitHudSizeOffsetAfterRecreation(0, 2, false) == 0,
         "failed recreation rolls back size");
     const int retryOffset = CommitHudSizeOffsetAfterRecreation(0, 2, true);
@@ -84,5 +95,11 @@ int main()
         customOptions.layout.backgroundMode == HudBackgroundMode::ContentWidth &&
         Near(customOptions.layout.backgroundOpacity, 0.35f),
         "HUD layout passes through unchanged");
+    ok &= Check(customOptions.font == HudFont::Unispace,
+        "HUD render options default to Unispace");
+    const auto segoeOptions = BuildHudRenderOptionsForSize(
+        0, customLayout, HudFont::SegoeUiVariable);
+    ok &= Check(segoeOptions.font == HudFont::SegoeUiVariable,
+        "HUD render options pass through Segoe UI Variable");
     return ok ? 0 : 1;
 }

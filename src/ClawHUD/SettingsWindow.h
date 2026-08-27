@@ -73,6 +73,8 @@ private:
     HWND hudSizeMinus_{};
     HWND hudSizeValue_{};
     HWND hudSizePlus_{};
+    HWND fontUnispace_{};
+    HWND fontSegoeUiVariable_{};
     HWND startEcButton_{};
     HWND openLogsButton_{};
     HWND diagnosticStatus_{};

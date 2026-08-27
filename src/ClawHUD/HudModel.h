@@ -20,6 +20,12 @@ enum class HudAlignment
     Right
 };
 
+enum class HudFont
+{
+    Unispace,
+    SegoeUiVariable,
+};
+
 enum class HudBackgroundMode
 {
     FullWidth,
