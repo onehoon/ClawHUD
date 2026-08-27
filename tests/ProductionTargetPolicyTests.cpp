@@ -26,21 +26,24 @@ int main()
         "Explorer is not a production target");
     ok &= Check(!clawhud::IsRejectedProductionTargetImage(L"game.exe"),
         "game process remains an eligible candidate");
-    ok &= Check(clawhud::ShouldEvaluateForegroundCandidate(100, 200) &&
+    ok &= Check(!clawhud::ShouldEvaluateForegroundCandidate(100, 0) &&
+        !clawhud::ShouldEvaluateForegroundCandidate(100, 200) &&
         !clawhud::ShouldEvaluateForegroundCandidate(100, 100) &&
         clawhud::ShouldEvaluateForegroundCandidate(0, 200),
-        "new foreground candidate is evaluated even with a live committed PID");
+        "foreground churn does not replace a live committed PID");
     ok &= Check(clawhud::ShouldReplacePendingCandidate(100, 200) &&
         !clawhud::ShouldReplacePendingCandidate(100, 100) &&
         !clawhud::ShouldReplacePendingCandidate(100, 0),
         "foreground B replaces pending candidate A");
-    ok &= Check(clawhud::SelectProductionSamplingProcess(100, 200) == 200 &&
-        clawhud::SelectProductionSamplingProcess(100, 0) == 100,
-        "pending candidate is sampled before committed target");
-    ok &= Check(clawhud::ShouldSampleProductionPresentMon(200, false) &&
-        clawhud::ShouldSampleProductionPresentMon(0, true) &&
-        !clawhud::ShouldSampleProductionPresentMon(0, false),
-        "committed target is sampled only while foreground, pending target can validate hidden");
+    ok &= Check(clawhud::SelectProductionSamplingProcess(100, 200) == 100 &&
+        clawhud::SelectProductionSamplingProcess(0, 200) == 200,
+        "committed target is sampled before a pending candidate");
+    ok &= Check(clawhud::ShouldSampleProductionPresentMon(100, 0, true) &&
+        clawhud::ShouldSampleProductionPresentMon(0, 200, false) &&
+        !clawhud::ShouldSampleProductionPresentMon(100, 0, false) &&
+        clawhud::ShouldRetainCommittedProductionTarget(100, true) &&
+        !clawhud::ShouldRetainCommittedProductionTarget(100, false),
+        "committed target sampling follows process lifetime, not foreground");
     ok &= Check(clawhud::ShouldPreservePendingProductionValidation(200, 200, true) &&
         !clawhud::ShouldPreservePendingProductionValidation(200, 100, true) &&
         !clawhud::ShouldPreservePendingProductionValidation(200, 200, false),

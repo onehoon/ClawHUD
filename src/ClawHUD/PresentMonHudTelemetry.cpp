@@ -119,6 +119,25 @@ PresentMonHudTelemetry::~PresentMonHudTelemetry()
     Stop();
 }
 
+DWORD PresentMonHudTelemetry::ExitCode() const noexcept
+{
+    if (!process_)
+        return 0;
+    DWORD exitCode = STILL_ACTIVE;
+    if (!GetExitCodeProcess(process_, &exitCode))
+        return 0;
+    return exitCode;
+}
+
+std::wstring BuildPresentMonCommandLine(const std::wstring& executable,
+    DWORD processId, const std::wstring& sessionName)
+{
+    return L"\"" + executable + L"\" --process_id " +
+        std::to_wstring(processId) + L" --output_stdout --no_console_stats --qpc_time_ms" +
+        L" --track_frame_type --terminate_on_proc_exit --stop_existing_session --session_name \"" +
+        sessionName + L"\"";
+}
+
 bool PresentMonHudTelemetry::Start(const std::wstring& executable, DWORD processId,
     UpdateCallback callback)
 {
@@ -152,10 +171,9 @@ bool PresentMonHudTelemetry::Start(const std::wstring& executable, DWORD process
 
     sessionName_ =
         L"ClawHUD-HUD-" + std::to_wstring(processId);
-    std::wstring command = L"\"" + executable + L"\" --process_id " +
-        std::to_wstring(processId) + L" --output_stdout --no_console_stats --qpc_time_ms" +
-        L" --track_frame_type --terminate_on_proc_exit --session_name \"" +
-        sessionName_ + L"\"";
+    processId_ = processId;
+    std::wstring command = BuildPresentMonCommandLine(
+        executable, processId, sessionName_);
     std::vector<wchar_t> commandLine(command.begin(), command.end());
     commandLine.push_back(L'\0');
     STARTUPINFOW startup{sizeof(startup)};
@@ -173,6 +191,7 @@ bool PresentMonHudTelemetry::Start(const std::wstring& executable, DWORD process
             L"CreateProcess failed error=" + std::to_wstring(createError));
         CloseHandle(outputRead);
         sessionName_.clear();
+        processId_ = 0;
         return false;
     }
     CloseHandle(processInfo.hThread);
@@ -211,6 +230,7 @@ void PresentMonHudTelemetry::Stop() noexcept
         process_ = nullptr;
     }
     sessionName_.clear();
+    processId_ = 0;
     callback_ = {};
 }
 
@@ -235,6 +255,13 @@ void PresentMonHudTelemetry::ReadLoop()
                 Column(candidate, "ProcessID") &&
                 Column(candidate, "MsBetweenDisplayChange"))
                 headers = candidate;
+            else if (line.find("error") != std::string::npos ||
+                line.find("Error") != std::string::npos ||
+                line.find("failed") != std::string::npos ||
+                line.find("Failed") != std::string::npos)
+                RuntimeLogger::Log(RuntimeLogLevel::Warn,
+                    L"PresentMon error pid=" + std::to_wstring(processId_) +
+                    L" message=\"" + std::wstring(line.begin(), line.end()) + L"\"");
             return;
         }
 

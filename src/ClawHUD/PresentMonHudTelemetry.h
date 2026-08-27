@@ -24,6 +24,8 @@ std::optional<double> CalculateDisplayedFps(
     std::size_t displayedFrameCount, double elapsedSeconds);
 std::optional<double> CalculateDisplayedFpsFromIntervals(
     const std::vector<double>& displayIntervalsMs);
+std::wstring BuildPresentMonCommandLine(const std::wstring& executable,
+    DWORD processId, const std::wstring& sessionName);
 
 class PresentMonHudTelemetry
 {
@@ -37,6 +39,8 @@ public:
     {
         return process_ && WaitForSingleObject(process_, 0) == WAIT_TIMEOUT;
     }
+    const std::wstring& SessionName() const noexcept { return sessionName_; }
+    DWORD ExitCode() const noexcept;
 
 private:
     void ReadLoop();
@@ -46,5 +50,6 @@ private:
     std::atomic_bool stop_{};
     UpdateCallback callback_;
     std::wstring sessionName_;
+    DWORD processId_{};
 };
 }

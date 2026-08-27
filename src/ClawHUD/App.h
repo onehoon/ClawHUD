@@ -150,6 +150,7 @@ private:
     void RefreshMockHud();
     bool EnsureMockHud();
     void ReconcileHudVisibility();
+    void ReleaseCommittedProductionTarget(const wchar_t* reason);
     bool AdoptForegroundProductionTarget();
     bool AdoptForegroundProductionTarget(HWND window, DWORD processId);
     void ConfirmForegroundProductionTarget(DWORD processId);
@@ -163,7 +164,8 @@ private:
     void CancelResumeRecovery();
     void StopProductionEcSampling(bool stopPresentMon = true);
     void StartProductionPresentMonSampling();
-    void StopProductionPresentMonSampling();
+    void StopProductionPresentMonSampling(const wchar_t* reason = L"explicit-reset",
+        bool clearLatestFps = false);
     void HandlePresentMonHudUpdate(DWORD processId, std::optional<double> displayedFps);
     void StartGraphicsApiProbe(DWORD processId);
     void StopGraphicsApiProbe();

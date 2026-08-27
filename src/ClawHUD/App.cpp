@@ -130,7 +130,7 @@ App::~App()
     foregroundTracker_.Stop();
     if (vrrDiagnostic_) vrrDiagnostic_->Stop();
     DiscardPendingHudVisibilityRequests();
-    StopProductionPresentMonSampling();
+    StopProductionPresentMonSampling(L"app-shutdown", true);
     DiscardPendingPresentMonHudUpdates();
     vrrDiagnostic_.reset();
     if (hudHotkeyRegistered_ && tray_.Window())
@@ -209,6 +209,7 @@ int App::Run()
         }
         else
         {
+            AdoptForegroundProductionTarget();
             ReconcileHudVisibility();
         }
     }
@@ -255,7 +256,7 @@ bool App::StartEcDiagnostic()
         return false;
 
     pendingProductionTargetPid_ = 0;
-    StopProductionPresentMonSampling();
+    StopProductionPresentMonSampling(L"diagnostic-start", false);
     StopGraphicsApiProbe();
     if (!ecDiagnostic_->Start())
     {
@@ -296,7 +297,8 @@ bool App::StartVrrDiagnostic()
         Log(L"VRR diagnostic start failed: global F8 hotkey is not registered");
         return false;
     }
-    StopProductionEcSampling();
+    StopProductionEcSampling(false);
+    StopProductionPresentMonSampling(L"diagnostic-start", false);
     StopGraphicsApiProbe();
     pendingProductionTargetPid_ = 0;
     if (!vrrDiagnostic_->Start())
@@ -877,7 +879,7 @@ void App::PauseProductionSamplingForSuspend()
 {
     KillTimer(tray_.Window(), kEcHudTimerId);
     KillTimer(tray_.Window(), kBatteryHudTimerId);
-    StopProductionPresentMonSampling();
+    StopProductionPresentMonSampling(L"suspend", false);
     StopGraphicsApiProbe();
     if (ecHudClient_)
     {
@@ -890,6 +892,20 @@ void App::PauseProductionSamplingForSuspend()
     latestPresentMonDisplayedFps_.reset();
     usageSampler_.Reset();
     ecHudSamplingActive_ = false;
+}
+
+void App::ReleaseCommittedProductionTarget(const wchar_t* reason)
+{
+    const DWORD processId = foregroundTracker_.TrackedProcessId();
+    if (!processId)
+        return;
+    pendingProductionTargetPid_ = 0;
+    StopProductionPresentMonSampling(reason, true);
+    StopGraphicsApiProbe();
+    StopProductionEcSampling(false);
+    foregroundTracker_.SetTrackedProcessId(0);
+    Log(L"Production target cleared pid=" + std::to_wstring(processId) +
+        L" reason=" + reason);
 }
 
 void App::CancelResumeRecovery()
@@ -919,31 +935,35 @@ void App::StopProductionEcSampling(bool stopPresentMon)
 
 void App::StartProductionPresentMonSampling()
 {
-    if (suspended_ || DiagnosticRunning() || !mockHudEnabled_ ||
-        (!MockHudVisible() && !pendingProductionTargetPid_))
+    if (suspended_ || DiagnosticRunning() || !mockHudEnabled_)
         return;
-    if (!clawhud::ShouldSampleProductionPresentMon(
-        pendingProductionTargetPid_, foregroundTracker_.ForegroundIsTrackedProcess()))
+    const DWORD committedProcessId = foregroundTracker_.TrackedProcessId();
+    const bool committedAlive = committedProcessId && ProcessAlive(committedProcessId);
+    if (committedProcessId && !committedAlive)
     {
-        StopProductionPresentMonSampling();
-        StopGraphicsApiProbe();
+        ReleaseCommittedProductionTarget(L"game-exited");
+        return;
+    }
+    if (!clawhud::ShouldSampleProductionPresentMon(
+        committedProcessId, pendingProductionTargetPid_, committedAlive))
+    {
         return;
     }
     const DWORD processId = clawhud::SelectProductionSamplingProcess(
-        foregroundTracker_.TrackedProcessId(), pendingProductionTargetPid_);
+        committedProcessId, pendingProductionTargetPid_);
     if (!processId || !ProcessAlive(processId))
     {
         if (pendingProductionTargetPid_ == processId)
             pendingProductionTargetPid_ = 0;
-        StopProductionPresentMonSampling();
-        StopGraphicsApiProbe();
+        if (!committedProcessId)
+            StopProductionPresentMonSampling(L"explicit-reset", true);
         return;
     }
     if (presentMonHudTelemetry_ && presentMonProcessId_ == processId &&
         presentMonHudTelemetry_->Running())
         return;
 
-    StopProductionPresentMonSampling();
+    StopProductionPresentMonSampling(L"target-handoff", false);
     const auto executable = std::filesystem::path(executablePath_).parent_path() /
         L"tools" / L"PresentMon.exe";
     presentMonHudTelemetry_ = std::make_unique<clawhud::PresentMonHudTelemetry>();
@@ -958,27 +978,35 @@ void App::StartProductionPresentMonSampling()
                 delete update;
         });
     if (started)
-        Log(L"PresentMon started pid=" + std::to_wstring(processId));
+        Log(L"PresentMon started pid=" + std::to_wstring(processId) +
+            L" session=" + presentMonHudTelemetry_->SessionName());
     else
     {
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
             L"PresentMon start failed pid=" + std::to_wstring(processId));
         presentMonHudTelemetry_.reset();
         presentMonProcessId_ = 0;
-        latestPresentMonDisplayedFps_.reset();
+        if (!committedProcessId)
+            latestPresentMonDisplayedFps_.reset();
     }
 }
 
-void App::StopProductionPresentMonSampling()
+void App::StopProductionPresentMonSampling(const wchar_t* reason, bool clearLatestFps)
 {
     if (presentMonHudTelemetry_)
     {
-        Log(L"PresentMon stopped");
+        const DWORD exitCode = presentMonHudTelemetry_->ExitCode();
+        Log(L"PresentMon stop requested pid=" +
+            std::to_wstring(presentMonProcessId_) + L" reason=" + reason);
         presentMonHudTelemetry_->Stop();
+        Log(L"PresentMon stopped pid=" +
+            std::to_wstring(presentMonProcessId_) + L" exitCode=" +
+            std::to_wstring(exitCode));
         presentMonHudTelemetry_.reset();
     }
     presentMonProcessId_ = 0;
-    latestPresentMonDisplayedFps_.reset();
+    if (clearLatestFps)
+        latestPresentMonDisplayedFps_.reset();
 }
 
 void App::StartGraphicsApiProbe(DWORD processId)
@@ -1028,7 +1056,8 @@ void App::HandlePresentMonHudUpdate(DWORD processId,
     if (suspended_ || resumeRecoveryActive_ || DiagnosticRunning() ||
         !presentMonHudTelemetry_ ||
         presentMonProcessId_ != processId ||
-        (!MockHudVisible() && pendingProductionTargetPid_ != processId))
+        (foregroundTracker_.TrackedProcessId() != processId &&
+            pendingProductionTargetPid_ != processId))
         return;
     if (pendingProductionTargetPid_ == processId && displayedFps)
     {
@@ -1043,11 +1072,27 @@ void App::HandlePresentMonHudUpdate(DWORD processId,
     if (!displayedFps)
     {
         if (!ProcessAlive(processId))
-            Log(L"PresentMon target process exited");
+        {
+            Log(L"PresentMon target process exited pid=" + std::to_wstring(processId));
+            if (foregroundTracker_.TrackedProcessId() == processId)
+                ReleaseCommittedProductionTarget(L"game-exited");
+            else
+            {
+                pendingProductionTargetPid_ = 0;
+                StopProductionPresentMonSampling(L"game-exited", true);
+                StopGraphicsApiProbe();
+            }
+            return;
+        }
         else
+        {
+            const DWORD exitCode = presentMonHudTelemetry_->ExitCode();
             clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
-                L"PresentMon exited unexpectedly");
-        StopProductionPresentMonSampling();
+                L"PresentMon exited unexpectedly pid=" + std::to_wstring(processId) +
+                L" exitCode=" + std::to_wstring(exitCode));
+        }
+        StopProductionPresentMonSampling(L"unexpected-exit", false);
+        StartProductionPresentMonSampling();
     }
 }
 
@@ -1094,56 +1139,47 @@ bool App::AdoptForegroundProductionTarget(HWND window, DWORD processId)
         mockHudEnabled_, DiagnosticRunning(), suspended_))
         return false;
     const DWORD trackedProcessId = foregroundTracker_.TrackedProcessId();
-    if (trackedProcessId && processId == trackedProcessId &&
-        ProcessAlive(trackedProcessId))
+    if (trackedProcessId &&
+        clawhud::ShouldRetainCommittedProductionTarget(
+            trackedProcessId, ProcessAlive(trackedProcessId)))
     {
-        if (clawhud::ShouldCancelPendingCandidateOnCommittedReturn(
-            trackedProcessId, pendingProductionTargetPid_, processId))
-        {
-            const DWORD staleCandidate = pendingProductionTargetPid_;
-            pendingProductionTargetPid_ = 0;
-            if (presentMonProcessId_ == staleCandidate)
-                StopProductionPresentMonSampling();
-            if (graphicsApiProcessId_ == staleCandidate)
-                StopGraphicsApiProbe();
-            Log(L"Production target validation discarded pid=" +
-                std::to_wstring(staleCandidate) +
-                L" reason=committed-target-returned");
-        }
-        if (clawhud::ShouldRestartGraphicsApiProbe(
-            graphicsApiProcessId_, trackedProcessId))
+        if (graphicsApiProcessId_ != trackedProcessId)
             StartGraphicsApiProbe(trackedProcessId);
+        StartProductionPresentMonSampling();
         return true;
     }
+
+    if (trackedProcessId)
+        ReleaseCommittedProductionTarget(L"game-exited");
+
+    const DWORD committedProcessId = foregroundTracker_.TrackedProcessId();
 
     std::wstring imageName;
     if (!IsUsableProductionTarget(window, processId, imageName))
     {
         Log(L"Production target rejected pid=" + std::to_wstring(processId) +
             L" image=" + (imageName.empty() ? L"<unavailable>" : imageName));
-        if (trackedProcessId && !ProcessAlive(trackedProcessId))
-            foregroundTracker_.SetTrackedProcessId(0);
         if (pendingProductionTargetPid_)
         {
             pendingProductionTargetPid_ = 0;
-            StopProductionPresentMonSampling();
+            StopProductionPresentMonSampling(L"explicit-reset", true);
             StopGraphicsApiProbe();
         }
         return false;
     }
 
     const bool newCandidate =
-        clawhud::ShouldEvaluateForegroundCandidate(trackedProcessId, processId) &&
+        clawhud::ShouldEvaluateForegroundCandidate(committedProcessId, processId) &&
         clawhud::ShouldReplacePendingCandidate(pendingProductionTargetPid_, processId);
     if (newCandidate)
     {
         const DWORD oldProcessId = pendingProductionTargetPid_
-            ? pendingProductionTargetPid_ : trackedProcessId;
+            ? pendingProductionTargetPid_ : committedProcessId;
         Log(L"Production target foreground changed old=" +
             std::to_wstring(oldProcessId) + L" new=" +
             std::to_wstring(processId));
         pendingProductionTargetPid_ = processId;
-        StopProductionPresentMonSampling();
+        StopProductionPresentMonSampling(L"target-handoff", true);
         StopGraphicsApiProbe();
         Log(L"Production target candidate pid=" + std::to_wstring(processId) +
             L" image=" + imageName);
@@ -1175,7 +1211,7 @@ void App::ConfirmForegroundProductionTarget(DWORD processId)
             std::to_wstring(processId) + L" reason=foreground-changed");
         pendingProductionTargetPid_ = 0;
         if (presentMonProcessId_ == processId)
-            StopProductionPresentMonSampling();
+            StopProductionPresentMonSampling(L"explicit-reset", true);
         if (graphicsApiProcessId_ == processId)
             StopGraphicsApiProbe();
         return;
@@ -1288,8 +1324,8 @@ bool App::ApplyDiagnosticHudVisibility(bool visible)
 
 bool App::ApplyDiagnosticHudMode(DiagnosticHudMode mode)
 {
-    StopProductionPresentMonSampling();
-    StopProductionEcSampling();
+    StopProductionPresentMonSampling(L"diagnostic-start", false);
+    StopProductionEcSampling(false);
     pendingProductionTargetPid_ = 0;
     diagnosticHudMode_ = mode;
     manualHudVisibilityOverride_ = mode == DiagnosticHudMode::Off
@@ -1494,11 +1530,8 @@ void App::ReconcileHudVisibility()
         if (FAILED(hr))
             hudHideFailureLogged_ = true;
         KillTimer(tray_.Window(), kMockHudTimerId);
-        const bool preservePendingValidation =
-            clawhud::ShouldPreservePendingProductionValidation(
-                pendingProductionTargetPid_, presentMonProcessId_,
-                presentMonHudTelemetry_ && presentMonHudTelemetry_->Running());
-        StopProductionEcSampling(!preservePendingValidation);
+        if (!foregroundTracker_.TrackedProcessId() && !pendingProductionTargetPid_)
+            StopProductionEcSampling(false);
     }
 }
 
