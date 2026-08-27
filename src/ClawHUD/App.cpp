@@ -249,11 +249,31 @@ void App::SetStartWithWindows(bool enabled)
 
 bool App::StartEcDiagnostic()
 {
-    if (!ecDiagnostic_ || VrrDiagnosticRunning() || ecHudSamplingActive_ || !ecDiagnostic_->Start()) return false;
+    if (!ecDiagnostic_ || VrrDiagnosticRunning() || ecHudSamplingActive_)
+        return false;
+
+    pendingProductionTargetPid_ = 0;
+    StopProductionPresentMonSampling();
+    StopGraphicsApiProbe();
+    if (!ecDiagnostic_->Start())
+    {
+        if (mockHudEnabled_ && !suspended_)
+            AdoptForegroundProductionTarget();
+        ReconcileHudVisibility();
+        return false;
+    }
     ecStatus_ = L"Running";
     return true;
 }
-void App::StopEcDiagnostic() { if (ecDiagnostic_) ecDiagnostic_->Stop(); }
+void App::StopEcDiagnostic()
+{
+    if (ecDiagnostic_)
+        ecDiagnostic_->Stop();
+    if (clawhud::ShouldReevaluateForegroundAfterDiagnostic(
+        mockHudEnabled_, DiagnosticRunning(), suspended_))
+        AdoptForegroundProductionTarget();
+    ReconcileHudVisibility();
+}
 bool App::EcDiagnosticRunning() const { return ecDiagnostic_ && ecDiagnostic_->Running(); }
 void App::OpenDiagnosticLogFolder() { if (ecDiagnostic_) ecDiagnostic_->OpenLogFolder(); }
 bool App::StartVrrDiagnostic()

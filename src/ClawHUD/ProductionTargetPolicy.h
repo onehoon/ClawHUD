@@ -19,6 +19,8 @@ bool ShouldPreservePendingProductionValidation(DWORD pendingProcessId,
     DWORD presentMonProcessId, bool presentMonRunning) noexcept;
 bool ShouldReevaluateForegroundAfterResume(bool hudEnabled,
     bool recoveryCompleted) noexcept;
+bool ShouldReevaluateForegroundAfterDiagnostic(bool hudEnabled,
+    bool diagnosticRunning, bool suspended) noexcept;
 bool ShouldCancelPendingCandidateOnCommittedReturn(DWORD committedProcessId,
     DWORD pendingProcessId, DWORD foregroundProcessId) noexcept;
 bool ShouldRestartGraphicsApiProbe(DWORD probedProcessId,

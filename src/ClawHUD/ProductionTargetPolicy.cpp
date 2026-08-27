@@ -56,6 +56,12 @@ bool ShouldReevaluateForegroundAfterResume(bool hudEnabled,
     return hudEnabled && recoveryCompleted;
 }
 
+bool ShouldReevaluateForegroundAfterDiagnostic(bool hudEnabled,
+    bool diagnosticRunning, bool suspended) noexcept
+{
+    return hudEnabled && !diagnosticRunning && !suspended;
+}
+
 bool ShouldCancelPendingCandidateOnCommittedReturn(DWORD committedProcessId,
     DWORD pendingProcessId, DWORD foregroundProcessId) noexcept
 {

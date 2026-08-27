@@ -49,6 +49,11 @@ int main()
         !clawhud::ShouldReevaluateForegroundAfterResume(false, true) &&
         !clawhud::ShouldReevaluateForegroundAfterResume(true, false),
         "completed resume recovery re-adopts the current foreground");
+    ok &= Check(clawhud::ShouldReevaluateForegroundAfterDiagnostic(true, false, false) &&
+        !clawhud::ShouldReevaluateForegroundAfterDiagnostic(true, true, false) &&
+        !clawhud::ShouldReevaluateForegroundAfterDiagnostic(true, false, true) &&
+        !clawhud::ShouldReevaluateForegroundAfterDiagnostic(false, false, false),
+        "diagnostic stop re-adopts only when production lifecycle is available");
     ok &= Check(clawhud::ShouldCancelPendingCandidateOnCommittedReturn(100, 200, 100) &&
         !clawhud::ShouldCancelPendingCandidateOnCommittedReturn(100, 100, 100) &&
         !clawhud::ShouldCancelPendingCandidateOnCommittedReturn(100, 200, 200),
