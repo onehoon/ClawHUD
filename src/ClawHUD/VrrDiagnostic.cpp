@@ -602,8 +602,19 @@ bool VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
         const bool phaseOk = pmOk && offOk && staticOk && dynamicOk && off.csv.sufficientCoverage &&
             staticHud.csv.sufficientCoverage && dynamicHud.csv.sufficientCoverage;
         const auto finalVerdict = phaseOk ? evaluation.verdict : clawhud::VrrDiagnosticVerdict::Inconclusive;
-        const std::string finalReason = phaseOk ? evaluation.reason :
-            "PresentMon capture did not provide sufficient samples for every diagnostic phase.";
+        std::string finalReason;
+        if (phaseOk)
+            finalReason = evaluation.reason;
+        else if (!offOk)
+            finalReason = "HUD-OFF phase failed before the VRR result was authoritative.";
+        else if (!staticOk)
+            finalReason = "STATIC HUD phase failed before the VRR result was authoritative.";
+        else if (!dynamicOk)
+            finalReason = "DYNAMIC HUD phase failed before the VRR result was authoritative.";
+        else if (!pmOk)
+            finalReason = "PresentMon capture failed or did not flush a usable CSV.";
+        else
+            finalReason = "One or more phases had insufficient QPC sample coverage.";
         const auto writeVerdictPhase = [&](const wchar_t* name, const clawhud::VrrCsvSummary& summary)
         {
             const auto percentage = clawhud::IndependentFlipPercentageIfAvailable(summary);

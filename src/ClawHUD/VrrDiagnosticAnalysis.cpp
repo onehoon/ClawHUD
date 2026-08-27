@@ -255,7 +255,9 @@ double IndependentFlipPercentage(const VrrCsvSummary& summary) noexcept
 
 std::optional<double> IndependentFlipPercentageIfAvailable(const VrrCsvSummary& summary) noexcept
 {
-    if (!summary.valid || summary.modes.empty()) return std::nullopt;
+    if (!summary.valid || summary.modes.empty() ||
+        (summary.hasCoverageRange && !summary.sufficientCoverage))
+        return std::nullopt;
     std::size_t independent{};
     for (const auto& [mode, count] : summary.modes)
         if (IsIndependentFlipPresentMode(mode)) independent += count;

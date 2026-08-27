@@ -129,6 +129,8 @@ int main()
         "1,game,Hardware Composed: Independent Flip,1,16.6,16.6,9000\n";
     const auto insufficient = clawhud::ParseVrrCsvText(shortCsv, {}, 0.0, 28000.0);
     ok &= Expect(!insufficient.sufficientCoverage, "insufficient QPC coverage is rejected");
+    ok &= Expect(!clawhud::IndependentFlipPercentageIfAvailable(insufficient).has_value(),
+        "insufficient-coverage Independent Flip is unavailable");
     const std::string twentyFourSecondCsv = shortCsv +
         "1,game,Hardware Composed: Independent Flip,1,16.6,16.6,24000\n";
     const auto twentyFourSeconds = clawhud::ParseVrrCsvText(twentyFourSecondCsv, {}, 0.0, 28000.0);
