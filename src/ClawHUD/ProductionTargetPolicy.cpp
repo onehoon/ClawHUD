@@ -37,6 +37,12 @@ DWORD SelectProductionSamplingProcess(DWORD trackedProcessId,
     return pendingProcessId ? pendingProcessId : trackedProcessId;
 }
 
+bool ShouldSampleProductionPresentMon(DWORD pendingProcessId,
+    bool foregroundIsTrackedProcess) noexcept
+{
+    return pendingProcessId != 0 || foregroundIsTrackedProcess;
+}
+
 bool ShouldPreservePendingProductionValidation(DWORD pendingProcessId,
     DWORD presentMonProcessId, bool presentMonRunning) noexcept
 {

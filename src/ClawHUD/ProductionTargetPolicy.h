@@ -13,6 +13,8 @@ bool ShouldReplacePendingCandidate(DWORD pendingProcessId,
     DWORD foregroundProcessId) noexcept;
 DWORD SelectProductionSamplingProcess(DWORD trackedProcessId,
     DWORD pendingProcessId) noexcept;
+bool ShouldSampleProductionPresentMon(DWORD pendingProcessId,
+    bool foregroundIsTrackedProcess) noexcept;
 bool ShouldPreservePendingProductionValidation(DWORD pendingProcessId,
     DWORD presentMonProcessId, bool presentMonRunning) noexcept;
 bool ShouldCancelPendingCandidateOnCommittedReturn(DWORD committedProcessId,

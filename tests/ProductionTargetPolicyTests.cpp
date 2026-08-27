@@ -37,6 +37,10 @@ int main()
     ok &= Check(clawhud::SelectProductionSamplingProcess(100, 200) == 200 &&
         clawhud::SelectProductionSamplingProcess(100, 0) == 100,
         "pending candidate is sampled before committed target");
+    ok &= Check(clawhud::ShouldSampleProductionPresentMon(200, false) &&
+        clawhud::ShouldSampleProductionPresentMon(0, true) &&
+        !clawhud::ShouldSampleProductionPresentMon(0, false),
+        "committed target is sampled only while foreground, pending target can validate hidden");
     ok &= Check(clawhud::ShouldPreservePendingProductionValidation(200, 200, true) &&
         !clawhud::ShouldPreservePendingProductionValidation(200, 100, true) &&
         !clawhud::ShouldPreservePendingProductionValidation(200, 200, false),
