@@ -14,13 +14,17 @@
 
 #include <array>
 #include <cstddef>
+#include <functional>
 #include <memory>
+#include <utility>
 
 namespace clawhud
 {
 class HudPresentation
 {
 public:
+    using RenderObserver = std::function<void(float backgroundOpacity, HRESULT presentResult)>;
+
     ~HudPresentation();
 
     HRESULT Initialize(HINSTANCE instance, const HudRenderOptions& options = {});
@@ -29,6 +33,7 @@ public:
     HRESULT Hide();
     bool Visible() const noexcept { return visible_; }
     bool Initialized() const noexcept { return initialized_; }
+    void SetRenderObserver(RenderObserver observer) { renderObserver_ = std::move(observer); }
     void Shutdown() noexcept;
 
 private:
@@ -76,5 +81,6 @@ private:
     Microsoft::WRL::ComPtr<ID2D1DeviceContext> d2dContext_;
     Microsoft::WRL::ComPtr<IDWriteFactory> writeFactory_;
     std::unique_ptr<HudRenderer> renderer_;
+    RenderObserver renderObserver_;
 };
 }

@@ -2,6 +2,9 @@
 #include "HudWindowGeometry.h"
 
 #include <dwrite.h>
+#include <d2d1_1.h>
+#include <d3d11.h>
+#include <dxgi1_2.h>
 #include <wrl/client.h>
 
 #include <cmath>
@@ -26,6 +29,76 @@ bool Near(float actual, float expected)
     return std::abs(actual - expected) < 0.01f;
 }
 
+bool ReadBackgroundAlpha(HudRenderer& renderer, HudRenderOptions options, BYTE& alpha,
+    bool& foregroundVisible)
+{
+    constexpr UINT width = 160;
+    constexpr UINT height = 64;
+    D3D_FEATURE_LEVEL featureLevel{};
+    ComPtr<ID3D11Device> device;
+    ComPtr<ID3D11DeviceContext> deviceContext;
+    const D3D_FEATURE_LEVEL levels[] = { D3D_FEATURE_LEVEL_11_0 };
+    const HRESULT deviceHr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP,
+        nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT, levels, ARRAYSIZE(levels),
+        D3D11_SDK_VERSION, &device, &featureLevel, &deviceContext);
+    if (FAILED(deviceHr)) { std::cerr << "D3D11CreateDevice failed: " << std::hex << deviceHr << '\n'; return false; }
+    ComPtr<IDXGIDevice> dxgiDevice;
+    if (FAILED(device.As(&dxgiDevice))) return false;
+    ComPtr<ID2D1Factory1> d2dFactory;
+    if (FAILED(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED,
+        __uuidof(ID2D1Factory1), reinterpret_cast<void**>(d2dFactory.ReleaseAndGetAddressOf())))) return false;
+    ComPtr<ID2D1Device> d2dDevice;
+    if (FAILED(d2dFactory->CreateDevice(dxgiDevice.Get(), &d2dDevice))) return false;
+    ComPtr<ID2D1DeviceContext> d2dContext;
+    if (FAILED(d2dDevice->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &d2dContext))) return false;
+
+    D3D11_TEXTURE2D_DESC desc{};
+    desc.Width = width; desc.Height = height; desc.MipLevels = 1; desc.ArraySize = 1;
+    desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM; desc.SampleDesc.Count = 1;
+    desc.Usage = D3D11_USAGE_DEFAULT; desc.BindFlags = D3D11_BIND_RENDER_TARGET;
+    ComPtr<ID3D11Texture2D> texture;
+    if (FAILED(device->CreateTexture2D(&desc, nullptr, &texture))) return false;
+    ComPtr<IDXGISurface> surface;
+    if (FAILED(texture.As(&surface))) return false;
+    ComPtr<ID2D1Bitmap1> bitmap;
+    const auto props = D2D1::BitmapProperties1(
+        D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+    const HRESULT bitmapHr = d2dContext->CreateBitmapFromDxgiSurface(surface.Get(), &props, &bitmap);
+    if (FAILED(bitmapHr)) { std::cerr << "CreateBitmapFromDxgiSurface failed: " << std::hex << bitmapHr << '\n'; return false; }
+    d2dContext->SetTarget(bitmap.Get());
+    d2dContext->BeginDraw();
+    d2dContext->Clear(D2D1::ColorF(0, 0.0f));
+    const std::vector<HudTextRun> runs{{HudSegmentKind::Gpu, L"GPU", L"99%"},
+        {HudSegmentKind::Tdp, L"TDP", L"18 W"}};
+    const HRESULT drawHr = renderer.Draw(d2dContext.Get(), runs, options,
+        D2D1::RectF(0, 0, static_cast<float>(width), static_cast<float>(height)));
+    if (FAILED(drawHr)) { std::cerr << "HudRenderer::Draw failed: " << std::hex << drawHr << '\n'; return false; }
+    const HRESULT endHr = d2dContext->EndDraw();
+    if (FAILED(endHr)) { std::cerr << "EndDraw failed: " << std::hex << endHr << '\n'; return false; }
+    d2dContext->SetTarget(nullptr);
+    d2dContext->Flush();
+
+    D3D11_TEXTURE2D_DESC stagingDesc = desc;
+    stagingDesc.Usage = D3D11_USAGE_STAGING;
+    stagingDesc.BindFlags = 0; stagingDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    ComPtr<ID3D11Texture2D> staging;
+    if (FAILED(device->CreateTexture2D(&stagingDesc, nullptr, &staging))) return false;
+    deviceContext->CopyResource(staging.Get(), texture.Get());
+    deviceContext->Flush();
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    if (FAILED(deviceContext->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped))) return false;
+    const auto* bytes = static_cast<const BYTE*>(mapped.pData);
+    alpha = bytes[1 * mapped.RowPitch + 1 * 4 + 3];
+    foregroundVisible = false;
+    for (UINT y = 0; y < height && !foregroundVisible; ++y)
+        for (UINT x = 0; x < width; ++x)
+            if (bytes[y * mapped.RowPitch + x * 4 + 3] >= 200 &&
+                (x > 5 || y > 5)) { foregroundVisible = true; break; }
+    deviceContext->Unmap(staging.Get(), 0);
+    return true;
+}
+
 float MeasureWidth(HudRenderer& renderer, const std::vector<HudTextRun>& runs,
     const HudRenderOptions& options)
 {
@@ -38,6 +111,12 @@ int main()
 {
     bool ok = true;
     ok &= Check(Near(DipFromPhysicalPixels(14.0f, 144.0f), 9.3333f), "physical pixels to DIP");
+    ok &= Check(kHudBackgroundColor == 0x020202 && kHudCpuColor == 0x2E97CB &&
+        kHudGpuColor == 0x2E9762 && kHudVramColor == 0xAD64C1 &&
+        kHudGraphicsColor == 0xEB5B5B && kHudSystemColor == 0xFF9078 &&
+        kHudSeparatorColor == 0xAD64C1, "MangoHud semantic colors");
+    ok &= Check(Near(kHudTextOutlinePx, 1.5f) && Near(kHudSeparatorCorePx, 1.0f) &&
+        Near(kHudSeparatorOuterPx, 3.0f), "MangoHud separator and outline widths");
 
     HudRenderOptions options{};
     ok &= Check(Near(options.fontPixelSize, 20.0f) &&
@@ -150,6 +229,11 @@ int main()
     if (SUCCEEDED(hr))
     {
         HudRenderer renderer(factory.Get());
+        HudRenderer privateRenderer(factory.Get(), CLAWHUD_TEST_UNISPACE_PATH);
+        ok &= Check(privateRenderer.PrivateFontLoaded(),
+            "bundled Unispace private font loads and is present in collection");
+        HudRenderer missingRenderer(factory.Get(), L"C:\\does-not-exist\\Unispace.otf");
+        ok &= Check(!missingRenderer.PrivateFontLoaded(), "missing font uses fallback without crashing");
         HudMeasureResult measured{};
         const auto runs = FormatHud(MakeGameDcSample());
         hr = renderer.Measure(runs, options, measured);
@@ -251,6 +335,30 @@ int main()
         ok &= Check(gpuOnlyMeasure.contentWidth > 0.0f &&
             expectedContentMeasure.contentWidth > gpuOnlyMeasure.contentWidth,
             "ContentWidth measures only current runs");
+
+        HudRenderOptions pixelOptions{};
+        const auto checkAlpha = [&](float opacity, BYTE expected, const char* message)
+        {
+            pixelOptions.layout.backgroundOpacity = opacity;
+            BYTE actual{};
+            bool foregroundVisible{};
+            const bool rendered = ReadBackgroundAlpha(privateRenderer, pixelOptions,
+                actual, foregroundVisible);
+            ok &= Check(rendered && std::abs(static_cast<int>(actual) - static_cast<int>(expected)) <= 2,
+                message);
+            return foregroundVisible;
+        };
+        checkAlpha(0.0f, 0, "background alpha at 0 percent");
+        checkAlpha(0.25f, 64, "background alpha at 25 percent");
+        checkAlpha(0.50f, 128, "background alpha at 50 percent");
+        checkAlpha(0.75f, 191, "background alpha at 75 percent");
+        checkAlpha(1.0f, 255, "background alpha at 100 percent");
+        pixelOptions.layout.backgroundOpacity = 0.0f;
+        BYTE transparentAlpha{};
+        bool foregroundVisible{};
+        ok &= Check(ReadBackgroundAlpha(privateRenderer, pixelOptions,
+            transparentAlpha, foregroundVisible) && transparentAlpha == 0 && foregroundVisible,
+            "foreground remains visible when background is transparent");
     }
     return ok ? 0 : 1;
 }

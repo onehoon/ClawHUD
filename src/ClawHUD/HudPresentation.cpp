@@ -5,6 +5,7 @@
 
 #include <cmath>
 #include <filesystem>
+#include <sstream>
 
 using Microsoft::WRL::ComPtr;
 
@@ -63,6 +64,14 @@ HRESULT HudPresentation::Initialize(HINSTANCE instance, const HudRenderOptions& 
         RuntimeLogger::Log(RuntimeLogLevel::Warn,
             L"Unispace text metrics unavailable; using configured HUD bar height");
     }
+    std::wostringstream style;
+    style << L"HUD style font=Unispace private=" << (renderer_->PrivateFontLoaded() ? 1 : 0)
+        << L" main=" << initializationOptions_.fontPixelSize
+        << L" unit=" << initializationOptions_.unitFontPixelSize
+        << L" bar=" << barPixelHeight_
+        << L" opacity=" << initializationOptions_.layout.backgroundOpacity
+        << L" padding=" << initializationOptions_.horizontalPaddingPx;
+    RuntimeLogger::Log(RuntimeLogLevel::Info, style.str());
     heightPx_ = static_cast<UINT>(std::max(1.0f, std::ceil(barPixelHeight_)));
     if (options.layout.backgroundMode == HudBackgroundMode::ContentWidth)
     {
@@ -246,7 +255,10 @@ HRESULT HudPresentation::Render(const HudTelemetrySnapshot& snapshot, const HudR
     if (FAILED(endHr)) return endHr;
     deviceContext_->Flush();
     if (FAILED(hr = presentationSurface_->SetBuffer(buffer->presentationBuffer.Get()))) return hr;
-    return presentationManager_->Present();
+    const HRESULT presentHr = presentationManager_->Present();
+    if (renderObserver_)
+        renderObserver_(effective.layout.backgroundOpacity, presentHr);
+    return presentHr;
 }
 
 HRESULT HudPresentation::RefreshDisplayIfNeeded()

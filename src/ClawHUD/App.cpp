@@ -19,6 +19,7 @@
 #include <shobjidl.h>
 #include <shlobj.h>
 #include <cwctype>
+#include <sstream>
 #include <string>
 
 namespace
@@ -577,6 +578,12 @@ void App::SetHudBackgroundOpacity(float opacity, bool persist)
     }
     hudOptions_.backgroundOpacity = opacity;
     if (persist) SaveHudSettings();
+    if (persist)
+    {
+        std::wostringstream message;
+        message << L"HUD background opacity=" << opacity;
+        Log(message.str());
+    }
     RefreshMockHud();
 }
 
@@ -1407,8 +1414,8 @@ void App::LoadHudSettings()
     wchar_t* end{};
     const long parsed = std::wcstol(opacityText.c_str(), &end, 10);
     const bool valid = end != opacityText.c_str() && end && *end == L'\0';
-    const long percent = std::clamp(valid ? parsed : 50L, 0L, 100L);
-    hudOptions_.backgroundOpacity = static_cast<float>(percent) / 100.0f;
+    hudOptions_.backgroundOpacity = clawhud::HudBackgroundOpacityFromPercent(
+        valid ? parsed : 50L);
     intelVrrRangeFixEnabled_ = ReadBoolSetting(path, L"Tweaks", L"IntelVrrRangeFixEnabled", true);
 }
 
@@ -1426,7 +1433,8 @@ void App::SaveHudSettings() const
     const wchar_t* visibility = hudOptions_.visibilityMode == clawhud::HudVisibilityMode::Always
         ? L"Always" : L"InGameOnly";
     wchar_t opacity[8]{};
-    swprintf_s(opacity, L"%d", static_cast<int>(hudOptions_.backgroundOpacity * 100.0f + 0.5f));
+    swprintf_s(opacity, L"%ld", clawhud::HudBackgroundOpacityToPercent(
+        hudOptions_.backgroundOpacity));
     bool saved = WritePrivateProfileStringW(L"HUD", L"Alignment", alignment, path.c_str()) != FALSE;
     saved = WritePrivateProfileStringW(L"HUD", L"BackgroundWidth", background, path.c_str()) != FALSE && saved;
     saved = WritePrivateProfileStringW(L"HUD", L"BackgroundOpacity", opacity, path.c_str()) != FALSE && saved;

@@ -34,6 +34,9 @@ struct HudLayoutOptions
     float backgroundOpacity{0.5f};
 };
 
+float HudBackgroundOpacityFromPercent(long percent) noexcept;
+long HudBackgroundOpacityToPercent(float opacity) noexcept;
+
 struct HudTelemetrySnapshot
 {
     std::optional<std::wstring> graphicsApi;
