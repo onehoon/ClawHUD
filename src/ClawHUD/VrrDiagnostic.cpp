@@ -8,6 +8,7 @@
 
 #include <d3d11.h>
 #include <dxgi1_6.h>
+#include <evntrace.h>
 #include <mmsystem.h>
 #include <wrl/client.h>
 
@@ -26,8 +27,9 @@ namespace
 {
 using Microsoft::WRL::ComPtr;
 constexpr auto kCaptureDuration = std::chrono::seconds(28);
-constexpr auto kDiagnosticCaptureDuration = std::chrono::seconds(86);
-constexpr auto kCaptureWatchdog = std::chrono::seconds(95);
+constexpr auto kDiagnosticCaptureDuration = std::chrono::seconds(92);
+constexpr auto kCaptureWatchdog = std::chrono::seconds(100);
+constexpr auto kGracefulStopWait = std::chrono::seconds(5);
 constexpr std::size_t kMaximumPresentMonOutputBytes = 64u * 1024u;
 
 std::wstring Now(bool fileName = false)
@@ -221,6 +223,8 @@ struct PresentMonCapture
     std::thread outputReader;
     std::string output;
     std::wstring command;
+    std::wstring sessionName;
+    std::chrono::steady_clock::time_point startedAt{};
 };
 
 bool StartPresentMon(const std::filesystem::path& executable, DWORD pid,
@@ -236,6 +240,7 @@ bool StartPresentMon(const std::filesystem::path& executable, DWORD pid,
         std::to_wstring(kDiagnosticCaptureDuration.count()) +
         L" --terminate_after_timed --no_console_stats --qpc_time_ms --session_name " +
         std::wstring(session.begin(), session.end());
+    capture.sessionName.assign(session.begin(), session.end());
     std::vector<wchar_t> line(capture.command.begin(), capture.command.end());
     line.push_back(L'\0');
     STARTUPINFOW startup{ sizeof(startup) };
@@ -252,6 +257,7 @@ bool StartPresentMon(const std::filesystem::path& executable, DWORD pid,
         capture.outputRead = nullptr;
         return false;
     }
+    capture.startedAt = std::chrono::steady_clock::now();
     capture.outputReader = std::thread([&capture]
     {
         char buffer[4096]; DWORD read{};
@@ -270,12 +276,16 @@ bool StopPresentMon(PresentMonCapture& capture, bool stop, bool terminateEarly,
     const std::filesystem::path& csv)
 {
     bool timeout = false;
-    const auto deadline = std::chrono::steady_clock::now() + kCaptureWatchdog;
+    if (terminateEarly && !stop)
+        StopTraceSession(capture.sessionName);
+    const auto deadline = capture.startedAt + kCaptureWatchdog;
+    const auto gracefulDeadline = std::chrono::steady_clock::now() + kGracefulStopWait;
     while (WaitForSingleObject(capture.process.hProcess, 100) != WAIT_OBJECT_0)
     {
-        if (terminateEarly || std::chrono::steady_clock::now() >= deadline)
+        const auto now = std::chrono::steady_clock::now();
+        if (stop || now >= deadline || (terminateEarly && now >= gracefulDeadline))
         {
-            timeout = !stop && !terminateEarly;
+            timeout = !stop && now >= deadline;
             TerminateProcess(capture.process.hProcess, stop ? 2 : 3);
             WaitForSingleObject(capture.process.hProcess, 5000);
             break;
@@ -299,9 +309,9 @@ bool StopPresentMon(PresentMonCapture& capture, bool stop, bool terminateEarly,
     if (!capture.output.empty())
         log << L"=== PRESENTMON OUTPUT ===\n" << std::wstring(capture.output.begin(), capture.output.end()) << L"\n";
     if (stop) log << L"PresentMon: Cancelled\n";
-    else if (terminateEarly) log << L"PresentMon: terminated after diagnostic phase failure\n";
+    else if (terminateEarly) log << L"PresentMon: gracefully stopped after diagnostic phases\n";
     if (timeout) log << L"PresentMon: watchdog timeout\n";
-    return !stop && !terminateEarly && !timeout && code == 0 && csvExists && csvSize != 0;
+    return !stop && !timeout && code == 0 && csvExists && csvSize != 0;
 }
 }
 
