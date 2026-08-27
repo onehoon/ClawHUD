@@ -30,5 +30,11 @@ int main()
         !VrrDiagnosticCompletionSoundAllowed(true, false) &&
         !VrrDiagnosticCompletionSoundAllowed(false, true),
         "completion sound requires successful phases and HUD restoration");
+    ok &= Check(VrrDiagnosticStatusRequiresForegroundReevaluation(L"Passed") &&
+        VrrDiagnosticStatusRequiresForegroundReevaluation(L"Inconclusive") &&
+        VrrDiagnosticStatusRequiresForegroundReevaluation(L"Failed") &&
+        !VrrDiagnosticStatusRequiresForegroundReevaluation(L"Cancelled") &&
+        !VrrDiagnosticStatusRequiresForegroundReevaluation(L"Running"),
+        "completed VRR diagnostics re-evaluate the current foreground");
     return ok ? 0 : 1;
 }

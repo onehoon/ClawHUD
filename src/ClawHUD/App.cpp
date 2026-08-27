@@ -290,6 +290,9 @@ bool App::StartVrrDiagnostic()
     pendingProductionTargetPid_ = 0;
     if (!vrrDiagnostic_->Start())
     {
+        if (clawhud::ShouldReevaluateForegroundAfterDiagnostic(
+            mockHudEnabled_, DiagnosticRunning(), suspended_))
+            AdoptForegroundProductionTarget();
         ReconcileHudVisibility();
         if (const DWORD processId = foregroundTracker_.TrackedProcessId();
             processId && ProcessAlive(processId) && mockHudEnabled_)
@@ -300,7 +303,15 @@ bool App::StartVrrDiagnostic()
     if (settings_) settings_->RequestClose();
     return true;
 }
-void App::StopVrrDiagnostic() { if (vrrDiagnostic_) vrrDiagnostic_->Stop(); }
+void App::StopVrrDiagnostic()
+{
+    if (vrrDiagnostic_)
+        vrrDiagnostic_->Stop();
+    if (clawhud::ShouldReevaluateForegroundAfterDiagnostic(
+        mockHudEnabled_, DiagnosticRunning(), suspended_))
+        AdoptForegroundProductionTarget();
+    ReconcileHudVisibility();
+}
 bool App::VrrDiagnosticRunning() const { return vrrDiagnostic_ && vrrDiagnostic_->Running(); }
 bool App::DiagnosticRunning() const { return EcDiagnosticRunning() || VrrDiagnosticRunning(); }
 void App::StopDiagnostic() { StopVrrDiagnostic(); StopEcDiagnostic(); }
@@ -1705,8 +1716,29 @@ int App::ProcessMessages()
         if (message.message == kVrrDiagnosticStatus)
         {
             auto* status = reinterpret_cast<std::wstring*>(message.wParam);
-            if (status) { vrrStatus_ = *status; if (settings_) settings_->SetVrrStatus(*status); }
+            if (status)
+            {
+                vrrStatus_ = *status;
+                if (settings_) settings_->SetVrrStatus(*status);
+                if (VrrDiagnosticStatusRequiresForegroundReevaluation(*status) &&
+                    clawhud::ShouldReevaluateForegroundAfterDiagnostic(
+                        mockHudEnabled_, DiagnosticRunning(), suspended_))
+                {
+                    AdoptForegroundProductionTarget();
+                    ReconcileHudVisibility();
+                }
+            }
             delete status;
+            continue;
+        }
+        if (message.message == kVrrDiagnosticCompleted)
+        {
+            if (clawhud::ShouldReevaluateForegroundAfterDiagnostic(
+                mockHudEnabled_, DiagnosticRunning(), suspended_))
+            {
+                AdoptForegroundProductionTarget();
+                ReconcileHudVisibility();
+            }
             continue;
         }
         if (settings_ && settings_->Window() &&
