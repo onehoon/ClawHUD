@@ -67,6 +67,7 @@ HudRenderOptions BuildHudRenderOptionsForSize(
     constexpr float kBaseBarHeight = 30.0f;
     constexpr float kPhysicalPadding = 5.0f;
     constexpr float kSegmentGap = 8.0f;
+    constexpr float kMetricGap = 6.0f;
     constexpr float kSeparatorGap = 8.0f;
 
     const float mainFont = kBaseFontSize +
@@ -80,6 +81,7 @@ HudRenderOptions BuildHudRenderOptionsForSize(
     options.barPixelHeight = kBaseBarHeight;
     options.horizontalPaddingPx = kPhysicalPadding;
     options.segmentGapPx = kSegmentGap;
+    options.metricGapPx = kMetricGap;
     options.separatorGapPx = kSeparatorGap;
     return options;
 }

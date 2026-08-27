@@ -37,9 +37,21 @@ float SegmentGap(const HudRenderOptions& options) noexcept
     return DipFromPhysicalPixels(options.segmentGapPx, options.dpi);
 }
 
+float MetricGap(const HudRenderOptions& options) noexcept
+{
+    return DipFromPhysicalPixels(options.metricGapPx, options.dpi);
+}
+
 float SeparatorGap(const HudRenderOptions& options) noexcept
 {
     return DipFromPhysicalPixels(options.separatorGapPx, options.dpi);
+}
+
+float SeparatorWidth(const HudRenderOptions& options) noexcept;
+
+float SeparatorBlockWidth(const HudRenderOptions& options) noexcept
+{
+    return SeparatorGap(options) * 2.0f + SeparatorWidth(options);
 }
 
 HRESULT CreateTextFormat(IDWriteFactory* factory, IDWriteFontCollection* collection,
@@ -234,52 +246,85 @@ float Height(IDWriteTextLayout* layout) noexcept
     return SUCCEEDED(layout->GetMetrics(&metrics)) ? metrics.height : 0.0f;
 }
 
-const wchar_t* LabelExemplar(HudSegmentKind kind) noexcept
+enum class HudMetricKind
+{
+    Fps,
+    UsagePercent,
+    Temperature,
+    Vram,
+    Power,
+    FanRpm,
+    BatteryPercent,
+    BatteryTime,
+};
+
+struct HudMetricCell
+{
+    HudMetricKind kind;
+    std::wstring text;
+};
+
+const wchar_t* MetricExemplar(HudMetricKind kind) noexcept
 {
     switch (kind)
     {
-    case HudSegmentKind::Graphics: return L"Vulkan";
-    case HudSegmentKind::Cpu: return L"CPU";
-    case HudSegmentKind::Gpu: return L"GPU";
-    case HudSegmentKind::Vram: return L"VRAM";
-    case HudSegmentKind::Tdp: return L"TDP";
-    case HudSegmentKind::SystemPower: return L"SYS";
-    case HudSegmentKind::Fan: return L"FAN";
-    case HudSegmentKind::Battery: return L"BAT";
+    case HudMetricKind::Fps: return L"999FPS";
+    case HudMetricKind::UsagePercent:
+    case HudMetricKind::BatteryPercent: return L"100%";
+    case HudMetricKind::Temperature: return L"100\u00B0C";
+    case HudMetricKind::Vram: return L"99.9GB";
+    case HudMetricKind::Power: return L"99.9W";
+    case HudMetricKind::FanRpm: return L"9999RPM";
+    case HudMetricKind::BatteryTime: return L"9.9h";
     }
     return L"";
 }
 
-const wchar_t* ValueExemplar(HudSegmentKind kind) noexcept
+HudMetricKind MetricKindForToken(HudSegmentKind kind, std::size_t index,
+    const std::wstring& text) noexcept
 {
+    if (kind == HudSegmentKind::Cpu)
+    {
+        if (text.size() >= 1 && text.ends_with(L"%"))
+            return HudMetricKind::UsagePercent;
+        if (text.size() >= 2 && text.ends_with(L"\u00B0C"))
+            return HudMetricKind::Temperature;
+    }
     switch (kind)
     {
-    case HudSegmentKind::Graphics: return L"999FPS";
-    case HudSegmentKind::Cpu: return L"100% 100\u00B0C";
-    case HudSegmentKind::Gpu: return L"100%";
-    case HudSegmentKind::Vram: return L"99.9GB";
+    case HudSegmentKind::Graphics: return HudMetricKind::Fps;
+    case HudSegmentKind::Cpu: return index == 0
+        ? HudMetricKind::UsagePercent : HudMetricKind::Temperature;
+    case HudSegmentKind::Gpu: return HudMetricKind::UsagePercent;
+    case HudSegmentKind::Vram: return HudMetricKind::Vram;
     case HudSegmentKind::Tdp:
-    case HudSegmentKind::SystemPower: return L"99.9W";
-    case HudSegmentKind::Fan: return L"9999RPM";
-    case HudSegmentKind::Battery: return L"100% 9.9h";
+    case HudSegmentKind::SystemPower: return HudMetricKind::Power;
+    case HudSegmentKind::Fan: return HudMetricKind::FanRpm;
+    case HudSegmentKind::Battery: return index == 0
+        ? HudMetricKind::BatteryPercent : HudMetricKind::BatteryTime;
     }
-    return L"";
+    return HudMetricKind::UsagePercent;
 }
 
-HRESULT MeasureSegmentMetrics(IDWriteFactory* factory, IDWriteTextFormat* format,
-    const HudRenderOptions& options, HudSegmentKind kind, HudSegmentMetrics& metrics)
+std::vector<HudMetricCell> BuildMetricCells(const HudTextRun& run)
 {
-    ComPtr<IDWriteTextLayout> label;
+    std::vector<HudMetricCell> cells;
+    std::wistringstream values(run.value);
+    std::wstring value;
+    while (values >> value)
+        cells.push_back({MetricKindForToken(run.kind, cells.size(), value), std::move(value)});
+    return cells;
+}
+
+HRESULT MeasureMetricSlot(IDWriteFactory* factory, IDWriteTextFormat* format,
+    const HudRenderOptions& options, HudMetricKind kind, float& width)
+{
     ComPtr<IDWriteTextLayout> exemplar;
-    HRESULT hr = CreateLayout(factory, format, LabelExemplar(kind), options, false, false, label);
+    const HRESULT hr = CreateLayout(factory, format, MetricExemplar(kind), options,
+        true, true, exemplar);
     if (FAILED(hr))
         return hr;
-    hr = CreateLayout(factory, format, ValueExemplar(kind), options, true, true, exemplar);
-    if (FAILED(hr))
-        return hr;
-    metrics.labelSlotWidth = Width(label.Get());
-    metrics.valueSlotWidth = Width(exemplar.Get());
-    metrics.segmentWidth = metrics.labelSlotWidth + SegmentGap(options) + metrics.valueSlotWidth;
+    width = Width(exemplar.Get());
     return S_OK;
 }
 
@@ -290,12 +335,21 @@ void DrawOutlinedLayout(ID2D1DeviceContext* context, IDWriteTextLayout* layout,
 HRESULT DrawValue(ID2D1DeviceContext* context, IDWriteFactory* factory,
     IDWriteFontCollection* collection,
     IDWriteTextFormat* mainFormat,
-    const std::wstring& text, const HudRenderOptions& options,
+    const std::wstring& text, IDWriteTextLayout* mainLayout,
+    const HudRenderOptions& options,
     float x, float y, ID2D1Brush* brush, ID2D1Brush* outlineBrush)
 {
+    if (!mainLayout)
+        return E_INVALIDARG;
     ComPtr<IDWriteTextFormat> unitFormat;
     HRESULT hr = CreateTextFormat(factory, collection, options, unitFormat, true);
     if (FAILED(hr)) return hr;
+    DWRITE_LINE_METRICS mainMetrics{};
+    UINT32 actualMainMetrics{};
+    hr = mainLayout->GetLineMetrics(&mainMetrics, 1, &actualMainMetrics);
+    if (FAILED(hr)) return hr;
+    const float mainBaseline = actualMainMetrics ? mainMetrics.baseline : 0.0f;
+    const float unitRaise = DipFromPhysicalPixels(1.0f, options.dpi);
     std::size_t cursor = 0;
     for (const auto& range : FindHudUnitRangesImpl(text))
     {
@@ -312,7 +366,13 @@ HRESULT DrawValue(ID2D1DeviceContext* context, IDWriteFactory* factory,
         const std::wstring unitText = text.substr(range.start, range.length);
         hr = CreateLayout(factory, unitFormat.Get(), unitText, options, true, false, unit);
         if (FAILED(hr)) return hr;
-        DrawOutlinedLayout(context, unit.Get(), x, y, brush, outlineBrush, options);
+        DWRITE_LINE_METRICS unitMetrics{};
+        UINT32 actualUnitMetrics{};
+        hr = unit->GetLineMetrics(&unitMetrics, 1, &actualUnitMetrics);
+        if (FAILED(hr)) return hr;
+        const float unitBaseline = actualUnitMetrics ? unitMetrics.baseline : 0.0f;
+        const float unitY = y + mainBaseline - unitBaseline - unitRaise;
+        DrawOutlinedLayout(context, unit.Get(), x, unitY, brush, outlineBrush, options);
         x += Width(unit.Get());
         cursor = range.start + range.length;
     }
@@ -326,24 +386,31 @@ HRESULT DrawValue(ID2D1DeviceContext* context, IDWriteFactory* factory,
     return S_OK;
 }
 
-HRESULT RunWidth(IDWriteFactory* factory, IDWriteTextFormat* format,
+HRESULT MeasureGroup(IDWriteFactory* factory, IDWriteTextFormat* format,
     const HudTextRun& run, const HudRenderOptions& options, float& width, float& height)
 {
     ComPtr<IDWriteTextLayout> label;
-    ComPtr<IDWriteTextLayout> value;
     HRESULT hr = CreateLayout(factory, format, run.label, options, false, false, label);
     if (FAILED(hr))
         return hr;
-    hr = CreateLayout(factory, format, run.value, options, true, true, value);
-    if (FAILED(hr))
-        return hr;
-    HudSegmentMetrics metrics{};
-    hr = MeasureSegmentMetrics(factory, format, options, run.kind, metrics);
-    if (FAILED(hr))
-        return hr;
-    width = std::max(metrics.labelSlotWidth, Width(label.Get())) + SegmentGap(options) +
-        std::max(metrics.valueSlotWidth, Width(value.Get()));
-    height = std::max(Height(label.Get()), Height(value.Get()));
+    width = Width(label.Get());
+    height = Height(label.Get());
+    const auto cells = BuildMetricCells(run);
+    if (!cells.empty())
+        width += SegmentGap(options);
+    for (std::size_t i = 0; i < cells.size(); ++i)
+    {
+        ComPtr<IDWriteTextLayout> metric;
+        hr = CreateLayout(factory, format, cells[i].text, options, true, true, metric);
+        if (FAILED(hr)) return hr;
+        float slotWidth{};
+        hr = MeasureMetricSlot(factory, format, options, cells[i].kind, slotWidth);
+        if (FAILED(hr)) return hr;
+        width += std::max(slotWidth, Width(metric.Get()));
+        height = std::max(height, Height(metric.Get()));
+        if (i + 1 < cells.size())
+            width += MetricGap(options);
+    }
     return S_OK;
 }
 
@@ -447,19 +514,6 @@ std::vector<HudUnitRange> FindHudUnitRanges(const std::wstring& text)
     return FindHudUnitRangesImpl(text);
 }
 
-HudSegmentLayout CalculateHudSegmentLayout(float segmentStart,
-    const HudSegmentMetrics& metrics, float actualLabelWidth, float actualValueWidth,
-    float segmentGap) noexcept
-{
-    const float labelSlotWidth = std::max(metrics.labelSlotWidth, actualLabelWidth);
-    const float valueSlotWidth = std::max(metrics.valueSlotWidth, actualValueWidth);
-    const float valueX = segmentStart + actualLabelWidth + segmentGap;
-    return HudSegmentLayout{
-        segmentStart,
-        valueX,
-        labelSlotWidth + segmentGap + valueSlotWidth};
-}
-
 HudRenderGeometry CalculateHudGeometry(const D2D1_RECT_F& viewport,
     const HudMeasureResult& measure, const HudRenderOptions& options) noexcept
 {
@@ -515,13 +569,13 @@ HRESULT HudRenderer::Measure(const std::vector<HudTextRun>& runs,
     {
         float width{};
         float height{};
-        hr = RunWidth(factory_, format.Get(), runs[i], options, width, height);
+        hr = MeasureGroup(factory_, format.Get(), runs[i], options, width, height);
         if (FAILED(hr))
             return hr;
         result.textHeight = std::max(result.textHeight, height);
         result.contentWidth += width;
         if (i + 1 < runs.size())
-            result.contentWidth += SeparatorGap(options) * 2.0f + SeparatorWidth(options);
+            result.contentWidth += SeparatorBlockWidth(options);
     }
     return S_OK;
 }
@@ -579,17 +633,8 @@ HRESULT HudRenderer::Draw(ID2D1DeviceContext* context,
     for (size_t i = 0; i < runs.size(); ++i)
     {
         ComPtr<IDWriteTextLayout> label;
-        ComPtr<IDWriteTextLayout> value;
         hr = CreateLayout(factory_, format.Get(), runs[i].label, options, false, false, label);
         if (FAILED(hr)) return hr;
-        hr = CreateLayout(factory_, format.Get(), runs[i].value, options, true, true, value);
-        if (FAILED(hr)) return hr;
-        HudSegmentMetrics metrics{};
-        hr = MeasureSegmentMetrics(factory_, format.Get(), options, runs[i].kind, metrics);
-        if (FAILED(hr)) return hr;
-
-        const auto layout = CalculateHudSegmentLayout(x, metrics, Width(label.Get()),
-            Width(value.Get()), SegmentGap(options));
 
         ComPtr<ID2D1SolidColorBrush> labelBrush;
         hr = context->CreateSolidColorBrush(LabelColor(runs[i].kind), &labelBrush);
@@ -597,12 +642,31 @@ HRESULT HudRenderer::Draw(ID2D1DeviceContext* context,
         ComPtr<ID2D1SolidColorBrush> outlineBrush;
         hr = context->CreateSolidColorBrush(D2D1::ColorF(0x000000, 1.0f), &outlineBrush);
         if (FAILED(hr)) return hr;
-        DrawOutlinedLayout(context, label.Get(), layout.labelX, geometry.textOrigin.y,
+        DrawOutlinedLayout(context, label.Get(), x, geometry.textOrigin.y,
             labelBrush.Get(), outlineBrush.Get(), options);
-        hr = DrawValue(context, factory_, fontCollection_.Get(), format.Get(), runs[i].value, options,
-            layout.valueX, geometry.textOrigin.y, white.Get(), outlineBrush.Get());
-        if (FAILED(hr)) return hr;
-        x += layout.segmentWidth;
+        x += Width(label.Get());
+        const auto cells = BuildMetricCells(runs[i]);
+        if (!cells.empty())
+            x += SegmentGap(options);
+        for (std::size_t cellIndex = 0; cellIndex < cells.size(); ++cellIndex)
+        {
+            ComPtr<IDWriteTextLayout> metric;
+            hr = CreateLayout(factory_, format.Get(), cells[cellIndex].text, options,
+                true, true, metric);
+            if (FAILED(hr)) return hr;
+            float slotWidth{};
+            hr = MeasureMetricSlot(factory_, format.Get(), options, cells[cellIndex].kind, slotWidth);
+            if (FAILED(hr)) return hr;
+            slotWidth = std::max(slotWidth, Width(metric.Get()));
+            const float metricX = x + slotWidth - Width(metric.Get());
+            hr = DrawValue(context, factory_, fontCollection_.Get(), format.Get(),
+                cells[cellIndex].text, metric.Get(), options, metricX,
+                geometry.textOrigin.y, white.Get(), outlineBrush.Get());
+            if (FAILED(hr)) return hr;
+            x += slotWidth;
+            if (cellIndex + 1 < cells.size())
+                x += MetricGap(options);
+        }
         if (i + 1 < runs.size())
         {
             x += SeparatorGap(options);
