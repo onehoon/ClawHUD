@@ -440,19 +440,29 @@ PresentMonCaptureResult CapturePresentMonPhase(
     std::wofstream& log,
     const wchar_t* phase,
     bool& elevationRequired,
-    bool& elevatedFallbackAttempted)
+    bool& elevatedFallbackAttempted,
+    clawhud::IntelVrrDiagnosticProbe& igcl,
+    std::vector<clawhud::VblankSummary>& vblank)
 {
-    if (elevationRequired)
-        return CapturePresentMonAttempt(executable, pid, csv, session, stop, log, phase, true);
+    const auto captureAttempt = [&](bool elevated)
+    {
+        igcl.StartSampling();
+        auto attempt = CapturePresentMonAttempt(
+            executable, pid, csv, session, stop, log, phase, elevated);
+        vblank = igcl.StopSampling(log, phase);
+        return attempt;
+    };
 
-    auto result = CapturePresentMonAttempt(
-        executable, pid, csv, session, stop, log, phase, false);
+    if (elevationRequired)
+        return captureAttempt(true);
+
+    auto result = captureAttempt(false);
     if (!ShouldRetryPresentMonElevated(result.ok, stop.load())) return result;
 
     log << L"Standard capture produced no usable CSV.\n"
         << L"Retrying this phase elevated.\n";
     elevatedFallbackAttempted = true;
-    result = CapturePresentMonAttempt(executable, pid, csv, session, stop, log, phase, true);
+    result = captureAttempt(true);
     if (result.ok) elevationRequired = true;
     return result;
 }
@@ -673,11 +683,10 @@ bool VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
             std::this_thread::sleep_for(std::chrono::seconds(1));
             if (stop_) return false;
 
-            igcl.StartSampling();
             const auto capture = CapturePresentMonPhase(pm, targetPid, csvPath,
                 "ClawHUD-VRR-" + std::to_string(targetPid) + "-" + sessionMode + "-" + sessionStamp,
-                stop_, log, title, elevationRequired, elevatedFallbackAttempted);
-            result.vblank = igcl.StopSampling(log, title);
+                stop_, log, title, elevationRequired, elevatedFallbackAttempted,
+                igcl, result.vblank);
             result.captureOk = capture.ok;
             result.targetAlive = Alive(targetPid);
             result.hudVisible = app_.RequestDiagnosticHudVisibilityMatches(expectedVisible);
