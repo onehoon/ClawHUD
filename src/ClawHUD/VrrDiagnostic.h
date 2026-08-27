@@ -50,6 +50,11 @@ constexpr bool VrrDiagnosticCompletionSoundAllowed(bool completed,
     return completed && hudRestored;
 }
 
+constexpr bool VrrDiagnosticShouldStopPresentMonGracefully(bool cancelled) noexcept
+{
+    return !cancelled;
+}
+
 constexpr bool DiagnosticHudModeUsesPeriodicUpdates(DiagnosticHudMode mode) noexcept
 {
     return mode == DiagnosticHudMode::Dynamic;

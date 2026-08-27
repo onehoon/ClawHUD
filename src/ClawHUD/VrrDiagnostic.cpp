@@ -294,14 +294,14 @@ bool StopPresentMon(PresentMonCapture& capture, bool stop, bool terminateEarly,
     const std::filesystem::path& csv)
 {
     bool timeout = false;
-    if (terminateEarly && !stop)
+    if (!stop)
         StopTraceSession(capture.sessionName);
     const auto deadline = capture.startedAt + kCaptureWatchdog;
     const auto gracefulDeadline = std::chrono::steady_clock::now() + kGracefulStopWait;
     while (WaitForSingleObject(capture.process.hProcess, 100) != WAIT_OBJECT_0)
     {
         const auto now = std::chrono::steady_clock::now();
-        if (stop || now >= deadline || (terminateEarly && now >= gracefulDeadline))
+        if (stop || now >= deadline || now >= gracefulDeadline)
         {
             timeout = !stop && now >= deadline;
             TerminateProcess(capture.process.hProcess, stop ? 2 : 3);
@@ -327,9 +327,9 @@ bool StopPresentMon(PresentMonCapture& capture, bool stop, bool terminateEarly,
     if (!capture.output.empty())
         log << L"=== PRESENTMON OUTPUT ===\n" << std::wstring(capture.output.begin(), capture.output.end()) << L"\n";
     if (stop) log << L"PresentMon: Cancelled\n";
-    else if (terminateEarly) log << L"PresentMon: gracefully stopped after diagnostic phases\n";
+    else log << L"PresentMon: graceful ETW stop requested after diagnostic phases\n";
     if (timeout) log << L"PresentMon: watchdog timeout\n";
-    return !stop && !timeout && code == 0 && csvExists && csvSize != 0;
+    return !stop && !terminateEarly && !timeout && code == 0 && csvExists && csvSize != 0;
 }
 }
 
@@ -566,7 +566,8 @@ bool VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
         const bool offOk = runPhase(L"PHASE A - HUD OFF", L"HUD OFF", DiagnosticHudMode::Off, off);
         const bool staticOk = offOk && runPhase(L"PHASE B - STATIC HUD", L"STATIC HUD", DiagnosticHudMode::Static, staticHud);
         const bool dynamicOk = staticOk && runPhase(L"PHASE C - DYNAMIC HUD", L"DYNAMIC HUD", DiagnosticHudMode::Dynamic, dynamicHud);
-        const bool pmOk = StopPresentMon(capture, stop_, !dynamicOk, log, csv);
+        const bool phaseFailed = !dynamicOk;
+        const bool pmOk = StopPresentMon(capture, stop_, phaseFailed, log, csv);
         if (stop_)
         {
             log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); return false;

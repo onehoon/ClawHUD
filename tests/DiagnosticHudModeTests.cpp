@@ -30,5 +30,8 @@ int main()
         !VrrDiagnosticCompletionSoundAllowed(true, false) &&
         !VrrDiagnosticCompletionSoundAllowed(false, true),
         "completion sound requires successful phases and HUD restoration");
+    ok &= Check(VrrDiagnosticShouldStopPresentMonGracefully(false) &&
+        !VrrDiagnosticShouldStopPresentMonGracefully(true),
+        "non-cancelled diagnostics request graceful PresentMon stop");
     return ok ? 0 : 1;
 }
