@@ -120,7 +120,7 @@ int main()
 
     HudRenderOptions options{};
     ok &= Check(Near(options.segmentGapPx, 8.0f) && Near(options.metricGapPx, 6.0f) &&
-        Near(options.separatorGapPx, 8.0f),
+        Near(options.separatorGapPx, 14.0f),
         "horizontal spacing defaults");
     ok &= Check(Near(options.fontPixelSize, 20.0f) &&
         Near(options.unitFontPixelSize, 11.0f) &&
@@ -167,6 +167,19 @@ int main()
     const HudRenderOptions geometryOptions{};
     geometry = CalculateHudGeometry(viewport, HudMeasureResult{400.0f, 42.0f, 32.0f}, geometryOptions);
     ok &= Check(Near(geometry.textOrigin.y, 5.0f), "vertical centering uses measured text height");
+
+    HudRenderOptions typographyOptions{};
+    ok &= Check(Near(MainTextYOffset(typographyOptions), 0.0f) &&
+        Near(UnitTextYOffset(typographyOptions), 2.0f),
+        "Unispace text offsets");
+    typographyOptions.font = HudFont::SegoeUiVariable;
+    ok &= Check(Near(MainTextYOffset(typographyOptions), -2.0f) &&
+        Near(UnitTextYOffset(typographyOptions), 2.0f),
+        "Segoe UI Variable text offsets");
+    typographyOptions.dpi = 144.0f;
+    ok &= Check(Near(MainTextYOffset(typographyOptions), -1.3333f) &&
+        Near(UnitTextYOffset(typographyOptions), 1.3333f),
+        "text offsets preserve physical pixels at high DPI");
 
     const RECT monitor{ -1920, -100, 0, 980 };
     const auto fullWindow = CalculateHudWindowGeometry(
@@ -294,7 +307,7 @@ int main()
         ok &= Check(Near(MeasureWidth(renderer, {
                 {HudSegmentKind::Gpu, L"GPU", L"47%"},
                 {HudSegmentKind::Cpu, L"CPU", L"36%"}}, stableOptions), expectedPairWidth),
-            "separator uses two physical 8px gaps");
+            "separator uses two physical 14px gaps");
         float reservedWidth{};
         ok &= Check(SUCCEEDED(renderer.MeasureReservedHudWidth(stableOptions, reservedWidth)) &&
             reservedWidth > 0.0f, "measure reserved HUD envelope");

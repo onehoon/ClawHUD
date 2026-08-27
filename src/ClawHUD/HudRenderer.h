@@ -33,7 +33,7 @@ struct HudRenderOptions
     float horizontalPaddingPx{5.0f};
     float segmentGapPx{8.0f};
     float metricGapPx{6.0f};
-    float separatorGapPx{8.0f};
+    float separatorGapPx{14.0f};
     float dpi{96.0f};
     std::wstring fontFilePath;
 };
@@ -58,6 +58,8 @@ struct HudRenderGeometry
 };
 
 float DipFromPhysicalPixels(float pixels, float dpi) noexcept;
+float MainTextYOffset(const HudRenderOptions& options) noexcept;
+float UnitTextYOffset(const HudRenderOptions& options) noexcept;
 std::vector<HudUnitRange> FindHudUnitRanges(const std::wstring& text);
 HudRenderGeometry CalculateHudGeometry(
     const D2D1_RECT_F& viewport,
