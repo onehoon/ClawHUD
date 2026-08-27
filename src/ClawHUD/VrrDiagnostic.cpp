@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstddef>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -44,6 +45,23 @@ std::string Narrow(const std::wstring& value)
     std::string result; result.reserve(value.size());
     for (const wchar_t character : value) result.push_back(static_cast<char>(character));
     return result;
+}
+
+struct TraceStopProperties
+{
+    EVENT_TRACE_PROPERTIES properties{};
+    wchar_t loggerName[128]{};
+};
+
+void StopTraceSession(const std::wstring& sessionName) noexcept
+{
+    if (sessionName.empty()) return;
+    TraceStopProperties buffer{};
+    buffer.properties.Wnode.BufferSize = sizeof(buffer);
+    buffer.properties.LoggerNameOffset =
+        static_cast<ULONG>(offsetof(TraceStopProperties, loggerName));
+    (void)ControlTraceW(0, sessionName.c_str(), &buffer.properties,
+        EVENT_TRACE_CONTROL_STOP);
 }
 
 struct ForegroundTargetInfo
