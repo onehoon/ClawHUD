@@ -37,6 +37,14 @@ int main()
     ok &= Check(clawhud::SelectProductionSamplingProcess(100, 200) == 200 &&
         clawhud::SelectProductionSamplingProcess(100, 0) == 100,
         "pending candidate is sampled before committed target");
+    ok &= Check(clawhud::ShouldPreservePendingProductionValidation(200, 200, true) &&
+        !clawhud::ShouldPreservePendingProductionValidation(200, 100, true) &&
+        !clawhud::ShouldPreservePendingProductionValidation(200, 200, false),
+        "hidden HUD preserves only the active pending PresentMon validation");
+    ok &= Check(clawhud::ShouldCancelPendingCandidateOnCommittedReturn(100, 200, 100) &&
+        !clawhud::ShouldCancelPendingCandidateOnCommittedReturn(100, 100, 100) &&
+        !clawhud::ShouldCancelPendingCandidateOnCommittedReturn(100, 200, 200),
+        "return to committed target cancels a different pending candidate");
     ok &= Check(!clawhud::ShouldConfirmProductionTarget(42, 43, 43, true) &&
         !clawhud::ShouldConfirmProductionTarget(42, 42, 43, true) &&
         !clawhud::ShouldConfirmProductionTarget(42, 42, 42, false) &&

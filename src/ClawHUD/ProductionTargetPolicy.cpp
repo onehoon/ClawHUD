@@ -37,6 +37,20 @@ DWORD SelectProductionSamplingProcess(DWORD trackedProcessId,
     return pendingProcessId ? pendingProcessId : trackedProcessId;
 }
 
+bool ShouldPreservePendingProductionValidation(DWORD pendingProcessId,
+    DWORD presentMonProcessId, bool presentMonRunning) noexcept
+{
+    return pendingProcessId != 0 && pendingProcessId == presentMonProcessId &&
+        presentMonRunning;
+}
+
+bool ShouldCancelPendingCandidateOnCommittedReturn(DWORD committedProcessId,
+    DWORD pendingProcessId, DWORD foregroundProcessId) noexcept
+{
+    return committedProcessId != 0 && committedProcessId == foregroundProcessId &&
+        pendingProcessId != 0 && pendingProcessId != committedProcessId;
+}
+
 bool ShouldConfirmProductionTarget(DWORD pendingProcessId, DWORD observedProcessId,
     DWORD foregroundProcessId, bool displayedFpsAvailable) noexcept
 {

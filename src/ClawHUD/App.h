@@ -159,7 +159,7 @@ private:
     void StartProductionEcSampling();
     void PauseProductionSamplingForSuspend();
     void CancelResumeRecovery();
-    void StopProductionEcSampling();
+    void StopProductionEcSampling(bool stopPresentMon = true);
     void StartProductionPresentMonSampling();
     void StopProductionPresentMonSampling();
     void HandlePresentMonHudUpdate(DWORD processId, std::optional<double> displayedFps);

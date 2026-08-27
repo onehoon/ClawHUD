@@ -827,11 +827,12 @@ void App::CancelResumeRecovery()
     resumeRecoveryAttempts_ = 0;
 }
 
-void App::StopProductionEcSampling()
+void App::StopProductionEcSampling(bool stopPresentMon)
 {
     KillTimer(tray_.Window(), kEcHudTimerId);
     KillTimer(tray_.Window(), kBatteryHudTimerId);
-    StopProductionPresentMonSampling();
+    if (stopPresentMon)
+        StopProductionPresentMonSampling();
     if (ecHudClient_)
     {
         ecHudClient_->Close();
@@ -1016,7 +1017,22 @@ bool App::AdoptForegroundProductionTarget(HWND window, DWORD processId)
     const DWORD trackedProcessId = foregroundTracker_.TrackedProcessId();
     if (trackedProcessId && processId == trackedProcessId &&
         ProcessAlive(trackedProcessId))
+    {
+        if (clawhud::ShouldCancelPendingCandidateOnCommittedReturn(
+            trackedProcessId, pendingProductionTargetPid_, processId))
+        {
+            const DWORD staleCandidate = pendingProductionTargetPid_;
+            pendingProductionTargetPid_ = 0;
+            if (presentMonProcessId_ == staleCandidate)
+                StopProductionPresentMonSampling();
+            if (graphicsApiProcessId_ == staleCandidate)
+                StopGraphicsApiProbe();
+            Log(L"Production target validation discarded pid=" +
+                std::to_wstring(staleCandidate) +
+                L" reason=committed-target-returned");
+        }
         return true;
+    }
 
     std::wstring imageName;
     if (!IsUsableProductionTarget(window, processId, imageName))
@@ -1034,8 +1050,9 @@ bool App::AdoptForegroundProductionTarget(HWND window, DWORD processId)
         return false;
     }
 
-    const bool newCandidate = clawhud::ShouldReplacePendingCandidate(
-        pendingProductionTargetPid_, processId);
+    const bool newCandidate =
+        clawhud::ShouldEvaluateForegroundCandidate(trackedProcessId, processId) &&
+        clawhud::ShouldReplacePendingCandidate(pendingProductionTargetPid_, processId);
     if (newCandidate)
     {
         const DWORD oldProcessId = pendingProductionTargetPid_
@@ -1395,7 +1412,11 @@ void App::ReconcileHudVisibility()
         if (FAILED(hr))
             hudHideFailureLogged_ = true;
         KillTimer(tray_.Window(), kMockHudTimerId);
-        StopProductionEcSampling();
+        const bool preservePendingValidation =
+            clawhud::ShouldPreservePendingProductionValidation(
+                pendingProductionTargetPid_, presentMonProcessId_,
+                presentMonHudTelemetry_ && presentMonHudTelemetry_->Running());
+        StopProductionEcSampling(!preservePendingValidation);
     }
 }
 
