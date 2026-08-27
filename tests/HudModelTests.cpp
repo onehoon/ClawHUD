@@ -1,5 +1,6 @@
 #include "HudModel.h"
 
+#include <algorithm>
 #include <iostream>
 
 using namespace clawhud;
@@ -32,13 +33,13 @@ int main()
         "settings opacity runtime to percent round trip");
 
     const auto dc = FormatHud(MakeGameDcSample());
-    ok &= Check(JoinHudRuns(dc) == L"DX11 60FPS | CPU 36% 67\u00B0C | GPU 98% | TDP 18W | SYS 24W | FAN 3540RPM | BAT 72% 2.5h", "game DC formatting");
-    ok &= Check(dc.size() == 7, "game DC segment count");
+    ok &= Check(JoinHudRuns(dc) == L"DX11 60FPS | CPU 36% 67\u00B0C | GPU 98% | TDP 18W | FAN 3540RPM | BAT 72% 2.5h", "game DC formatting");
+    ok &= Check(dc.size() == 6, "game DC segment count");
 
     ok &= Check(JoinHudRuns(FormatHud(MakeGameAcSample())) ==
         L"DX11 60FPS | CPU 36% 67\u00B0C | GPU 98% | TDP 18W | FAN 3540RPM | BAT 72%", "game AC formatting");
     ok &= Check(JoinHudRuns(FormatHud(MakeNoGameAlwaysSample())) ==
-        L"CPU 36% 67\u00B0C | GPU 98% | TDP 18W | SYS 24W | FAN 3540RPM | BAT 72% 2.5h", "no-game formatting");
+        L"CPU 36% 67\u00B0C | GPU 98% | TDP 18W | FAN 3540RPM | BAT 72% 2.5h", "no-game formatting");
     ok &= Check(ShouldShowHud(HudVisibilityMode::Always, false), "always visibility");
     ok &= Check(!ShouldShowHud(HudVisibilityMode::InGameOnly, false), "in-game-only visibility");
     ok &= Check(ShouldShowHud(HudVisibilityMode::InGameOnly, true), "foreground game visibility");
@@ -104,6 +105,33 @@ int main()
     vram.gpuMemoryUsedBytes = static_cast<std::uint64_t>(3.4 * 1024.0 * 1024.0 * 1024.0);
     ok &= Check(JoinHudRuns(FormatHud(vram)) == L"VRAM 3.4GB",
         "VRAM without GPU usage remains visible");
+
+    HudTelemetrySnapshot all{};
+    all.graphicsApi = L"DX12";
+    all.presentMonDisplayedFps = 999.0;
+    all.cpuUsagePercent = 21.0;
+    all.cpuTemperatureC = 42;
+    all.gpuUsagePercent = 24.0;
+    all.cpuPackagePowerW = 7.0;
+    all.systemMemoryUsedBytes = static_cast<std::uint64_t>(15.2 * 1024.0 * 1024.0 * 1024.0);
+    all.gpuMemoryUsedBytes = static_cast<std::uint64_t>(3.4 * 1024.0 * 1024.0 * 1024.0);
+    all.fan1Rpm = 4050;
+    all.batteryPercent = 80;
+    const auto allRuns = FormatHud(all);
+    ok &= Check(JoinHudRuns(allRuns) ==
+        L"DX12 999FPS | CPU 21% 42\u00B0C | GPU 24% | TDP 7W | RAM 15.2GB | VRAM 3.4GB | FAN 4050RPM | BAT 80%",
+        "RAM formatting and final HUD order");
+    ok &= Check(allRuns.size() == 8 && allRuns[4].kind == HudSegmentKind::Ram &&
+        allRuns[5].kind == HudSegmentKind::Vram, "RAM precedes VRAM");
+    all.systemPowerW = 24.0;
+    all.onBattery = true;
+    ok &= Check(JoinHudRuns(FormatHud(all)).find(L"SYS") == std::wstring::npos,
+        "system power is omitted from HUD");
+    all.systemMemoryUsedBytes.reset();
+    const auto withoutRam = FormatHud(all);
+    ok &= Check(std::all_of(withoutRam.begin(), withoutRam.end(),
+            [](const auto& run) { return run.kind != HudSegmentKind::Ram; }),
+        "unavailable RAM omits HUD group");
 
     return ok ? 0 : 1;
 }

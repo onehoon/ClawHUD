@@ -805,6 +805,7 @@ void App::RenderProductionHud(bool allowHidden)
     {
         snapshot.cpuUsagePercent = latestUsageTelemetry_->cpuUsagePercent;
         snapshot.gpuUsagePercent = latestUsageTelemetry_->gpuUsagePercent;
+        snapshot.systemMemoryUsedBytes = latestUsageTelemetry_->systemMemoryUsedBytes;
         snapshot.gpuMemoryUsedBytes = latestUsageTelemetry_->intelGpuMemoryUsedBytes;
     }
     if (latestPowerTelemetry_)

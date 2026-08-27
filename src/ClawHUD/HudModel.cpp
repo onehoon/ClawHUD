@@ -95,14 +95,15 @@ std::vector<HudTextRun> FormatHud(const HudTelemetrySnapshot& snapshot)
     const auto gpu = GpuValue(snapshot);
     if (!gpu.empty())
         Add(runs, HudSegmentKind::Gpu, L"GPU", gpu);
-    if (snapshot.gpuMemoryUsedBytes)
-        Add(runs, HudSegmentKind::Vram, L"VRAM", Gigabytes(*snapshot.gpuMemoryUsedBytes) + L"GB");
 
     if (snapshot.cpuPackagePowerW)
         Add(runs, HudSegmentKind::Tdp, L"TDP", Number(*snapshot.cpuPackagePowerW) + L"W");
 
-    if (snapshot.onBattery && snapshot.systemPowerW)
-        Add(runs, HudSegmentKind::SystemPower, L"SYS", Number(*snapshot.systemPowerW) + L"W");
+    if (snapshot.systemMemoryUsedBytes)
+        Add(runs, HudSegmentKind::Ram, L"RAM", Gigabytes(*snapshot.systemMemoryUsedBytes) + L"GB");
+
+    if (snapshot.gpuMemoryUsedBytes)
+        Add(runs, HudSegmentKind::Vram, L"VRAM", Gigabytes(*snapshot.gpuMemoryUsedBytes) + L"GB");
 
     const auto fan1 = snapshot.fan1Rpm && *snapshot.fan1Rpm >= 0 ? snapshot.fan1Rpm : std::nullopt;
     const auto fan2 = snapshot.fan2Rpm && *snapshot.fan2Rpm >= 0 ? snapshot.fan2Rpm : std::nullopt;
