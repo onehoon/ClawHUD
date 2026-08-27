@@ -27,7 +27,6 @@ namespace
 using Microsoft::WRL::ComPtr;
 constexpr auto kCaptureDuration = std::chrono::seconds(28);
 constexpr auto kCaptureWatchdog = std::chrono::seconds(35);
-constexpr std::size_t kMaximumPresentMonOutputBytes = 64u * 1024u;
 
 std::wstring Now(bool fileName = false)
 {
@@ -277,16 +276,6 @@ PresentMonCaptureResult CapturePresentMonPhase(
     std::wofstream& log)
 {
     PresentMonCaptureResult result;
-    SECURITY_ATTRIBUTES security{ sizeof(security), nullptr, TRUE };
-    HANDLE outputRead{};
-    HANDLE outputWrite{};
-    if (!CreatePipe(&outputRead, &outputWrite, &security, 0))
-    {
-        log << L"PresentMon: FAILED\nReason: stdout/stderr pipe creation failed\n";
-        return result;
-    }
-    SetHandleInformation(outputRead, HANDLE_FLAG_INHERIT, 0);
-
     const std::wstring command = L"\"" + executable.wstring() + L"\" --process_id " +
         std::to_wstring(pid) + L" --output_file \"" + csv.wstring() + L"\" --timed " +
         std::to_wstring(kCaptureDuration.count()) +
@@ -296,36 +285,15 @@ PresentMonCaptureResult CapturePresentMonPhase(
     std::vector<wchar_t> line(command.begin(), command.end());
     line.push_back(L'\0');
     STARTUPINFOW startup{ sizeof(startup) };
-    startup.dwFlags = STARTF_USESTDHANDLES;
-    startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
-    startup.hStdOutput = outputWrite;
-    startup.hStdError = outputWrite;
     PROCESS_INFORMATION process{};
-    const bool started = CreateProcessW(nullptr, line.data(), nullptr, nullptr, TRUE,
+    const bool started = CreateProcessW(nullptr, line.data(), nullptr, nullptr, FALSE,
         CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process) != FALSE;
-    CloseHandle(outputWrite);
 
     if (!started)
     {
-        CloseHandle(outputRead);
         log << L"PresentMon: FAILED\nReason: CreateProcess failed\n";
         return result;
     }
-
-    std::string output;
-    std::thread outputReader([&]
-    {
-        char buffer[4096];
-        DWORD read{};
-        while (ReadFile(outputRead, buffer, sizeof(buffer), &read, nullptr) && read)
-        {
-            if (output.size() < kMaximumPresentMonOutputBytes)
-            {
-                output.append(buffer, std::min<std::size_t>(
-                    read, kMaximumPresentMonOutputBytes - output.size()));
-            }
-        }
-    });
 
     result.beginQpcMs = QpcMilliseconds();
     const auto startedAt = std::chrono::steady_clock::now();
@@ -362,8 +330,6 @@ PresentMonCaptureResult CapturePresentMonPhase(
     const DWORD presentMonPid = process.dwProcessId;
     CloseHandle(process.hThread);
     CloseHandle(process.hProcess);
-    if (outputReader.joinable()) outputReader.join();
-    CloseHandle(outputRead);
 
     std::error_code error;
     const bool csvExists = std::filesystem::exists(csv, error) && !error;
@@ -377,12 +343,7 @@ PresentMonCaptureResult CapturePresentMonPhase(
         << L"\nCSV Created: " << (csvExists ? L"YES" : L"NO")
         << L"\nCSV Size: " << (error ? 0 : csvSize)
         << L"\nPresentMon Lifetime: " << lifetime << L" sec"
-        << L"\nCaptured stdout/stderr bytes: " << output.size() << L"\n";
-    if (!output.empty())
-    {
-        log << L"=== PRESENTMON OUTPUT ===\n"
-            << std::wstring(output.begin(), output.end()) << L"\n";
-    }
+        << L"\nPresentMon Exit Time: " << Now() << L"\n";
     if (stop.load()) log << L"PresentMon: Cancelled\n";
     if (timeout) log << L"PresentMon: watchdog timeout\n";
     if (waitFailed) log << L"PresentMon: process wait failed\n";
