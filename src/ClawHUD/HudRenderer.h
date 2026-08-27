@@ -32,6 +32,7 @@ struct HudRenderOptions
     float barPixelHeight{30.0f};
     float horizontalPaddingPx{5.0f};
     float segmentGapPx{8.0f};
+    float metricGapPx{6.0f};
     float separatorGapPx{8.0f};
     float dpi{96.0f};
     std::wstring fontFilePath;
@@ -56,28 +57,8 @@ struct HudRenderGeometry
     D2D1_POINT_2F textOrigin{};
 };
 
-struct HudSegmentMetrics
-{
-    float labelSlotWidth{};
-    float valueSlotWidth{};
-    float segmentWidth{};
-};
-
-struct HudSegmentLayout
-{
-    float labelX{};
-    float valueX{};
-    float segmentWidth{};
-};
-
 float DipFromPhysicalPixels(float pixels, float dpi) noexcept;
 std::vector<HudUnitRange> FindHudUnitRanges(const std::wstring& text);
-HudSegmentLayout CalculateHudSegmentLayout(
-    float segmentStart,
-    const HudSegmentMetrics& metrics,
-    float actualLabelWidth,
-    float actualValueWidth,
-    float segmentGap) noexcept;
 HudRenderGeometry CalculateHudGeometry(
     const D2D1_RECT_F& viewport,
     const HudMeasureResult& measure,

@@ -119,7 +119,8 @@ int main()
         Near(kHudSeparatorOuterPx, 3.0f), "MangoHud separator and outline widths");
 
     HudRenderOptions options{};
-    ok &= Check(Near(options.segmentGapPx, 8.0f) && Near(options.separatorGapPx, 8.0f),
+    ok &= Check(Near(options.segmentGapPx, 8.0f) && Near(options.metricGapPx, 6.0f) &&
+        Near(options.separatorGapPx, 8.0f),
         "horizontal spacing defaults");
     ok &= Check(Near(options.fontPixelSize, 20.0f) &&
         Near(options.unitFontPixelSize, 11.0f) &&
@@ -166,19 +167,6 @@ int main()
     const HudRenderOptions geometryOptions{};
     geometry = CalculateHudGeometry(viewport, HudMeasureResult{400.0f, 42.0f, 32.0f}, geometryOptions);
     ok &= Check(Near(geometry.textOrigin.y, 5.0f), "vertical centering uses measured text height");
-    const HudSegmentMetrics segmentMetrics{50.0f, 100.0f, 156.0f};
-    const auto shortValueLayout = CalculateHudSegmentLayout(
-        20.0f, segmentMetrics, 40.0f, 60.0f, 6.0f);
-    const auto longValueLayout = CalculateHudSegmentLayout(
-        20.0f, segmentMetrics, 40.0f, 90.0f, 6.0f);
-    ok &= Check(Near(shortValueLayout.segmentWidth, 156.0f) &&
-        Near(longValueLayout.segmentWidth, 156.0f) &&
-        Near(shortValueLayout.valueX, 66.0f) && Near(longValueLayout.valueX, 66.0f),
-        "label value gap is stable");
-    const auto overflowLayout = CalculateHudSegmentLayout(
-        20.0f, segmentMetrics, 40.0f, 120.0f, 6.0f);
-    ok &= Check(Near(overflowLayout.segmentWidth, 176.0f) &&
-        Near(overflowLayout.valueX, 66.0f), "segment overflow expands value slot");
 
     const RECT monitor{ -1920, -100, 0, 980 };
     const auto fullWindow = CalculateHudWindowGeometry(
@@ -282,10 +270,16 @@ int main()
         sameWidth(HudSegmentKind::Fan, L"FAN",
             {L"800RPM", L"4500RPM", L"9999RPM"}, "stable Fan slot");
         sameWidth(HudSegmentKind::Battery, L"BAT",
-            {L"9%", L"72% 2.5h", L"100% 9.9h"}, "stable Battery slot");
-        ok &= Check(Near(width(HudSegmentKind::Graphics, L"FPS", L"60FPS"),
-            width(HudSegmentKind::Graphics, L"Vulkan", L"60FPS")),
-            "Graphics API labels share a fixed slot");
+            {L"9%", L"72%", L"100%"}, "stable Battery percent slot");
+        ok &= Check(width(HudSegmentKind::Graphics, L"Vulkan", L"60FPS") >
+            width(HudSegmentKind::Graphics, L"DX12", L"60FPS"),
+            "Graphics API labels use actual width");
+        ok &= Check(Near(width(HudSegmentKind::Graphics, L"DX12", L"9FPS"),
+            width(HudSegmentKind::Graphics, L"DX12", L"999FPS")),
+            "Graphics FPS slot stays fixed");
+        ok &= Check(width(HudSegmentKind::Battery, L"BAT", L"80% 2.5h") >
+            width(HudSegmentKind::Battery, L"BAT", L"80%"),
+            "battery time slot is added only when present");
         const float singleGpuWidth = width(HudSegmentKind::Gpu, L"GPU", L"47%");
         const float singleCpuWidth = width(HudSegmentKind::Cpu, L"CPU", L"36%");
         const float expectedPairWidth = singleGpuWidth + singleCpuWidth -
