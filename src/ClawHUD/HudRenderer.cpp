@@ -296,6 +296,7 @@ HudMetricKind MetricKindForToken(HudSegmentKind kind, std::size_t index,
     case HudSegmentKind::Cpu: return index == 0
         ? HudMetricKind::UsagePercent : HudMetricKind::Temperature;
     case HudSegmentKind::Gpu: return HudMetricKind::UsagePercent;
+    case HudSegmentKind::Ram:
     case HudSegmentKind::Vram: return HudMetricKind::Vram;
     case HudSegmentKind::Tdp:
     case HudSegmentKind::SystemPower: return HudMetricKind::Power;
@@ -420,6 +421,7 @@ D2D1_COLOR_F LabelColor(HudSegmentKind kind) noexcept
     {
     case HudSegmentKind::Cpu: return D2D1::ColorF(kHudCpuColor, 1.0f);
     case HudSegmentKind::Gpu: return D2D1::ColorF(kHudGpuColor, 1.0f);
+    case HudSegmentKind::Ram:
     case HudSegmentKind::Vram: return D2D1::ColorF(kHudVramColor, 1.0f);
     case HudSegmentKind::Graphics: return D2D1::ColorF(kHudGraphicsColor, 1.0f);
     case HudSegmentKind::SystemPower:
@@ -587,9 +589,9 @@ HRESULT HudRenderer::MeasureReservedHudWidth(
         { HudSegmentKind::Graphics, L"Vulkan", L"999FPS" },
         { HudSegmentKind::Cpu, L"CPU", L"100% 100\u00B0C" },
         { HudSegmentKind::Gpu, L"GPU", L"100%" },
-        { HudSegmentKind::Vram, L"VRAM", L"99.9GB" },
         { HudSegmentKind::Tdp, L"TDP", L"99.9W" },
-        { HudSegmentKind::SystemPower, L"SYS", L"99.9W" },
+        { HudSegmentKind::Ram, L"RAM", L"99.9GB" },
+        { HudSegmentKind::Vram, L"VRAM", L"99.9GB" },
         { HudSegmentKind::Fan, L"FAN", L"9999RPM" },
         { HudSegmentKind::Battery, L"BAT", L"100% 9.9h" },
     };

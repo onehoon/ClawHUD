@@ -15,9 +15,12 @@ struct WindowsUsageTelemetry
 {
     std::optional<double> cpuUsagePercent;
     std::optional<double> gpuUsagePercent;
+    std::optional<std::uint64_t> systemMemoryUsedBytes;
     std::optional<std::uint64_t> intelGpuMemoryUsedBytes;
 };
 
+std::optional<std::uint64_t> UsedPhysicalMemory(
+    std::uint64_t totalBytes, std::uint64_t availableBytes) noexcept;
 std::optional<double> NormalizeUsagePercent(double value) noexcept;
 std::optional<double> MaxGpuUsagePercent(const std::vector<double>& values) noexcept;
 std::optional<LUID> ParseGpuMemoryInstanceLuid(std::wstring_view instance);

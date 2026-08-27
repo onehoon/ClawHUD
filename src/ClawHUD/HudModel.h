@@ -64,6 +64,7 @@ struct HudTelemetrySnapshot
     bool foregroundGameActive{};
     std::optional<double> presentMonDisplayedFps;
     std::optional<std::uint64_t> gpuMemoryUsedBytes;
+    std::optional<std::uint64_t> systemMemoryUsedBytes;
 };
 
 enum class HudSegmentKind
@@ -71,8 +72,9 @@ enum class HudSegmentKind
     Graphics,
     Cpu,
     Gpu,
-    Vram,
     Tdp,
+    Ram,
+    Vram,
     SystemPower,
     Fan,
     Battery

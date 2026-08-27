@@ -266,6 +266,8 @@ int main()
             "stable GPU slot");
         sameWidth(HudSegmentKind::Vram, L"VRAM",
             {L"0.1GB", L"3.4GB", L"99.9GB"}, "stable VRAM slot");
+        sameWidth(HudSegmentKind::Ram, L"RAM",
+            {L"0.1GB", L"15.2GB", L"31.9GB", L"99.9GB"}, "stable RAM slot");
         sameWidth(HudSegmentKind::Tdp, L"TDP",
             {L"5W", L"18W", L"99.9W"}, "stable TDP slot");
         sameWidth(HudSegmentKind::SystemPower, L"SYS",

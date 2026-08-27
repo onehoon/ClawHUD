@@ -400,6 +400,11 @@ std::optional<WindowsUsageTelemetry> WindowsUsageSampler::Sample()
             gpuValues.push_back(*value);
     }
     result.gpuUsagePercent = MaxGpuUsagePercent(gpuValues);
+    MEMORYSTATUSEX memory{};
+    memory.dwLength = sizeof(memory);
+    if (GlobalMemoryStatusEx(&memory))
+        result.systemMemoryUsedBytes = UsedPhysicalMemory(
+            memory.ullTotalPhys, memory.ullAvailPhys);
     const auto dedicated = ReadByteCounters(intelDedicatedMemoryCounters_);
     const auto shared = ReadByteCounters(intelSharedMemoryCounters_);
     result.intelGpuMemoryUsedBytes = CombineGpuMemoryBytes(dedicated, shared);
@@ -415,5 +420,13 @@ std::optional<WindowsUsageTelemetry> WindowsUsageSampler::Sample()
         memoryDiagnosticsLogged_ = true;
     }
     return result;
+}
+
+std::optional<std::uint64_t> UsedPhysicalMemory(
+    std::uint64_t totalBytes, std::uint64_t availableBytes) noexcept
+{
+    if (availableBytes > totalBytes)
+        return std::nullopt;
+    return totalBytes - availableBytes;
 }
 }
