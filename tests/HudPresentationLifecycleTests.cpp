@@ -1,3 +1,4 @@
+#include "HudPresentation.h"
 #include "HudPresentationLifecycle.h"
 
 #include <iostream>
@@ -16,5 +17,21 @@ int main()
     expect(visible.recreate && visible.restoreVisibility, "visible recreation restores visibility");
     const auto wasHidden = clawhud::BuildHudPresentationRefreshPlan(true, false);
     expect(wasHidden.recreate && !wasHidden.restoreVisibility, "hidden recreation stays hidden");
+
+    clawhud::HudRenderOptions initialized{};
+    initialized.barPixelHeight = 30.0f;
+    initialized.layout.backgroundOpacity = 0.5f;
+    clawhud::HudRenderOptions requested = initialized;
+    requested.layout.backgroundOpacity = 0.0f;
+    const auto transparent = clawhud::BuildEffectiveHudRenderOptions(requested, initialized, 144.0f);
+    expect(transparent.layout.backgroundOpacity == 0.0f,
+        "runtime opacity remains requested at render boundary");
+    expect(transparent.barPixelHeight == 30.0f && transparent.dpi == 144.0f,
+        "initialized geometry and runtime dpi are preserved");
+    requested.layout.backgroundOpacity = 1.0f;
+    const auto opaque = clawhud::BuildEffectiveHudRenderOptions(requested, initialized, 144.0f);
+    expect(opaque.layout.backgroundOpacity == 1.0f,
+        "runtime opacity propagates to opaque render boundary");
+
     return ok ? 0 : 1;
 }

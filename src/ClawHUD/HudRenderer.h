@@ -12,6 +12,17 @@
 
 namespace clawhud
 {
+inline constexpr std::uint32_t kHudBackgroundColor = 0x020202;
+inline constexpr std::uint32_t kHudCpuColor = 0x2E97CB;
+inline constexpr std::uint32_t kHudGpuColor = 0x2E9762;
+inline constexpr std::uint32_t kHudVramColor = 0xAD64C1;
+inline constexpr std::uint32_t kHudGraphicsColor = 0xEB5B5B;
+inline constexpr std::uint32_t kHudSystemColor = 0xFF9078;
+inline constexpr std::uint32_t kHudSeparatorColor = 0xAD64C1;
+inline constexpr float kHudTextOutlinePx = 1.5f;
+inline constexpr float kHudSeparatorCorePx = 1.0f;
+inline constexpr float kHudSeparatorOuterPx = 3.0f;
+
 struct HudRenderOptions
 {
     HudLayoutOptions layout{};
@@ -94,8 +105,11 @@ public:
         const HudRenderOptions& options,
         const D2D1_RECT_F& viewport) const;
 
+    bool PrivateFontLoaded() const noexcept { return privateFontLoaded_; }
+
 private:
     IDWriteFactory* factory_{};
     Microsoft::WRL::ComPtr<IDWriteFontCollection> fontCollection_;
+    bool privateFontLoaded_{};
 };
 }

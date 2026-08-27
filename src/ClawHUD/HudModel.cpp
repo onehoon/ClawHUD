@@ -1,5 +1,6 @@
 #include "HudModel.h"
 
+#include <algorithm>
 #include <cmath>
 #include <iomanip>
 #include <sstream>
@@ -61,6 +62,16 @@ std::wstring GpuValue(const HudTelemetrySnapshot& snapshot)
 bool ShouldShowHud(HudVisibilityMode mode, bool foregroundGameActive) noexcept
 {
     return mode == HudVisibilityMode::Always || foregroundGameActive;
+}
+
+float HudBackgroundOpacityFromPercent(long percent) noexcept
+{
+    return static_cast<float>(std::clamp(percent, 0L, 100L)) / 100.0f;
+}
+
+long HudBackgroundOpacityToPercent(float opacity) noexcept
+{
+    return static_cast<long>(std::lround(std::clamp(opacity, 0.0f, 1.0f) * 100.0f));
 }
 
 std::vector<HudTextRun> FormatHud(const HudTelemetrySnapshot& snapshot)

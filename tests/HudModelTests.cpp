@@ -23,6 +23,13 @@ int main()
     ok &= Check(defaults.alignment == HudAlignment::Center, "default alignment");
     ok &= Check(defaults.backgroundMode == HudBackgroundMode::FullWidth, "default background");
     ok &= Check(defaults.backgroundOpacity == 0.5f, "default opacity");
+    ok &= Check(HudBackgroundOpacityFromPercent(0) == 0.0f &&
+        HudBackgroundOpacityFromPercent(37) == 0.37f &&
+        HudBackgroundOpacityFromPercent(50) == 0.5f &&
+        HudBackgroundOpacityFromPercent(100) == 1.0f,
+        "settings opacity percent to runtime");
+    ok &= Check(HudBackgroundOpacityToPercent(HudBackgroundOpacityFromPercent(37)) == 37,
+        "settings opacity runtime to percent round trip");
 
     const auto dc = FormatHud(MakeGameDcSample());
     ok &= Check(JoinHudRuns(dc) == L"DX11 60 FPS | CPU 36% 67\u00B0C | GPU 98% | TDP 18 W | SYS 24 W | FAN 3540 RPM | BAT 72% 2.5h", "game DC formatting");

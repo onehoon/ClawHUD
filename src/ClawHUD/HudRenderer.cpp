@@ -3,7 +3,6 @@
 #include "RuntimeLogger.h"
 
 #include <algorithm>
-#include <filesystem>
 #include <sstream>
 
 #include <wrl/client.h>
@@ -17,9 +16,6 @@ using Microsoft::WRL::ComPtr;
 
 constexpr float kMaxLayoutDimension = 100000.0f;
 constexpr wchar_t kFontName[] = L"Unispace";
-constexpr float kTextOutlinePx = 1.5f;
-constexpr float kSeparatorInnerWidthPx = 1.0f;
-constexpr float kSeparatorOuterWidthPx = 3.0f;
 
 float Padding(const HudRenderOptions& options) noexcept
 {
@@ -118,19 +114,51 @@ HRESULT CreatePrivateFontCollection(IDWriteFactory* factory, const std::wstring&
     ComPtr<IDWriteFontCollection>& collection)
 {
     if (!factory || path.empty()) return E_INVALIDARG;
+    const DWORD attributes = GetFileAttributesW(path.c_str());
+    if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_DIRECTORY))
+    {
+        const DWORD error = attributes == INVALID_FILE_ATTRIBUTES ? GetLastError() : ERROR_FILE_NOT_FOUND;
+        return HRESULT_FROM_WIN32(error ? error : ERROR_FILE_NOT_FOUND);
+    }
     ComPtr<IDWriteFactory3> factory3;
     HRESULT hr = factory->QueryInterface(IID_PPV_ARGS(&factory3));
     if (FAILED(hr)) return hr;
+    ComPtr<IDWriteFontFile> fontFile;
+    if (FAILED(hr = factory->CreateFontFileReference(path.c_str(), nullptr, &fontFile))) return hr;
+    BOOL supported{};
+    DWRITE_FONT_FILE_TYPE fileType{};
+    DWRITE_FONT_FACE_TYPE faceType{};
+    UINT32 faceCount{};
+    if (FAILED(hr = fontFile->Analyze(&supported, &fileType, &faceType, &faceCount))) return hr;
+    if (!supported || faceCount == 0) return DWRITE_E_FILEFORMAT;
     ComPtr<IDWriteFontSetBuilder> builder;
-    if (FAILED(hr = factory3->CreateFontSetBuilder(&builder))) return hr;
-    ComPtr<IDWriteFontFaceReference> face;
-    if (FAILED(hr = factory3->CreateFontFaceReference(path.c_str(), nullptr, 0,
-        DWRITE_FONT_SIMULATIONS_NONE, &face))) return hr;
-    if (FAILED(hr = builder->AddFontFaceReference(face.Get(), nullptr, 0))) return hr;
+    ComPtr<IDWriteFactory5> factory5;
+    if (SUCCEEDED(factory->QueryInterface(IID_PPV_ARGS(&factory5))))
+    {
+        ComPtr<IDWriteFontSetBuilder1> builder1;
+        if (FAILED(hr = factory5->CreateFontSetBuilder(&builder1))) return hr;
+        if (FAILED(hr = builder1->AddFontFile(fontFile.Get()))) return hr;
+        builder = builder1;
+    }
+    else
+    {
+        if (FAILED(hr = factory3->CreateFontSetBuilder(&builder))) return hr;
+        for (UINT32 faceIndex = 0; faceIndex < faceCount; ++faceIndex)
+        {
+            ComPtr<IDWriteFontFaceReference> face;
+            if (FAILED(hr = factory3->CreateFontFaceReference(fontFile.Get(), faceIndex,
+                DWRITE_FONT_SIMULATIONS_NONE, &face))) return hr;
+            if (FAILED(hr = builder->AddFontFaceReference(face.Get(), nullptr, 0))) return hr;
+        }
+    }
     ComPtr<IDWriteFontSet> set;
     if (FAILED(hr = builder->CreateFontSet(&set))) return hr;
     ComPtr<IDWriteFontCollection1> collection1;
     if (FAILED(hr = factory3->CreateFontCollectionFromFontSet(set.Get(), &collection1))) return hr;
+    UINT32 familyIndex{};
+    BOOL exists{};
+    if (FAILED(hr = collection1->FindFamilyName(kFontName, &familyIndex, &exists)) || !exists)
+        return FAILED(hr) ? hr : DWRITE_E_NOFONT;
     collection = collection1;
     return S_OK;
 }
@@ -291,21 +319,21 @@ D2D1_COLOR_F LabelColor(HudSegmentKind kind) noexcept
 {
     switch (kind)
     {
-    case HudSegmentKind::Cpu: return D2D1::ColorF(0x2E97CB, 1.0f);
-    case HudSegmentKind::Gpu: return D2D1::ColorF(0x2E9762, 1.0f);
-    case HudSegmentKind::Vram: return D2D1::ColorF(0xAD64C1, 1.0f);
-    case HudSegmentKind::Graphics: return D2D1::ColorF(0xEB5B5B, 1.0f);
+    case HudSegmentKind::Cpu: return D2D1::ColorF(kHudCpuColor, 1.0f);
+    case HudSegmentKind::Gpu: return D2D1::ColorF(kHudGpuColor, 1.0f);
+    case HudSegmentKind::Vram: return D2D1::ColorF(kHudVramColor, 1.0f);
+    case HudSegmentKind::Graphics: return D2D1::ColorF(kHudGraphicsColor, 1.0f);
     case HudSegmentKind::SystemPower:
-    case HudSegmentKind::Battery: return D2D1::ColorF(0xFF9078, 1.0f);
-    case HudSegmentKind::Tdp: return D2D1::ColorF(0x2E97CB, 1.0f);
-    case HudSegmentKind::Fan: return D2D1::ColorF(0xEB5B5B, 1.0f);
+    case HudSegmentKind::Battery: return D2D1::ColorF(kHudSystemColor, 1.0f);
+    case HudSegmentKind::Tdp: return D2D1::ColorF(kHudCpuColor, 1.0f);
+    case HudSegmentKind::Fan: return D2D1::ColorF(kHudGraphicsColor, 1.0f);
     default: return D2D1::ColorF(D2D1::ColorF::White, 1.0f);
     }
 }
 
 float SeparatorWidth(const HudRenderOptions& options) noexcept
 {
-    return DipFromPhysicalPixels(kSeparatorOuterWidthPx, options.dpi);
+    return DipFromPhysicalPixels(kHudSeparatorOuterPx, options.dpi);
 }
 
 float SeparatorHeight(const HudRenderOptions& options) noexcept
@@ -317,7 +345,7 @@ void DrawOutlinedLayout(ID2D1DeviceContext* context, IDWriteTextLayout* layout,
     float x, float y, ID2D1Brush* textBrush, ID2D1Brush* outlineBrush,
     const HudRenderOptions& options)
 {
-    const float offset = DipFromPhysicalPixels(kTextOutlinePx, options.dpi);
+    const float offset = DipFromPhysicalPixels(kHudTextOutlinePx, options.dpi);
     for (const auto& point : { D2D1::Point2F(x - offset, y), D2D1::Point2F(x + offset, y),
         D2D1::Point2F(x, y - offset), D2D1::Point2F(x, y + offset) })
         context->DrawTextLayout(point, layout, outlineBrush);
@@ -347,12 +375,20 @@ HudRenderer::HudRenderer(IDWriteFactory* factory, const std::wstring& fontFilePa
 {
     if (!factory_ || fontFilePath.empty()) return;
     const HRESULT hr = CreatePrivateFontCollection(factory_, fontFilePath, fontCollection_);
-    if (FAILED(hr))
+    if (SUCCEEDED(hr))
+    {
+        privateFontLoaded_ = true;
+        std::wostringstream message;
+        message << L"HUD font loaded: Unispace (private), path=" << fontFilePath;
+        RuntimeLogger::Log(RuntimeLogLevel::Info, message.str());
+    }
+    else
     {
         std::wostringstream message;
-        message << L"Unispace private font load failed (0x" << std::hex
-            << static_cast<unsigned long>(hr) << L"); using DirectWrite fallback";
+        message << L"HUD font load failed: " << fontFilePath << L", hr=0x" << std::hex
+            << static_cast<unsigned long>(hr);
         RuntimeLogger::Log(RuntimeLogLevel::Error, message.str());
+        RuntimeLogger::Log(RuntimeLogLevel::Warn, L"HUD font fallback active");
     }
 }
 
@@ -499,13 +535,13 @@ HRESULT HudRenderer::Draw(ID2D1DeviceContext* context,
     ComPtr<ID2D1SolidColorBrush> background;
     ComPtr<ID2D1SolidColorBrush> white;
     ComPtr<ID2D1SolidColorBrush> separatorBrush;
-    hr = context->CreateSolidColorBrush(D2D1::ColorF(0x020202, 1.0f), &background);
+    const float backgroundAlpha = std::clamp(options.layout.backgroundOpacity, 0.0f, 1.0f);
+    hr = context->CreateSolidColorBrush(D2D1::ColorF(kHudBackgroundColor, backgroundAlpha), &background);
     if (FAILED(hr)) return hr;
     hr = context->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::White, 1.0f), &white);
     if (FAILED(hr)) return hr;
-    hr = context->CreateSolidColorBrush(D2D1::ColorF(0xAD64C1, 1.0f), &separatorBrush);
+    hr = context->CreateSolidColorBrush(D2D1::ColorF(kHudSeparatorColor, 1.0f), &separatorBrush);
     if (FAILED(hr)) return hr;
-    background->SetOpacity(std::clamp(options.layout.backgroundOpacity, 0.0f, 1.0f));
 
     ComPtr<IDWriteTextFormat> format;
     hr = CreateTextFormat(factory_, fontCollection_.Get(), options, format);
@@ -549,10 +585,10 @@ HRESULT HudRenderer::Draw(ID2D1DeviceContext* context,
             const float centerX = x + SeparatorWidth(options) / 2.0f;
             context->DrawLine(D2D1::Point2F(centerX, separatorY),
                 D2D1::Point2F(centerX, separatorY + separatorHeight),
-                outlineBrush.Get(), DipFromPhysicalPixels(kSeparatorOuterWidthPx, options.dpi));
+                outlineBrush.Get(), DipFromPhysicalPixels(kHudSeparatorOuterPx, options.dpi));
             context->DrawLine(D2D1::Point2F(centerX, separatorY),
                 D2D1::Point2F(centerX, separatorY + separatorHeight),
-                separatorBrush.Get(), DipFromPhysicalPixels(kSeparatorInnerWidthPx, options.dpi));
+                separatorBrush.Get(), DipFromPhysicalPixels(kHudSeparatorCorePx, options.dpi));
             x += SeparatorWidth(options) + SeparatorGap(options);
         }
     }

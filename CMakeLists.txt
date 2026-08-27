@@ -167,9 +167,11 @@ if(BUILD_TESTING)
         src/ClawHUD/HudWindowGeometry.cpp
         src/ClawHUD/HudModel.cpp)
     target_compile_features(ClawHUD.HudRendererTests PRIVATE cxx_std_20)
-    target_compile_definitions(ClawHUD.HudRendererTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_compile_definitions(ClawHUD.HudRendererTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX
+        CLAWHUD_TEST_UNISPACE_PATH=L"${CMAKE_SOURCE_DIR}/third_party/unispace/Unispace.otf")
     target_include_directories(ClawHUD.HudRendererTests PRIVATE src/ClawHUD)
-    target_link_libraries(ClawHUD.HudRendererTests PRIVATE d2d1 dwrite shell32 ole32)
+    target_link_libraries(ClawHUD.HudRendererTests PRIVATE d2d1 dwrite d3d11 dxgi shell32 ole32)
     set_target_properties(ClawHUD.HudRendererTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.HudRendererTests COMMAND ClawHUD.HudRendererTests)
 

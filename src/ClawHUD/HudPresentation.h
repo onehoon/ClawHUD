@@ -18,6 +18,17 @@
 
 namespace clawhud
 {
+inline HudRenderOptions BuildEffectiveHudRenderOptions(
+    const HudRenderOptions& requested,
+    const HudRenderOptions& initialized,
+    float dpi) noexcept
+{
+    HudRenderOptions effective = requested;
+    effective.dpi = dpi;
+    effective.barPixelHeight = initialized.barPixelHeight;
+    return effective;
+}
+
 class HudPresentation
 {
 public:
