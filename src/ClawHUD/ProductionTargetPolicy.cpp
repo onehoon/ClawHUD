@@ -63,6 +63,12 @@ bool ShouldCancelPendingCandidateOnCommittedReturn(DWORD committedProcessId,
         pendingProcessId != 0 && pendingProcessId != committedProcessId;
 }
 
+bool ShouldRestartGraphicsApiProbe(DWORD probedProcessId,
+    DWORD committedProcessId) noexcept
+{
+    return committedProcessId != 0 && probedProcessId != committedProcessId;
+}
+
 bool ShouldConfirmProductionTarget(DWORD pendingProcessId, DWORD observedProcessId,
     DWORD foregroundProcessId, bool displayedFpsAvailable) noexcept
 {

@@ -1041,6 +1041,9 @@ bool App::AdoptForegroundProductionTarget(HWND window, DWORD processId)
                 std::to_wstring(staleCandidate) +
                 L" reason=committed-target-returned");
         }
+        if (clawhud::ShouldRestartGraphicsApiProbe(
+            graphicsApiProcessId_, trackedProcessId))
+            StartGraphicsApiProbe(trackedProcessId);
         return true;
     }
 

@@ -21,6 +21,8 @@ bool ShouldReevaluateForegroundAfterResume(bool hudEnabled,
     bool recoveryCompleted) noexcept;
 bool ShouldCancelPendingCandidateOnCommittedReturn(DWORD committedProcessId,
     DWORD pendingProcessId, DWORD foregroundProcessId) noexcept;
+bool ShouldRestartGraphicsApiProbe(DWORD probedProcessId,
+    DWORD committedProcessId) noexcept;
 bool ShouldConfirmProductionTarget(DWORD pendingProcessId, DWORD observedProcessId,
     DWORD foregroundProcessId, bool displayedFpsAvailable) noexcept;
 bool ShouldConsiderForegroundProductionTarget(bool hudEnabled, bool diagnosticRunning,

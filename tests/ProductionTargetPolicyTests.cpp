@@ -53,6 +53,11 @@ int main()
         !clawhud::ShouldCancelPendingCandidateOnCommittedReturn(100, 100, 100) &&
         !clawhud::ShouldCancelPendingCandidateOnCommittedReturn(100, 200, 200),
         "return to committed target cancels a different pending candidate");
+    ok &= Check(clawhud::ShouldRestartGraphicsApiProbe(0, 100) &&
+        clawhud::ShouldRestartGraphicsApiProbe(200, 100) &&
+        !clawhud::ShouldRestartGraphicsApiProbe(100, 100) &&
+        !clawhud::ShouldRestartGraphicsApiProbe(0, 0),
+        "committed target re-entry restarts a missing or stale graphics API probe");
     ok &= Check(!clawhud::ShouldConfirmProductionTarget(42, 43, 43, true) &&
         !clawhud::ShouldConfirmProductionTarget(42, 42, 43, true) &&
         !clawhud::ShouldConfirmProductionTarget(42, 42, 42, false) &&
