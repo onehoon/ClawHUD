@@ -935,7 +935,7 @@ void App::StopProductionEcSampling(bool stopPresentMon)
     ecHudSamplingActive_ = false;
 }
 
-void App::StartProductionPresentMonSampling()
+void App::StartProductionPresentMonSampling(bool recoveryStart)
 {
     if (suspended_ || DiagnosticRunning() || !mockHudEnabled_)
         return;
@@ -965,8 +965,9 @@ void App::StartProductionPresentMonSampling()
         presentMonHudTelemetry_->Running())
         return;
     if (committedProcessId == processId && !presentMonHudTelemetry_ &&
-        !clawhud::ShouldRetryProductionPresentMon(
-            presentMonRestartPid_, presentMonRestartAttempts_, processId))
+        !clawhud::ShouldAllowProductionPresentMonStart(
+            committedProcessId, processId, presentMonRestartPid_,
+            presentMonRestartAttempts_, recoveryStart))
         return;
 
     StopProductionPresentMonSampling(L"target-handoff", false);
@@ -1123,7 +1124,7 @@ void App::HandlePresentMonHudUpdate(DWORD processId,
             presentMonRestartPid_, presentMonRestartAttempts_, processId))
         {
             ++presentMonRestartAttempts_;
-            StartProductionPresentMonSampling();
+            StartProductionPresentMonSampling(true);
         }
         else
             clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,

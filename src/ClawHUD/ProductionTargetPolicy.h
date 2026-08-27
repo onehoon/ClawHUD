@@ -24,6 +24,9 @@ bool ShouldDeferPendingProductionValidation(DWORD pendingProcessId,
     bool candidateProcessAlive) noexcept;
 bool ShouldRetryProductionPresentMon(DWORD retryProcessId,
     unsigned retryAttempts, DWORD processId) noexcept;
+bool ShouldAllowProductionPresentMonStart(DWORD committedProcessId,
+    DWORD processId, DWORD retryProcessId, unsigned retryAttempts,
+    bool recoveryStart) noexcept;
 bool ShouldReevaluateForegroundAfterResume(bool hudEnabled,
     bool recoveryCompleted) noexcept;
 bool ShouldReevaluateForegroundAfterDiagnostic(bool hudEnabled,

@@ -163,7 +163,7 @@ private:
     void PauseProductionSamplingForSuspend();
     void CancelResumeRecovery();
     void StopProductionEcSampling(bool stopPresentMon = true);
-    void StartProductionPresentMonSampling();
+    void StartProductionPresentMonSampling(bool recoveryStart = false);
     void StopProductionPresentMonSampling(const wchar_t* reason = L"explicit-reset",
         bool clearLatestFps = false);
     void HandlePresentMonHudUpdate(DWORD processId, std::optional<double> displayedFps);

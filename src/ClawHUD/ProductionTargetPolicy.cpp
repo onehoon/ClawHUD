@@ -71,6 +71,14 @@ bool ShouldRetryProductionPresentMon(DWORD retryProcessId,
     return processId != 0 && (retryProcessId != processId || retryAttempts == 0);
 }
 
+bool ShouldAllowProductionPresentMonStart(DWORD committedProcessId,
+    DWORD processId, DWORD retryProcessId, unsigned retryAttempts,
+    bool recoveryStart) noexcept
+{
+    return committedProcessId != processId || recoveryStart ||
+        ShouldRetryProductionPresentMon(retryProcessId, retryAttempts, processId);
+}
+
 bool ShouldReevaluateForegroundAfterResume(bool hudEnabled,
     bool recoveryCompleted) noexcept
 {
