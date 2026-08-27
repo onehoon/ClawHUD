@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -48,12 +49,17 @@ void TestAppendAndRotation(const std::filesystem::path& directory)
     assert(Read(log).find("rotated") != std::string::npos);
 }
 
-void TestFailureIsFailOpen(const std::filesystem::path& directory)
+void TestFailureIsFailClosed(const std::filesystem::path& directory)
 {
     const auto invalid = directory / L"not-a-directory";
     { std::ofstream output(invalid); output << "file"; }
     clawhud::RuntimeLogger::SetDirectoryForTests((invalid / L"logs").wstring());
     clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error, L"ignored");
+
+    bool threw{};
+    try { (void)clawhud::LogDirectory(); }
+    catch (const std::runtime_error&) { threw = true; }
+    assert(threw);
 }
 
 void TestConcurrentWrites(const std::filesystem::path& directory)
@@ -84,7 +90,7 @@ int main()
 {
     const auto directory = TempDirectory();
     TestAppendAndRotation(directory);
-    TestFailureIsFailOpen(directory);
+    TestFailureIsFailClosed(directory);
     TestConcurrentWrites(directory);
     clawhud::RuntimeLogger::ResetForTests();
     std::filesystem::remove_all(directory);
