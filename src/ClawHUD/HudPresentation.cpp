@@ -248,7 +248,7 @@ HRESULT HudPresentation::Render(const HudTelemetrySnapshot& snapshot, const HudR
     const float heightDip = DipFromPhysicalPixels(static_cast<float>(heightPx_), dpi_);
     d2dContext_->SetTarget(buffer->bitmapTarget.Get());
     d2dContext_->BeginDraw();
-    d2dContext_->Clear(D2D1::ColorF(0.0f, 0.0f));
+    d2dContext_->Clear(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f));
     hr = runs.empty() ? S_OK : renderer_->Draw(d2dContext_.Get(), runs, effective,
         D2D1::RectF(0, 0, widthDip, heightDip));
     const HRESULT endHr = d2dContext_->EndDraw();

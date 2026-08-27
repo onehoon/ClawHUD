@@ -68,7 +68,7 @@ HudRenderOptions BuildHudRenderOptionsForSize(
     constexpr float kPhysicalPadding = 5.0f;
     constexpr float kSegmentGap = 8.0f;
     constexpr float kMetricGap = 6.0f;
-    constexpr float kSeparatorGap = 8.0f;
+    constexpr float kSeparatorGap = 14.0f;
 
     const float mainFont = kBaseFontSize +
         static_cast<float>(ClampHudSizeOffset(offset));

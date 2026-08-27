@@ -345,12 +345,6 @@ HRESULT DrawValue(ID2D1DeviceContext* context, IDWriteFactory* factory,
     ComPtr<IDWriteTextFormat> unitFormat;
     HRESULT hr = CreateTextFormat(factory, collection, options, unitFormat, true);
     if (FAILED(hr)) return hr;
-    DWRITE_LINE_METRICS mainMetrics{};
-    UINT32 actualMainMetrics{};
-    hr = mainLayout->GetLineMetrics(&mainMetrics, 1, &actualMainMetrics);
-    if (FAILED(hr)) return hr;
-    const float mainBaseline = actualMainMetrics ? mainMetrics.baseline : 0.0f;
-    const float unitRaise = DipFromPhysicalPixels(1.0f, options.dpi);
     std::size_t cursor = 0;
     for (const auto& range : FindHudUnitRangesImpl(text))
     {
@@ -367,12 +361,7 @@ HRESULT DrawValue(ID2D1DeviceContext* context, IDWriteFactory* factory,
         const std::wstring unitText = text.substr(range.start, range.length);
         hr = CreateLayout(factory, unitFormat.Get(), unitText, options, true, false, unit);
         if (FAILED(hr)) return hr;
-        DWRITE_LINE_METRICS unitMetrics{};
-        UINT32 actualUnitMetrics{};
-        hr = unit->GetLineMetrics(&unitMetrics, 1, &actualUnitMetrics);
-        if (FAILED(hr)) return hr;
-        const float unitBaseline = actualUnitMetrics ? unitMetrics.baseline : 0.0f;
-        const float unitY = y + mainBaseline - unitBaseline - unitRaise;
+        const float unitY = y + UnitTextYOffset(options);
         DrawOutlinedLayout(context, unit.Get(), x, unitY, brush, outlineBrush, options);
         x += Width(unit.Get());
         cursor = range.start + range.length;
@@ -511,6 +500,17 @@ float DipFromPhysicalPixels(float pixels, float dpi) noexcept
     return dpi > 0.0f ? pixels * 96.0f / dpi : pixels;
 }
 
+float MainTextYOffset(const HudRenderOptions& options) noexcept
+{
+    return options.font == HudFont::SegoeUiVariable
+        ? DipFromPhysicalPixels(-2.0f, options.dpi) : 0.0f;
+}
+
+float UnitTextYOffset(const HudRenderOptions& options) noexcept
+{
+    return DipFromPhysicalPixels(2.0f, options.dpi);
+}
+
 std::vector<HudUnitRange> FindHudUnitRanges(const std::wstring& text)
 {
     return FindHudUnitRangesImpl(text);
@@ -632,6 +632,7 @@ HRESULT HudRenderer::Draw(ID2D1DeviceContext* context,
     TextAntialiasModeGuard antialiasMode(context);
     context->FillRectangle(geometry.background, background.Get());
     float x = geometry.textOrigin.x;
+    const float mainY = geometry.textOrigin.y + MainTextYOffset(options);
     for (size_t i = 0; i < runs.size(); ++i)
     {
         ComPtr<IDWriteTextLayout> label;
@@ -644,7 +645,7 @@ HRESULT HudRenderer::Draw(ID2D1DeviceContext* context,
         ComPtr<ID2D1SolidColorBrush> outlineBrush;
         hr = context->CreateSolidColorBrush(D2D1::ColorF(0x000000, 1.0f), &outlineBrush);
         if (FAILED(hr)) return hr;
-        DrawOutlinedLayout(context, label.Get(), x, geometry.textOrigin.y,
+        DrawOutlinedLayout(context, label.Get(), x, mainY,
             labelBrush.Get(), outlineBrush.Get(), options);
         x += Width(label.Get());
         const auto cells = BuildMetricCells(runs[i]);
@@ -663,7 +664,7 @@ HRESULT HudRenderer::Draw(ID2D1DeviceContext* context,
             const float metricX = x + slotWidth - Width(metric.Get());
             hr = DrawValue(context, factory_, fontCollection_.Get(), format.Get(),
                 cells[cellIndex].text, metric.Get(), options, metricX,
-                geometry.textOrigin.y, white.Get(), outlineBrush.Get());
+                mainY, white.Get(), outlineBrush.Get());
             if (FAILED(hr)) return hr;
             x += slotWidth;
             if (cellIndex + 1 < cells.size())
