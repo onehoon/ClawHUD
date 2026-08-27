@@ -239,9 +239,8 @@ HRESULT HudPresentation::Render(const HudTelemetrySnapshot& snapshot, const HudR
     hr = TryAcquireAvailableBuffer(buffer);
     if (FAILED(hr) || hr == S_FALSE)
         return hr;
-    HudRenderOptions effective = options;
-    effective.dpi = dpi_;
-    effective.barPixelHeight = initializationOptions_.barPixelHeight;
+    const HudRenderOptions effective = BuildEffectiveHudRenderOptions(
+        options, initializationOptions_, dpi_);
     const auto runs = FormatHud(snapshot);
     const float widthDip = DipFromPhysicalPixels(static_cast<float>(widthPx_), dpi_);
     const float heightDip = DipFromPhysicalPixels(static_cast<float>(heightPx_), dpi_);
@@ -255,10 +254,7 @@ HRESULT HudPresentation::Render(const HudTelemetrySnapshot& snapshot, const HudR
     if (FAILED(endHr)) return endHr;
     deviceContext_->Flush();
     if (FAILED(hr = presentationSurface_->SetBuffer(buffer->presentationBuffer.Get()))) return hr;
-    const HRESULT presentHr = presentationManager_->Present();
-    if (renderObserver_)
-        renderObserver_(effective.layout.backgroundOpacity, presentHr);
-    return presentHr;
+    return presentationManager_->Present();
 }
 
 HRESULT HudPresentation::RefreshDisplayIfNeeded()

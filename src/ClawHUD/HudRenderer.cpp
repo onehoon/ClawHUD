@@ -3,7 +3,6 @@
 #include "RuntimeLogger.h"
 
 #include <algorithm>
-#include <filesystem>
 #include <sstream>
 
 #include <wrl/client.h>
@@ -115,8 +114,12 @@ HRESULT CreatePrivateFontCollection(IDWriteFactory* factory, const std::wstring&
     ComPtr<IDWriteFontCollection>& collection)
 {
     if (!factory || path.empty()) return E_INVALIDARG;
-    if (!std::filesystem::exists(path))
-        return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
+    const DWORD attributes = GetFileAttributesW(path.c_str());
+    if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_DIRECTORY))
+    {
+        const DWORD error = attributes == INVALID_FILE_ATTRIBUTES ? GetLastError() : ERROR_FILE_NOT_FOUND;
+        return HRESULT_FROM_WIN32(error ? error : ERROR_FILE_NOT_FOUND);
+    }
     ComPtr<IDWriteFactory3> factory3;
     HRESULT hr = factory->QueryInterface(IID_PPV_ARGS(&factory3));
     if (FAILED(hr)) return hr;
@@ -129,15 +132,24 @@ HRESULT CreatePrivateFontCollection(IDWriteFactory* factory, const std::wstring&
     if (FAILED(hr = fontFile->Analyze(&supported, &fileType, &faceType, &faceCount))) return hr;
     if (!supported || faceCount == 0) return DWRITE_E_FILEFORMAT;
     ComPtr<IDWriteFontSetBuilder> builder;
-    if (FAILED(hr = factory3->CreateFontSetBuilder(&builder))) return hr;
-    for (UINT32 faceIndex = 0; faceIndex < faceCount; ++faceIndex)
+    ComPtr<IDWriteFactory5> factory5;
+    if (SUCCEEDED(factory->QueryInterface(IID_PPV_ARGS(&factory5))))
     {
-        ComPtr<IDWriteFontFaceReference> face;
-        if (FAILED(hr = factory3->CreateFontFaceReference(fontFile.Get(), faceIndex,
-            DWRITE_FONT_SIMULATIONS_NONE, &face))) return hr;
-        const DWRITE_FONT_PROPERTY familyProperty{
-            DWRITE_FONT_PROPERTY_ID_FAMILY_NAME, kFontName, nullptr};
-        if (FAILED(hr = builder->AddFontFaceReference(face.Get(), &familyProperty, 1))) return hr;
+        ComPtr<IDWriteFontSetBuilder1> builder1;
+        if (FAILED(hr = factory5->CreateFontSetBuilder(&builder1))) return hr;
+        if (FAILED(hr = builder1->AddFontFile(fontFile.Get()))) return hr;
+        builder = builder1;
+    }
+    else
+    {
+        if (FAILED(hr = factory3->CreateFontSetBuilder(&builder))) return hr;
+        for (UINT32 faceIndex = 0; faceIndex < faceCount; ++faceIndex)
+        {
+            ComPtr<IDWriteFontFaceReference> face;
+            if (FAILED(hr = factory3->CreateFontFaceReference(fontFile.Get(), faceIndex,
+                DWRITE_FONT_SIMULATIONS_NONE, &face))) return hr;
+            if (FAILED(hr = builder->AddFontFaceReference(face.Get(), nullptr, 0))) return hr;
+        }
     }
     ComPtr<IDWriteFontSet> set;
     if (FAILED(hr = builder->CreateFontSet(&set))) return hr;
