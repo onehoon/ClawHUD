@@ -10,6 +10,7 @@
 #include <iomanip>
 #include <mutex>
 #include <sstream>
+#include <stdexcept>
 
 namespace clawhud
 {
@@ -97,6 +98,15 @@ void InitializeLocked()
     std::filesystem::create_directories(g_directory, error);
     g_fileEnabled = !error;
 }
+}
+
+std::filesystem::path LogDirectory()
+{
+    std::lock_guard lock(g_mutex);
+    InitializeLocked();
+    if (g_directory.empty() || !g_fileEnabled)
+        throw std::runtime_error("ClawHUD log directory is unavailable");
+    return g_directory;
 }
 
 void RuntimeLogger::Initialize() noexcept

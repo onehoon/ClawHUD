@@ -4,7 +4,7 @@ The current Diagnostics implementation is intentionally limited to an MSI Claw E
 
 The test connects to `ROOT\WMI`, invokes only `Get_Temperature`, `Get_Fan`, and `Get_Data`, records ten samples at approximately one-second intervals, then releases WMI. Each sample keeps the raw payload and records decoded CPU/GPU temperature, fan RPM, and CPU package power where the documented payload is available. The battery current and voltage selectors are preserved as raw bytes; system-power decoding remains deferred until hardware validation closes the documented sign/scaling questions.
 
-Logs are UTF-8 text files under `logs/diagnostics/ec-YYYYMMDD-HHMMSS.txt`. **Open Log Folder** opens that directory. The log includes main/helper elevation state, helper PID, failure stage, HRESULT, and records `Unavailable` for environment fields that cannot be obtained. A read failure for one selector does not stop the remaining selectors. Helper missing, UAC cancellation, pipe disconnect, and WMI failures leave the app running and report EC as unavailable; a new explicit diagnostic is required before another elevation attempt.
+Logs are UTF-8 text files under `%LOCALAPPDATA%\\ClawHUD\\logs\\ec-YYYYMMDD-HHMMSS.txt`. **Open Log Folder** opens the shared ClawHUD log directory. Runtime, EC, VRR, and Intel VRR Range Fix logs all use `%LOCALAPPDATA%\\ClawHUD\\logs`; no `logs\\diagnostics` subdirectory is created. The log includes main/helper elevation state, helper PID, failure stage, HRESULT, and records `Unavailable` for environment fields that cannot be obtained. A read failure for one selector does not stop the remaining selectors. Helper missing, UAC cancellation, pipe disconnect, and WMI failures leave the app running and report EC as unavailable; a new explicit diagnostic is required before another elevation attempt.
 
 No `Set_*`, TDP, fan-control, charge-limit, or ownership operation is implemented. The test is not production telemetry and has not been validated on physical MSI Claw hardware in this development environment.
 
@@ -16,7 +16,7 @@ The Diagnostics tab also contains a user-started VRR / Presentation orchestratio
 2. **STATIC HUD** — one deterministic HUD frame is rendered and shown; the 100 ms update timer is not started and no periodic redraw is issued.
 3. **DYNAMIC HUD** — the same `HudPresentation` instance is kept visible and the existing 100 ms mock update path is resumed.
 
-PresentMon samples 28 seconds in each phase. No `ClawHUD.VrrPoc.exe` child, test overlay, or second presentation path is created; the prior main-HUD visibility state is restored after completion, failure, or cancellation.
+PresentMon samples 28 seconds in each phase and writes the VRR TXT report and phase CSVs to the shared `%LOCALAPPDATA%\\ClawHUD\\logs` directory. No `ClawHUD.VrrPoc.exe` child, test overlay, or second presentation path is created; the prior main-HUD visibility state is restored after completion, failure, or cancellation.
 
 Return to the running game and press F8 after starting the test. A short Windows system sound confirms that the game target was validated and the diagnostic started. The phases then run automatically as **HUD OFF → STATIC HUD → DYNAMIC HUD**, approximately 28 seconds each. A second Windows system sound is played only after all phases complete successfully and cleanup/restoration has run. Invalid F8 targets, capture failures, cancellation, and application shutdown do not play either success sound. Sounds are asynchronous Windows system aliases; no audio files are bundled.
 

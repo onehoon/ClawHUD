@@ -1,9 +1,12 @@
 #pragma once
 
 #include <string>
+#include <filesystem>
 
 namespace clawhud
 {
+std::filesystem::path LogDirectory();
+
 enum class RuntimeLogLevel
 {
     Info,

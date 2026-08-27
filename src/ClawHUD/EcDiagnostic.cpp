@@ -1,10 +1,9 @@
 #include "EcDiagnostic.h"
 
 #include "EcHelperClient.h"
+#include "RuntimeLogger.h"
 #include "../shared/EcHelperProtocol.h"
 #include "Version.h"
-
-#include <shellapi.h>
 
 #include <chrono>
 #include <cmath>
@@ -21,7 +20,6 @@ std::wstring Now(bool fileName = false)
     localtime_s(&local, &time); std::wstringstream out;
     out << std::put_time(&local, fileName ? L"%Y%m%d-%H%M%S" : L"%Y-%m-%d %H:%M:%S"); return out.str();
 }
-
 std::string Narrow(const std::wstring& text)
 {
     if (text.empty()) return {};
@@ -82,11 +80,6 @@ bool Elevated()
     CloseHandle(token); return result && value.TokenIsElevated != 0;
 }
 
-std::filesystem::path Folder()
-{
-    const auto path = std::filesystem::current_path() / L"logs" / L"diagnostics";
-    std::filesystem::create_directories(path); return path;
-}
 }
 
 bool EcDiagnostic::Start()
@@ -114,7 +107,7 @@ void EcDiagnostic::Status(const wchar_t* text) const
 void EcDiagnostic::Run()
 {
     std::filesystem::path path;
-    try { path = Folder() / (L"ec-" + Now(true) + L".txt"); }
+    try { path = clawhud::LogDirectory() / (L"ec-" + Now(true) + L".txt"); }
     catch (...) { Status(L"Failed"); running_ = false; return; }
     std::ofstream log(path, std::ios::binary);
     if (!log.is_open()) { Status(L"Failed"); running_ = false; return; }
@@ -172,10 +165,4 @@ void EcDiagnostic::Run()
         << " (verified in helper before WMI)\nHelper PID: " << reader.HelperPid()
         << "\n";
     reader.Close(); log << "Helper: released\n"; log.flush(); Status(stop_ ? L"Cancelled" : L"Completed"); running_ = false;
-}
-
-void EcDiagnostic::OpenLogFolder() const
-{
-    try { const auto path = Folder(); ShellExecuteW(nullptr, L"open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL); }
-    catch (...) {}
 }
