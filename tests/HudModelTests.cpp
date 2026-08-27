@@ -32,13 +32,13 @@ int main()
         "settings opacity runtime to percent round trip");
 
     const auto dc = FormatHud(MakeGameDcSample());
-    ok &= Check(JoinHudRuns(dc) == L"DX11 60 FPS | CPU 36% 67\u00B0C | GPU 98% | TDP 18 W | SYS 24 W | FAN 3540 RPM | BAT 72% 2.5h", "game DC formatting");
+    ok &= Check(JoinHudRuns(dc) == L"DX11 60FPS | CPU 36% 67\u00B0C | GPU 98% | TDP 18W | SYS 24W | FAN 3540RPM | BAT 72% 2.5h", "game DC formatting");
     ok &= Check(dc.size() == 7, "game DC segment count");
 
     ok &= Check(JoinHudRuns(FormatHud(MakeGameAcSample())) ==
-        L"DX11 60 FPS | CPU 36% 67\u00B0C | GPU 98% | TDP 18 W | FAN 3540 RPM | BAT 72%", "game AC formatting");
+        L"DX11 60FPS | CPU 36% 67\u00B0C | GPU 98% | TDP 18W | FAN 3540RPM | BAT 72%", "game AC formatting");
     ok &= Check(JoinHudRuns(FormatHud(MakeNoGameAlwaysSample())) ==
-        L"CPU 36% 67\u00B0C | GPU 98% | TDP 18 W | SYS 24 W | FAN 3540 RPM | BAT 72% 2.5h", "no-game formatting");
+        L"CPU 36% 67\u00B0C | GPU 98% | TDP 18W | SYS 24W | FAN 3540RPM | BAT 72% 2.5h", "no-game formatting");
     ok &= Check(ShouldShowHud(HudVisibilityMode::Always, false), "always visibility");
     ok &= Check(!ShouldShowHud(HudVisibilityMode::InGameOnly, false), "in-game-only visibility");
     ok &= Check(ShouldShowHud(HudVisibilityMode::InGameOnly, true), "foreground game visibility");
@@ -48,10 +48,10 @@ int main()
     missing.cpuUsagePercent = 0.0;
     missing.cpuTemperatureC = 0;
     missing.fan1Rpm = 3200;
-    ok &= Check(JoinHudRuns(FormatHud(missing)) == L"CPU 0% 0\u00B0C | FAN 3200 RPM", "zero values stay explicit");
+    ok &= Check(JoinHudRuns(FormatHud(missing)) == L"CPU 0% 0\u00B0C | FAN 3200RPM", "zero values stay explicit");
     missing.fan1Rpm.reset();
     missing.fan2Rpm = 3600;
-    ok &= Check(JoinHudRuns(FormatHud(missing)) == L"CPU 0% 0\u00B0C | FAN 3600 RPM", "single fan formatting");
+    ok &= Check(JoinHudRuns(FormatHud(missing)) == L"CPU 0% 0\u00B0C | FAN 3600RPM", "single fan formatting");
     missing.fan2Rpm.reset();
     ok &= Check(JoinHudRuns(FormatHud(missing)) == L"CPU 0% 0\u00B0C", "missing fans omitted");
 
@@ -74,7 +74,7 @@ int main()
     ok &= Check(JoinHudRuns(FormatHud(displayed)) == L"FPS 120",
         "PresentMon displayed FPS formatting");
     displayed.graphicsApi = L"DX12";
-    ok &= Check(JoinHudRuns(FormatHud(displayed)) == L"DX12 120 FPS",
+    ok &= Check(JoinHudRuns(FormatHud(displayed)) == L"DX12 120FPS",
         "graphics API and displayed FPS formatting");
 
     HudTelemetrySnapshot unavailableApi{};
@@ -91,10 +91,10 @@ int main()
         "zero GPU usage without VRAM formatting");
     vram.gpuUsagePercent = 87.0;
     vram.gpuMemoryUsedBytes = static_cast<std::uint64_t>(3.4 * 1024.0 * 1024.0 * 1024.0);
-    ok &= Check(JoinHudRuns(FormatHud(vram)) == L"GPU 87% | VRAM 3.4 GB",
+    ok &= Check(JoinHudRuns(FormatHud(vram)) == L"GPU 87% | VRAM 3.4GB",
         "GPU usage and VRAM formatting");
     vram.gpuUsagePercent.reset();
-    ok &= Check(JoinHudRuns(FormatHud(vram)) == L"VRAM 3.4 GB",
+    ok &= Check(JoinHudRuns(FormatHud(vram)) == L"VRAM 3.4GB",
         "VRAM-only formatting");
     vram.gpuMemoryUsedBytes.reset();
     vram.gpuUsagePercent = 87.0;
@@ -102,7 +102,7 @@ int main()
         "GPU without VRAM omits the slot");
     vram.gpuUsagePercent.reset();
     vram.gpuMemoryUsedBytes = static_cast<std::uint64_t>(3.4 * 1024.0 * 1024.0 * 1024.0);
-    ok &= Check(JoinHudRuns(FormatHud(vram)) == L"VRAM 3.4 GB",
+    ok &= Check(JoinHudRuns(FormatHud(vram)) == L"VRAM 3.4GB",
         "VRAM without GPU usage remains visible");
 
     return ok ? 0 : 1;

@@ -63,6 +63,25 @@ bool IsWordBoundary(const std::wstring& text, std::size_t start, std::size_t len
         (start + length >= text.size() || !isWord(text[start + length]));
 }
 
+bool IsNumericAttachedUnit(const std::wstring& text, std::size_t start,
+    std::size_t length) noexcept
+{
+    if (start == 0)
+        return false;
+    const wchar_t previous = text[start - 1];
+    const bool numericBefore = (previous >= L'0' && previous <= L'9') || previous == L'.';
+    if (!numericBefore)
+        return false;
+
+    const std::size_t end = start + length;
+    const auto isWord = [](wchar_t value)
+    {
+        return value >= L'A' && value <= L'Z' || value >= L'a' && value <= L'z' ||
+            value >= L'0' && value <= L'9' || value == L'_';
+    };
+    return end >= text.size() || !isWord(text[end]);
+}
+
 std::vector<HudUnitRange> FindHudUnitRangesImpl(const std::wstring& text)
 {
     std::vector<HudUnitRange> ranges;
@@ -72,7 +91,8 @@ std::vector<HudUnitRange> FindHudUnitRangesImpl(const std::wstring& text)
         for (std::size_t start = text.find(token); start != std::wstring::npos;
             start = text.find(token, start + length))
         {
-            if (!wordBoundary || IsWordBoundary(text, start, length))
+            if (!wordBoundary || IsWordBoundary(text, start, length) ||
+                IsNumericAttachedUnit(text, start, length))
                 ranges.push_back({static_cast<std::uint32_t>(start), static_cast<std::uint32_t>(length)});
         }
     };
@@ -222,13 +242,13 @@ const wchar_t* ValueExemplar(HudSegmentKind kind) noexcept
 {
     switch (kind)
     {
-    case HudSegmentKind::Graphics: return L"999 FPS";
+    case HudSegmentKind::Graphics: return L"999FPS";
     case HudSegmentKind::Cpu: return L"100% 100\u00B0C";
     case HudSegmentKind::Gpu: return L"100%";
-    case HudSegmentKind::Vram: return L"99.9 GB";
+    case HudSegmentKind::Vram: return L"99.9GB";
     case HudSegmentKind::Tdp:
-    case HudSegmentKind::SystemPower: return L"99.9 W";
-    case HudSegmentKind::Fan: return L"9999 RPM";
+    case HudSegmentKind::SystemPower: return L"99.9W";
+    case HudSegmentKind::Fan: return L"9999RPM";
     case HudSegmentKind::Battery: return L"100% 9.9h";
     }
     return L"";
@@ -415,21 +435,16 @@ std::vector<HudUnitRange> FindHudUnitRanges(const std::wstring& text)
     return FindHudUnitRangesImpl(text);
 }
 
-float RightAlignedOffset(float reservedWidth, float actualWidth) noexcept
-{
-    return actualWidth < reservedWidth ? reservedWidth - actualWidth : 0.0f;
-}
-
 HudSegmentLayout CalculateHudSegmentLayout(float segmentStart,
     const HudSegmentMetrics& metrics, float actualLabelWidth, float actualValueWidth,
     float segmentGap) noexcept
 {
     const float labelSlotWidth = std::max(metrics.labelSlotWidth, actualLabelWidth);
     const float valueSlotWidth = std::max(metrics.valueSlotWidth, actualValueWidth);
-    const float valueSlotX = segmentStart + labelSlotWidth + segmentGap;
+    const float valueX = segmentStart + actualLabelWidth + segmentGap;
     return HudSegmentLayout{
         segmentStart,
-        valueSlotX + RightAlignedOffset(valueSlotWidth, actualValueWidth),
+        valueX,
         labelSlotWidth + segmentGap + valueSlotWidth};
 }
 
@@ -503,13 +518,13 @@ HRESULT HudRenderer::MeasureReservedHudWidth(
     const HudRenderOptions& options, float& width) const
 {
     const std::vector<HudTextRun> reservedRuns{
-        { HudSegmentKind::Graphics, L"Vulkan", L"999 FPS" },
+        { HudSegmentKind::Graphics, L"Vulkan", L"999FPS" },
         { HudSegmentKind::Cpu, L"CPU", L"100% 100\u00B0C" },
         { HudSegmentKind::Gpu, L"GPU", L"100%" },
-        { HudSegmentKind::Vram, L"VRAM", L"99.9 GB" },
-        { HudSegmentKind::Tdp, L"TDP", L"99.9 W" },
-        { HudSegmentKind::SystemPower, L"SYS", L"99.9 W" },
-        { HudSegmentKind::Fan, L"FAN", L"9999 RPM" },
+        { HudSegmentKind::Vram, L"VRAM", L"99.9GB" },
+        { HudSegmentKind::Tdp, L"TDP", L"99.9W" },
+        { HudSegmentKind::SystemPower, L"SYS", L"99.9W" },
+        { HudSegmentKind::Fan, L"FAN", L"9999RPM" },
         { HudSegmentKind::Battery, L"BAT", L"100% 9.9h" },
     };
     HudMeasureResult result{};

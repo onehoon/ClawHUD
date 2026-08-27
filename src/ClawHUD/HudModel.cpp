@@ -80,13 +80,13 @@ std::vector<HudTextRun> FormatHud(const HudTelemetrySnapshot& snapshot)
 
     if (snapshot.graphicsApi && snapshot.presentMonDisplayedFps)
         Add(runs, HudSegmentKind::Graphics, *snapshot.graphicsApi,
-            Integer(*snapshot.presentMonDisplayedFps) + L" FPS");
+            Integer(*snapshot.presentMonDisplayedFps) + L"FPS");
     else if (snapshot.presentMonDisplayedFps)
         Add(runs, HudSegmentKind::Graphics, L"FPS",
             Integer(*snapshot.presentMonDisplayedFps));
     else if (snapshot.graphicsApi && snapshot.renderFps)
         Add(runs, HudSegmentKind::Graphics, *snapshot.graphicsApi,
-            Integer(*snapshot.renderFps) + L" FPS");
+            Integer(*snapshot.renderFps) + L"FPS");
 
     const auto cpu = CpuValue(snapshot);
     if (!cpu.empty())
@@ -96,13 +96,13 @@ std::vector<HudTextRun> FormatHud(const HudTelemetrySnapshot& snapshot)
     if (!gpu.empty())
         Add(runs, HudSegmentKind::Gpu, L"GPU", gpu);
     if (snapshot.gpuMemoryUsedBytes)
-        Add(runs, HudSegmentKind::Vram, L"VRAM", Gigabytes(*snapshot.gpuMemoryUsedBytes) + L" GB");
+        Add(runs, HudSegmentKind::Vram, L"VRAM", Gigabytes(*snapshot.gpuMemoryUsedBytes) + L"GB");
 
     if (snapshot.cpuPackagePowerW)
-        Add(runs, HudSegmentKind::Tdp, L"TDP", Number(*snapshot.cpuPackagePowerW) + L" W");
+        Add(runs, HudSegmentKind::Tdp, L"TDP", Number(*snapshot.cpuPackagePowerW) + L"W");
 
     if (snapshot.onBattery && snapshot.systemPowerW)
-        Add(runs, HudSegmentKind::SystemPower, L"SYS", Number(*snapshot.systemPowerW) + L" W");
+        Add(runs, HudSegmentKind::SystemPower, L"SYS", Number(*snapshot.systemPowerW) + L"W");
 
     const auto fan1 = snapshot.fan1Rpm && *snapshot.fan1Rpm >= 0 ? snapshot.fan1Rpm : std::nullopt;
     const auto fan2 = snapshot.fan2Rpm && *snapshot.fan2Rpm >= 0 ? snapshot.fan2Rpm : std::nullopt;
@@ -111,7 +111,7 @@ std::vector<HudTextRun> FormatHud(const HudTelemetrySnapshot& snapshot)
         const double average = fan1 && fan2
             ? (static_cast<double>(*fan1) + *fan2) / 2.0
             : static_cast<double>(fan1 ? *fan1 : *fan2);
-        Add(runs, HudSegmentKind::Fan, L"FAN", Integer(average) + L" RPM");
+        Add(runs, HudSegmentKind::Fan, L"FAN", Integer(average) + L"RPM");
     }
 
     if (snapshot.batteryPercent)

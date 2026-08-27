@@ -70,7 +70,7 @@ bool ReadBackgroundAlpha(HudRenderer& renderer, HudRenderOptions options, BYTE& 
     d2dContext->BeginDraw();
     d2dContext->Clear(D2D1::ColorF(0, 0.0f));
     const std::vector<HudTextRun> runs{{HudSegmentKind::Gpu, L"GPU", L"99%"},
-        {HudSegmentKind::Tdp, L"TDP", L"18 W"}};
+        {HudSegmentKind::Tdp, L"TDP", L"18W"}};
     const HRESULT drawHr = renderer.Draw(d2dContext.Get(), runs, options,
         D2D1::RectF(0, 0, static_cast<float>(width), static_cast<float>(height)));
     if (FAILED(drawHr)) { std::cerr << "HudRenderer::Draw failed: " << std::hex << drawHr << '\n'; return false; }
@@ -115,10 +115,12 @@ int main()
         kHudGpuColor == 0x2E9762 && kHudVramColor == 0xAD64C1 &&
         kHudGraphicsColor == 0xEB5B5B && kHudSystemColor == 0xFF9078 &&
         kHudSeparatorColor == 0xAD64C1, "MangoHud semantic colors");
-    ok &= Check(Near(kHudTextOutlinePx, 1.5f) && Near(kHudSeparatorCorePx, 1.0f) &&
+    ok &= Check(Near(kHudTextOutlinePx, 1.5f) && Near(kHudSeparatorCorePx, 2.0f) &&
         Near(kHudSeparatorOuterPx, 3.0f), "MangoHud separator and outline widths");
 
     HudRenderOptions options{};
+    ok &= Check(Near(options.segmentGapPx, 8.0f) && Near(options.separatorGapPx, 8.0f),
+        "horizontal spacing defaults");
     ok &= Check(Near(options.fontPixelSize, 20.0f) &&
         Near(options.unitFontPixelSize, 11.0f) &&
         Near(options.barPixelHeight, 30.0f), "HUD typography defaults");
@@ -164,9 +166,6 @@ int main()
     const HudRenderOptions geometryOptions{};
     geometry = CalculateHudGeometry(viewport, HudMeasureResult{400.0f, 42.0f, 32.0f}, geometryOptions);
     ok &= Check(Near(geometry.textOrigin.y, 5.0f), "vertical centering uses measured text height");
-    ok &= Check(Near(RightAlignedOffset(100.0f, 80.0f), 20.0f) &&
-        Near(RightAlignedOffset(100.0f, 100.0f), 0.0f) &&
-        Near(RightAlignedOffset(100.0f, 120.0f), 0.0f), "right aligned value offset");
     const HudSegmentMetrics segmentMetrics{50.0f, 100.0f, 156.0f};
     const auto shortValueLayout = CalculateHudSegmentLayout(
         20.0f, segmentMetrics, 40.0f, 60.0f, 6.0f);
@@ -174,12 +173,12 @@ int main()
         20.0f, segmentMetrics, 40.0f, 90.0f, 6.0f);
     ok &= Check(Near(shortValueLayout.segmentWidth, 156.0f) &&
         Near(longValueLayout.segmentWidth, 156.0f) &&
-        Near(shortValueLayout.valueX + 60.0f, longValueLayout.valueX + 90.0f),
-        "segment value right edge is stable");
+        Near(shortValueLayout.valueX, 66.0f) && Near(longValueLayout.valueX, 66.0f),
+        "label value gap is stable");
     const auto overflowLayout = CalculateHudSegmentLayout(
         20.0f, segmentMetrics, 40.0f, 120.0f, 6.0f);
     ok &= Check(Near(overflowLayout.segmentWidth, 176.0f) &&
-        Near(overflowLayout.valueX, 76.0f), "segment overflow expands value slot");
+        Near(overflowLayout.valueX, 66.0f), "segment overflow expands value slot");
 
     const RECT monitor{ -1920, -100, 0, 980 };
     const auto fullWindow = CalculateHudWindowGeometry(
@@ -213,12 +212,16 @@ int main()
             matches = actual[i].start == wanted[i].start && actual[i].length == wanted[i].length;
         ok &= Check(matches, message);
     };
-    checkUnits(L"100 FPS", {{4, 3}}, "FPS unit range");
+    checkUnits(L"100FPS", {{3, 3}}, "FPS unit range");
     checkUnits(L"36% 67\u00B0C", {{2, 1}, {6, 2}}, "percentage and temperature unit ranges");
-    checkUnits(L"10.1 W", {{5, 1}}, "power unit range");
-    checkUnits(L"87% VRAM 3.4 GB", {{2, 1}, {13, 2}},
+    checkUnits(L"10.1W", {{4, 1}}, "power unit range");
+    checkUnits(L"87% VRAM 3.4GB", {{2, 1}, {12, 2}},
         "percentage and VRAM unit ranges");
-    checkUnits(L"1000 RPM", {{5, 3}}, "fan unit range");
+    checkUnits(L"1000RPM", {{4, 3}}, "fan unit range");
+    checkUnits(L"10Windows", {}, "power substring without trailing boundary");
+    checkUnits(L"3GBps", {}, "VRAM substring without trailing boundary");
+    checkUnits(L"60FPSCounter", {}, "FPS substring without trailing boundary");
+    checkUnits(L"1000RPMValue", {}, "fan substring without trailing boundary");
     checkUnits(L"72% 2.5h", {{2, 1}, {7, 1}}, "battery hours unit ranges");
     checkUnits(L"72% 45m", {{2, 1}, {6, 1}}, "battery minutes unit ranges");
 
@@ -255,7 +258,7 @@ int main()
                 ok &= Check(Near(width(kind, label, value), first), message);
         };
         sameWidth(HudSegmentKind::Graphics, L"FPS",
-            {L"9 FPS", L"99 FPS", L"999 FPS"}, "stable Graphics slot");
+            {L"9FPS", L"99FPS", L"999FPS"}, "stable Graphics slot");
         sameWidth(HudSegmentKind::Cpu, L"CPU",
             {L"1% 40\u00B0C", L"36% 67\u00B0C", L"100% 100\u00B0C"},
             "stable CPU slot");
@@ -263,28 +266,38 @@ int main()
             {L"1%", L"47%", L"100%"},
             "stable GPU slot");
         sameWidth(HudSegmentKind::Vram, L"VRAM",
-            {L"0.1 GB", L"3.4 GB", L"99.9 GB"}, "stable VRAM slot");
+            {L"0.1GB", L"3.4GB", L"99.9GB"}, "stable VRAM slot");
         sameWidth(HudSegmentKind::Tdp, L"TDP",
-            {L"5 W", L"18 W", L"99.9 W"}, "stable TDP slot");
+            {L"5W", L"18W", L"99.9W"}, "stable TDP slot");
         sameWidth(HudSegmentKind::SystemPower, L"SYS",
-            {L"8 W", L"24.5 W", L"99.9 W"}, "stable SystemPower slot");
+            {L"8W", L"24.5W", L"99.9W"}, "stable SystemPower slot");
         sameWidth(HudSegmentKind::Fan, L"FAN",
-            {L"800 RPM", L"4500 RPM", L"9999 RPM"}, "stable Fan slot");
+            {L"800RPM", L"4500RPM", L"9999RPM"}, "stable Fan slot");
         sameWidth(HudSegmentKind::Battery, L"BAT",
             {L"9%", L"72% 2.5h", L"100% 9.9h"}, "stable Battery slot");
-        ok &= Check(Near(width(HudSegmentKind::Graphics, L"FPS", L"60 FPS"),
-            width(HudSegmentKind::Graphics, L"Vulkan", L"60 FPS")),
+        ok &= Check(Near(width(HudSegmentKind::Graphics, L"FPS", L"60FPS"),
+            width(HudSegmentKind::Graphics, L"Vulkan", L"60FPS")),
             "Graphics API labels share a fixed slot");
+        const float singleGpuWidth = width(HudSegmentKind::Gpu, L"GPU", L"47%");
+        const float singleCpuWidth = width(HudSegmentKind::Cpu, L"CPU", L"36%");
+        const float expectedPairWidth = singleGpuWidth + singleCpuWidth -
+            2.0f * stableOptions.horizontalPaddingPx +
+            2.0f * stableOptions.separatorGapPx +
+            DipFromPhysicalPixels(kHudSeparatorOuterPx, stableOptions.dpi);
+        ok &= Check(Near(MeasureWidth(renderer, {
+                {HudSegmentKind::Gpu, L"GPU", L"47%"},
+                {HudSegmentKind::Cpu, L"CPU", L"36%"}}, stableOptions), expectedPairWidth),
+            "separator uses two physical 8px gaps");
         float reservedWidth{};
         ok &= Check(SUCCEEDED(renderer.MeasureReservedHudWidth(stableOptions, reservedWidth)) &&
             reservedWidth > 0.0f, "measure reserved HUD envelope");
         HudMeasureResult withVram{};
         HudMeasureResult withoutVram{};
         renderer.Measure({{HudSegmentKind::Gpu, L"GPU", L"74%"},
-            {HudSegmentKind::Vram, L"VRAM", L"3.4 GB"},
-            {HudSegmentKind::Tdp, L"TDP", L"18 W"}}, stableOptions, withVram);
+            {HudSegmentKind::Vram, L"VRAM", L"3.4GB"},
+            {HudSegmentKind::Tdp, L"TDP", L"18W"}}, stableOptions, withVram);
         renderer.Measure({{HudSegmentKind::Gpu, L"GPU", L"74%"},
-            {HudSegmentKind::Tdp, L"TDP", L"18 W"}}, stableOptions, withoutVram);
+            {HudSegmentKind::Tdp, L"TDP", L"18W"}}, stableOptions, withoutVram);
         ok &= Check(withVram.contentWidth > withoutVram.contentWidth,
             "visible ContentWidth omits missing VRAM slot");
         ok &= Check(reservedWidth > withVram.contentWidth,
@@ -296,8 +309,8 @@ int main()
         ok &= Check(SUCCEEDED(renderer.MeasureReservedHudWidth(alternateOptions,
             alternateReservedWidth)) && Near(reservedWidth, alternateReservedWidth),
             "reserved HUD envelope is layout-stable");
-        ok &= Check(width(HudSegmentKind::Fan, L"FAN", L"10000 RPM") >
-            width(HudSegmentKind::Fan, L"FAN", L"999 RPM"),
+        ok &= Check(width(HudSegmentKind::Fan, L"FAN", L"10000RPM") >
+            width(HudSegmentKind::Fan, L"FAN", L"999RPM"),
             "fan overflow expands");
 
         const std::vector<HudTextRun> gpu{{HudSegmentKind::Gpu, L"GPU", L"99%"}};
@@ -326,8 +339,8 @@ int main()
             HudMeasureResult measured{};
             renderer.Measure({{HudSegmentKind::Cpu, L"CPU", L"16% 43°C"},
                 {HudSegmentKind::Gpu, L"GPU", L"47%"},
-                {HudSegmentKind::Tdp, L"TDP", L"5 W"},
-                {HudSegmentKind::Fan, L"FAN", L"4507 RPM"},
+                {HudSegmentKind::Tdp, L"TDP", L"5W"},
+                {HudSegmentKind::Fan, L"FAN", L"4507RPM"},
                 {HudSegmentKind::Battery, L"BAT", L"78%"}},
                 stableOptions, measured);
             return measured;

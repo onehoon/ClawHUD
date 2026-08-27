@@ -20,7 +20,7 @@ inline constexpr std::uint32_t kHudGraphicsColor = 0xEB5B5B;
 inline constexpr std::uint32_t kHudSystemColor = 0xFF9078;
 inline constexpr std::uint32_t kHudSeparatorColor = 0xAD64C1;
 inline constexpr float kHudTextOutlinePx = 1.5f;
-inline constexpr float kHudSeparatorCorePx = 1.0f;
+inline constexpr float kHudSeparatorCorePx = 2.0f;
 inline constexpr float kHudSeparatorOuterPx = 3.0f;
 
 struct HudRenderOptions
@@ -71,7 +71,6 @@ struct HudSegmentLayout
 
 float DipFromPhysicalPixels(float pixels, float dpi) noexcept;
 std::vector<HudUnitRange> FindHudUnitRanges(const std::wstring& text);
-float RightAlignedOffset(float reservedWidth, float actualWidth) noexcept;
 HudSegmentLayout CalculateHudSegmentLayout(
     float segmentStart,
     const HudSegmentMetrics& metrics,
