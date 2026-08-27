@@ -621,7 +621,12 @@ bool VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
         writeVerdictPhase(L"DYNAMIC HUD", dynamicHud.csv);
         log << L"Supporting evidence: IGCL VBlank timing is not an authoritative VRR-active signal.\n"
             << L"Result: " << clawhud::VrrDiagnosticVerdictName(finalVerdict) << L"\n";
-        Status(phaseOk ? (finalVerdict == clawhud::VrrDiagnosticVerdict::Pass ? L"Passed" : L"Failed") : L"Failed");
+        switch (clawhud::VrrDiagnosticRuntimeStatusForResult(phaseOk, finalVerdict))
+        {
+        case clawhud::VrrDiagnosticRuntimeStatus::Passed: Status(L"Passed"); break;
+        case clawhud::VrrDiagnosticRuntimeStatus::Inconclusive: Status(L"Inconclusive"); break;
+        case clawhud::VrrDiagnosticRuntimeStatus::Failed: Status(L"Failed"); break;
+        }
         return phaseOk;
     }
     catch (...) { if (log.is_open()) log << L"RESULT: Failed\n"; Status(L"Failed"); return false; }

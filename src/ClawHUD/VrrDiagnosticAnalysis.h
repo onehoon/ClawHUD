@@ -44,6 +44,26 @@ struct VrrDiagnosticEvaluation
     std::string reason;
 };
 
+enum class VrrDiagnosticRuntimeStatus
+{
+    Failed,
+    Passed,
+    Inconclusive,
+};
+
+constexpr VrrDiagnosticRuntimeStatus VrrDiagnosticRuntimeStatusForResult(
+    bool diagnosticComplete, VrrDiagnosticVerdict verdict) noexcept
+{
+    if (!diagnosticComplete) return VrrDiagnosticRuntimeStatus::Failed;
+    switch (verdict)
+    {
+    case VrrDiagnosticVerdict::Pass: return VrrDiagnosticRuntimeStatus::Passed;
+    case VrrDiagnosticVerdict::Inconclusive: return VrrDiagnosticRuntimeStatus::Inconclusive;
+    case VrrDiagnosticVerdict::Fail: return VrrDiagnosticRuntimeStatus::Failed;
+    }
+    return VrrDiagnosticRuntimeStatus::Failed;
+}
+
 inline constexpr std::size_t kMinimumVrrComparisonSamples = 20;
 inline constexpr double kBaselineIndependentFlipMinimumPercent = 80.0;
 inline constexpr double kFailureIndependentFlipMaximumPercent = 50.0;

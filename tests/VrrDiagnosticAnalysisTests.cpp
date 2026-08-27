@@ -138,5 +138,13 @@ int main()
         "missing phase Independent Flip is unavailable");
     ok &= Expect(clawhud::EvaluateVrrComparison(offRange, staticRange, unavailable).verdict ==
         clawhud::VrrDiagnosticVerdict::Inconclusive, "missing phase is diagnostic inconclusive");
+    ok &= Expect(clawhud::VrrDiagnosticRuntimeStatusForResult(
+        true, clawhud::VrrDiagnosticVerdict::Inconclusive) ==
+        clawhud::VrrDiagnosticRuntimeStatus::Inconclusive,
+        "complete inconclusive diagnostic keeps inconclusive runtime status");
+    ok &= Expect(clawhud::VrrDiagnosticRuntimeStatusForResult(
+        false, clawhud::VrrDiagnosticVerdict::Inconclusive) ==
+        clawhud::VrrDiagnosticRuntimeStatus::Failed,
+        "incomplete diagnostic reports failed runtime status");
     return ok ? 0 : 1;
 }
