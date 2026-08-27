@@ -14,7 +14,7 @@ build\Release\ClawHUD.VrrPoc.exe
 
 The program writes the console output and a `logs/vrr-layered-poc-YYYYMMDD-HHMMSS.log` file, plus a matching CSV. It is a non-production, hardware-validation-only experiment. The startup banner identifies the `WS_EX_LAYERED` variant, verifies the actual HWND extended style, and records the result of `SetLayeredWindowAttributes(alpha=255, LWA_ALPHA)`. A `NO` capability result is a Phase 0 finding; runtime Independent Flip must be judged from the captured PresentMon CSV.
 
-The window is a top-level `WS_EX_NOACTIVATE | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_LAYERED` popup hosted by DirectComposition. `WS_EX_NOREDIRECTIONBITMAP` is disabled. Rendering is still performed by the unchanged D3D11 displayable texture and `IPresentationManager` path, with premultiplied alpha; the layered flag is the only presentation-window experiment variable. During the 60-second capture the existing automatic 5-second toggle removes/adds the visual content and commits the DirectComposition tree; `ESC` exits. OFF is therefore an actual content removal rather than an alpha-zero frame.
+The window is a top-level `WS_EX_NOACTIVATE | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_LAYERED` popup hosted by DirectComposition. `WS_EX_NOREDIRECTIONBITMAP` is disabled. Rendering is still performed by the unchanged D3D11 displayable texture and `IPresentationManager` path, with premultiplied alpha; the layered flag is the only presentation-window experiment variable. The Layered HUD remains visible for the full 60-second capture so every analyzed PresentMon row represents the condition under test; `ESC` exits.
 
 ## Hardware validation runbook
 
@@ -43,4 +43,4 @@ Record the exact Windows build, Intel graphics driver, panel refresh rate, game,
 
 ## Definition of Done boundary
 
-This repository can be **PoC ready for hardware validation** after a successful build and a run that displays `ClawHUD VRR TEST`, reports the capability query, toggles ON/OFF, and leaves the game process untouched. VRR, OptiScaler, and XeFG compatibility remain unverified until the MSI Claw captures above are completed. If either GO condition fails, do not add an injection/hook or game-specific workaround; report the result and stop for a project decision.
+This repository can be **PoC ready for hardware validation** after a successful build and a run that displays `ClawHUD VRR Layered PoC`, reports the capability query, keeps the Layered HUD visible during capture, and leaves the game process untouched. VRR, OptiScaler, and XeFG compatibility remain unverified until the MSI Claw captures above are completed. If either GO condition fails, do not add an injection/hook or game-specific workaround; report the result and stop for a project decision.

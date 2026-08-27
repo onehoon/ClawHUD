@@ -607,8 +607,6 @@ private:
 };
 }
 
-constexpr UINT_PTR kAutomaticTimerId = 1;
-constexpr UINT kAutomaticToggleMs = 5000;
 constexpr std::chrono::seconds kCaptureWatchdog{ 70 };
 
 void LogHudState(Logger& log, const PresentationOverlay& overlay)
@@ -833,10 +831,10 @@ PresentMonResult FinishPresentMon(Logger& log, PROCESS_INFORMATION& process,
     return result;
 }
 
-bool RunAutomaticTest(Logger& log, PresentationOverlay& overlay, const TargetProcess& target)
+bool RunLayeredCapture(Logger& log, PresentationOverlay& overlay, const TargetProcess& target)
 {
     const auto csv = std::filesystem::absolute(log.CsvPath());
-    overlay.SetVisible(false);
+    overlay.SetVisible(true);
     LogHudState(log, overlay);
 
     PROCESS_INFORMATION presentMon{};
@@ -847,16 +845,7 @@ bool RunAutomaticTest(Logger& log, PresentationOverlay& overlay, const TargetPro
         log.Write(L"=== TEST START ===");
         log.Write(L"Wall Time: " + WallClock());
         log.Write(L"QPC_MS: " + std::to_wstring(QpcMilliseconds()));
-
-        if (!SetTimer(overlay.Window(), kAutomaticTimerId, kAutomaticToggleMs, nullptr))
-        {
-            log.Write(L"TEST FAILED");
-            log.Write(L"Reason: SetTimer failed");
-            FinishPresentMon(log, presentMon, csv, true);
-            return false;
-        }
-
-        log.Write(L"F8 ignored while automatic VRR test is running");
+        log.Write(L"Layered HUD capture state: VISIBLE FOR FULL 60 SECONDS");
         const auto watchdog = std::chrono::steady_clock::now() + kCaptureWatchdog;
         bool success = true;
         bool cancelled = false;
@@ -874,20 +863,6 @@ bool RunAutomaticTest(Logger& log, PresentationOverlay& overlay, const TargetPro
             if (message.message == WM_HOTKEY && message.wParam == 2)
             {
                 PostQuitMessage(0);
-                continue;
-            }
-            if (message.message == WM_TIMER && message.hwnd == overlay.Window() &&
-                message.wParam == kAutomaticTimerId)
-            {
-                if (!TargetAlive(target))
-                {
-                    log.Write(L"TEST FAILED");
-                    log.Write(L"Reason: Target process exited");
-                    success = false;
-                    break;
-                }
-                overlay.SetVisible(!overlay.Visible());
-                LogHudState(log, overlay);
                 continue;
             }
             TranslateMessage(&message);
@@ -913,7 +888,6 @@ bool RunAutomaticTest(Logger& log, PresentationOverlay& overlay, const TargetPro
             }
             Sleep(20);
         }
-        KillTimer(overlay.Window(), kAutomaticTimerId);
         if (cancelled) log.Write(L"TEST CANCELLED");
 
         const PresentMonResult result = FinishPresentMon(log, presentMon, csv, !success);
@@ -961,12 +935,11 @@ bool RunAutomaticTest(Logger& log, PresentationOverlay& overlay, const TargetPro
         log.Write(L"Intel UMD XeFG-generated output frames may not all be observable.");
         log.Write(L"Do not treat PresentMon capture as authoritative true XeFG displayed FPS.");
         overlay.SetVisible(false);
-        log.Write(L"Automatic test completed. PoC exiting.");
+        log.Write(L"Layered capture completed. PoC exiting.");
         return success;
     }
     catch (...)
     {
-        KillTimer(overlay.Window(), kAutomaticTimerId);
         FinishPresentMon(log, presentMon, csv, true);
         throw;
     }
@@ -990,7 +963,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
             HRESULT_FROM_WIN32(GetLastError()));
     log.Write(L"ClawHUD VRR Layered PoC");
     log.Write(L"OS: Windows 11 (required; no compatibility fallback)");
-    log.Write(L"Test mode: PresentMon 60-second Layered HUD ON/OFF comparison");
+    log.Write(L"Test mode: PresentMon 60-second Layered HUD visible capture");
     TargetProcess target{};
     if (!AcquireTarget(log, target)) return 1;
     log.Write(L"=== TARGET GAME ===");
@@ -1004,7 +977,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
         overlay.Initialize();
         if (!RegisterHotKey(overlay.Window(), 2, MOD_NOREPEAT, VK_ESCAPE))
             log.Write(L"RegisterHotKey(ESC) unavailable; continuing without exit hotkey");
-        const bool success = RunAutomaticTest(log, overlay, target);
+        const bool success = RunLayeredCapture(log, overlay, target);
         UnregisterHotKey(overlay.Window(), 2);
         CloseTarget(target);
         return success ? 0 : 1;
