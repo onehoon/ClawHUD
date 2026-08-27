@@ -203,7 +203,7 @@ bool PresentMonHudTelemetry::Start(const std::wstring& executable, DWORD process
     return true;
 }
 
-void PresentMonHudTelemetry::Stop() noexcept
+DWORD PresentMonHudTelemetry::Stop() noexcept
 {
     stop_ = true;
 
@@ -216,6 +216,10 @@ void PresentMonHudTelemetry::Stop() noexcept
             WaitForSingleObject(process_, 2000);
         }
     }
+
+    DWORD finalExitCode{};
+    if (process_)
+        (void)GetExitCodeProcess(process_, &finalExitCode);
 
     if (worker_.joinable())
         worker_.join();
@@ -232,6 +236,7 @@ void PresentMonHudTelemetry::Stop() noexcept
     sessionName_.clear();
     processId_ = 0;
     callback_ = {};
+    return finalExitCode;
 }
 
 void PresentMonHudTelemetry::ReadLoop()

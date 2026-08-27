@@ -184,6 +184,8 @@ private:
     std::unique_ptr<clawhud::PresentMonHudTelemetry> presentMonHudTelemetry_;
     std::optional<double> latestPresentMonDisplayedFps_;
     DWORD presentMonProcessId_{};
+    DWORD presentMonRestartPid_{};
+    unsigned presentMonRestartAttempts_{};
     DWORD pendingProductionTargetPid_{};
     std::optional<clawhud::WindowsPowerTelemetry> latestPowerTelemetry_;
     clawhud::WindowsUsageSampler usageSampler_;

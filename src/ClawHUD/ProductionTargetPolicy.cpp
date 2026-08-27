@@ -57,6 +57,18 @@ bool ShouldPreservePendingProductionValidation(DWORD pendingProcessId,
         presentMonRunning;
 }
 
+bool ShouldDeferPendingProductionValidation(DWORD pendingProcessId,
+    DWORD foregroundProcessId, bool candidateProcessAlive) noexcept
+{
+    return pendingProcessId != 0 && foregroundProcessId == 0 && candidateProcessAlive;
+}
+
+bool ShouldRetryProductionPresentMon(DWORD retryProcessId,
+    unsigned retryAttempts, DWORD processId) noexcept
+{
+    return processId != 0 && (retryProcessId != processId || retryAttempts == 0);
+}
+
 bool ShouldReevaluateForegroundAfterResume(bool hudEnabled,
     bool recoveryCompleted) noexcept
 {

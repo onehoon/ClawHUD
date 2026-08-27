@@ -48,6 +48,14 @@ int main()
         !clawhud::ShouldPreservePendingProductionValidation(200, 100, true) &&
         !clawhud::ShouldPreservePendingProductionValidation(200, 200, false),
         "hidden HUD preserves only the active pending PresentMon validation");
+    ok &= Check(clawhud::ShouldDeferPendingProductionValidation(200, 0, true) &&
+        !clawhud::ShouldDeferPendingProductionValidation(200, 0, false) &&
+        !clawhud::ShouldDeferPendingProductionValidation(200, 100, true),
+        "transient foreground loss defers a live pending candidate");
+    ok &= Check(clawhud::ShouldRetryProductionPresentMon(0, 0, 100) &&
+        clawhud::ShouldRetryProductionPresentMon(100, 1, 200) &&
+        !clawhud::ShouldRetryProductionPresentMon(100, 1, 100),
+        "PresentMon recovery is limited to one retry per PID");
     ok &= Check(clawhud::ShouldReevaluateForegroundAfterResume(true, true) &&
         !clawhud::ShouldReevaluateForegroundAfterResume(false, true) &&
         !clawhud::ShouldReevaluateForegroundAfterResume(true, false),

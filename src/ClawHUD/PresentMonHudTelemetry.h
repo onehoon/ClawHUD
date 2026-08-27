@@ -34,7 +34,7 @@ public:
 
     ~PresentMonHudTelemetry();
     bool Start(const std::wstring& executable, DWORD processId, UpdateCallback callback);
-    void Stop() noexcept;
+    DWORD Stop() noexcept;
     bool Running() const noexcept
     {
         return process_ && WaitForSingleObject(process_, 0) == WAIT_TIMEOUT;

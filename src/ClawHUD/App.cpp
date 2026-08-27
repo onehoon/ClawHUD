@@ -125,7 +125,7 @@ App::~App()
     Log(L"ClawHUD exiting");
     KillTimer(tray_.Window(), kMockHudTimerId);
     CancelResumeRecovery();
-    StopProductionEcSampling();
+    StopProductionEcSampling(false);
     StopGraphicsApiProbe();
     foregroundTracker_.Stop();
     if (vrrDiagnostic_) vrrDiagnostic_->Stop();
@@ -900,6 +900,8 @@ void App::ReleaseCommittedProductionTarget(const wchar_t* reason)
     if (!processId)
         return;
     pendingProductionTargetPid_ = 0;
+    presentMonRestartPid_ = 0;
+    presentMonRestartAttempts_ = 0;
     StopProductionPresentMonSampling(reason, true);
     StopGraphicsApiProbe();
     StopProductionEcSampling(false);
@@ -995,12 +997,12 @@ void App::StopProductionPresentMonSampling(const wchar_t* reason, bool clearLate
 {
     if (presentMonHudTelemetry_)
     {
-        const DWORD exitCode = presentMonHudTelemetry_->ExitCode();
+        const DWORD processId = presentMonProcessId_;
         Log(L"PresentMon stop requested pid=" +
-            std::to_wstring(presentMonProcessId_) + L" reason=" + reason);
-        presentMonHudTelemetry_->Stop();
+            std::to_wstring(processId) + L" reason=" + reason);
+        const DWORD exitCode = presentMonHudTelemetry_->Stop();
         Log(L"PresentMon stopped pid=" +
-            std::to_wstring(presentMonProcessId_) + L" exitCode=" +
+            std::to_wstring(processId) + L" exitCode=" +
             std::to_wstring(exitCode));
         presentMonHudTelemetry_.reset();
     }
@@ -1063,6 +1065,8 @@ void App::HandlePresentMonHudUpdate(DWORD processId,
     {
         latestPresentMonDisplayedFps_ = displayedFps;
         ConfirmForegroundProductionTarget(processId);
+        presentMonRestartPid_ = processId;
+        presentMonRestartAttempts_ = 0;
         return;
     }
     if (!ProcessAlive(processId))
@@ -1092,7 +1096,25 @@ void App::HandlePresentMonHudUpdate(DWORD processId,
                 L" exitCode=" + std::to_wstring(exitCode));
         }
         StopProductionPresentMonSampling(L"unexpected-exit", false);
-        StartProductionPresentMonSampling();
+        if (presentMonRestartPid_ != processId)
+        {
+            presentMonRestartPid_ = processId;
+            presentMonRestartAttempts_ = 0;
+        }
+        if (clawhud::ShouldRetryProductionPresentMon(
+            presentMonRestartPid_, presentMonRestartAttempts_, processId))
+        {
+            ++presentMonRestartAttempts_;
+            StartProductionPresentMonSampling();
+        }
+        else
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+                L"PresentMon recovery exhausted pid=" + std::to_wstring(processId));
+    }
+    else if (displayedFps)
+    {
+        presentMonRestartPid_ = processId;
+        presentMonRestartAttempts_ = 0;
     }
 }
 
@@ -1157,12 +1179,16 @@ bool App::AdoptForegroundProductionTarget(HWND window, DWORD processId)
     std::wstring imageName;
     if (!IsUsableProductionTarget(window, processId, imageName))
     {
+        const bool transientForegroundLoss = !window || processId == 0;
+        if (transientForegroundLoss && pendingProductionTargetPid_ &&
+            ProcessAlive(pendingProductionTargetPid_))
+            return true;
         Log(L"Production target rejected pid=" + std::to_wstring(processId) +
             L" image=" + (imageName.empty() ? L"<unavailable>" : imageName));
         if (pendingProductionTargetPid_)
         {
             pendingProductionTargetPid_ = 0;
-            StopProductionPresentMonSampling(L"explicit-reset", true);
+            StopProductionPresentMonSampling(L"candidate-replaced", true);
             StopGraphicsApiProbe();
         }
         return false;
@@ -1179,6 +1205,8 @@ bool App::AdoptForegroundProductionTarget(HWND window, DWORD processId)
             std::to_wstring(oldProcessId) + L" new=" +
             std::to_wstring(processId));
         pendingProductionTargetPid_ = processId;
+        presentMonRestartPid_ = 0;
+        presentMonRestartAttempts_ = 0;
         StopProductionPresentMonSampling(L"target-handoff", true);
         StopGraphicsApiProbe();
         Log(L"Production target candidate pid=" + std::to_wstring(processId) +
@@ -1207,11 +1235,14 @@ void App::ConfirmForegroundProductionTarget(DWORD processId)
     if (!clawhud::ShouldConfirmProductionTarget(
         pendingProductionTargetPid_, processId, foregroundProcessId, true))
     {
+        if (clawhud::ShouldDeferPendingProductionValidation(
+            pendingProductionTargetPid_, foregroundProcessId, ProcessAlive(processId)))
+            return;
         Log(L"Production target validation discarded pid=" +
             std::to_wstring(processId) + L" reason=foreground-changed");
         pendingProductionTargetPid_ = 0;
         if (presentMonProcessId_ == processId)
-            StopProductionPresentMonSampling(L"explicit-reset", true);
+            StopProductionPresentMonSampling(L"candidate-replaced", true);
         if (graphicsApiProcessId_ == processId)
             StopGraphicsApiProbe();
         return;
@@ -1219,6 +1250,8 @@ void App::ConfirmForegroundProductionTarget(DWORD processId)
     const DWORD previousProcessId = foregroundTracker_.TrackedProcessId();
     pendingProductionTargetPid_ = 0;
     foregroundTracker_.SetTrackedProcessId(processId);
+    presentMonRestartPid_ = processId;
+    presentMonRestartAttempts_ = 0;
     usageSampler_.Reset();
     latestUsageTelemetry_.reset();
     StartGraphicsApiProbe(processId);
