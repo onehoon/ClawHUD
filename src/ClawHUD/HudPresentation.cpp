@@ -228,7 +228,11 @@ HRESULT HudPresentation::CreateBitmapTargets()
     return S_OK;
 }
 
-HRESULT HudPresentation::Render(const HudTelemetrySnapshot& snapshot, const HudRenderOptions& options)
+HRESULT HudPresentation::Render(
+    const HudTelemetrySnapshot& snapshot,
+    const HudRenderOptions& options,
+    HudRenderObserver observer,
+    void* observerContext)
 {
     if (!initialized_ || !renderer_)
         return E_UNEXPECTED;
@@ -257,7 +261,9 @@ HRESULT HudPresentation::Render(const HudTelemetrySnapshot& snapshot, const HudR
     return CommitHudRenderFrame(
         effective.layout.backgroundOpacity,
         &HudPresentation::PresentFrame,
-        this);
+        this,
+        observer,
+        observerContext);
 }
 
 HRESULT HudPresentation::PresentFrame(void* context) noexcept

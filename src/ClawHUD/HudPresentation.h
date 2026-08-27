@@ -51,7 +51,11 @@ public:
     ~HudPresentation();
 
     HRESULT Initialize(HINSTANCE instance, const HudRenderOptions& options = {});
-    HRESULT Render(const HudTelemetrySnapshot& snapshot, const HudRenderOptions& options);
+    HRESULT Render(
+        const HudTelemetrySnapshot& snapshot,
+        const HudRenderOptions& options,
+        HudRenderObserver observer = nullptr,
+        void* observerContext = nullptr);
     HRESULT Show();
     HRESULT Hide();
     bool Visible() const noexcept { return visible_; }
