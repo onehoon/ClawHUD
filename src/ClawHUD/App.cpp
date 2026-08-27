@@ -112,7 +112,7 @@ App::App(HINSTANCE instance) : instance_(instance), tray_(*this)
     wchar_t path[MAX_PATH]{}; const DWORD length = GetModuleFileNameW(instance_, path, ARRAYSIZE(path));
     executablePath_.assign(path, length);
     LoadHudSettings();
-    Log(L"ClawHUD started version=" CLAWHUD_VERSION L" pid=" +
+    Log(L"ClawHUD started version=" CLAWHUD_VERSION L" commit=" CLAWHUD_GIT_SHA L" pid=" +
         std::to_wstring(GetCurrentProcessId()));
     Log(L"Runtime settings HUDEnabled=" + std::to_wstring(mockHudEnabled_ ? 1 : 0) +
         L" HUDSizeOffset=" + std::to_wstring(hudSizeOffset_) +

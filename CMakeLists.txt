@@ -12,6 +12,15 @@ set(CLAWHUD_VERSION "0.1.0" CACHE STRING "ClawHUD package and displayed applicat
 if(NOT CLAWHUD_VERSION MATCHES "^0\\.1\\.(0|[1-9][0-9]?[0-9]?)$")
     message(FATAL_ERROR "CLAWHUD_VERSION must match 0.1.0 through 0.1.999")
 endif()
+execute_process(
+    COMMAND git rev-parse --short=12 HEAD
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    OUTPUT_VARIABLE CLAWHUD_GIT_SHA
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+if(NOT CLAWHUD_GIT_SHA)
+    set(CLAWHUD_GIT_SHA "unknown")
+endif()
 file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/generated")
 configure_file(
     "${CMAKE_SOURCE_DIR}/src/ClawHUD/Version.h.in"
@@ -88,6 +97,7 @@ add_executable(ClawHUD WIN32
 target_compile_features(ClawHUD PRIVATE cxx_std_20)
 target_compile_definitions(ClawHUD PRIVATE
     UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX
+    CLAWHUD_GIT_SHA=L\"${CLAWHUD_GIT_SHA}\"
     CLAWHUD_UPDATE_REPOSITORY=\"https://github.com/onehoon/ClawHUD\")
 target_include_directories(ClawHUD PRIVATE src/ClawHUD src/resources "${CMAKE_BINARY_DIR}/generated")
 target_link_libraries(ClawHUD PRIVATE ClawHUD.Velopack comctl32 shell32 user32 winmm dwmapi delayimp d3d11 dxgi dcomp d2d1 dwrite pdh advapi32 wbemuuid ole32 oleaut32)
