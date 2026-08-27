@@ -26,5 +26,9 @@ int main()
         "VRR diagnostic does not wait when F8 is unavailable");
     ok &= Check(VrrDiagnosticCanWaitForF8(true),
         "VRR diagnostic waits when F8 is registered");
+    ok &= Check(VrrDiagnosticCompletionSoundAllowed(true, true) &&
+        !VrrDiagnosticCompletionSoundAllowed(true, false) &&
+        !VrrDiagnosticCompletionSoundAllowed(false, true),
+        "completion sound requires successful phases and HUD restoration");
     return ok ? 0 : 1;
 }

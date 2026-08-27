@@ -17,6 +17,11 @@ int main()
     bool ok = true;
     ok &= Check(clawhud::IsRejectedProductionTargetImage(L"steam.exe"),
         "Steam launcher is not a production target");
+    ok &= Check(clawhud::IsRejectedProductionTargetImage(L"steamwebhelper.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"gamebar.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"gamebarftserver.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"xboxpcappft.exe"),
+        "Steam and Windows gaming shells are not production targets");
     ok &= Check(clawhud::IsRejectedProductionTargetImage(L"explorer.exe"),
         "Explorer is not a production target");
     ok &= Check(!clawhud::IsRejectedProductionTargetImage(L"game.exe"),

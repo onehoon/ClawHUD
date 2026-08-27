@@ -483,7 +483,7 @@ void SettingsWindow::CreateDiagnosticsControls()
     if (diagnosticsPanel_) SetWindowSubclass(diagnosticsPanel_, ForwardPanelNotifications, 2, 0);
     CreateWindowW(L"STATIC", L"VRR / Presentation Test", WS_CHILD | WS_VISIBLE,
         0, 0, 0, 0, diagnosticsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kDiagnosticsVrrHeading)), instance_, nullptr);
-    CreateWindowW(L"STATIC", L"Runs HUD OFF / STATIC HUD / DYNAMIC HUD phases\r\nfor presentation validation.",
+    CreateWindowW(L"STATIC", L"Start closes Settings. Return to the game and press F8.\r\nA ding confirms the target, then OFF -> STATIC -> DYNAMIC (~28 sec each).\r\nA second ding confirms successful completion.",
         WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, diagnosticsPanel_,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kDiagnosticsVrrDescription)), instance_, nullptr);
     startVrrButton_ = CreateWindowW(L"BUTTON", L"Start VRR Test",
@@ -601,15 +601,15 @@ void SettingsWindow::LayoutDiagnostics()
     const int x = Scale(24);
     const int scrollY = Scale(diagnosticsScrollY_);
     MoveControl(diagnosticsPanel_, kDiagnosticsVrrHeading, x, Scale(8) - scrollY, Scale(680), Scale(28));
-    MoveControl(diagnosticsPanel_, kDiagnosticsVrrDescription, x, Scale(40) - scrollY, Scale(680), Scale(44));
-    MoveWindow(startVrrButton_, x, Scale(92) - scrollY, Scale(140), Scale(32), TRUE);
-    MoveWindow(stopVrrButton_, x + Scale(152), Scale(92) - scrollY, Scale(80), Scale(32), TRUE);
-    MoveWindow(vrrStatus_, x, Scale(132) - scrollY, Scale(680), Scale(24), TRUE);
-    MoveControl(diagnosticsPanel_, kDiagnosticsEcHeading, x, Scale(180) - scrollY, Scale(680), Scale(28));
-    MoveControl(diagnosticsPanel_, kDiagnosticsEcDescription, x, Scale(212) - scrollY, Scale(680), Scale(44));
-    MoveWindow(startEcButton_, x, Scale(264) - scrollY, Scale(140), Scale(32), TRUE);
-    MoveWindow(openLogsButton_, x + Scale(152), Scale(264) - scrollY, Scale(150), Scale(32), TRUE);
-    MoveWindow(diagnosticStatus_, x, Scale(304) - scrollY, Scale(680), Scale(24), TRUE);
+    MoveControl(diagnosticsPanel_, kDiagnosticsVrrDescription, x, Scale(40) - scrollY, Scale(680), Scale(64));
+    MoveWindow(startVrrButton_, x, Scale(112) - scrollY, Scale(140), Scale(32), TRUE);
+    MoveWindow(stopVrrButton_, x + Scale(152), Scale(112) - scrollY, Scale(80), Scale(32), TRUE);
+    MoveWindow(vrrStatus_, x, Scale(152) - scrollY, Scale(680), Scale(24), TRUE);
+    MoveControl(diagnosticsPanel_, kDiagnosticsEcHeading, x, Scale(196) - scrollY, Scale(680), Scale(28));
+    MoveControl(diagnosticsPanel_, kDiagnosticsEcDescription, x, Scale(228) - scrollY, Scale(680), Scale(44));
+    MoveWindow(startEcButton_, x, Scale(280) - scrollY, Scale(140), Scale(32), TRUE);
+    MoveWindow(openLogsButton_, x + Scale(152), Scale(280) - scrollY, Scale(150), Scale(32), TRUE);
+    MoveWindow(diagnosticStatus_, x, Scale(320) - scrollY, Scale(680), Scale(24), TRUE);
 }
 
 void SettingsWindow::UpdateGeneralControls()

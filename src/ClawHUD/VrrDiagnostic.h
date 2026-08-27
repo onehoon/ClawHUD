@@ -44,6 +44,12 @@ constexpr bool VrrDiagnosticCanWaitForF8(bool hotkeyRegistered) noexcept
     return hotkeyRegistered;
 }
 
+constexpr bool VrrDiagnosticCompletionSoundAllowed(bool completed,
+    bool hudRestored) noexcept
+{
+    return completed && hudRestored;
+}
+
 constexpr bool DiagnosticHudModeUsesPeriodicUpdates(DiagnosticHudMode mode) noexcept
 {
     return mode == DiagnosticHudMode::Dynamic;
@@ -65,7 +71,7 @@ public:
 
 private:
     void Run();
-    void RunImpl(DWORD targetPid, HWND foregroundWindow, const std::wstring& targetPath);
+    bool RunImpl(DWORD targetPid, HWND foregroundWindow, const std::wstring& targetPath);
     void Status(const wchar_t* text) const;
     bool Capture(const std::filesystem::path& executable, DWORD pid, const std::filesystem::path& csv,
         const std::string& session, std::wofstream& log);
