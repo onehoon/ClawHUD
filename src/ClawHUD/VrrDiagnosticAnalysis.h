@@ -25,6 +25,10 @@ struct VrrCsvSummary
     double displayAverage{};
     double displayMin{};
     double displayMax{};
+    bool hasCoverageRange{};
+    double coverageMs{};
+    double coverageRatio{};
+    bool sufficientCoverage{};
 };
 
 enum class VrrDiagnosticVerdict
@@ -40,20 +44,47 @@ struct VrrDiagnosticEvaluation
     std::string reason;
 };
 
+enum class VrrDiagnosticRuntimeStatus
+{
+    Failed,
+    Passed,
+    Inconclusive,
+};
+
+constexpr VrrDiagnosticRuntimeStatus VrrDiagnosticRuntimeStatusForResult(
+    bool diagnosticComplete, VrrDiagnosticVerdict verdict) noexcept
+{
+    if (!diagnosticComplete) return VrrDiagnosticRuntimeStatus::Failed;
+    switch (verdict)
+    {
+    case VrrDiagnosticVerdict::Pass: return VrrDiagnosticRuntimeStatus::Passed;
+    case VrrDiagnosticVerdict::Inconclusive: return VrrDiagnosticRuntimeStatus::Inconclusive;
+    case VrrDiagnosticVerdict::Fail: return VrrDiagnosticRuntimeStatus::Failed;
+    }
+    return VrrDiagnosticRuntimeStatus::Failed;
+}
+
 inline constexpr std::size_t kMinimumVrrComparisonSamples = 20;
 inline constexpr double kBaselineIndependentFlipMinimumPercent = 80.0;
 inline constexpr double kFailureIndependentFlipMaximumPercent = 50.0;
 inline constexpr double kFailureIndependentFlipDropPoints = 30.0;
+inline constexpr double kMinimumPhaseCoverageRatio = 0.70;
 
 VrrCsvSummary ParseVrrCsvText(
     std::string_view text,
-    std::string_view preferredSwapChain = {});
+    std::string_view preferredSwapChain = {},
+    double qpcBeginMs = -1.0,
+    double qpcEndMs = -1.0);
 VrrCsvSummary ParseVrrCsvFile(
     const std::filesystem::path& path,
-    std::string_view preferredSwapChain = {});
+    std::string_view preferredSwapChain = {},
+    double qpcBeginMs = -1.0,
+    double qpcEndMs = -1.0);
 
 bool IsIndependentFlipPresentMode(std::string_view mode) noexcept;
 double IndependentFlipPercentage(const VrrCsvSummary& summary) noexcept;
+std::optional<double> IndependentFlipPercentageIfAvailable(
+    const VrrCsvSummary& summary) noexcept;
 std::string DominantPresentMode(const VrrCsvSummary& summary);
 VrrDiagnosticEvaluation EvaluateVrrComparison(
     const VrrCsvSummary& off,

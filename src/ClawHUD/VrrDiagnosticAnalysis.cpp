@@ -4,6 +4,7 @@
 #include <fstream>
 #include <sstream>
 #include <vector>
+#include <limits>
 
 namespace clawhud
 {
@@ -61,7 +62,8 @@ void StripTrailingCarriageReturn(std::string& line) noexcept
 }
 }
 
-VrrCsvSummary ParseVrrCsvText(std::string_view text, std::string_view preferredSwapChain)
+VrrCsvSummary ParseVrrCsvText(std::string_view text, std::string_view preferredSwapChain,
+    double qpcBeginMs, double qpcEndMs)
 {
     VrrCsvSummary result;
     std::istringstream input{ std::string(text) };
@@ -91,6 +93,17 @@ VrrCsvSummary ParseVrrCsvText(std::string_view text, std::string_view preferredS
             return result;
         }
     }
+    const bool filterByQpc = qpcBeginMs >= 0.0 && qpcEndMs >= qpcBeginMs;
+    std::optional<std::size_t> qpcColumn;
+    for (const auto name : { "CPUStartQPCTimeInMs", "QpcTimeMs", "QPCTimeMs", "QPC Time (ms)" })
+    {
+        if (columns.contains(name)) { qpcColumn = columns.at(name); break; }
+    }
+    if (filterByQpc && !qpcColumn)
+    {
+        result.reason = "QPC time column missing";
+        return result;
+    }
 
     const auto field = [&](const std::vector<std::string>& row, const char* name)
         -> std::string
@@ -102,6 +115,7 @@ VrrCsvSummary ParseVrrCsvText(std::string_view text, std::string_view preferredS
     struct Row
     {
         std::vector<std::string> fields;
+        double qpcMs{};
     };
     std::vector<Row> rows;
     std::map<std::string, std::size_t> swapCounts;
@@ -110,9 +124,14 @@ VrrCsvSummary ParseVrrCsvText(std::string_view text, std::string_view preferredS
         StripTrailingCarriageReturn(line);
         if (line.empty()) continue;
         auto fields = CsvLine(line);
+        double qpcMs{};
+        if (qpcColumn && !ParseDouble(*qpcColumn < fields.size() ? fields[*qpcColumn] : "", qpcMs))
+            continue;
+        if (filterByQpc && (qpcMs < qpcBeginMs || qpcMs > qpcEndMs))
+            continue;
         ++result.rows;
         ++swapCounts[field(fields, "SwapChainAddress")];
-        rows.push_back({ std::move(fields) });
+        rows.push_back({ std::move(fields), qpcMs });
     }
     if (!result.rows)
     {
@@ -143,10 +162,17 @@ VrrCsvSummary ParseVrrCsvText(std::string_view text, std::string_view preferredS
     result.rows = result.dominantRows;
 
     double presentTotal{}, displayTotal{};
+    double firstQpc = std::numeric_limits<double>::max();
+    double lastQpc = std::numeric_limits<double>::lowest();
     std::size_t presentCount{}, displayCount{};
     for (const auto& row : rows)
     {
         if (field(row.fields, "SwapChainAddress") != result.dominantSwapChain) continue;
+        if (qpcColumn)
+        {
+            firstQpc = std::min(firstQpc, row.qpcMs);
+            lastQpc = std::max(lastQpc, row.qpcMs);
+        }
         const auto mode = field(row.fields, "PresentMode");
         if (mode.empty() || mode == "NA") continue;
         ++result.presentModeSamples;
@@ -187,11 +213,22 @@ VrrCsvSummary ParseVrrCsvText(std::string_view text, std::string_view preferredS
     }
     result.presentAverage = presentTotal / presentCount;
     result.displayAverage = displayTotal / displayCount;
+    if (filterByQpc)
+    {
+        result.hasCoverageRange = true;
+        result.coverageMs = std::max(0.0, lastQpc - firstQpc);
+        const double requestedMs = qpcEndMs - qpcBeginMs;
+        result.coverageRatio = requestedMs > 0.0 ? result.coverageMs / requestedMs : 0.0;
+        result.sufficientCoverage = result.coverageRatio >= kMinimumPhaseCoverageRatio;
+        if (!result.sufficientCoverage)
+            result.reason = "Insufficient QPC sample coverage";
+    }
     result.valid = true;
     return result;
 }
 
-VrrCsvSummary ParseVrrCsvFile(const std::filesystem::path& path, std::string_view preferredSwapChain)
+VrrCsvSummary ParseVrrCsvFile(const std::filesystem::path& path, std::string_view preferredSwapChain,
+    double qpcBeginMs, double qpcEndMs)
 {
     std::ifstream file(path, std::ios::binary);
     if (!file.is_open())
@@ -202,7 +239,7 @@ VrrCsvSummary ParseVrrCsvFile(const std::filesystem::path& path, std::string_vie
     }
     std::ostringstream text;
     text << file.rdbuf();
-    return ParseVrrCsvText(text.str(), preferredSwapChain);
+    return ParseVrrCsvText(text.str(), preferredSwapChain, qpcBeginMs, qpcEndMs);
 }
 
 bool IsIndependentFlipPresentMode(std::string_view mode) noexcept
@@ -212,13 +249,22 @@ bool IsIndependentFlipPresentMode(std::string_view mode) noexcept
 
 double IndependentFlipPercentage(const VrrCsvSummary& summary) noexcept
 {
-    if (summary.modes.empty()) return 0.0;
+    const auto available = IndependentFlipPercentageIfAvailable(summary);
+    return available.value_or(0.0);
+}
+
+std::optional<double> IndependentFlipPercentageIfAvailable(const VrrCsvSummary& summary) noexcept
+{
+    if (!summary.valid || summary.modes.empty() ||
+        (summary.hasCoverageRange && !summary.sufficientCoverage))
+        return std::nullopt;
     std::size_t independent{};
     for (const auto& [mode, count] : summary.modes)
         if (IsIndependentFlipPresentMode(mode)) independent += count;
     std::size_t total{};
     for (const auto& [mode, count] : summary.modes) total += count;
-    return total == 0 ? 0.0 : 100.0 * static_cast<double>(independent) / static_cast<double>(total);
+    return total == 0 ? std::nullopt : std::optional<double>(
+        100.0 * static_cast<double>(independent) / static_cast<double>(total));
 }
 
 std::string DominantPresentMode(const VrrCsvSummary& summary)
@@ -241,7 +287,10 @@ VrrDiagnosticEvaluation EvaluateVrrComparison(
     const VrrCsvSummary& staticHud,
     const VrrCsvSummary& dynamicHud)
 {
-    if (!off.valid || !staticHud.valid || !dynamicHud.valid)
+    if (!off.valid || !staticHud.valid || !dynamicHud.valid ||
+        (off.hasCoverageRange && !off.sufficientCoverage) ||
+        (staticHud.hasCoverageRange && !staticHud.sufficientCoverage) ||
+        (dynamicHud.hasCoverageRange && !dynamicHud.sufficientCoverage))
         return { VrrDiagnosticVerdict::Inconclusive, "One or more phase CSV summaries are invalid." };
     if (off.presentModeSamples < kMinimumVrrComparisonSamples ||
         staticHud.presentModeSamples < kMinimumVrrComparisonSamples ||

@@ -50,6 +50,11 @@ constexpr bool VrrDiagnosticCompletionSoundAllowed(bool completed,
     return completed && hudRestored;
 }
 
+constexpr bool VrrDiagnosticShouldStopPresentMonGracefully(bool cancelled) noexcept
+{
+    return !cancelled;
+}
+
 constexpr bool DiagnosticHudModeUsesPeriodicUpdates(DiagnosticHudMode mode) noexcept
 {
     return mode == DiagnosticHudMode::Dynamic;
@@ -73,8 +78,6 @@ private:
     void Run();
     bool RunImpl(DWORD targetPid, HWND foregroundWindow, const std::wstring& targetPath);
     void Status(const wchar_t* text) const;
-    bool Capture(const std::filesystem::path& executable, DWORD pid, const std::filesystem::path& csv,
-        const std::string& session, std::wofstream& log);
     App& app_;
     HWND notifyWindow_{};
     std::thread worker_;

@@ -34,6 +34,7 @@ void TestAppendAndRotation(const std::filesystem::path& directory)
     const auto log = directory / L"clawhud.log";
     { std::ofstream output(log); output << "old\n"; }
     clawhud::RuntimeLogger::SetDirectoryForTests(directory.wstring());
+    assert(clawhud::LogDirectory() == directory);
     clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info, L"appended");
     assert(Read(log).find("old\n") != std::string::npos);
 

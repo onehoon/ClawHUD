@@ -13,7 +13,6 @@ public:
     bool Start();
     void Stop();
     bool Running() const { return running_.load(); }
-    void OpenLogFolder() const;
 
 private:
     void Run();
