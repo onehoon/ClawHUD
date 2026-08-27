@@ -44,6 +44,12 @@ constexpr bool VrrDiagnosticCanWaitForF8(bool hotkeyRegistered) noexcept
     return hotkeyRegistered;
 }
 
+constexpr bool VrrDiagnosticCompletionSoundAllowed(bool completed,
+    bool hudRestored) noexcept
+{
+    return completed && hudRestored;
+}
+
 constexpr bool DiagnosticHudModeUsesPeriodicUpdates(DiagnosticHudMode mode) noexcept
 {
     return mode == DiagnosticHudMode::Dynamic;

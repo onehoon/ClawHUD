@@ -275,15 +275,16 @@ void VrrDiagnostic::Run()
         targetPath = targetPath_;
     }
     const bool completed = RunImpl(targetPid, foregroundWindow, targetPath);
+    bool restoreSucceeded = true;
     if (!stop_.load() && hudStateSaved_)
     {
-        const bool restored = app_.RequestDiagnosticHudState(savedHudState_);
-        if (!restored)
+        restoreSucceeded = app_.RequestDiagnosticHudState(savedHudState_);
+        if (!restoreSucceeded)
             OutputDebugStringW(L"[ClawHUD] Failed to restore HUD state after VRR diagnostic\n");
         else if (!stop_.load())
             hudStateSaved_ = false;
     }
-    if (!stop_.load() && completed)
+    if (!stop_.load() && VrrDiagnosticCompletionSoundAllowed(completed, restoreSucceeded))
         PlayDiagnosticSound(true);
     state_ = VrrDiagnosticState::Idle;
     running_ = false;
