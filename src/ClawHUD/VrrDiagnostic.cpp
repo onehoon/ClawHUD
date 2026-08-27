@@ -9,6 +9,7 @@
 #include <d3d11.h>
 #include <dxgi1_6.h>
 #include <mmsystem.h>
+#include <shellapi.h>
 #include <wrl/client.h>
 
 #include <algorithm>
@@ -260,38 +261,92 @@ double QpcMilliseconds()
         static_cast<double>(frequency.QuadPart);
 }
 
+enum class PresentMonLaunchMode
+{
+    Standard,
+    Elevated,
+};
+
 struct PresentMonCaptureResult
 {
     bool ok{};
+    bool csvCreated{};
+    DWORD exitCode{};
+    PresentMonLaunchMode launchMode{ PresentMonLaunchMode::Standard };
     double beginQpcMs{};
     double endQpcMs{};
 };
 
-PresentMonCaptureResult CapturePresentMonPhase(
+std::wstring PresentMonParameters(DWORD pid, const std::filesystem::path& csv,
+    const std::string& session)
+{
+    return L"--process_id " + std::to_wstring(pid) + L" --output_file \"" +
+        csv.wstring() + L"\" --timed " + std::to_wstring(kCaptureDuration.count()) +
+        L" --terminate_after_timed --no_console_stats --qpc_time_ms --session_name " +
+        std::wstring(session.begin(), session.end());
+}
+
+PresentMonCaptureResult CapturePresentMonAttempt(
     const std::filesystem::path& executable,
     DWORD pid,
     const std::filesystem::path& csv,
     const std::string& session,
     const std::atomic_bool& stop,
-    std::wofstream& log)
+    std::wofstream& log,
+    const wchar_t* phase,
+    bool elevated)
 {
     PresentMonCaptureResult result;
-    const std::wstring command = L"\"" + executable.wstring() + L"\" --process_id " +
-        std::to_wstring(pid) + L" --output_file \"" + csv.wstring() + L"\" --timed " +
-        std::to_wstring(kCaptureDuration.count()) +
-        L" --terminate_after_timed --no_console_stats --qpc_time_ms --no_track_gpu --no_track_input --session_name " +
-        std::wstring(session.begin(), session.end());
-
-    std::vector<wchar_t> line(command.begin(), command.end());
-    line.push_back(L'\0');
-    STARTUPINFOW startup{ sizeof(startup) };
+    result.launchMode = elevated ? PresentMonLaunchMode::Elevated : PresentMonLaunchMode::Standard;
+    std::error_code removeError;
+    std::filesystem::remove(csv, removeError);
+    const auto parameters = PresentMonParameters(pid, csv, session);
+    const std::wstring command = L"\"" + executable.wstring() + L"\" " + parameters;
+    HANDLE processHandle{};
+    DWORD processId{};
     PROCESS_INFORMATION process{};
-    const bool started = CreateProcessW(nullptr, line.data(), nullptr, nullptr, FALSE,
-        CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process) != FALSE;
+    SHELLEXECUTEINFOW execute{};
+    execute.cbSize = sizeof(execute);
+    execute.fMask = SEE_MASK_NOCLOSEPROCESS;
+    execute.lpVerb = L"runas";
+    execute.lpFile = executable.c_str();
+    execute.lpParameters = parameters.c_str();
+    execute.nShow = SW_HIDE;
+
+    bool started = false;
+    if (elevated)
+    {
+        started = ShellExecuteExW(&execute) != FALSE;
+        processHandle = execute.hProcess;
+        if (started && processHandle)
+            processId = GetProcessId(processHandle);
+        const DWORD errorCode = started ? ERROR_SUCCESS : GetLastError();
+        if (!started && errorCode == ERROR_CANCELLED)
+        {
+            result.exitCode = ERROR_CANCELLED;
+            log << L"Elevated retry: CANCELLED\n";
+        }
+        else if (!started)
+        {
+            log << L"Elevated retry: FAILED\nError: " << errorCode << L"\n";
+        }
+    }
+    else
+    {
+        std::vector<wchar_t> line(command.begin(), command.end());
+        line.push_back(L'\0');
+        STARTUPINFOW startup{};
+        startup.cb = sizeof(startup);
+        started = CreateProcessW(nullptr, line.data(), nullptr, nullptr, FALSE,
+            CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process) != FALSE;
+        processHandle = process.hProcess;
+        processId = process.dwProcessId;
+    }
 
     if (!started)
     {
-        log << L"PresentMon: FAILED\nReason: CreateProcess failed\n";
+        if (!elevated)
+            log << L"PresentMon: FAILED\nReason: CreateProcess failed\n";
         return result;
     }
 
@@ -303,7 +358,7 @@ PresentMonCaptureResult CapturePresentMonPhase(
 
     while (!stop.load())
     {
-        const DWORD wait = WaitForSingleObject(process.hProcess, 100);
+        const DWORD wait = WaitForSingleObject(processHandle, 100);
         if (wait == WAIT_OBJECT_0) break;
         if (wait == WAIT_FAILED)
         {
@@ -318,18 +373,23 @@ PresentMonCaptureResult CapturePresentMonPhase(
     }
 
     if ((stop.load() || timeout || waitFailed) &&
-        WaitForSingleObject(process.hProcess, 0) == WAIT_TIMEOUT)
+        WaitForSingleObject(processHandle, 0) == WAIT_TIMEOUT)
     {
-        TerminateProcess(process.hProcess, stop.load() ? 2 : 3);
-        WaitForSingleObject(process.hProcess, 5000);
+        TerminateProcess(processHandle, stop.load() ? 2 : 3);
+        WaitForSingleObject(processHandle, 5000);
     }
     result.endQpcMs = QpcMilliseconds();
 
     DWORD code = STILL_ACTIVE;
-    GetExitCodeProcess(process.hProcess, &code);
-    const DWORD presentMonPid = process.dwProcessId;
-    CloseHandle(process.hThread);
-    CloseHandle(process.hProcess);
+    GetExitCodeProcess(processHandle, &code);
+    const DWORD presentMonPid = processId;
+    if (elevated)
+        CloseHandle(processHandle);
+    else
+    {
+        CloseHandle(process.hThread);
+        CloseHandle(processHandle);
+    }
 
     std::error_code error;
     const bool csvExists = std::filesystem::exists(csv, error) && !error;
@@ -337,10 +397,14 @@ PresentMonCaptureResult CapturePresentMonPhase(
     const double lifetime = std::chrono::duration<double>(
         std::chrono::steady_clock::now() - startedAt).count();
 
-    log << L"=== PRESENTMON CAPTURE ===\nCommand: " << command
+    result.exitCode = code;
+    result.csvCreated = csvExists && !error && csvSize != 0;
+    log << L"=== PRESENTMON CAPTURE ===\nPhase: " << phase
+        << L"\nAttempt: " << (elevated ? L"ELEVATED" : L"STANDARD")
+        << L"\nCommand: " << command
         << L"\nPresentMon PID: " << presentMonPid
         << L"\nExit Code: " << code
-        << L"\nCSV Created: " << (csvExists ? L"YES" : L"NO")
+        << L"\nCSV Created: " << (result.csvCreated ? L"YES" : L"NO")
         << L"\nCSV Size: " << (error ? 0 : csvSize)
         << L"\nPresentMon Lifetime: " << lifetime << L" sec"
         << L"\nPresentMon Exit Time: " << Now() << L"\n";
@@ -348,8 +412,31 @@ PresentMonCaptureResult CapturePresentMonPhase(
     if (timeout) log << L"PresentMon: watchdog timeout\n";
     if (waitFailed) log << L"PresentMon: process wait failed\n";
 
-    result.ok = !stop.load() && !timeout && !waitFailed &&
-        code == 0 && csvExists && !error && csvSize != 0;
+    result.ok = !stop.load() && !timeout && !waitFailed && code == 0 && result.csvCreated;
+    return result;
+}
+
+PresentMonCaptureResult CapturePresentMonPhase(
+    const std::filesystem::path& executable,
+    DWORD pid,
+    const std::filesystem::path& csv,
+    const std::string& session,
+    const std::atomic_bool& stop,
+    std::wofstream& log,
+    const wchar_t* phase,
+    bool& elevationRequired)
+{
+    if (elevationRequired)
+        return CapturePresentMonAttempt(executable, pid, csv, session, stop, log, phase, true);
+
+    auto result = CapturePresentMonAttempt(
+        executable, pid, csv, session, stop, log, phase, false);
+    if (result.ok || stop.load()) return result;
+
+    log << L"Standard capture produced no usable CSV.\n"
+        << L"Retrying this phase elevated.\n";
+    result = CapturePresentMonAttempt(executable, pid, csv, session, stop, log, phase, true);
+    if (result.ok) elevationRequired = true;
     return result;
 }
 }
@@ -501,8 +588,10 @@ bool VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
         log << L"=== CLAWHUD VRR DIAGNOSTIC ===\nTimestamp: " << Now()
             << L"\nPresentMon: 2.5.1\n"
             << L"PresentMon lifecycle: one independent 28-second process per phase\n"
-            << L"PresentMon GPU tracking: disabled (--no_track_gpu)\n"
-            << L"PresentMon input tracking: disabled (--no_track_input)\n"
+            << L"PresentMon capture strategy:\n"
+            << L"  per-phase 28-second captures\n"
+            << L"  standard launch first\n"
+            << L"  elevated fallback enabled\n"
             << L"Display tracking: enabled (no --no_track_display)\n"
             << L"VRR verdict is authoritative only when all phase captures meet coverage requirements.\n"
             << L"NOTE: PresentMon captures application presents and OS-visible display timing.\n"
@@ -529,6 +618,7 @@ bool VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
             << L"\nTarget Alive: " << (Alive(targetPid) ? L"YES" : L"NO") << L"\n\n";
 
         const std::string sessionStamp = Narrow(stamp);
+        bool elevationRequired = false;
         struct PhaseResult
         {
             clawhud::VrrCsvSummary csv;
@@ -568,7 +658,7 @@ bool VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
             igcl.StartSampling();
             const auto capture = CapturePresentMonPhase(pm, targetPid, csvPath,
                 "ClawHUD-VRR-" + std::to_string(targetPid) + "-" + sessionMode + "-" + sessionStamp,
-                stop_, log);
+                stop_, log, title, elevationRequired);
             result.vblank = igcl.StopSampling(log, title);
             result.captureOk = capture.ok;
             result.targetAlive = Alive(targetPid);
@@ -676,7 +766,9 @@ bool VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
         log << L"=== VRR VERDICT ===\nDiagnostic Status: "
             << (diagnosticComplete ? L"COMPLETE" : L"FAILED")
             << L"\nVRR Verdict: " << clawhud::VrrDiagnosticVerdictName(finalVerdict)
-            << L"\nReason: " << std::wstring(finalReason.begin(), finalReason.end()) << L"\n";
+            << L"\nReason: " << std::wstring(finalReason.begin(), finalReason.end())
+            << L"\nPresentMon elevated fallback used: "
+            << (elevationRequired ? L"YES" : L"NO") << L"\n";
         writeVerdictPhase(L"HUD OFF", off.csv);
         writeVerdictPhase(L"STATIC HUD", staticHud.csv);
         writeVerdictPhase(L"DYNAMIC HUD", dynamicHud.csv);

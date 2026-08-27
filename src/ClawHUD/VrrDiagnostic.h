@@ -56,6 +56,11 @@ constexpr bool VrrDiagnosticShouldForceTerminatePresentMon(
     return cancelled || phaseFailed;
 }
 
+constexpr bool ShouldRetryPresentMonElevated(bool captureOk, bool cancelled) noexcept
+{
+    return !captureOk && !cancelled;
+}
+
 constexpr bool DiagnosticHudModeUsesPeriodicUpdates(DiagnosticHudMode mode) noexcept
 {
     return mode == DiagnosticHudMode::Dynamic;
