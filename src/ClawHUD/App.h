@@ -151,14 +151,15 @@ private:
     bool AdoptForegroundProductionTarget();
     bool AdoptForegroundProductionTarget(HWND window, DWORD processId);
     void ConfirmForegroundProductionTarget(DWORD processId);
-    bool IsUsableProductionTarget(HWND window, DWORD processId) const;
+    bool IsUsableProductionTarget(HWND window, DWORD processId,
+        std::wstring& imageName) const;
     bool ApplyDiagnosticHudVisibility(bool visible);
     bool ApplyDiagnosticHudMode(DiagnosticHudMode mode);
     clawhud::MsiEcHudTelemetry ReadHudEcTelemetry();
     void StartProductionEcSampling();
     void PauseProductionSamplingForSuspend();
     void CancelResumeRecovery();
-    void StopProductionEcSampling();
+    void StopProductionEcSampling(bool stopPresentMon = true);
     void StartProductionPresentMonSampling();
     void StopProductionPresentMonSampling();
     void HandlePresentMonHudUpdate(DWORD processId, std::optional<double> displayedFps);

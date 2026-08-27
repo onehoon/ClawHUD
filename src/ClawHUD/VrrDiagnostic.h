@@ -9,6 +9,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
 
 class App;
@@ -50,6 +51,13 @@ constexpr bool VrrDiagnosticCompletionSoundAllowed(bool completed,
     return completed && hudRestored;
 }
 
+constexpr bool VrrDiagnosticStatusRequiresForegroundReevaluation(
+    std::wstring_view status) noexcept
+{
+    return status == L"Passed" || status == L"Inconclusive" ||
+        status == L"Failed";
+}
+
 constexpr bool DiagnosticHudModeUsesPeriodicUpdates(DiagnosticHudMode mode) noexcept
 {
     return mode == DiagnosticHudMode::Dynamic;
@@ -71,6 +79,7 @@ public:
 
 private:
     void Run();
+    void NotifyCompletion() const;
     bool RunImpl(DWORD targetPid, HWND foregroundWindow, const std::wstring& targetPath);
     void Status(const wchar_t* text) const;
     bool Capture(const std::filesystem::path& executable, DWORD pid, const std::filesystem::path& csv,
@@ -91,3 +100,4 @@ private:
 };
 
 constexpr UINT kVrrDiagnosticStatus = WM_APP + 21;
+constexpr UINT kVrrDiagnosticCompleted = WM_APP + 22;

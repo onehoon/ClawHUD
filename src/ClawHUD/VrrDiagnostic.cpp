@@ -251,6 +251,12 @@ void VrrDiagnostic::Stop()
     running_ = false;
 }
 
+void VrrDiagnostic::NotifyCompletion() const
+{
+    if (notifyWindow_)
+        PostMessageW(notifyWindow_, kVrrDiagnosticCompleted, 0, 0);
+}
+
 void VrrDiagnostic::Run()
 {
     DWORD targetPid{};
@@ -288,6 +294,7 @@ void VrrDiagnostic::Run()
         PlayDiagnosticSound(true);
     state_ = VrrDiagnosticState::Idle;
     running_ = false;
+    NotifyCompletion();
 }
 
 bool VrrDiagnostic::TriggerFromForeground()
