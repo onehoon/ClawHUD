@@ -109,6 +109,8 @@ HRESULT HudPresentation::CreateWindowHost(HINSTANCE instance)
         nullptr, nullptr, instance, this);
     if (!window_)
         return LastErrorResult();
+    if (!SetLayeredWindowAttributes(window_, 0, 255, LWA_ALPHA))
+        return LastErrorResult();
     if (!SetWindowPos(window_, HWND_TOPMOST, xPx_, yPx_, static_cast<int>(widthPx_),
         static_cast<int>(heightPx_), SWP_NOACTIVATE | SWP_NOOWNERZORDER))
         return LastErrorResult();

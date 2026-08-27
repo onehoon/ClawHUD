@@ -11,8 +11,10 @@ int main()
         if (!condition) std::cerr << "FAILED: " << name << '\n';
         ok &= condition;
     };
-    expect((contract.windowExStyle & WS_EX_NOREDIRECTIONBITMAP) != 0, "no redirection bitmap");
-    expect((contract.windowExStyle & WS_EX_LAYERED) == 0, "layered absent");
+    expect((contract.windowExStyle & WS_EX_NOREDIRECTIONBITMAP) == 0, "no redirection bitmap absent");
+    expect((contract.windowExStyle & WS_EX_LAYERED) != 0, "layered present");
+    expect((contract.windowExStyle & (WS_EX_LAYERED | WS_EX_NOREDIRECTIONBITMAP)) == WS_EX_LAYERED,
+        "layered and no-redirection bitmap are mutually exclusive");
     expect((contract.windowExStyle & WS_EX_NOACTIVATE) != 0, "no activate");
     expect((contract.windowExStyle & WS_EX_TOPMOST) != 0, "topmost");
     expect(contract.textureFormat == DXGI_FORMAT_B8G8R8A8_UNORM, "texture format");

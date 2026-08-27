@@ -26,7 +26,7 @@ constexpr HudPresentationContract ProductionHudPresentationContract() noexcept
 {
     return {
         WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT |
-            WS_EX_NOREDIRECTIONBITMAP | WS_EX_TOPMOST,
+            WS_EX_LAYERED | WS_EX_TOPMOST,
         DXGI_FORMAT_B8G8R8A8_UNORM,
         1,
         3,
