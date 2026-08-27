@@ -20,11 +20,14 @@ struct WindowsUsageTelemetry
 
 std::optional<double> NormalizeUsagePercent(double value) noexcept;
 std::optional<double> MaxGpuUsagePercent(const std::vector<double>& values) noexcept;
+std::optional<LUID> ParseGpuMemoryInstanceLuid(std::wstring_view instance);
 bool IsIntelGpuMemoryCounterInstance(std::wstring_view instance,
     const LUID& adapterLuid);
 std::optional<std::uint64_t> CombineGpuMemoryBytes(
     std::optional<std::uint64_t> dedicated,
     std::optional<std::uint64_t> shared) noexcept;
+bool ShouldRetryIntelGpuMemoryCounters(bool dedicatedEmpty,
+    bool sharedEmpty, unsigned int attempts) noexcept;
 
 class WindowsUsageSampler
 {
@@ -39,6 +42,7 @@ private:
     static bool IsValidCounter(const PDH_FMT_COUNTERVALUE& value) noexcept;
     bool AddGpuCounters();
     bool AddIntelGpuMemoryCounters();
+    bool TryBindIntelGpuMemoryCounters();
     std::optional<double> ReadCounter(PDH_HCOUNTER counter,
         bool capAbove100) const;
     std::optional<std::uint64_t> ReadByteCounter(PDH_HCOUNTER counter) const;
@@ -52,5 +56,6 @@ private:
     std::vector<PDH_HCOUNTER> intelSharedMemoryCounters_;
     bool primed_{};
     bool memoryDiagnosticsLogged_{};
+    unsigned int intelMemoryRebindAttempts_{};
 };
 }
