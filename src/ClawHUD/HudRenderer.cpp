@@ -280,8 +280,16 @@ const wchar_t* MetricExemplar(HudMetricKind kind) noexcept
     return L"";
 }
 
-HudMetricKind MetricKindFor(HudSegmentKind kind, std::size_t index) noexcept
+HudMetricKind MetricKindForToken(HudSegmentKind kind, std::size_t index,
+    const std::wstring& text) noexcept
 {
+    if (kind == HudSegmentKind::Cpu)
+    {
+        if (text.size() >= 1 && text.ends_with(L"%"))
+            return HudMetricKind::UsagePercent;
+        if (text.size() >= 2 && text.ends_with(L"\u00B0C"))
+            return HudMetricKind::Temperature;
+    }
     switch (kind)
     {
     case HudSegmentKind::Graphics: return HudMetricKind::Fps;
@@ -304,7 +312,7 @@ std::vector<HudMetricCell> BuildMetricCells(const HudTextRun& run)
     std::wistringstream values(run.value);
     std::wstring value;
     while (values >> value)
-        cells.push_back({MetricKindFor(run.kind, cells.size()), std::move(value)});
+        cells.push_back({MetricKindForToken(run.kind, cells.size(), value), std::move(value)});
     return cells;
 }
 
@@ -636,6 +644,7 @@ HRESULT HudRenderer::Draw(ID2D1DeviceContext* context,
         if (FAILED(hr)) return hr;
         DrawOutlinedLayout(context, label.Get(), x, geometry.textOrigin.y,
             labelBrush.Get(), outlineBrush.Get(), options);
+        x += Width(label.Get());
         const auto cells = BuildMetricCells(runs[i]);
         if (!cells.empty())
             x += SegmentGap(options);

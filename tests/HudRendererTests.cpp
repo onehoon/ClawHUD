@@ -258,6 +258,9 @@ int main()
         sameWidth(HudSegmentKind::Cpu, L"CPU",
             {L"1% 40\u00B0C", L"36% 67\u00B0C", L"100% 100\u00B0C"},
             "stable CPU slot");
+        sameWidth(HudSegmentKind::Cpu, L"CPU",
+            {L"40\u00B0C", L"67\u00B0C", L"100\u00B0C"},
+            "stable temperature-only CPU slot");
         sameWidth(HudSegmentKind::Gpu, L"GPU",
             {L"1%", L"47%", L"100%"},
             "stable GPU slot");
