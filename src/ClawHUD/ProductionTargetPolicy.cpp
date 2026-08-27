@@ -50,6 +50,12 @@ bool ShouldPreservePendingProductionValidation(DWORD pendingProcessId,
         presentMonRunning;
 }
 
+bool ShouldReevaluateForegroundAfterResume(bool hudEnabled,
+    bool recoveryCompleted) noexcept
+{
+    return hudEnabled && recoveryCompleted;
+}
+
 bool ShouldCancelPendingCandidateOnCommittedReturn(DWORD committedProcessId,
     DWORD pendingProcessId, DWORD foregroundProcessId) noexcept
 {

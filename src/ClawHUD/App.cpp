@@ -410,6 +410,9 @@ void App::TryResumeRecovery()
             Log(L"PresentMon restarted after resume pid=" + std::to_wstring(processId));
         const unsigned completedAttempt = resumeRecoveryAttempts_;
         CancelResumeRecovery();
+        if (clawhud::ShouldReevaluateForegroundAfterResume(
+            mockHudEnabled_, recovered))
+            AdoptForegroundProductionTarget();
         Log(L"HUD resume recovery completed attempt=" +
             std::to_wstring(completedAttempt));
         return;
@@ -817,7 +820,6 @@ void App::PauseProductionSamplingForSuspend()
     latestUsageTelemetry_.reset();
     latestPresentMonDisplayedFps_.reset();
     usageSampler_.Reset();
-    pendingProductionTargetPid_ = 0;
     ecHudSamplingActive_ = false;
 }
 

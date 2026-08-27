@@ -17,6 +17,8 @@ bool ShouldSampleProductionPresentMon(DWORD pendingProcessId,
     bool foregroundIsTrackedProcess) noexcept;
 bool ShouldPreservePendingProductionValidation(DWORD pendingProcessId,
     DWORD presentMonProcessId, bool presentMonRunning) noexcept;
+bool ShouldReevaluateForegroundAfterResume(bool hudEnabled,
+    bool recoveryCompleted) noexcept;
 bool ShouldCancelPendingCandidateOnCommittedReturn(DWORD committedProcessId,
     DWORD pendingProcessId, DWORD foregroundProcessId) noexcept;
 bool ShouldConfirmProductionTarget(DWORD pendingProcessId, DWORD observedProcessId,

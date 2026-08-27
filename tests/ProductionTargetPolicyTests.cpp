@@ -45,6 +45,10 @@ int main()
         !clawhud::ShouldPreservePendingProductionValidation(200, 100, true) &&
         !clawhud::ShouldPreservePendingProductionValidation(200, 200, false),
         "hidden HUD preserves only the active pending PresentMon validation");
+    ok &= Check(clawhud::ShouldReevaluateForegroundAfterResume(true, true) &&
+        !clawhud::ShouldReevaluateForegroundAfterResume(false, true) &&
+        !clawhud::ShouldReevaluateForegroundAfterResume(true, false),
+        "completed resume recovery re-adopts the current foreground");
     ok &= Check(clawhud::ShouldCancelPendingCandidateOnCommittedReturn(100, 200, 100) &&
         !clawhud::ShouldCancelPendingCandidateOnCommittedReturn(100, 100, 100) &&
         !clawhud::ShouldCancelPendingCandidateOnCommittedReturn(100, 200, 200),
