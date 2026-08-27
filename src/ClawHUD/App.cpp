@@ -805,6 +805,7 @@ void App::PauseProductionSamplingForSuspend()
 {
     KillTimer(tray_.Window(), kEcHudTimerId);
     KillTimer(tray_.Window(), kBatteryHudTimerId);
+    StopProductionPresentMonSampling();
     StopGraphicsApiProbe();
     if (ecHudClient_)
     {
