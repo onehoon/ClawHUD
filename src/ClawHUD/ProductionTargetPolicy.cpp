@@ -31,6 +31,12 @@ bool ShouldReplacePendingCandidate(DWORD pendingProcessId,
     return foregroundProcessId != 0 && foregroundProcessId != pendingProcessId;
 }
 
+DWORD SelectProductionSamplingProcess(DWORD trackedProcessId,
+    DWORD pendingProcessId) noexcept
+{
+    return pendingProcessId ? pendingProcessId : trackedProcessId;
+}
+
 bool ShouldConfirmProductionTarget(DWORD pendingProcessId, DWORD observedProcessId,
     DWORD foregroundProcessId, bool displayedFpsAvailable) noexcept
 {

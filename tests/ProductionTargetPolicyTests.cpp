@@ -34,6 +34,9 @@ int main()
         !clawhud::ShouldReplacePendingCandidate(100, 100) &&
         !clawhud::ShouldReplacePendingCandidate(100, 0),
         "foreground B replaces pending candidate A");
+    ok &= Check(clawhud::SelectProductionSamplingProcess(100, 200) == 200 &&
+        clawhud::SelectProductionSamplingProcess(100, 0) == 100,
+        "pending candidate is sampled before committed target");
     ok &= Check(!clawhud::ShouldConfirmProductionTarget(42, 43, 43, true) &&
         !clawhud::ShouldConfirmProductionTarget(42, 42, 43, true) &&
         !clawhud::ShouldConfirmProductionTarget(42, 42, 42, false) &&

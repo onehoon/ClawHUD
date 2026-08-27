@@ -849,8 +849,8 @@ void App::StartProductionPresentMonSampling()
     if (suspended_ || DiagnosticRunning() || !mockHudEnabled_ ||
         (!MockHudVisible() && !pendingProductionTargetPid_))
         return;
-    const DWORD processId = foregroundTracker_.TrackedProcessId()
-        ? foregroundTracker_.TrackedProcessId() : pendingProductionTargetPid_;
+    const DWORD processId = clawhud::SelectProductionSamplingProcess(
+        foregroundTracker_.TrackedProcessId(), pendingProductionTargetPid_);
     if (!processId || !ProcessAlive(processId))
     {
         if (pendingProductionTargetPid_ == processId)
