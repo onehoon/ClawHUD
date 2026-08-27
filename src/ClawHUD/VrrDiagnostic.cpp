@@ -322,7 +322,7 @@ PresentMonCaptureResult CapturePresentMonAttempt(
     PROCESS_INFORMATION process{};
     SHELLEXECUTEINFOW execute{};
     execute.cbSize = sizeof(execute);
-    execute.fMask = SEE_MASK_NOCLOSEPROCESS;
+    execute.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC;
     execute.lpVerb = L"runas";
     execute.lpFile = executable.c_str();
     execute.lpParameters = parameters.c_str();
@@ -333,7 +333,12 @@ PresentMonCaptureResult CapturePresentMonAttempt(
     {
         started = ShellExecuteExW(&execute) != FALSE;
         processHandle = execute.hProcess;
-        if (started && processHandle)
+        if (started && !processHandle)
+        {
+            log << L"Elevated retry: FAILED\nReason: no process handle returned\n";
+            started = false;
+        }
+        if (started)
             processId = GetProcessId(processHandle);
         const DWORD errorCode = started ? ERROR_SUCCESS : GetLastError();
         if (!started && errorCode == ERROR_CANCELLED)
@@ -387,11 +392,31 @@ PresentMonCaptureResult CapturePresentMonAttempt(
         }
     }
 
+    bool childStillRunning = false;
     if ((stop.load() || timeout || waitFailed) &&
         WaitForSingleObject(processHandle, 0) == WAIT_TIMEOUT)
     {
-        TerminateProcess(processHandle, stop.load() ? 2 : 3);
-        WaitForSingleObject(processHandle, 5000);
+        if (!TerminateProcess(processHandle, stop.load() ? 2 : 3))
+        {
+            const DWORD terminateError = GetLastError();
+            log << L"PresentMon force termination failed error=" << terminateError
+                << L"; waiting for timed exit\n";
+            auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                deadline - std::chrono::steady_clock::now());
+            if (remaining < std::chrono::seconds(5))
+                remaining = std::chrono::seconds(5);
+            WaitForSingleObject(processHandle, static_cast<DWORD>(remaining.count()));
+        }
+        else
+        {
+            WaitForSingleObject(processHandle, 5000);
+        }
+        childStillRunning = WaitForSingleObject(processHandle, 0) == WAIT_TIMEOUT;
+    }
+    if (childStillRunning)
+    {
+        log << L"PresentMon: FAILED\nReason: child still running during cleanup\n";
+        WaitForSingleObject(processHandle, INFINITE);
     }
     result.endQpcMs = QpcMilliseconds();
 
