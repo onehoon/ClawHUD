@@ -3,6 +3,7 @@
 #include "App.h"
 #include "IntelVrrDiagnosticProbe.h"
 #include "ProductionTargetPolicy.h"
+#include "RuntimeLogger.h"
 #include "VrrDiagnosticAnalysis.h"
 
 #include <d3d11.h>
@@ -39,12 +40,6 @@ std::string Narrow(const std::wstring& value)
     std::string result; result.reserve(value.size());
     for (const wchar_t character : value) result.push_back(static_cast<char>(character));
     return result;
-}
-
-std::filesystem::path LogFolder(const App& app)
-{
-    const auto path = std::filesystem::path(app.ExecutablePath()).parent_path() / L"logs" / L"diagnostics";
-    std::filesystem::create_directories(path); return path;
 }
 
 struct ForegroundTargetInfo
@@ -355,7 +350,7 @@ bool VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
     clawhud::IntelVrrDiagnosticProbe igcl;
     try
     {
-        const auto folder = LogFolder(app_); const auto stamp = Now(true); const auto txt = folder / (L"vrr-" + stamp + L".txt");
+        const auto folder = clawhud::LogDirectory(); const auto stamp = Now(true); const auto txt = folder / (L"vrr-" + stamp + L".txt");
         const auto offCsv = folder / (L"vrr-" + stamp + L"-off.csv");
         const auto staticCsv = folder / (L"vrr-" + stamp + L"-static.csv");
         const auto dynamicCsv = folder / (L"vrr-" + stamp + L"-dynamic.csv"); log.open(txt);

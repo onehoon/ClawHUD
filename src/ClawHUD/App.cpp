@@ -16,6 +16,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <memory>
+#include <shellapi.h>
 #include <shobjidl.h>
 #include <shlobj.h>
 #include <cwctype>
@@ -276,7 +277,16 @@ void App::StopEcDiagnostic()
     ReconcileHudVisibility();
 }
 bool App::EcDiagnosticRunning() const { return ecDiagnostic_ && ecDiagnostic_->Running(); }
-void App::OpenDiagnosticLogFolder() { if (ecDiagnostic_) ecDiagnostic_->OpenLogFolder(); }
+void App::OpenDiagnosticLogFolder()
+{
+    try
+    {
+        const auto path = clawhud::LogDirectory();
+        if (!path.empty())
+            ShellExecuteW(nullptr, L"open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    }
+    catch (...) {}
+}
 bool App::StartVrrDiagnostic()
 {
     if (!vrrDiagnostic_ || EcDiagnosticRunning()) return false;
