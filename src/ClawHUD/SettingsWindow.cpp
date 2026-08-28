@@ -534,10 +534,9 @@ void SettingsWindow::Layout()
     if (!window_) return;
     RECT client{};
     GetClientRect(window_, &client);
-    const int margin = Scale(8);
-    MoveWindow(tabs_, margin, margin,
-        std::max(0, static_cast<int>(client.right) - margin * 2),
-        std::max(0, static_cast<int>(client.bottom) - margin * 2), TRUE);
+    MoveWindow(tabs_, 0, 0,
+        std::max(0, static_cast<int>(client.right)),
+        std::max(0, static_cast<int>(client.bottom)), TRUE);
     const int panelX = Scale(24);
     const int panelY = Scale(52);
     const int panelWidth = std::max(0, static_cast<int>(client.right) - Scale(48));
