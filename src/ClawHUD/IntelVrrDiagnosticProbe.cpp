@@ -179,6 +179,23 @@ std::string IntelCtlResultName(std::uint32_t result)
     case 0x4000000D: return "CTL_RESULT_ERROR_INVALID_NULL_HANDLE";
     case 0x4000000E: return "CTL_RESULT_ERROR_INVALID_NULL_POINTER";
     case 0x4000000F: return "CTL_RESULT_ERROR_INVALID_SIZE";
+    case 0x40000010: return "CTL_RESULT_ERROR_UNSUPPORTED_SIZE";
+    case 0x40000011: return "CTL_RESULT_ERROR_UNSUPPORTED_IMAGE_FORMAT";
+    case 0x40000012: return "CTL_RESULT_ERROR_DATA_READ";
+    case 0x40000013: return "CTL_RESULT_ERROR_DATA_WRITE";
+    case 0x40000014: return "CTL_RESULT_ERROR_DATA_NOT_FOUND";
+    case 0x40000015: return "CTL_RESULT_ERROR_NOT_IMPLEMENTED";
+    case 0x40000016: return "CTL_RESULT_ERROR_OS_CALL";
+    case 0x40000017: return "CTL_RESULT_ERROR_KMD_CALL";
+    case 0x40000018: return "CTL_RESULT_ERROR_UNLOAD";
+    case 0x40000019: return "CTL_RESULT_ERROR_ZE_LOADER";
+    case 0x4000001A: return "CTL_RESULT_ERROR_INVALID_OPERATION_TYPE";
+    case 0x4000001B: return "CTL_RESULT_ERROR_NULL_OS_INTERFACE";
+    case 0x4000001C: return "CTL_RESULT_ERROR_NULL_OS_ADAPATER_HANDLE";
+    case 0x4000001D: return "CTL_RESULT_ERROR_NULL_OS_DISPLAY_OUTPUT_HANDLE";
+    case 0x4000001E: return "CTL_RESULT_ERROR_WAIT_TIMEOUT";
+    case 0x40000020: return "CTL_RESULT_ERROR_PLATFORM_NOT_SUPPORTED";
+    case 0x40000027: return "CTL_RESULT_ERROR_DEVICE_UNAVAILABLE";
     default: return "UNKNOWN";
     }
 }
@@ -237,21 +254,36 @@ void IntelVrrDiagnosticProbe::LogState(std::wofstream& log)
     if (!initialized_ || !library_) return;
     const auto info = Resolve<ArcInfoFn>(library_, "ctlGetIntelArcSyncInfoForMonitor");
     const auto profile = Resolve<ArcProfileFn>(library_, "ctlGetIntelArcSyncProfile");
-    if (!info || !profile) return;
+    if (!info) log << L"Arc Sync capability API: Unavailable\n";
+    if (!profile) log << L"Arc Sync profile API: Unavailable\n";
     for (auto& output : outputs_)
     {
-        MonitorParams capability{}; capability.Size = sizeof(capability);
-        const Result infoResult = info(output.handle, &capability); output.vblankEligible = infoResult == kSuccess;
         log << L"Output[" << output.index << L"]\n";
-        if (infoResult != kSuccess) { log << L"Arc Sync Supported: Unavailable\n"; LogResult(log, L"ctlGetIntelArcSyncInfoForMonitor", infoResult); continue; }
-        log << L"Arc Sync Supported: " << (capability.IsIntelArcSyncSupported ? L"YES" : L"NO")
-            << L"\nCapability Range: " << capability.MinimumRefreshRateInHz << L"-" << capability.MaximumRefreshRateInHz << L" Hz\n"
-            << L"Capability Max Frame-Time Increase: " << capability.MaxFrameTimeIncreaseInUs << L" us\n"
-            << L"Capability Max Frame-Time Decrease: " << capability.MaxFrameTimeDecreaseInUs << L" us\n";
-        ProfileParams current{}; current.Size = sizeof(current); const Result profileResult = profile(output.handle, &current);
-        if (profileResult != kSuccess) { LogResult(log, L"ctlGetIntelArcSyncProfile", profileResult); continue; }
-        log << L"Current Profile: " << Wide(ProfileName(current.IntelArcSyncProfile)) << L"\nActive Range: " << current.MinRefreshRateInHz << L"-" << current.MaxRefreshRateInHz << L" Hz\n"
-            << L"Profile Max Frame-Time Increase: " << current.MaxFrameTimeIncreaseInUs << L" us\nProfile Max Frame-Time Decrease: " << current.MaxFrameTimeDecreaseInUs << L" us\n";
+        if (info)
+        {
+            MonitorParams capability{}; capability.Size = sizeof(capability);
+            const Result infoResult = info(output.handle, &capability);
+            if (infoResult != kSuccess)
+            {
+                log << L"Arc Sync Supported: Unavailable\n";
+                LogResult(log, L"ctlGetIntelArcSyncInfoForMonitor", infoResult);
+            }
+            else
+            {
+                log << L"Arc Sync Supported: " << (capability.IsIntelArcSyncSupported ? L"YES" : L"NO")
+                    << L"\nCapability Range: " << capability.MinimumRefreshRateInHz << L"-" << capability.MaximumRefreshRateInHz << L" Hz\n"
+                    << L"Capability Max Frame-Time Increase: " << capability.MaxFrameTimeIncreaseInUs << L" us\n"
+                    << L"Capability Max Frame-Time Decrease: " << capability.MaxFrameTimeDecreaseInUs << L" us\n";
+            }
+        }
+        if (profile)
+        {
+            ProfileParams current{}; current.Size = sizeof(current);
+            const Result profileResult = profile(output.handle, &current);
+            if (profileResult != kSuccess) LogResult(log, L"ctlGetIntelArcSyncProfile", profileResult);
+            else log << L"Current Profile: " << Wide(ProfileName(current.IntelArcSyncProfile)) << L"\nActive Range: " << current.MinRefreshRateInHz << L"-" << current.MaxRefreshRateInHz << L" Hz\n"
+                << L"Profile Max Frame-Time Increase: " << current.MaxFrameTimeIncreaseInUs << L" us\nProfile Max Frame-Time Decrease: " << current.MaxFrameTimeDecreaseInUs << L" us\n";
+        }
     }
 }
 
@@ -280,7 +312,6 @@ void IntelVrrDiagnosticProbe::SampleLoop()
     {
         for (auto& output : outputs_)
         {
-            if (!output.vblankEligible) continue;
             VblankArgs args{}; args.Size = sizeof(args); const Result result = vblank(output.handle, &args);
             if (result != kSuccess)
             {
@@ -303,17 +334,13 @@ std::vector<VblankSummary> IntelVrrDiagnosticProbe::StopSampling(std::wofstream&
     if (!initialized_ || !vblankAvailable_) { log << L"Unavailable\n"; return summaries; }
     for (const auto& output : outputs_)
     {
-        if (!output.vblankEligible)
-        {
-            log << L"Output[" << output.index << L"] VBlank sampling skipped: Arc Sync output query unavailable\n";
-        }
         if (output.vblankErrorCount > 0)
         {
             log << L"Output[" << output.index << L"] VBlank calls succeeded: " << output.vblankSuccessCount << L"\n";
             log << L"Output[" << output.index << L"] VBlank call failures: " << output.vblankErrorCount << L"\n";
             LogResult(log, L"ctlGetVblankTimestamp", output.lastVblankError);
         }
-        else if (output.vblankEligible)
+        else
         {
             log << L"Output[" << output.index << L"] VBlank calls succeeded: " << output.vblankSuccessCount << L"\n";
         }

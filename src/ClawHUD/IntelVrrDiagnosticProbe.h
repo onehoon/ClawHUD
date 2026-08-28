@@ -57,7 +57,6 @@ private:
     {
         void* handle{};
         std::size_t index{};
-        bool vblankEligible{};
         std::uint32_t lastVblankError{};
         std::size_t vblankErrorCount{};
         std::size_t vblankSuccessCount{};
