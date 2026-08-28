@@ -181,19 +181,22 @@ int main()
 
     HudRenderOptions typographyOptions{};
     ok &= Check(Near(MainTextYOffset(typographyOptions), 1.0f) &&
-        Near(UnitTextYOffset(typographyOptions), 0.0f),
+        Near(UnitTextYOffset(typographyOptions), 2.0f),
         "Unispace text offsets");
     typographyOptions.font = HudFont::SegoeUiVariable;
     ok &= Check(Near(MainTextYOffset(typographyOptions), 0.0f) &&
-        Near(UnitTextYOffset(typographyOptions), 0.0f),
+        Near(UnitTextYOffset(typographyOptions), 2.0f),
         "Segoe UI Variable text offsets");
     typographyOptions.dpi = 144.0f;
     typographyOptions.font = HudFont::Unispace;
     ok &= Check(Near(MainTextYOffset(typographyOptions), 0.6667f) &&
-        Near(UnitTextYOffset(typographyOptions), 0.0f),
+        Near(UnitTextYOffset(typographyOptions), 1.3333f),
         "text offsets preserve physical pixels at high DPI");
-    ok &= Check(Near(CalculateUnitBaselineOffset(18.0f, 10.0f, typographyOptions), 8.0f),
-        "unit offset uses DirectWrite baseline difference");
+    ok &= Check(Near(UnitAdvanceGap(HudRenderOptions{}), 4.0f),
+        "unit visible gap uses 4 physical px at 96 DPI");
+    typographyOptions.dpi = 144.0f;
+    ok &= Check(Near(UnitAdvanceGap(typographyOptions), 2.6667f),
+        "unit visible gap preserves physical pixels at high DPI");
 
     const RECT monitor{ -1920, -100, 0, 980 };
     const auto fullWindow = CalculateHudWindowGeometry(
@@ -246,17 +249,6 @@ int main()
     ok &= Check(SUCCEEDED(hr), "create DirectWrite factory");
     if (SUCCEEDED(hr))
     {
-        ComPtr<IDWriteTextFormat> baselineFormat;
-        hr = factory->CreateTextFormat(L"Segoe UI Variable", nullptr,
-            DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-            DWRITE_FONT_STRETCH_NORMAL, 20.0f, L"", &baselineFormat);
-        ComPtr<IDWriteTextLayout> baselineLayout;
-        if (SUCCEEDED(hr))
-            hr = factory->CreateTextLayout(L"100%", 4, baselineFormat.Get(),
-                100.0f, 100.0f, &baselineLayout);
-        ok &= Check(SUCCEEDED(hr) && FirstLineBaseline(baselineLayout.Get()) > 0.0f,
-            "FirstLineBaseline reads a real DirectWrite line metric");
-
         HudRenderer renderer(factory.Get());
         HudRenderer privateRenderer(factory.Get(), CLAWHUD_TEST_UNISPACE_PATH);
         ok &= Check(privateRenderer.PrivateFontLoaded(),

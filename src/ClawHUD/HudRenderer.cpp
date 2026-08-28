@@ -47,11 +47,6 @@ float SeparatorGap(const HudRenderOptions& options) noexcept
     return DipFromPhysicalPixels(options.separatorGapPx, options.dpi);
 }
 
-float UnitGap(const HudRenderOptions& options) noexcept
-{
-    return DipFromPhysicalPixels(kHudUnitGapPx, options.dpi);
-}
-
 float SeparatorWidth(const HudRenderOptions& options) noexcept;
 
 float SeparatorBlockWidth(const HudRenderOptions& options) noexcept
@@ -148,7 +143,8 @@ float Width(IDWriteTextLayout* layout) noexcept;
 float MetricLayoutWidth(IDWriteTextLayout* layout, const std::wstring& text,
     const HudRenderOptions& options) noexcept
 {
-    return Width(layout) + static_cast<float>(FindHudUnitRangesImpl(text).size()) * UnitGap(options);
+    return Width(layout) + static_cast<float>(FindHudUnitRangesImpl(text).size()) *
+        UnitAdvanceGap(options);
 }
 
 HRESULT ApplyUnitTypography(IDWriteTextLayout* layout, const std::wstring& text,
@@ -351,12 +347,10 @@ void DrawOutlinedLayout(ID2D1DeviceContext* context, IDWriteTextLayout* layout,
 HRESULT DrawValue(ID2D1DeviceContext* context, IDWriteFactory* factory,
     IDWriteFontCollection* collection,
     IDWriteTextFormat* mainFormat,
-    const std::wstring& text, IDWriteTextLayout* mainLayout,
+    const std::wstring& text,
     const HudRenderOptions& options,
     float x, float y, ID2D1Brush* brush, ID2D1Brush* outlineBrush)
 {
-    if (!mainLayout)
-        return E_INVALIDARG;
     ComPtr<IDWriteTextFormat> unitFormat;
     HRESULT hr = CreateTextFormat(factory, collection, options, unitFormat, true);
     if (FAILED(hr)) return hr;
@@ -376,9 +370,8 @@ HRESULT DrawValue(ID2D1DeviceContext* context, IDWriteFactory* factory,
         const std::wstring unitText = text.substr(range.start, range.length);
         hr = CreateLayout(factory, unitFormat.Get(), unitText, options, true, false, unit);
         if (FAILED(hr)) return hr;
-        x += UnitGap(options);
-        const float unitY = y + CalculateUnitBaselineOffset(
-            FirstLineBaseline(mainLayout), FirstLineBaseline(unit.Get()), options);
+        x += UnitAdvanceGap(options);
+        const float unitY = y + UnitTextYOffset(options);
         DrawOutlinedLayout(context, unit.Get(), x, unitY, brush, outlineBrush, options);
         x += Width(unit.Get());
         cursor = range.start + range.length;
@@ -517,15 +510,10 @@ float DipFromPhysicalPixels(float pixels, float dpi) noexcept
     return dpi > 0.0f ? pixels * 96.0f / dpi : pixels;
 }
 
-float FirstLineBaseline(IDWriteTextLayout* layout) noexcept
+float UnitAdvanceGap(const HudRenderOptions& options) noexcept
 {
-    if (!layout)
-        return 0.0f;
-    DWRITE_LINE_METRICS line{};
-    UINT32 actualCount{};
-    if (FAILED(layout->GetLineMetrics(&line, 1, &actualCount)) || actualCount == 0)
-        return 0.0f;
-    return line.baseline;
+    return DipFromPhysicalPixels(
+        kHudUnitVisibleGapPx + kHudTextOutlinePx * 2.0f, options.dpi);
 }
 
 float MainTextYOffset(const HudRenderOptions& options) noexcept
@@ -536,14 +524,7 @@ float MainTextYOffset(const HudRenderOptions& options) noexcept
 
 float UnitTextYOffset(const HudRenderOptions& options) noexcept
 {
-    return 0.0f;
-}
-
-float CalculateUnitBaselineOffset(
-    float mainBaseline, float unitBaseline,
-    const HudRenderOptions& options) noexcept
-{
-    return mainBaseline - unitBaseline + UnitTextYOffset(options);
+    return DipFromPhysicalPixels(2.0f, options.dpi);
 }
 
 std::vector<HudUnitRange> FindHudUnitRanges(const std::wstring& text)
@@ -700,7 +681,7 @@ HRESULT HudRenderer::Draw(ID2D1DeviceContext* context,
             const float metricX = x + slotWidth -
                 MetricLayoutWidth(metric.Get(), cells[cellIndex].text, options);
             hr = DrawValue(context, factory_, fontCollection_.Get(), format.Get(),
-                cells[cellIndex].text, metric.Get(), options, metricX,
+                cells[cellIndex].text, options, metricX,
                 mainY, white.Get(), outlineBrush.Get());
             if (FAILED(hr)) return hr;
             x += slotWidth;
