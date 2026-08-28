@@ -97,12 +97,6 @@ bool RotateIfNeeded(const std::filesystem::path& file)
     return !error;
 }
 
-bool TruncateForRotationFailure(const std::filesystem::path& file)
-{
-    std::ofstream output(file, std::ios::binary | std::ios::trunc);
-    return output.good();
-}
-
 void InitializeLocked()
 {
     if (g_initialized) return;
@@ -181,7 +175,7 @@ void RuntimeLogger::Log(RuntimeLogLevel level, const std::wstring& message) noex
         if (!g_fileEnabled) return;
         const auto file = g_directory / L"clawhud.log";
         if (!RotateIfNeeded(file))
-            TruncateForRotationFailure(file);
+            return;
         std::ofstream output(file, std::ios::binary | std::ios::app);
         if (!output) return;
         output << Utf8(Timestamp() + L" " + line) << "\r\n";

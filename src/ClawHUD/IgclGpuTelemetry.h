@@ -22,6 +22,11 @@ enum class IgclTelemetryTransition
     Recovered
 };
 
+constexpr bool ShouldLogIgclInitializationFailure(bool alreadyLogged) noexcept
+{
+    return !alreadyLogged;
+}
+
 constexpr IgclTelemetryTransition ObserveIgclTelemetryTransition(
     bool wasAvailable, unsigned consecutiveFailures, bool sampleSucceeded,
     unsigned failureThreshold) noexcept
@@ -50,6 +55,8 @@ public:
     bool InitializationAttempted() const noexcept { return initializationAttempted_; }
 
 private:
+    void ReleaseResources() noexcept;
+
     HMODULE library_{};
     igcl::Api api_{};
     igcl::Device device_{};
@@ -58,5 +65,6 @@ private:
     std::optional<double> previousTimestamp_;
     std::optional<double> previousActivity_;
     bool initializationAttempted_{};
+    bool initializationFailureLogged_{};
 };
 }

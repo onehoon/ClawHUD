@@ -119,8 +119,9 @@ void TestRotationFailureIsBounded(const std::filesystem::path& directory)
     clawhud::RuntimeLogger::SetRotationFailureForTests(true);
     clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info, L"bounded");
     clawhud::RuntimeLogger::SetRotationFailureForTests(false);
-    assert(std::filesystem::file_size(log) < 4096);
-    assert(Read(log).find("bounded") != std::string::npos);
+    assert(std::filesystem::file_size(log) == 2u * 1024u * 1024u);
+    assert(Read(log).find('x') != std::string::npos);
+    assert(Read(log).find("bounded") == std::string::npos);
 }
 }
 

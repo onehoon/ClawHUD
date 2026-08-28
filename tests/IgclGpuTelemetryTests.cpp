@@ -8,6 +8,13 @@ using namespace clawhud;
 
 int main()
 {
+    assert(ShouldLogIgclInitializationFailure(false));
+    assert(!ShouldLogIgclInitializationFailure(true));
+    bool initializationFailureLogged = false;
+    assert(ShouldLogIgclInitializationFailure(initializationFailureLogged));
+    initializationFailureLogged = true;
+    assert(!ShouldLogIgclInitializationFailure(initializationFailureLogged));
+
     assert(clawhud::ObserveIgclTelemetryTransition(true, 1, false, 3) ==
         clawhud::IgclTelemetryTransition::None);
     assert(clawhud::ObserveIgclTelemetryTransition(true, 3, false, 3) ==
