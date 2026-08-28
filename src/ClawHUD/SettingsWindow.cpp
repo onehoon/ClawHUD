@@ -785,13 +785,10 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
     if (!self) return DefWindowProcW(window, message, wParam, lParam);
     if (message == WM_ERASEBKGND)
     {
-        if (self->systemBackdropActive_)
-            return TRUE;
-
         RECT rect{};
         GetClientRect(window, &rect);
         FillRect(reinterpret_cast<HDC>(wParam), &rect,
-            GetSysColorBrush(COLOR_WINDOW));
+            GetSysColorBrush(COLOR_3DFACE));
         return TRUE;
     }
     if (message == WM_MOUSEWHEEL)
