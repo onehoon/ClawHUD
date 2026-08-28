@@ -1378,7 +1378,17 @@ void App::ResolveSteamRenderer()
         steamRendererCandidatePid_ = *challenger;
         steamCandidateProbeStarted_ = std::chrono::steady_clock::now();
         StartGraphicsApiProbe(*challenger);
-        StartSteamPresentMon(*challenger);
+        if (!StartSteamPresentMon(*challenger))
+        {
+            steamProbeAttemptedPids_.insert(*challenger);
+            steamRendererCandidatePid_ = 0;
+            steamCandidateProbeStarted_ = {};
+            if (steamRendererPid_ && ProcessAlive(steamRendererPid_))
+            {
+                StartGraphicsApiProbe(steamRendererPid_);
+                StartSteamPresentMon(steamRendererPid_);
+            }
+        }
         return;
     }
     if (steamGameState_ != SteamGameState::Resolving)
