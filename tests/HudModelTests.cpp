@@ -40,6 +40,9 @@ int main()
     ok &= Check(fractionalTdpText.find(L"TDP 35W") != std::wstring::npos &&
         fractionalTdpText.find(L"35.3W") == std::wstring::npos,
         "TDP rounds to integer watts");
+    fractionalTdp.cpuPackagePowerW = 18.7;
+    ok &= Check(JoinHudRuns(FormatHud(fractionalTdp)).find(L"TDP 19W") != std::wstring::npos,
+        "TDP uses nearest integer rounding");
     ok &= Check(dc.size() == 6, "game DC segment count");
 
     ok &= Check(JoinHudRuns(FormatHud(MakeGameAcSample())) ==
