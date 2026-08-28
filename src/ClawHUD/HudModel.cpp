@@ -103,7 +103,7 @@ std::vector<HudTextRun> FormatHud(const HudTelemetrySnapshot& snapshot)
         Add(runs, HudSegmentKind::Gpu, L"GPU", gpu);
 
     if (snapshot.cpuPackagePowerW)
-        Add(runs, HudSegmentKind::Tdp, L"TDP", Number(*snapshot.cpuPackagePowerW) + L"W");
+        Add(runs, HudSegmentKind::Tdp, L"TDP", Integer(*snapshot.cpuPackagePowerW) + L"W");
 
     if (snapshot.systemMemoryUsedBytes)
         Add(runs, HudSegmentKind::Ram, L"RAM", Gigabytes(*snapshot.systemMemoryUsedBytes) + L"GB");

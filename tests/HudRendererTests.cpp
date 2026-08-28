@@ -1,5 +1,6 @@
 #include "HudRenderer.h"
 #include "HudWindowGeometry.h"
+#include "HudPresentation.h"
 
 #include <dwrite.h>
 #include <d2d1_1.h>
@@ -29,10 +30,10 @@ bool Near(float actual, float expected)
     return std::abs(actual - expected) < 0.01f;
 }
 
-bool ReadBackgroundAlpha(HudRenderer& renderer, HudRenderOptions options, BYTE& alpha,
-    bool& foregroundVisible)
+bool ReadBackgroundAlpha(HudRenderer& renderer, HudRenderOptions options, BYTE& backgroundAlpha,
+    BYTE& transparentAreaAlpha, bool& foregroundVisible)
 {
-    constexpr UINT width = 160;
+    constexpr UINT width = 512;
     constexpr UINT height = 64;
     D3D_FEATURE_LEVEL featureLevel{};
     ComPtr<ID3D11Device> device;
@@ -89,7 +90,8 @@ bool ReadBackgroundAlpha(HudRenderer& renderer, HudRenderOptions options, BYTE& 
     D3D11_MAPPED_SUBRESOURCE mapped{};
     if (FAILED(deviceContext->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped))) return false;
     const auto* bytes = static_cast<const BYTE*>(mapped.pData);
-    alpha = bytes[1 * mapped.RowPitch + 1 * 4 + 3];
+    backgroundAlpha = bytes[1 * mapped.RowPitch + (width / 2) * 4 + 3];
+    transparentAreaAlpha = bytes[1 * mapped.RowPitch + 1 * 4 + 3];
     foregroundVisible = false;
     for (UINT y = 0; y < height && !foregroundVisible; ++y)
         for (UINT x = 0; x < width; ++x)
@@ -111,6 +113,15 @@ int main()
 {
     bool ok = true;
     ok &= Check(Near(DipFromPhysicalPixels(14.0f, 144.0f), 9.3333f), "physical pixels to DIP");
+    ok &= Check(CalculateHudContentWidthPixels(1000.0f, 96.0f, 1920) == 1000 &&
+        CalculateHudContentWidthPixels(1000.0f, 144.0f, 1920) == 1500 &&
+        CalculateHudContentWidthPixels(3000.0f, 96.0f, 1920) == 1920,
+        "production ContentWidth converts measured DIP width to monitor pixels");
+    const auto alphaBox = HudAlphaSampleSourceBox(17, 23);
+    ok &= Check(alphaBox.left == 17 && alphaBox.top == 23 &&
+        alphaBox.right == 18 && alphaBox.bottom == 24 &&
+        alphaBox.front == 0 && alphaBox.back == 1,
+        "alpha readback copies source pixel into staging origin");
     ok &= Check(kHudBackgroundColor == 0x020202 && kHudCpuColor == 0x2E97CB &&
         kHudGpuColor == 0x2E9762 && kHudVramColor == 0xAD64C1 &&
         kHudGraphicsColor == 0xEB5B5B && kHudSystemColor == 0xFF9078 &&
@@ -120,7 +131,7 @@ int main()
 
     HudRenderOptions options{};
     ok &= Check(Near(options.segmentGapPx, 8.0f) && Near(options.metricGapPx, 6.0f) &&
-        Near(options.separatorGapPx, 14.0f),
+        Near(options.separatorGapPx, 16.0f),
         "horizontal spacing defaults");
     ok &= Check(Near(options.fontPixelSize, 20.0f) &&
         Near(options.unitFontPixelSize, 11.0f) &&
@@ -169,17 +180,20 @@ int main()
     ok &= Check(Near(geometry.textOrigin.y, 5.0f), "vertical centering uses measured text height");
 
     HudRenderOptions typographyOptions{};
-    ok &= Check(Near(MainTextYOffset(typographyOptions), 0.0f) &&
-        Near(UnitTextYOffset(typographyOptions), 2.0f),
+    ok &= Check(Near(MainTextYOffset(typographyOptions), 1.0f) &&
+        Near(UnitTextYOffset(typographyOptions), 0.0f),
         "Unispace text offsets");
     typographyOptions.font = HudFont::SegoeUiVariable;
-    ok &= Check(Near(MainTextYOffset(typographyOptions), -2.0f) &&
-        Near(UnitTextYOffset(typographyOptions), 2.0f),
+    ok &= Check(Near(MainTextYOffset(typographyOptions), 0.0f) &&
+        Near(UnitTextYOffset(typographyOptions), 0.0f),
         "Segoe UI Variable text offsets");
     typographyOptions.dpi = 144.0f;
-    ok &= Check(Near(MainTextYOffset(typographyOptions), -1.3333f) &&
-        Near(UnitTextYOffset(typographyOptions), 1.3333f),
+    typographyOptions.font = HudFont::Unispace;
+    ok &= Check(Near(MainTextYOffset(typographyOptions), 0.6667f) &&
+        Near(UnitTextYOffset(typographyOptions), 0.0f),
         "text offsets preserve physical pixels at high DPI");
+    ok &= Check(Near(CalculateUnitBaselineOffset(18.0f, 10.0f, typographyOptions), 8.0f),
+        "unit offset uses DirectWrite baseline difference");
 
     const RECT monitor{ -1920, -100, 0, 980 };
     const auto fullWindow = CalculateHudWindowGeometry(
@@ -232,6 +246,17 @@ int main()
     ok &= Check(SUCCEEDED(hr), "create DirectWrite factory");
     if (SUCCEEDED(hr))
     {
+        ComPtr<IDWriteTextFormat> baselineFormat;
+        hr = factory->CreateTextFormat(L"Segoe UI Variable", nullptr,
+            DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+            DWRITE_FONT_STRETCH_NORMAL, 20.0f, L"", &baselineFormat);
+        ComPtr<IDWriteTextLayout> baselineLayout;
+        if (SUCCEEDED(hr))
+            hr = factory->CreateTextLayout(L"100%", 4, baselineFormat.Get(),
+                100.0f, 100.0f, &baselineLayout);
+        ok &= Check(SUCCEEDED(hr) && FirstLineBaseline(baselineLayout.Get()) > 0.0f,
+            "FirstLineBaseline reads a real DirectWrite line metric");
+
         HudRenderer renderer(factory.Get());
         HudRenderer privateRenderer(factory.Get(), CLAWHUD_TEST_UNISPACE_PATH);
         ok &= Check(privateRenderer.PrivateFontLoaded(),
@@ -282,7 +307,7 @@ int main()
         sameWidth(HudSegmentKind::Ram, L"RAM",
             {L"0.1GB", L"15.2GB", L"31.9GB", L"99.9GB"}, "stable RAM slot");
         sameWidth(HudSegmentKind::Tdp, L"TDP",
-            {L"5W", L"18W", L"99.9W"}, "stable TDP slot");
+            {L"5W", L"18W", L"35W"}, "stable TDP slot uses 35W exemplar");
         sameWidth(HudSegmentKind::SystemPower, L"SYS",
             {L"8W", L"24.5W", L"99.9W"}, "stable SystemPower slot");
         sameWidth(HudSegmentKind::Fan, L"FAN",
@@ -307,7 +332,7 @@ int main()
         ok &= Check(Near(MeasureWidth(renderer, {
                 {HudSegmentKind::Gpu, L"GPU", L"47%"},
                 {HudSegmentKind::Cpu, L"CPU", L"36%"}}, stableOptions), expectedPairWidth),
-            "separator uses two physical 14px gaps");
+            "separator uses two physical 16px gaps");
         float reservedWidth{};
         ok &= Check(SUCCEEDED(renderer.MeasureReservedHudWidth(stableOptions, reservedWidth)) &&
             reservedWidth > 0.0f, "measure reserved HUD envelope");
@@ -340,7 +365,7 @@ int main()
         ok &= Check(Near(segoeWidth(HudSegmentKind::Gpu, L"GPU", L"9%"),
                 segoeWidth(HudSegmentKind::Gpu, L"GPU", L"99%")) &&
             Near(segoeWidth(HudSegmentKind::Tdp, L"TDP", L"7W"),
-                segoeWidth(HudSegmentKind::Tdp, L"TDP", L"99.9W")) &&
+                segoeWidth(HudSegmentKind::Tdp, L"TDP", L"35W")) &&
             Near(segoeWidth(HudSegmentKind::Fan, L"FAN", L"999RPM"),
                 segoeWidth(HudSegmentKind::Fan, L"FAN", L"9999RPM")),
             "Segoe UI Variable segment widths stay reserved");
@@ -382,15 +407,20 @@ int main()
             "ContentWidth measures only current runs");
 
         HudRenderOptions pixelOptions{};
+        pixelOptions.layout.backgroundMode = HudBackgroundMode::ContentWidth;
+        pixelOptions.layout.alignment = HudAlignment::Center;
         const auto checkAlpha = [&](float opacity, BYTE expected, const char* message)
         {
             pixelOptions.layout.backgroundOpacity = opacity;
             BYTE actual{};
+            BYTE transparent{};
             bool foregroundVisible{};
             const bool rendered = ReadBackgroundAlpha(privateRenderer, pixelOptions,
-                actual, foregroundVisible);
+                actual, transparent, foregroundVisible);
             ok &= Check(rendered && std::abs(static_cast<int>(actual) - static_cast<int>(expected)) <= 2,
                 message);
+            ok &= Check(rendered && transparent == 0,
+                "transparent cleared area stays transparent");
             return foregroundVisible;
         };
         checkAlpha(0.0f, 0, "background alpha at 0 percent");
@@ -400,9 +430,11 @@ int main()
         checkAlpha(1.0f, 255, "background alpha at 100 percent");
         pixelOptions.layout.backgroundOpacity = 0.0f;
         BYTE transparentAlpha{};
+        BYTE clearedAreaAlpha{};
         bool foregroundVisible{};
         ok &= Check(ReadBackgroundAlpha(privateRenderer, pixelOptions,
-            transparentAlpha, foregroundVisible) && transparentAlpha == 0 && foregroundVisible,
+            transparentAlpha, clearedAreaAlpha, foregroundVisible) &&
+            transparentAlpha == 0 && clearedAreaAlpha == 0 && foregroundVisible,
             "foreground remains visible when background is transparent");
     }
     return ok ? 0 : 1;

@@ -13,6 +13,8 @@
 #include <wrl/client.h>
 
 #include <array>
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <memory>
 
@@ -27,6 +29,21 @@ inline HudRenderOptions BuildEffectiveHudRenderOptions(
     effective.dpi = dpi;
     effective.barPixelHeight = initialized.barPixelHeight;
     return effective;
+}
+
+inline UINT CalculateHudContentWidthPixels(
+    float contentWidthDip, float dpi, UINT monitorWidth) noexcept
+{
+    const double scale = dpi > 0.0f ? static_cast<double>(dpi) / 96.0 : 1.0;
+    const double nonNegativeWidth = contentWidthDip > 0.0f ? contentWidthDip : 0.0f;
+    const double pixels = std::ceil(nonNegativeWidth * scale);
+    return static_cast<UINT>(std::clamp(
+        pixels, 1.0, static_cast<double>(monitorWidth)));
+}
+
+inline D3D11_BOX HudAlphaSampleSourceBox(UINT x, UINT y) noexcept
+{
+    return D3D11_BOX{ x, y, 0, x + 1, y + 1, 1 };
 }
 
 class HudPresentation
@@ -56,6 +73,12 @@ private:
     HRESULT CreateGraphics();
     HRESULT CreatePresentationSurface();
     HRESULT CreateBitmapTargets();
+    HRESULT ResizeContentWidth(UINT widthPx, HudAlignment alignment);
+#ifdef _DEBUG
+    HRESULT ValidatePresentedAlpha(
+        ID3D11Texture2D* texture, UINT sampleX, UINT sampleY,
+        BYTE expectedAlpha);
+#endif
     HRESULT TryAcquireAvailableBuffer(HudFrameBuffer*& selected) noexcept;
     HRESULT RefreshDisplayIfNeeded();
     HRESULT CommitVisibility(bool visible);
@@ -65,13 +88,18 @@ private:
     HANDLE surfaceHandle_{ INVALID_HANDLE_VALUE };
     int xPx_{};
     int yPx_{};
+    RECT monitorRect_{};
     UINT widthPx_{};
+    UINT surfaceWidthPx_{};
     UINT heightPx_{};
     float dpi_{ 96.0f };
     float barPixelHeight_{ 30.0f };
     bool visible_{};
     bool initialized_{};
     bool displayChangePending_{};
+#ifdef _DEBUG
+    int debugLastValidatedAlpha_{ -1 };
+#endif
     HudRenderOptions initializationOptions_{};
 
     Microsoft::WRL::ComPtr<ID3D11Device> device_;

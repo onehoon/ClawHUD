@@ -47,6 +47,11 @@ float SeparatorGap(const HudRenderOptions& options) noexcept
     return DipFromPhysicalPixels(options.separatorGapPx, options.dpi);
 }
 
+float UnitGap(const HudRenderOptions& options) noexcept
+{
+    return DipFromPhysicalPixels(kHudUnitGapPx, options.dpi);
+}
+
 float SeparatorWidth(const HudRenderOptions& options) noexcept;
 
 float SeparatorBlockWidth(const HudRenderOptions& options) noexcept
@@ -136,6 +141,14 @@ std::vector<HudUnitRange> FindHudUnitRangesImpl(const std::wstring& text)
     std::sort(ranges.begin(), ranges.end(), [](const auto& left, const auto& right)
         { return left.start < right.start; });
     return ranges;
+}
+
+float Width(IDWriteTextLayout* layout) noexcept;
+
+float MetricLayoutWidth(IDWriteTextLayout* layout, const std::wstring& text,
+    const HudRenderOptions& options) noexcept
+{
+    return Width(layout) + static_cast<float>(FindHudUnitRangesImpl(text).size()) * UnitGap(options);
 }
 
 HRESULT ApplyUnitTypography(IDWriteTextLayout* layout, const std::wstring& text,
@@ -256,6 +269,7 @@ enum class HudMetricKind
     FanRpm,
     BatteryPercent,
     BatteryTime,
+    TdpPower,
 };
 
 struct HudMetricCell
@@ -274,6 +288,7 @@ const wchar_t* MetricExemplar(HudMetricKind kind) noexcept
     case HudMetricKind::Temperature: return L"100\u00B0C";
     case HudMetricKind::Vram: return L"99.9GB";
     case HudMetricKind::Power: return L"99.9W";
+    case HudMetricKind::TdpPower: return L"35W";
     case HudMetricKind::FanRpm: return L"9999RPM";
     case HudMetricKind::BatteryTime: return L"9.9h";
     }
@@ -298,7 +313,7 @@ HudMetricKind MetricKindForToken(HudSegmentKind kind, std::size_t index,
     case HudSegmentKind::Gpu: return HudMetricKind::UsagePercent;
     case HudSegmentKind::Ram:
     case HudSegmentKind::Vram: return HudMetricKind::Vram;
-    case HudSegmentKind::Tdp:
+    case HudSegmentKind::Tdp: return HudMetricKind::TdpPower;
     case HudSegmentKind::SystemPower: return HudMetricKind::Power;
     case HudSegmentKind::Fan: return HudMetricKind::FanRpm;
     case HudSegmentKind::Battery: return index == 0
@@ -325,7 +340,7 @@ HRESULT MeasureMetricSlot(IDWriteFactory* factory, IDWriteTextFormat* format,
         true, true, exemplar);
     if (FAILED(hr))
         return hr;
-    width = Width(exemplar.Get());
+    width = MetricLayoutWidth(exemplar.Get(), MetricExemplar(kind), options);
     return S_OK;
 }
 
@@ -361,7 +376,9 @@ HRESULT DrawValue(ID2D1DeviceContext* context, IDWriteFactory* factory,
         const std::wstring unitText = text.substr(range.start, range.length);
         hr = CreateLayout(factory, unitFormat.Get(), unitText, options, true, false, unit);
         if (FAILED(hr)) return hr;
-        const float unitY = y + UnitTextYOffset(options);
+        x += UnitGap(options);
+        const float unitY = y + CalculateUnitBaselineOffset(
+            FirstLineBaseline(mainLayout), FirstLineBaseline(unit.Get()), options);
         DrawOutlinedLayout(context, unit.Get(), x, unitY, brush, outlineBrush, options);
         x += Width(unit.Get());
         cursor = range.start + range.length;
@@ -396,7 +413,7 @@ HRESULT MeasureGroup(IDWriteFactory* factory, IDWriteTextFormat* format,
         float slotWidth{};
         hr = MeasureMetricSlot(factory, format, options, cells[i].kind, slotWidth);
         if (FAILED(hr)) return hr;
-        width += std::max(slotWidth, Width(metric.Get()));
+        width += std::max(slotWidth, MetricLayoutWidth(metric.Get(), cells[i].text, options));
         height = std::max(height, Height(metric.Get()));
         if (i + 1 < cells.size())
             width += MetricGap(options);
@@ -500,15 +517,33 @@ float DipFromPhysicalPixels(float pixels, float dpi) noexcept
     return dpi > 0.0f ? pixels * 96.0f / dpi : pixels;
 }
 
+float FirstLineBaseline(IDWriteTextLayout* layout) noexcept
+{
+    if (!layout)
+        return 0.0f;
+    DWRITE_LINE_METRICS line{};
+    UINT32 actualCount{};
+    if (FAILED(layout->GetLineMetrics(&line, 1, &actualCount)) || actualCount == 0)
+        return 0.0f;
+    return line.baseline;
+}
+
 float MainTextYOffset(const HudRenderOptions& options) noexcept
 {
-    return options.font == HudFont::SegoeUiVariable
-        ? DipFromPhysicalPixels(-2.0f, options.dpi) : 0.0f;
+    return options.font == HudFont::Unispace
+        ? DipFromPhysicalPixels(1.0f, options.dpi) : 0.0f;
 }
 
 float UnitTextYOffset(const HudRenderOptions& options) noexcept
 {
-    return DipFromPhysicalPixels(2.0f, options.dpi);
+    return 0.0f;
+}
+
+float CalculateUnitBaselineOffset(
+    float mainBaseline, float unitBaseline,
+    const HudRenderOptions& options) noexcept
+{
+    return mainBaseline - unitBaseline + UnitTextYOffset(options);
 }
 
 std::vector<HudUnitRange> FindHudUnitRanges(const std::wstring& text)
@@ -589,7 +624,7 @@ HRESULT HudRenderer::MeasureReservedHudWidth(
         { HudSegmentKind::Graphics, L"Vulkan", L"999FPS" },
         { HudSegmentKind::Cpu, L"CPU", L"100% 100\u00B0C" },
         { HudSegmentKind::Gpu, L"GPU", L"100%" },
-        { HudSegmentKind::Tdp, L"TDP", L"99.9W" },
+        { HudSegmentKind::Tdp, L"TDP", L"35W" },
         { HudSegmentKind::Ram, L"RAM", L"99.9GB" },
         { HudSegmentKind::Vram, L"VRAM", L"99.9GB" },
         { HudSegmentKind::Fan, L"FAN", L"9999RPM" },
@@ -660,8 +695,10 @@ HRESULT HudRenderer::Draw(ID2D1DeviceContext* context,
             float slotWidth{};
             hr = MeasureMetricSlot(factory_, format.Get(), options, cells[cellIndex].kind, slotWidth);
             if (FAILED(hr)) return hr;
-            slotWidth = std::max(slotWidth, Width(metric.Get()));
-            const float metricX = x + slotWidth - Width(metric.Get());
+            slotWidth = std::max(slotWidth,
+                MetricLayoutWidth(metric.Get(), cells[cellIndex].text, options));
+            const float metricX = x + slotWidth -
+                MetricLayoutWidth(metric.Get(), cells[cellIndex].text, options);
             hr = DrawValue(context, factory_, fontCollection_.Get(), format.Get(),
                 cells[cellIndex].text, metric.Get(), options, metricX,
                 mainY, white.Get(), outlineBrush.Get());
@@ -676,12 +713,14 @@ HRESULT HudRenderer::Draw(ID2D1DeviceContext* context,
             const float separatorHeight = SeparatorHeight(options);
             const float separatorY = viewport.top +
                 std::max(0.0f, (geometry.background.bottom - geometry.background.top - separatorHeight) / 2.0f);
+            const float adjustedSeparatorY = separatorY +
+                DipFromPhysicalPixels(1.0f, options.dpi);
             const float centerX = x + SeparatorWidth(options) / 2.0f;
-            context->DrawLine(D2D1::Point2F(centerX, separatorY),
-                D2D1::Point2F(centerX, separatorY + separatorHeight),
+            context->DrawLine(D2D1::Point2F(centerX, adjustedSeparatorY),
+                D2D1::Point2F(centerX, adjustedSeparatorY + separatorHeight),
                 outlineBrush.Get(), DipFromPhysicalPixels(kHudSeparatorOuterPx, options.dpi));
-            context->DrawLine(D2D1::Point2F(centerX, separatorY),
-                D2D1::Point2F(centerX, separatorY + separatorHeight),
+            context->DrawLine(D2D1::Point2F(centerX, adjustedSeparatorY),
+                D2D1::Point2F(centerX, adjustedSeparatorY + separatorHeight),
                 separatorBrush.Get(), DipFromPhysicalPixels(kHudSeparatorCorePx, options.dpi));
             x += SeparatorWidth(options) + SeparatorGap(options);
         }
