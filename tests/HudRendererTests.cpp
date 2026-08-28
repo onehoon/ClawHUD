@@ -241,6 +241,17 @@ int main()
     ok &= Check(SUCCEEDED(hr), "create DirectWrite factory");
     if (SUCCEEDED(hr))
     {
+        ComPtr<IDWriteTextFormat> baselineFormat;
+        hr = factory->CreateTextFormat(L"Segoe UI Variable", nullptr,
+            DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+            DWRITE_FONT_STRETCH_NORMAL, 20.0f, L"", &baselineFormat);
+        ComPtr<IDWriteTextLayout> baselineLayout;
+        if (SUCCEEDED(hr))
+            hr = factory->CreateTextLayout(L"100%", 4, baselineFormat.Get(),
+                100.0f, 100.0f, &baselineLayout);
+        ok &= Check(SUCCEEDED(hr) && FirstLineBaseline(baselineLayout.Get()) > 0.0f,
+            "FirstLineBaseline reads a real DirectWrite line metric");
+
         HudRenderer renderer(factory.Get());
         HudRenderer privateRenderer(factory.Get(), CLAWHUD_TEST_UNISPACE_PATH);
         ok &= Check(privateRenderer.PrivateFontLoaded(),

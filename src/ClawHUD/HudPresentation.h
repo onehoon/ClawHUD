@@ -69,6 +69,11 @@ private:
     HRESULT CreatePresentationSurface();
     HRESULT CreateBitmapTargets();
     HRESULT ResizeContentWidth(UINT widthPx, HudAlignment alignment);
+#ifdef _DEBUG
+    HRESULT ValidatePresentedAlpha(
+        ID3D11Texture2D* texture, UINT sampleX, UINT sampleY,
+        BYTE expectedAlpha);
+#endif
     HRESULT TryAcquireAvailableBuffer(HudFrameBuffer*& selected) noexcept;
     HRESULT RefreshDisplayIfNeeded();
     HRESULT CommitVisibility(bool visible);

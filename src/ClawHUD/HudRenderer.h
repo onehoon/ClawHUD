@@ -59,6 +59,7 @@ struct HudRenderGeometry
 };
 
 float DipFromPhysicalPixels(float pixels, float dpi) noexcept;
+float FirstLineBaseline(IDWriteTextLayout* layout) noexcept;
 float MainTextYOffset(const HudRenderOptions& options) noexcept;
 float UnitTextYOffset(const HudRenderOptions& options) noexcept;
 float CalculateUnitBaselineOffset(

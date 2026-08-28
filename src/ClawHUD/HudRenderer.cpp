@@ -253,20 +253,6 @@ float Width(IDWriteTextLayout* layout) noexcept
     return SUCCEEDED(layout->GetMetrics(&metrics)) ? metrics.widthIncludingTrailingWhitespace : 0.0f;
 }
 
-float FirstBaseline(IDWriteTextLayout* layout) noexcept
-{
-    if (!layout)
-        return 0.0f;
-    UINT32 lineCount{};
-    if (FAILED(layout->GetLineMetrics(nullptr, 0, &lineCount)) || lineCount == 0)
-        return 0.0f;
-    std::vector<DWRITE_LINE_METRICS> lines(lineCount);
-    UINT32 actualCount{};
-    if (FAILED(layout->GetLineMetrics(lines.data(), lineCount, &actualCount)) || actualCount == 0)
-        return 0.0f;
-    return lines[0].baseline;
-}
-
 float Height(IDWriteTextLayout* layout) noexcept
 {
     DWRITE_TEXT_METRICS metrics{};
@@ -392,7 +378,7 @@ HRESULT DrawValue(ID2D1DeviceContext* context, IDWriteFactory* factory,
         if (FAILED(hr)) return hr;
         x += UnitGap(options);
         const float unitY = y + CalculateUnitBaselineOffset(
-            FirstBaseline(mainLayout), FirstBaseline(unit.Get()), options);
+            FirstLineBaseline(mainLayout), FirstLineBaseline(unit.Get()), options);
         DrawOutlinedLayout(context, unit.Get(), x, unitY, brush, outlineBrush, options);
         x += Width(unit.Get());
         cursor = range.start + range.length;
@@ -529,6 +515,17 @@ HRESULT HudRenderer::MeasureMainTextHeight(const HudRenderOptions& options, floa
 float DipFromPhysicalPixels(float pixels, float dpi) noexcept
 {
     return dpi > 0.0f ? pixels * 96.0f / dpi : pixels;
+}
+
+float FirstLineBaseline(IDWriteTextLayout* layout) noexcept
+{
+    if (!layout)
+        return 0.0f;
+    DWRITE_LINE_METRICS line{};
+    UINT32 actualCount{};
+    if (FAILED(layout->GetLineMetrics(&line, 1, &actualCount)) || actualCount == 0)
+        return 0.0f;
+    return line.baseline;
 }
 
 float MainTextYOffset(const HudRenderOptions& options) noexcept

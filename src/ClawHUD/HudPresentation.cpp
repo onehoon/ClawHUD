@@ -268,9 +268,63 @@ HRESULT HudPresentation::Render(const HudTelemetrySnapshot& snapshot, const HudR
     if (FAILED(hr)) return hr;
     if (FAILED(endHr)) return endHr;
     deviceContext_->Flush();
+#ifdef _DEBUG
+    const BYTE expectedBackgroundAlpha = static_cast<BYTE>(std::lround(
+        std::clamp(effective.layout.backgroundOpacity, 0.0f, 1.0f) * 255.0f));
+    if (FAILED(ValidatePresentedAlpha(buffer->texture.Get(), 0, 0,
+        expectedBackgroundAlpha)))
+        RuntimeLogger::Log(RuntimeLogLevel::Warn,
+            L"Production buffer alpha validation failed");
+#endif
     if (FAILED(hr = presentationSurface_->SetBuffer(buffer->presentationBuffer.Get()))) return hr;
     return presentationManager_->Present();
 }
+
+#ifdef _DEBUG
+HRESULT HudPresentation::ValidatePresentedAlpha(
+    ID3D11Texture2D* texture, UINT sampleX, UINT sampleY, BYTE expectedAlpha)
+{
+    if (!texture || !device_ || !deviceContext_)
+        return E_INVALIDARG;
+
+    D3D11_TEXTURE2D_DESC source{};
+    texture->GetDesc(&source);
+    if (sampleX >= source.Width || sampleY >= source.Height ||
+        source.Format != DXGI_FORMAT_B8G8R8A8_UNORM)
+        return E_INVALIDARG;
+
+    D3D11_TEXTURE2D_DESC staging = source;
+    staging.Usage = D3D11_USAGE_STAGING;
+    staging.BindFlags = 0;
+    staging.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    staging.MiscFlags = 0;
+    ComPtr<ID3D11Texture2D> readback;
+    HRESULT hr = device_->CreateTexture2D(&staging, nullptr, &readback);
+    if (FAILED(hr))
+        return hr;
+    deviceContext_->CopyResource(readback.Get(), texture);
+    deviceContext_->Flush();
+
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    hr = deviceContext_->Map(readback.Get(), 0, D3D11_MAP_READ, 0, &mapped);
+    if (FAILED(hr))
+        return hr;
+    const auto* pixel = static_cast<const BYTE*>(mapped.pData) +
+        sampleY * mapped.RowPitch + sampleX * 4;
+    const BYTE actualAlpha = pixel[3];
+    deviceContext_->Unmap(readback.Get(), 0);
+    if (std::abs(static_cast<int>(actualAlpha) - static_cast<int>(expectedAlpha)) > 2)
+    {
+        std::wostringstream message;
+        message << L"Production buffer alpha mismatch expected="
+            << static_cast<unsigned>(expectedAlpha) << L" actual="
+            << static_cast<unsigned>(actualAlpha);
+        RuntimeLogger::Log(RuntimeLogLevel::Warn, message.str());
+        return E_FAIL;
+    }
+    return S_OK;
+}
+#endif
 
 HRESULT HudPresentation::ResizeContentWidth(UINT widthPx, HudAlignment alignment)
 {
@@ -287,15 +341,27 @@ HRESULT HudPresentation::ResizeContentWidth(UINT widthPx, HudAlignment alignment
         return S_OK;
     }
 
+    const int oldX = xPx_;
+    const int oldY = yPx_;
+    const UINT oldWidth = widthPx_;
+    if (!SetWindowPos(window_, HWND_TOPMOST, geometry.xPx, geometry.yPx,
+        static_cast<int>(geometry.widthPx), static_cast<int>(heightPx_),
+        SWP_NOACTIVATE | SWP_NOOWNERZORDER))
+        return LastErrorResult();
+    RECT sourceRect{ 0, 0, static_cast<LONG>(geometry.widthPx),
+        static_cast<LONG>(heightPx_) };
+    const HRESULT hr = presentationSurface_->SetSourceRect(&sourceRect);
+    if (FAILED(hr))
+    {
+        SetWindowPos(window_, HWND_TOPMOST, oldX, oldY,
+            static_cast<int>(oldWidth), static_cast<int>(heightPx_),
+            SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+        return hr;
+    }
     widthPx_ = geometry.widthPx;
     xPx_ = geometry.xPx;
     yPx_ = geometry.yPx;
-    if (!SetWindowPos(window_, HWND_TOPMOST, xPx_, yPx_,
-        static_cast<int>(widthPx_), static_cast<int>(heightPx_),
-        SWP_NOACTIVATE | SWP_NOOWNERZORDER))
-        return LastErrorResult();
-    RECT sourceRect{ 0, 0, static_cast<LONG>(widthPx_), static_cast<LONG>(heightPx_) };
-    return presentationSurface_->SetSourceRect(&sourceRect);
+    return S_OK;
 }
 
 HRESULT HudPresentation::RefreshDisplayIfNeeded()
