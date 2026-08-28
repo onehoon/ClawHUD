@@ -198,10 +198,12 @@ if(BUILD_TESTING)
 
     add_executable(ClawHUD.IntelVrrDiagnosticProbeTests
         tests/IntelVrrDiagnosticProbeTests.cpp
-        src/ClawHUD/IntelVrrDiagnosticProbe.cpp)
+        src/ClawHUD/IntelVrrDiagnosticProbe.cpp
+        src/ClawHUD/Tweaks/IntelVrr/AffectedPanelDetector.cpp)
     target_compile_features(ClawHUD.IntelVrrDiagnosticProbeTests PRIVATE cxx_std_20)
     target_compile_definitions(ClawHUD.IntelVrrDiagnosticProbeTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
     target_include_directories(ClawHUD.IntelVrrDiagnosticProbeTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.IntelVrrDiagnosticProbeTests PRIVATE wbemuuid ole32 oleaut32)
     set_target_properties(ClawHUD.IntelVrrDiagnosticProbeTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.IntelVrrDiagnosticProbeTests COMMAND ClawHUD.IntelVrrDiagnosticProbeTests)
 

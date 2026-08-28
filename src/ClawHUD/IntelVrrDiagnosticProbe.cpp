@@ -1,4 +1,5 @@
 #include "IntelVrrDiagnosticProbe.h"
+#include "Tweaks/IntelVrr/AffectedPanelDetector.h"
 
 #include <algorithm>
 #include <array>
@@ -96,6 +97,29 @@ const char* ProfileName(ArcProfile profile)
 }
 
 std::wstring Wide(const std::string& value) { return { value.begin(), value.end() }; }
+
+void LogPanelIdentities(std::wofstream& log)
+{
+    try
+    {
+        const auto panels = EnumeratePanelIdentities();
+        log << L"WMI monitor count: " << panels.size() << L"\n";
+        for (std::size_t i = 0; i < panels.size(); ++i)
+        {
+            const auto& panel = panels[i];
+            log << L"Monitor[" << i << L"] Active=" << (panel.active ? L"true" : L"false")
+                << L", ManufacturerName=" << Wide(panel.manufacturer)
+                << L", ProductCodeID=" << Wide(panel.productCode)
+                << L", UserFriendlyName=" << Wide(panel.panelName)
+                << L", InstanceName=" << Wide(panel.instanceName)
+                << L", AffectedPanel=" << (IsAffectedPanel(panel) ? L"true" : L"false") << L"\n";
+        }
+    }
+    catch (...)
+    {
+        log << L"WMI monitor identity: Unavailable\n";
+    }
+}
 }
 
 void RecordVblankTimestamp(VblankSeries& series, std::uint64_t timestamp)
@@ -189,6 +213,7 @@ bool IntelVrrDiagnosticProbe::Initialize(std::wofstream& log)
     initialized_ = true; vblankAvailable_ = vblank != nullptr;
     log << L"IGCL requested API version: 1.1\nIGCL supported API version: " << (args.SupportedVersion >> 16) << L"." << (args.SupportedVersion & 0xFFFFu)
         << L"\n=== INTEL IGCL VRR STATE ===\nIGCL: Available\nVBlank API: " << (vblankAvailable_ ? L"Available" : L"Unavailable") << L"\n";
+    LogPanelIdentities(log);
     std::uint32_t deviceCount{}; Result enumerateResult = enumerateDevices(apiHandle_, &deviceCount, nullptr);
     if (enumerateResult != kSuccess || !deviceCount) { LogResult(log, L"ctlEnumerateDevices", enumerateResult); return true; }
     std::vector<DeviceHandle> devices(deviceCount); enumerateResult = enumerateDevices(apiHandle_, &deviceCount, devices.data());
