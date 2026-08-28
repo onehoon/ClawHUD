@@ -122,8 +122,12 @@ void TestDebugFiltering(const std::filesystem::path& directory)
 void TestRotationFailureIsBounded(const std::filesystem::path& directory)
 {
     const auto log = directory / L"clawhud.log";
+    const auto one = directory / L"clawhud.1.log";
+    const auto two = directory / L"clawhud.2.log";
     { std::ofstream output(log, std::ios::binary | std::ios::trunc);
       output << std::string(2 * 1024 * 1024, 'x'); }
+    { std::ofstream output(one, std::ios::binary | std::ios::trunc); output << "one"; }
+    { std::ofstream output(two, std::ios::binary | std::ios::trunc); output << "two"; }
     clawhud::RuntimeLogger::SetDirectoryForTests(directory.wstring());
     clawhud::RuntimeLogger::SetRotationFailureForTests(true);
     clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info, L"bounded");
@@ -134,9 +138,26 @@ void TestRotationFailureIsBounded(const std::filesystem::path& directory)
         "rotation failure discarded the existing log");
     Require(Read(log).find("bounded") == std::string::npos,
         "rotation failure wrote the blocked entry");
+    Require(Read(one) == "one", "rotation failure changed clawhud.1.log");
+    Require(Read(two) == "two", "rotation failure changed clawhud.2.log");
     clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info, L"recovered");
     Require(Read(log).find("recovered") != std::string::npos,
         "logging did not recover after transient rotation failure");
+}
+
+void TestRotationMetadataFailureIsFailClosed(const std::filesystem::path& directory)
+{
+    const auto log = directory / L"clawhud.log";
+    { std::ofstream output(log, std::ios::binary | std::ios::trunc);
+      output << std::string(2 * 1024 * 1024, 'm'); }
+    clawhud::RuntimeLogger::SetDirectoryForTests(directory.wstring());
+    clawhud::RuntimeLogger::SetRotationMetadataFailureForTests(true);
+    clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info, L"metadata-blocked");
+    clawhud::RuntimeLogger::SetRotationMetadataFailureForTests(false);
+    Require(std::filesystem::file_size(log) == 2u * 1024u * 1024u,
+        "metadata failure allowed log growth");
+    Require(Read(log).find("metadata-blocked") == std::string::npos,
+        "metadata failure wrote the blocked entry");
 }
 }
 
@@ -148,6 +169,7 @@ int main()
     TestConcurrentWrites(directory);
     TestDebugFiltering(directory);
     TestRotationFailureIsBounded(directory);
+    TestRotationMetadataFailureIsFailClosed(directory);
     clawhud::RuntimeLogger::ResetForTests();
     std::filesystem::remove_all(directory);
 }

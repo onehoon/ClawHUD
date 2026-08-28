@@ -26,6 +26,7 @@ public:
 #ifdef CLAWHUD_RUNTIME_LOGGER_TESTS
     static void SetDirectoryForTests(const std::wstring& directory) noexcept;
     static void SetRotationFailureForTests(bool enabled) noexcept;
+    static void SetRotationMetadataFailureForTests(bool enabled) noexcept;
     static void ResetForTests() noexcept;
 #endif
 };

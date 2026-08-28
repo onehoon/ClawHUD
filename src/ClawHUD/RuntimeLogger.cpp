@@ -27,6 +27,7 @@ std::atomic<int> g_minimumLevel{ static_cast<int>(RuntimeLogLevel::Info) };
 #ifdef CLAWHUD_RUNTIME_LOGGER_TESTS
 std::filesystem::path g_testDirectory;
 bool g_forceRotationFailure{};
+bool g_forceRotationMetadataFailure{};
 #endif
 
 const wchar_t* LevelName(RuntimeLogLevel level) noexcept
@@ -66,8 +67,17 @@ std::wstring Timestamp()
 bool RotateIfNeeded(const std::filesystem::path& file)
 {
     std::error_code error;
-    if (!std::filesystem::exists(file, error) || error ||
-        std::filesystem::file_size(file, error) < kMaximumLogBytes || error)
+#ifdef CLAWHUD_RUNTIME_LOGGER_TESTS
+    if (g_forceRotationMetadataFailure)
+        return false;
+#endif
+    const bool fileExists = std::filesystem::exists(file, error);
+    if (error) return false;
+    if (!fileExists)
+        return true;
+    const auto fileSize = std::filesystem::file_size(file, error);
+    if (error) return false;
+    if (fileSize < kMaximumLogBytes)
         return true;
 
 #ifdef CLAWHUD_RUNTIME_LOGGER_TESTS
@@ -77,24 +87,54 @@ bool RotateIfNeeded(const std::filesystem::path& file)
 
     const auto one = file.parent_path() / L"clawhud.1.log";
     const auto two = file.parent_path() / L"clawhud.2.log";
-    const bool twoExists = std::filesystem::exists(two, error);
+    const auto staged = file.parent_path() / L"clawhud.rotate.tmp";
+    std::filesystem::remove(staged, error);
     if (error) return false;
+    std::filesystem::rename(file, staged, error);
+    if (error) return false;
+
+    const bool twoExists = std::filesystem::exists(two, error);
+    if (error)
+    {
+        std::error_code rollback;
+        std::filesystem::rename(staged, file, rollback);
+        return false;
+    }
     if (twoExists)
     {
         std::filesystem::remove(two, error);
-        if (error) return false;
+        if (error)
+        {
+            std::error_code rollback;
+            std::filesystem::rename(staged, file, rollback);
+            return false;
+        }
     }
     error.clear();
     const bool oneExists = std::filesystem::exists(one, error);
-    if (error) return false;
+    if (error)
+    {
+        std::error_code rollback;
+        std::filesystem::rename(staged, file, rollback);
+        return false;
+    }
     if (oneExists)
     {
         std::filesystem::rename(one, two, error);
-        if (error) return false;
+        if (error)
+        {
+            std::error_code rollback;
+            std::filesystem::rename(staged, file, rollback);
+            return false;
+        }
     }
     error.clear();
-    std::filesystem::rename(file, one, error);
-    return !error;
+    std::filesystem::rename(staged, one, error);
+    if (!error)
+        return true;
+    std::error_code rollback;
+    std::filesystem::rename(staged, file, rollback);
+    return false;
 }
 
 void InitializeLocked()
@@ -210,6 +250,16 @@ void RuntimeLogger::SetRotationFailureForTests(bool enabled) noexcept
     catch (...) { OutputDebugStringW(L"[ClawHUD] [WARN] Runtime logger test setup failed\n"); }
 }
 
+void RuntimeLogger::SetRotationMetadataFailureForTests(bool enabled) noexcept
+{
+    try
+    {
+        std::lock_guard lock(g_mutex);
+        g_forceRotationMetadataFailure = enabled;
+    }
+    catch (...) { OutputDebugStringW(L"[ClawHUD] [WARN] Runtime logger test setup failed\n"); }
+}
+
 void RuntimeLogger::ResetForTests() noexcept
 {
     try
@@ -221,6 +271,7 @@ void RuntimeLogger::ResetForTests() noexcept
         g_directory.clear();
         g_minimumLevel.store(static_cast<int>(RuntimeLogLevel::Info), std::memory_order_relaxed);
         g_forceRotationFailure = false;
+        g_forceRotationMetadataFailure = false;
     }
     catch (...) { OutputDebugStringW(L"[ClawHUD] [WARN] Runtime logger test reset failed\n"); }
 }
