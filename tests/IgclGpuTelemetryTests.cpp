@@ -8,14 +8,42 @@ using namespace clawhud;
 
 int main()
 {
-    assert(clawhud::ObserveIgclTelemetryTransition(true, false) ==
+    assert(clawhud::ObserveIgclTelemetryTransition(true, 1, false, 3) ==
+        clawhud::IgclTelemetryTransition::None);
+    assert(clawhud::ObserveIgclTelemetryTransition(true, 3, false, 3) ==
         clawhud::IgclTelemetryTransition::Unavailable);
-    assert(clawhud::ObserveIgclTelemetryTransition(false, false) ==
+    assert(clawhud::ObserveIgclTelemetryTransition(false, 1, false, 3) ==
         clawhud::IgclTelemetryTransition::None);
-    assert(clawhud::ObserveIgclTelemetryTransition(false, true) ==
+    assert(clawhud::ObserveIgclTelemetryTransition(false, 0, true, 3) ==
         clawhud::IgclTelemetryTransition::Recovered);
-    assert(clawhud::ObserveIgclTelemetryTransition(true, true) ==
+    assert(clawhud::ObserveIgclTelemetryTransition(true, 0, true, 3) ==
         clawhud::IgclTelemetryTransition::None);
+    assert(clawhud::ObserveIgclTelemetryTransition(true, 1, true, 3) ==
+        clawhud::IgclTelemetryTransition::None);
+
+    unsigned failures = 0;
+    bool available = true;
+    auto observe = [&](bool success)
+    {
+        if (success)
+            failures = 0;
+        else
+            ++failures;
+        const auto transition = clawhud::ObserveIgclTelemetryTransition(
+            available, failures, success, 3);
+        if (transition == clawhud::IgclTelemetryTransition::Unavailable)
+            available = false;
+        else if (transition == clawhud::IgclTelemetryTransition::Recovered)
+            available = true;
+        return transition;
+    };
+    assert(observe(true) == clawhud::IgclTelemetryTransition::None);
+    assert(observe(false) == clawhud::IgclTelemetryTransition::None);
+    assert(observe(true) == clawhud::IgclTelemetryTransition::None);
+    assert(observe(false) == clawhud::IgclTelemetryTransition::None);
+    assert(observe(false) == clawhud::IgclTelemetryTransition::None);
+    assert(observe(false) == clawhud::IgclTelemetryTransition::Unavailable);
+    assert(observe(true) == clawhud::IgclTelemetryTransition::Recovered);
     bool ok = true;
     const auto check = [&](bool value, const char* name)
     {

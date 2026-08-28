@@ -284,9 +284,9 @@ int SettingsWindow::ContentHeightForTab(int tab) const noexcept
     switch (tab)
     {
     case kTabSettings: return 454;
-    case kTabTweaks: return 280;
+    case kTabTweaks: return 230;
     case kTabAbout: return 260;
-    case kTabDiagnostics: return 500;
+    case kTabDiagnostics: return 540;
     default: return 0;
     }
 }
@@ -463,9 +463,6 @@ void SettingsWindow::CreateTweaksControls()
     intelVrrToggle_ = CreateWindowW(L"BUTTON", L"Enable Intel VRR Range Fix",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, 0, 0, 0, 0,
         tweaksPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIntelVrrToggle)), instance_, nullptr);
-    debugLoggingToggle_ = CreateWindowW(L"BUTTON", L"Enable debug logging",
-        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, 0, 0, 0, 0,
-        tweaksPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kDebugLoggingToggle)), instance_, nullptr);
     CreateWindowW(L"STATIC", L"Restores the native VRR range on the affected\r\nMSI Claw display. Applied at application startup.",
         WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, tweaksPanel_,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kTweaksDescription)), instance_, nullptr);
@@ -476,7 +473,6 @@ void SettingsWindow::CreateTweaksControls()
     intelVrrResult_ = CreateWindowW(L"STATIC", L"Last result: No result yet", WS_CHILD | WS_VISIBLE,
         0, 0, 0, 0, tweaksPanel_, nullptr, instance_, nullptr);
     EnableMouseWheelForwarding(intelVrrToggle_);
-    EnableMouseWheelForwarding(debugLoggingToggle_);
     EnableStaticPanForwarding(tweaksPanel_);
 }
 
@@ -536,6 +532,9 @@ void SettingsWindow::CreateDiagnosticsControls()
     startIgclButton_ = CreateWindowW(L"BUTTON", L"Start IGCL Test",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, 0, 0, diagnosticsPanel_,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kStartIgcl)), instance_, nullptr);
+    debugLoggingToggle_ = CreateWindowW(L"BUTTON", L"Enable debug logging",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, 0, 0, 0, 0,
+        diagnosticsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kDebugLoggingToggle)), instance_, nullptr);
     openLogsButton_ = CreateWindowW(L"BUTTON", L"Open Log Folder",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, 0, 0, diagnosticsPanel_,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOpenLogs)), instance_, nullptr);
@@ -545,6 +544,7 @@ void SettingsWindow::CreateDiagnosticsControls()
     EnableMouseWheelForwarding(stopVrrButton_);
     EnableMouseWheelForwarding(startEcButton_);
     EnableMouseWheelForwarding(startIgclButton_);
+    EnableMouseWheelForwarding(debugLoggingToggle_);
     EnableMouseWheelForwarding(openLogsButton_);
     EnableStaticPanForwarding(diagnosticsPanel_);
 }
@@ -620,12 +620,11 @@ void SettingsWindow::LayoutTweaks()
     const int width = std::max(0, static_cast<int>(panelRect.right) - x - Scale(24));
     const int scrollY = Scale(tweaksScrollY_);
     MoveControl(tweaksPanel_, kTweaksHeading, x, Scale(8) - scrollY, width, Scale(28));
-    MoveWindow(debugLoggingToggle_, x, Scale(44) - scrollY, Scale(300), Scale(32), TRUE);
-    MoveWindow(intelVrrToggle_, x, Scale(88) - scrollY, Scale(300), Scale(32), TRUE);
-    MoveControl(tweaksPanel_, kTweaksDescription, x, Scale(126) - scrollY, width, Scale(44));
-    MoveWindow(intelVrrPanel_, x, Scale(184) - scrollY, width, Scale(24), TRUE);
-    MoveWindow(intelVrrRange_, x, Scale(212) - scrollY, width, Scale(24), TRUE);
-    MoveWindow(intelVrrResult_, x, Scale(240) - scrollY, width, Scale(24), TRUE);
+    MoveWindow(intelVrrToggle_, x, Scale(44) - scrollY, Scale(300), Scale(32), TRUE);
+    MoveControl(tweaksPanel_, kTweaksDescription, x, Scale(82) - scrollY, width, Scale(44));
+    MoveWindow(intelVrrPanel_, x, Scale(140) - scrollY, width, Scale(24), TRUE);
+    MoveWindow(intelVrrRange_, x, Scale(168) - scrollY, width, Scale(24), TRUE);
+    MoveWindow(intelVrrResult_, x, Scale(196) - scrollY, width, Scale(24), TRUE);
 }
 
 void SettingsWindow::LayoutAbout()
@@ -669,7 +668,8 @@ void SettingsWindow::LayoutDiagnostics()
     MoveControl(diagnosticsPanel_, kDiagnosticsIgclDescription, x, Scale(360) - scrollY, contentWidth, Scale(48));
     MoveWindow(startIgclButton_, x, Scale(416) - scrollY, Scale(140), Scale(32), TRUE);
     MoveWindow(openLogsButton_, x + Scale(152), Scale(416) - scrollY, Scale(150), Scale(32), TRUE);
-    MoveWindow(diagnosticStatus_, x, Scale(456) - scrollY, contentWidth, Scale(24), TRUE);
+    MoveWindow(debugLoggingToggle_, x, Scale(456) - scrollY, Scale(300), Scale(32), TRUE);
+    MoveWindow(diagnosticStatus_, x, Scale(496) - scrollY, contentWidth, Scale(24), TRUE);
 }
 
 void SettingsWindow::UpdateGeneralControls()
@@ -734,8 +734,6 @@ void SettingsWindow::UpdateHudControls()
 
 void SettingsWindow::UpdateTweaksControls()
 {
-    if (debugLoggingToggle_) SendMessageW(debugLoggingToggle_, BM_SETCHECK,
-        app_.DebugLoggingEnabled() ? BST_CHECKED : BST_UNCHECKED, 0);
     if (intelVrrToggle_) SendMessageW(intelVrrToggle_, BM_SETCHECK, app_.IntelVrrRangeFixEnabled() ? BST_CHECKED : BST_UNCHECKED, 0);
     const auto result = app_.IntelVrrLastResult();
     if (!result) { if (intelVrrResult_) SetWindowTextW(intelVrrResult_, L"Last result: No result yet"); return; }
@@ -779,6 +777,8 @@ void SettingsWindow::UpdateDiagnosticButtons()
     if (startIgclButton_) EnableWindow(startIgclButton_, !busy);
     if (startVrrButton_) EnableWindow(startVrrButton_, !busy);
     if (stopVrrButton_) EnableWindow(stopVrrButton_, app_.VrrDiagnosticRunning());
+    if (debugLoggingToggle_) SendMessageW(debugLoggingToggle_, BM_SETCHECK,
+        app_.DebugLoggingEnabled() ? BST_CHECKED : BST_UNCHECKED, 0);
 }
 
 LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)

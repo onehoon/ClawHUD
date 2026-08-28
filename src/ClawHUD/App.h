@@ -228,6 +228,7 @@ private:
     bool hudShowFailureLogged_{};
     bool hudHideFailureLogged_{};
     bool igclTelemetryAvailable_{};
+    unsigned igclTelemetryFailureCount_{};
     bool intelVrrRangeFixEnabled_{ true };
     bool suspended_{};
     bool resumeRecoveryActive_{};

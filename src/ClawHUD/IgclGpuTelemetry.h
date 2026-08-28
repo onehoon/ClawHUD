@@ -23,9 +23,11 @@ enum class IgclTelemetryTransition
 };
 
 constexpr IgclTelemetryTransition ObserveIgclTelemetryTransition(
-    bool wasAvailable, bool sampleSucceeded) noexcept
+    bool wasAvailable, unsigned consecutiveFailures, bool sampleSucceeded,
+    unsigned failureThreshold) noexcept
 {
-    if (wasAvailable && !sampleSucceeded)
+    if (wasAvailable && !sampleSucceeded &&
+        consecutiveFailures >= failureThreshold)
         return IgclTelemetryTransition::Unavailable;
     if (!wasAvailable && sampleSucceeded)
         return IgclTelemetryTransition::Recovered;

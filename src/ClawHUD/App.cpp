@@ -25,6 +25,7 @@
 
 namespace
 {
+constexpr unsigned kIgclUnavailableFailureThreshold = 3;
 constexpr UINT kSettingsDestroyed = WM_APP + 1;
 constexpr UINT kForegroundChanged = WM_APP + 2;
 constexpr UINT kHudVisibilityRequest = WM_APP + 3;
@@ -939,15 +940,27 @@ void App::SampleProductionTelemetry()
     if (igclGpuSampler_.Initialized())
     {
         latestIgclGpuTelemetry_ = igclGpuSampler_.Sample();
+        if (latestIgclGpuTelemetry_)
+        {
+            igclTelemetryFailureCount_ = 0;
+        }
+        else
+        {
+            ++igclTelemetryFailureCount_;
+        }
         const auto transition = clawhud::ObserveIgclTelemetryTransition(
-            igclTelemetryAvailable_, latestIgclGpuTelemetry_.has_value());
+            igclTelemetryAvailable_, igclTelemetryFailureCount_,
+            latestIgclGpuTelemetry_.has_value(), kIgclUnavailableFailureThreshold);
         if (transition == clawhud::IgclTelemetryTransition::Recovered)
             clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info,
                 L"IGCL telemetry recovered");
         else if (transition == clawhud::IgclTelemetryTransition::Unavailable)
             clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
                 L"IGCL telemetry unavailable");
-        igclTelemetryAvailable_ = latestIgclGpuTelemetry_.has_value();
+        if (latestIgclGpuTelemetry_)
+            igclTelemetryAvailable_ = true;
+        else if (igclTelemetryFailureCount_ >= kIgclUnavailableFailureThreshold)
+            igclTelemetryAvailable_ = false;
     }
     RenderProductionHud();
 }
@@ -997,6 +1010,7 @@ void App::PauseProductionSamplingForSuspend()
     latestIgclGpuTelemetry_.reset();
     igclGpuSampler_.Reset();
     igclTelemetryAvailable_ = false;
+    igclTelemetryFailureCount_ = 0;
     ecHudSamplingActive_ = false;
     if (wasActive)
         Log(L"Production telemetry sampling stopped reason=suspend");
@@ -1067,6 +1081,7 @@ void App::StopProductionEcSampling(bool stopPresentMon, const wchar_t* reason)
     latestIgclGpuTelemetry_.reset();
     igclGpuSampler_.Reset();
     igclTelemetryAvailable_ = false;
+    igclTelemetryFailureCount_ = 0;
     ecHudSamplingActive_ = false;
     if (wasActive)
         Log(L"Production telemetry sampling stopped reason=" + std::wstring(reason));
@@ -1298,6 +1313,7 @@ void App::TrackMockGameWindow(HWND window)
     igclGpuSampler_.Reset();
     latestIgclGpuTelemetry_.reset();
     igclTelemetryAvailable_ = false;
+    igclTelemetryFailureCount_ = 0;
     StartGraphicsApiProbe(processId);
     if (EnsureMockHud())
     {
@@ -1426,6 +1442,7 @@ void App::ConfirmForegroundProductionTarget(DWORD processId)
     igclGpuSampler_.Reset();
     latestIgclGpuTelemetry_.reset();
     igclTelemetryAvailable_ = false;
+    igclTelemetryFailureCount_ = 0;
     StartGraphicsApiProbe(processId);
     Log(L"Production target confirmed pid=" + std::to_wstring(processId));
     if (previousProcessId && previousProcessId != processId)
