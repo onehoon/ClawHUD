@@ -468,6 +468,8 @@ HRESULT HudPresentation::Show()
         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW))
         return LastErrorResult();
     ShowWindow(window_, SW_SHOWNOACTIVATE);
+    InvalidateRect(window_, nullptr, FALSE);
+    UpdateWindow(window_);
     visible_ = true;
     return S_OK;
 }
@@ -537,11 +539,16 @@ LRESULT CALLBACK HudPresentation::WindowProc(HWND window, UINT message, WPARAM w
             RECT client{};
             GetClientRect(window, &client);
             HBRUSH brush = CreateSolidBrush(kOpacityPocClientPaintColor);
+            bool fillSucceeded = false;
             if (brush)
             {
-                FillRect(dc, &client, brush);
+                fillSucceeded = FillRect(dc, &client, brush) != FALSE;
                 DeleteObject(brush);
             }
+            RuntimeLogger::Log(fillSucceeded ? RuntimeLogLevel::Info : RuntimeLogLevel::Warn,
+                fillSucceeded
+                    ? L"HUD opacity POC: HWND magenta paint executed FillRect=SUCCESS"
+                    : L"HUD opacity POC: HWND magenta paint executed FillRect=FAILURE");
             self->opacityPocBackgroundPainted_ = true;
         }
         EndPaint(window, &paint);
