@@ -125,6 +125,7 @@ std::vector<HudUnitRange> FindHudUnitRangesImpl(const std::wstring& text)
     addToken(L"\u00B0C", false);
     addToken(L"W", true);
     addToken(L"GB", true);
+    addToken(L"MHz", true);
     for (std::size_t i = 1; i < text.size(); ++i)
     {
         if ((text[i] == L'h' || text[i] == L'm') &&
@@ -266,6 +267,7 @@ enum class HudMetricKind
     BatteryPercent,
     BatteryTime,
     TdpPower,
+    GpuClock,
 };
 
 struct HudMetricCell
@@ -287,6 +289,7 @@ const wchar_t* MetricExemplar(HudMetricKind kind) noexcept
     case HudMetricKind::TdpPower: return L"35W";
     case HudMetricKind::FanRpm: return L"9999RPM";
     case HudMetricKind::BatteryTime: return L"9.9h";
+    case HudMetricKind::GpuClock: return L"9999MHz";
     }
     return L"";
 }
@@ -306,7 +309,8 @@ HudMetricKind MetricKindForToken(HudSegmentKind kind, std::size_t index,
     case HudSegmentKind::Graphics: return HudMetricKind::Fps;
     case HudSegmentKind::Cpu: return index == 0
         ? HudMetricKind::UsagePercent : HudMetricKind::Temperature;
-    case HudSegmentKind::Gpu: return HudMetricKind::UsagePercent;
+    case HudSegmentKind::Gpu:
+        return text.ends_with(L"MHz") ? HudMetricKind::GpuClock : HudMetricKind::UsagePercent;
     case HudSegmentKind::Ram:
     case HudSegmentKind::Vram: return HudMetricKind::Vram;
     case HudSegmentKind::Tdp: return HudMetricKind::TdpPower;
@@ -604,7 +608,7 @@ HRESULT HudRenderer::MeasureReservedHudWidth(
     const std::vector<HudTextRun> reservedRuns{
         { HudSegmentKind::Graphics, L"Vulkan", L"999FPS" },
         { HudSegmentKind::Cpu, L"CPU", L"100% 100\u00B0C" },
-        { HudSegmentKind::Gpu, L"GPU", L"100%" },
+        { HudSegmentKind::Gpu, L"GPU", L"100% 9999MHz" },
         { HudSegmentKind::Tdp, L"TDP", L"35W" },
         { HudSegmentKind::Ram, L"RAM", L"99.9GB" },
         { HudSegmentKind::Vram, L"VRAM", L"99.9GB" },

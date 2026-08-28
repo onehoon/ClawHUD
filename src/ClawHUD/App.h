@@ -17,6 +17,7 @@
 #include "PresentMonHudTelemetry.h"
 #include "WindowsPowerTelemetry.h"
 #include "WindowsUsageTelemetry.h"
+#include "IgclGpuTelemetry.h"
 #include "IntelGraphicsApiProbe.h"
 #include "IgclTelemetryDiagnostic.h"
 #include "Tweaks/TweakStartupCoordinator.h"
@@ -198,6 +199,8 @@ private:
     std::optional<clawhud::WindowsPowerTelemetry> latestPowerTelemetry_;
     clawhud::WindowsUsageSampler usageSampler_;
     std::optional<clawhud::WindowsUsageTelemetry> latestUsageTelemetry_;
+    clawhud::IgclGpuTelemetrySampler igclGpuSampler_;
+    std::optional<clawhud::IgclGpuTelemetry> latestIgclGpuTelemetry_;
     clawhud::IntelGraphicsApiProbe graphicsApiProbe_;
     std::optional<std::wstring> latestGraphicsApi_;
     DWORD graphicsApiProcessId_{};

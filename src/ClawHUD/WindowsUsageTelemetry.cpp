@@ -91,19 +91,6 @@ std::optional<double> NormalizeUsagePercent(double value) noexcept
     return std::min(value, 100.0);
 }
 
-std::optional<double> MaxGpuUsagePercent(const std::vector<double>& values) noexcept
-{
-    std::optional<double> maximum;
-    for (const double value : values)
-    {
-        if (const auto valid = std::isfinite(value) && value >= 0.0 && value <= 100.0
-                ? std::optional<double>(value) : std::nullopt;
-            valid && (!maximum || *valid > *maximum))
-            maximum = valid;
-    }
-    return maximum;
-}
-
 int HexDigit(wchar_t value) noexcept
 {
     if (value >= L'0' && value <= L'9') return value - L'0';
@@ -196,7 +183,6 @@ void WindowsUsageSampler::Reset() noexcept
         PdhCloseQuery(query_);
     query_ = nullptr;
     cpuCounter_ = nullptr;
-    gpuCounters_.clear();
     intelDedicatedMemoryCounters_.clear();
     intelSharedMemoryCounters_.clear();
     primed_ = false;
@@ -216,7 +202,6 @@ bool WindowsUsageSampler::Initialize()
         Reset();
         return false;
     }
-    AddGpuCounters();
     if (!TryBindIntelGpuMemoryCounters())
         LogMemoryDiagnostic(L"Initial Intel GPU memory counter binding unavailable; bounded retry enabled");
     if (PdhCollectQueryData(query_) != ERROR_SUCCESS)
@@ -226,29 +211,6 @@ bool WindowsUsageSampler::Initialize()
     }
     primed_ = false;
     return true;
-}
-
-bool WindowsUsageSampler::AddGpuCounters()
-{
-    constexpr wchar_t kPath[] = L"\\GPU Engine(*)\\Utilization Percentage";
-    DWORD size{};
-    auto status = PdhExpandWildCardPathW(nullptr, kPath, nullptr, &size, 0);
-    if (static_cast<DWORD>(status) != kPdhMoreData || !size)
-        return false;
-    std::vector<wchar_t> paths(size);
-    status = PdhExpandWildCardPathW(nullptr, kPath, paths.data(), &size, 0);
-    if (status != ERROR_SUCCESS)
-        return false;
-    for (const wchar_t* path = paths.data(); *path;
-        path += std::wcslen(path) + 1)
-    {
-        if (!std::wcsstr(path, L"engtype_3D"))
-            continue;
-        PDH_HCOUNTER counter{};
-        if (PdhAddEnglishCounterW(query_, path, 0, &counter) == ERROR_SUCCESS)
-            gpuCounters_.push_back(counter);
-    }
-    return !gpuCounters_.empty();
 }
 
 bool WindowsUsageSampler::AddIntelGpuMemoryCounters()
@@ -393,13 +355,6 @@ std::optional<WindowsUsageTelemetry> WindowsUsageSampler::Sample()
     }
     WindowsUsageTelemetry result{};
     result.cpuUsagePercent = ReadCounter(cpuCounter_, true);
-    std::vector<double> gpuValues;
-    for (const auto counter : gpuCounters_)
-    {
-        if (const auto value = ReadCounter(counter, false))
-            gpuValues.push_back(*value);
-    }
-    result.gpuUsagePercent = MaxGpuUsagePercent(gpuValues);
     MEMORYSTATUSEX memory{};
     memory.dwLength = sizeof(memory);
     if (GlobalMemoryStatusEx(&memory))

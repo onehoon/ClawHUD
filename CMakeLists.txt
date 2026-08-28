@@ -64,6 +64,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/PresentMonHudTelemetry.cpp
     src/ClawHUD/WindowsPowerTelemetry.cpp
     src/ClawHUD/WindowsUsageTelemetry.cpp
+    src/ClawHUD/IgclGpuTelemetry.cpp
     src/ClawHUD/IntelGraphicsApiProbe.cpp
     src/ClawHUD/SupportedHardware.cpp
     src/ClawHUD/VrrDiagnostic.cpp
@@ -282,6 +283,18 @@ if(BUILD_TESTING)
     target_link_libraries(ClawHUD.WindowsUsageTelemetryTests PRIVATE pdh dxgi shell32 ole32)
     set_target_properties(ClawHUD.WindowsUsageTelemetryTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.WindowsUsageTelemetryTests COMMAND ClawHUD.WindowsUsageTelemetryTests)
+
+    add_executable(ClawHUD.IgclGpuTelemetryTests
+        tests/IgclGpuTelemetryTests.cpp
+        src/ClawHUD/IgclGpuTelemetry.cpp
+        src/ClawHUD/RuntimeLogger.cpp)
+    target_compile_features(ClawHUD.IgclGpuTelemetryTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.IgclGpuTelemetryTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.IgclGpuTelemetryTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.IgclGpuTelemetryTests PRIVATE shell32)
+    set_target_properties(ClawHUD.IgclGpuTelemetryTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.IgclGpuTelemetryTests COMMAND ClawHUD.IgclGpuTelemetryTests)
 
     add_executable(ClawHUD.IntelGraphicsApiProbeTests
         tests/IntelGraphicsApiProbeTests.cpp
