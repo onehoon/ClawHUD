@@ -14,7 +14,7 @@ namespace clawhud
 enum class IgclDiagnosticClass
 {
     SupportedActive, SupportedZero, SupportedConstant, Unsupported,
-    NoDomain, SymbolMissing, ApiError, SkippedMutationCapable
+    NoDomain, SymbolMissing, ApiError, NoSamples, SkippedMutationCapable
 };
 
 const char* IgclDiagnosticClassName(IgclDiagnosticClass value) noexcept;

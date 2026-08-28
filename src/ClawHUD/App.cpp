@@ -287,7 +287,15 @@ bool App::StartIgclDiagnostic()
     if (settings_) settings_->RequestClose();
     return true;
 }
-void App::StopIgclDiagnostic() { if (igclDiagnostic_) igclDiagnostic_->Stop(); }
+void App::StopIgclDiagnostic()
+{
+    const bool wasRunning = IgclDiagnosticRunning();
+    if (igclDiagnostic_) igclDiagnostic_->Stop();
+    if (wasRunning && clawhud::ShouldReevaluateForegroundAfterDiagnostic(
+        mockHudEnabled_, DiagnosticRunning(), suspended_))
+        AdoptForegroundProductionTarget();
+    ReconcileHudVisibility();
+}
 bool App::IgclDiagnosticRunning() const { return igclDiagnostic_ && igclDiagnostic_->Running(); }
 void App::FinishIgclDiagnostic(bool success)
 {

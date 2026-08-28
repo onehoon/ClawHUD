@@ -31,5 +31,8 @@ int main()
     check(!IsIgclApplicationNameLengthValid(128), "128-byte application name rejected");
     IgclSampleSeries intermittentFailure; intermittentFailure.values = { 100.0, 110.0 }; intermittentFailure.apiSucceeded = false;
     check(ClassifyIgclSamples(intermittentFailure) == IgclDiagnosticClass::ApiError, "leaf reports intermittent API failure");
+    IgclSampleSeries noSamples;
+    check(ClassifyIgclSamples(noSamples) == IgclDiagnosticClass::NoSamples, "no samples is not supported zero");
+    check(std::string(IgclDiagnosticClassName(IgclDiagnosticClass::NoSamples)) == "NO_SAMPLES", "no samples classification name");
     return ok ? 0 : 1;
 }
