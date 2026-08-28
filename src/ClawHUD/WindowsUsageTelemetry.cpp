@@ -43,7 +43,7 @@ std::wstring LuidToken(const LUID& luid)
     return output.str();
 }
 
-std::optional<LUID> FindIntelAdapterLuid()
+std::optional<LUID> FindIntelAdapterLuidInternal()
 {
     Microsoft::WRL::ComPtr<IDXGIFactory1> factory;
     if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory1),
@@ -82,6 +82,11 @@ bool ExpandCounterPaths(const wchar_t* path, std::vector<std::wstring>& paths)
         paths.emplace_back(current);
     return true;
 }
+}
+
+std::optional<LUID> FindIntelAdapterLuid()
+{
+    return FindIntelAdapterLuidInternal();
 }
 
 std::optional<double> NormalizeUsagePercent(double value) noexcept

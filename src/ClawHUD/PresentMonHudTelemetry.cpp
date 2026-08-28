@@ -245,6 +245,7 @@ void PresentMonHudTelemetry::ReadLoop()
     std::vector<std::string> headers;
     std::size_t displayedFrameCount{};
     double displayedElapsedMs{};
+    bool displayedFrameReported{};
     std::string pending;
     auto consumeLine = [&](std::string line)
     {
@@ -275,10 +276,19 @@ void PresentMonHudTelemetry::ReadLoop()
             return;
         ++displayedFrameCount;
         displayedElapsedMs += frame->msBetweenDisplayChange;
-        if (displayedElapsedMs < 500.0 || !callback_)
+        if (!callback_)
             return;
-        callback_(CalculateDisplayedFps(
-            displayedFrameCount, displayedElapsedMs / 1000.0));
+        if (displayedElapsedMs < 500.0)
+        {
+            if (!displayedFrameReported)
+            {
+                callback_(PresentMonHudSample{true, std::nullopt, false});
+                displayedFrameReported = true;
+            }
+            return;
+        }
+        callback_(PresentMonHudSample{true, CalculateDisplayedFps(
+            displayedFrameCount, displayedElapsedMs / 1000.0), false});
         displayedFrameCount = 0;
         displayedElapsedMs = 0.0;
     };
@@ -305,6 +315,6 @@ void PresentMonHudTelemetry::ReadLoop()
         }
     }
     if (!stop_ && callback_)
-        callback_(std::nullopt);
+        callback_(PresentMonHudSample{false, std::nullopt, true});
 }
 }

@@ -22,6 +22,10 @@ bool Near(double actual, double expected)
 int main()
 {
     bool ok = true;
+    const PresentMonHudSample firstDisplayedFrame{true, std::nullopt, false};
+    ok &= Check(firstDisplayedFrame.hasDisplayedFrame &&
+        !firstDisplayedFrame.displayedFps,
+        "first displayed frame is available before FPS window is ready");
     const auto command = BuildPresentMonCommandLine(
         L"C:\\tools\\PresentMon.exe", 1234, L"ClawHUD-HUD-1234");
     ok &= Check(command.find(L"--stop_existing_session") != std::wstring::npos &&

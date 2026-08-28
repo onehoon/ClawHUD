@@ -17,6 +17,13 @@ struct PresentMonFrameSample
     std::string frameType;
 };
 
+struct PresentMonHudSample
+{
+    bool hasDisplayedFrame{};
+    std::optional<double> displayedFps;
+    bool streamEnded{};
+};
+
 std::optional<PresentMonFrameSample> ParseDisplayedFrame(
     const std::vector<std::string>& headers,
     const std::vector<std::string>& row);
@@ -30,7 +37,7 @@ std::wstring BuildPresentMonCommandLine(const std::wstring& executable,
 class PresentMonHudTelemetry
 {
 public:
-    using UpdateCallback = std::function<void(std::optional<double>)>;
+    using UpdateCallback = std::function<void(PresentMonHudSample)>;
 
     ~PresentMonHudTelemetry();
     bool Start(const std::wstring& executable, DWORD processId, UpdateCallback callback);

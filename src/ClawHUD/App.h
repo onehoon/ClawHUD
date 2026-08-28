@@ -4,8 +4,10 @@
 
 #include <memory>
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "TrayIcon.h"
 #include "EcDiagnostic.h"
@@ -19,6 +21,9 @@
 #include "WindowsUsageTelemetry.h"
 #include "IgclGpuTelemetry.h"
 #include "IntelGraphicsApiProbe.h"
+#include "GpuEngineActivity.h"
+#include "SteamRunningAppId.h"
+#include "SteamGameSession.h"
 #include "IgclTelemetryDiagnostic.h"
 #include "Tweaks/TweakStartupCoordinator.h"
 #include "Tweaks/IntelVrr/IntelVrrRunResult.h"
@@ -32,6 +37,7 @@ constexpr UINT_PTR kEcHudTimerId = 2;
 constexpr UINT_PTR kBatteryHudTimerId = 3;
 constexpr UINT_PTR kGraphicsApiRetryTimerId = 4;
 constexpr UINT_PTR kResumeRecoveryTimerId = 5;
+constexpr UINT_PTR kSteamRendererResolveTimerId = 6;
 constexpr UINT kResumeRecoveryIntervalMs = 500;
 constexpr unsigned kResumeRecoveryMaxAttempts = 6;
 
@@ -119,6 +125,8 @@ public:
     void SampleProductionBatteryTelemetry();
     void RenderProductionHud(bool allowHidden = false);
     void TryGraphicsApiProbe();
+    void HandleSteamRunningAppId(std::uint32_t appId);
+    void ResolveSteamRenderer();
     bool MockHudVisible() const noexcept;
     bool MockHudEnabled() const noexcept { return mockHudEnabled_; }
     int HudSizeOffset() const noexcept { return hudSizeOffset_; }
@@ -176,12 +184,17 @@ private:
     void StartProductionPresentMonSampling(bool recoveryStart = false);
     void StopProductionPresentMonSampling(const wchar_t* reason = L"explicit-reset",
         bool clearLatestFps = false);
-    void HandlePresentMonHudUpdate(DWORD processId, std::optional<double> displayedFps);
+    void HandlePresentMonHudUpdate(DWORD processId, bool steamResolution,
+        clawhud::PresentMonHudSample sample);
     void StartGraphicsApiProbe(DWORD processId);
     void StopGraphicsApiProbe();
     bool RequestHudOnUiThread(bool visible, const HudVisibilityState* restore, DWORD timeoutMs);
     void DiscardPendingHudVisibilityRequests();
     void DiscardPendingPresentMonHudUpdates();
+    void ReconcileProductionTargetAuthority();
+    void StartSteamRendererResolution();
+    bool StartSteamPresentMon(DWORD processId);
+    void StopSteamRendererResolution(bool clearFps = true);
 
     HINSTANCE instance_{};
     HANDLE instanceMutex_{};
@@ -193,11 +206,18 @@ private:
     std::unique_ptr<EcHelperClient> ecHudClient_;
     clawhud::MsiEcHudTelemetry ecHudTelemetry_{};
     std::unique_ptr<clawhud::PresentMonHudTelemetry> presentMonHudTelemetry_;
+    SteamRunningAppIdSource steamRunningAppIdSource_;
+    clawhud::GpuEngineActivitySampler steamGpuEngineSampler_;
     std::optional<double> latestPresentMonDisplayedFps_;
     DWORD presentMonProcessId_{};
     DWORD presentMonRestartPid_{};
     unsigned presentMonRestartAttempts_{};
     DWORD pendingProductionTargetPid_{};
+    std::uint32_t steamRunningAppId_{};
+    SteamGameState steamGameState_{ SteamGameState::None };
+    DWORD steamRendererPid_{};
+    DWORD steamRendererCandidatePid_{};
+    std::vector<DWORD> steamBaselineProcessIds_;
     std::optional<clawhud::WindowsPowerTelemetry> latestPowerTelemetry_;
     clawhud::WindowsUsageSampler usageSampler_;
     std::optional<clawhud::WindowsUsageTelemetry> latestUsageTelemetry_;

@@ -159,6 +159,8 @@ LRESULT CALLBACK TrayIcon::WindowProc(HWND window, UINT message, WPARAM wParam, 
             self->app_.TryGraphicsApiProbe();
         else if (wParam == kResumeRecoveryTimerId)
             self->app_.TryResumeRecovery();
+        else if (wParam == kSteamRendererResolveTimerId)
+            self->app_.ResolveSteamRenderer();
         else if (wParam == kMockHudTimerId)
             self->app_.RenderMockHud();
         return 0;

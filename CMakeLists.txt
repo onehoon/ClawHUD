@@ -86,6 +86,8 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/HudPresentationContract.cpp
     src/ClawHUD/HudPresentationLifecycle.cpp
     src/ClawHUD/ForegroundTracker.cpp
+    src/ClawHUD/GpuEngineActivity.cpp
+    src/ClawHUD/SteamRunningAppId.cpp
     src/ClawHUD/ProductionTargetPolicy.cpp)
 target_compile_features(ClawHUD PRIVATE cxx_std_20)
 target_compile_definitions(ClawHUD PRIVATE
@@ -263,6 +265,18 @@ if(BUILD_TESTING)
     target_link_libraries(ClawHUD.PresentMonHudTelemetryTests PRIVATE advapi32 shell32 ole32)
     set_target_properties(ClawHUD.PresentMonHudTelemetryTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.PresentMonHudTelemetryTests COMMAND ClawHUD.PresentMonHudTelemetryTests)
+
+    add_executable(ClawHUD.SteamGameSessionTests
+        tests/SteamGameSessionTests.cpp
+        src/ClawHUD/GpuEngineActivity.cpp
+        src/ClawHUD/WindowsUsageTelemetry.cpp
+        src/ClawHUD/RuntimeLogger.cpp)
+    target_compile_features(ClawHUD.SteamGameSessionTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.SteamGameSessionTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.SteamGameSessionTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.SteamGameSessionTests PRIVATE advapi32 shell32 ole32 dxgi pdh)
+    set_target_properties(ClawHUD.SteamGameSessionTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.SteamGameSessionTests COMMAND ClawHUD.SteamGameSessionTests)
 
     add_executable(ClawHUD.WindowsPowerTelemetryTests
         tests/WindowsPowerTelemetryTests.cpp

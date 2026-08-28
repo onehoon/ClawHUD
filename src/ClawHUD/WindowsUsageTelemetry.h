@@ -22,6 +22,7 @@ std::optional<std::uint64_t> UsedPhysicalMemory(
     std::uint64_t totalBytes, std::uint64_t availableBytes) noexcept;
 std::optional<double> NormalizeUsagePercent(double value) noexcept;
 std::optional<LUID> ParseGpuMemoryInstanceLuid(std::wstring_view instance);
+std::optional<LUID> FindIntelAdapterLuid();
 bool IsIntelGpuMemoryCounterInstance(std::wstring_view instance,
     const LUID& adapterLuid);
 std::optional<std::uint64_t> CombineGpuMemoryBytes(
