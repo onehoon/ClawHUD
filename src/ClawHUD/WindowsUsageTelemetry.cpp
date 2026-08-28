@@ -22,7 +22,7 @@ constexpr unsigned int kMaxIntelMemoryRebindAttempts = 3;
 
 void LogMemoryDiagnostic(const std::wstring& message)
 {
-    RuntimeLogger::Log(RuntimeLogLevel::Info, message);
+    RuntimeLogger::Log(RuntimeLogLevel::Debug, message);
 }
 
 std::wstring HexPdhStatus(PDH_STATUS status)

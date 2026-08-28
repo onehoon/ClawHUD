@@ -142,6 +142,8 @@ public:
     void CancelPendingHudVisibilityRequests();
     bool IntelVrrRangeFixEnabled() const noexcept { return intelVrrRangeFixEnabled_; }
     void SetIntelVrrRangeFixEnabled(bool enabled);
+    bool DebugLoggingEnabled() const noexcept { return debugLoggingEnabled_; }
+    void SetDebugLoggingEnabled(bool enabled);
     std::optional<clawhud::IntelVrrRunResult> IntelVrrLastResult() const;
 
 private:
@@ -225,6 +227,7 @@ private:
     bool hudRenderFailureLogged_{};
     bool hudShowFailureLogged_{};
     bool hudHideFailureLogged_{};
+    bool igclTelemetryAvailable_{};
     bool intelVrrRangeFixEnabled_{ true };
     bool suspended_{};
     bool resumeRecoveryActive_{};
@@ -232,4 +235,5 @@ private:
     clawhud::TweakStartupCoordinator tweakStartupCoordinator_;
     bool startWithWindows_{true};
     bool diagnosticsTabEnabled_{};
+    bool debugLoggingEnabled_{};
 };

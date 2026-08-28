@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <atomic>
 #include <mutex>
 #include <sstream>
 #include <stdexcept>
@@ -21,15 +22,18 @@ std::mutex g_mutex;
 std::filesystem::path g_directory;
 bool g_initialized{};
 bool g_fileEnabled{};
+std::atomic<int> g_minimumLevel{ static_cast<int>(RuntimeLogLevel::Info) };
 
 #ifdef CLAWHUD_RUNTIME_LOGGER_TESTS
 std::filesystem::path g_testDirectory;
+bool g_forceRotationFailure{};
 #endif
 
 const wchar_t* LevelName(RuntimeLogLevel level) noexcept
 {
     switch (level)
     {
+    case RuntimeLogLevel::Debug: return L"DEBUG";
     case RuntimeLogLevel::Warn: return L"WARN";
     case RuntimeLogLevel::Error: return L"ERROR";
     default: return L"INFO";
@@ -59,20 +63,44 @@ std::wstring Timestamp()
     return buffer;
 }
 
-void RotateIfNeeded(const std::filesystem::path& file)
+bool RotateIfNeeded(const std::filesystem::path& file)
 {
     std::error_code error;
     if (!std::filesystem::exists(file, error) || error ||
         std::filesystem::file_size(file, error) < kMaximumLogBytes || error)
-        return;
+        return true;
+
+#ifdef CLAWHUD_RUNTIME_LOGGER_TESTS
+    if (g_forceRotationFailure)
+        return false;
+#endif
 
     const auto one = file.parent_path() / L"clawhud.1.log";
     const auto two = file.parent_path() / L"clawhud.2.log";
-    std::filesystem::remove(two, error);
+    const bool twoExists = std::filesystem::exists(two, error);
+    if (error) return false;
+    if (twoExists)
+    {
+        std::filesystem::remove(two, error);
+        if (error) return false;
+    }
     error.clear();
-    std::filesystem::rename(one, two, error);
+    const bool oneExists = std::filesystem::exists(one, error);
+    if (error) return false;
+    if (oneExists)
+    {
+        std::filesystem::rename(one, two, error);
+        if (error) return false;
+    }
     error.clear();
     std::filesystem::rename(file, one, error);
+    return !error;
+}
+
+bool TruncateForRotationFailure(const std::filesystem::path& file)
+{
+    std::ofstream output(file, std::ios::binary | std::ios::trunc);
+    return output.good();
 }
 
 void InitializeLocked()
@@ -127,12 +155,22 @@ void RuntimeLogger::Shutdown() noexcept
         g_fileEnabled = false;
         g_initialized = false;
         g_directory.clear();
+        g_minimumLevel.store(static_cast<int>(RuntimeLogLevel::Info),
+            std::memory_order_relaxed);
     }
     catch (...) { OutputDebugStringW(L"[ClawHUD] [WARN] Runtime logging shutdown failed\n"); }
 }
 
+void RuntimeLogger::SetDebugLogging(bool enabled) noexcept
+{
+    g_minimumLevel.store(static_cast<int>(enabled
+        ? RuntimeLogLevel::Debug : RuntimeLogLevel::Info), std::memory_order_relaxed);
+}
+
 void RuntimeLogger::Log(RuntimeLogLevel level, const std::wstring& message) noexcept
 {
+    if (static_cast<int>(level) < g_minimumLevel.load(std::memory_order_relaxed))
+        return;
     try
     {
         const std::wstring line = std::wstring(L"[") + LevelName(level) + L"] " + message;
@@ -142,7 +180,8 @@ void RuntimeLogger::Log(RuntimeLogLevel level, const std::wstring& message) noex
         InitializeLocked();
         if (!g_fileEnabled) return;
         const auto file = g_directory / L"clawhud.log";
-        RotateIfNeeded(file);
+        if (!RotateIfNeeded(file))
+            TruncateForRotationFailure(file);
         std::ofstream output(file, std::ios::binary | std::ios::app);
         if (!output) return;
         output << Utf8(Timestamp() + L" " + line) << "\r\n";
@@ -167,6 +206,16 @@ void RuntimeLogger::SetDirectoryForTests(const std::wstring& directory) noexcept
     catch (...) { OutputDebugStringW(L"[ClawHUD] [WARN] Runtime logger test setup failed\n"); }
 }
 
+void RuntimeLogger::SetRotationFailureForTests(bool enabled) noexcept
+{
+    try
+    {
+        std::lock_guard lock(g_mutex);
+        g_forceRotationFailure = enabled;
+    }
+    catch (...) { OutputDebugStringW(L"[ClawHUD] [WARN] Runtime logger test setup failed\n"); }
+}
+
 void RuntimeLogger::ResetForTests() noexcept
 {
     try
@@ -176,6 +225,8 @@ void RuntimeLogger::ResetForTests() noexcept
         g_initialized = false;
         g_fileEnabled = false;
         g_directory.clear();
+        g_minimumLevel.store(static_cast<int>(RuntimeLogLevel::Info), std::memory_order_relaxed);
+        g_forceRotationFailure = false;
     }
     catch (...) { OutputDebugStringW(L"[ClawHUD] [WARN] Runtime logger test reset failed\n"); }
 }

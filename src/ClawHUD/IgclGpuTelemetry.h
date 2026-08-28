@@ -15,6 +15,23 @@ struct IgclGpuTelemetry
     std::optional<double> gpuClockMHz;
 };
 
+enum class IgclTelemetryTransition
+{
+    None,
+    Unavailable,
+    Recovered
+};
+
+constexpr IgclTelemetryTransition ObserveIgclTelemetryTransition(
+    bool wasAvailable, bool sampleSucceeded) noexcept
+{
+    if (wasAvailable && !sampleSucceeded)
+        return IgclTelemetryTransition::Unavailable;
+    if (!wasAvailable && sampleSucceeded)
+        return IgclTelemetryTransition::Recovered;
+    return IgclTelemetryTransition::None;
+}
+
 std::optional<double> CalculateIgclGpuUsage(
     double previousTimestamp, double previousActivity,
     double currentTimestamp, double currentActivity) noexcept;

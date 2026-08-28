@@ -1,5 +1,6 @@
 #include "IgclGpuTelemetry.h"
 
+#include <cassert>
 #include <cmath>
 #include <iostream>
 
@@ -7,6 +8,14 @@ using namespace clawhud;
 
 int main()
 {
+    assert(clawhud::ObserveIgclTelemetryTransition(true, false) ==
+        clawhud::IgclTelemetryTransition::Unavailable);
+    assert(clawhud::ObserveIgclTelemetryTransition(false, false) ==
+        clawhud::IgclTelemetryTransition::None);
+    assert(clawhud::ObserveIgclTelemetryTransition(false, true) ==
+        clawhud::IgclTelemetryTransition::Recovered);
+    assert(clawhud::ObserveIgclTelemetryTransition(true, true) ==
+        clawhud::IgclTelemetryTransition::None);
     bool ok = true;
     const auto check = [&](bool value, const char* name)
     {

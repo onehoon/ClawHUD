@@ -94,7 +94,7 @@ bool IgclGpuTelemetrySampler::Initialize()
         LOAD_LIBRARY_SEARCH_SYSTEM32);
     if (!library_)
     {
-        RuntimeLogger::Log(RuntimeLogLevel::Info,
+        RuntimeLogger::Log(RuntimeLogLevel::Warn,
             L"IGCL GPU telemetry unavailable: ControlLib.dll load failed");
         return initializationFailure();
     }
@@ -106,7 +106,7 @@ bool IgclGpuTelemetrySampler::Initialize()
         "ctlPowerTelemetryGetV2");
     if (!init || !close_ || !enumerate || !telemetry_)
     {
-        RuntimeLogger::Log(RuntimeLogLevel::Info,
+        RuntimeLogger::Log(RuntimeLogLevel::Warn,
             L"IGCL GPU telemetry unavailable: required symbol missing");
         return initializationFailure();
     }
@@ -117,21 +117,21 @@ bool IgclGpuTelemetrySampler::Initialize()
     args.flags = kUseLevelZero;
     if (init(&args, &api_) != kSuccess)
     {
-        RuntimeLogger::Log(RuntimeLogLevel::Info,
+        RuntimeLogger::Log(RuntimeLogLevel::Warn,
             L"IGCL GPU telemetry unavailable: initialization failed");
         return initializationFailure();
     }
     std::uint32_t count{};
     if (enumerate(api_, &count, nullptr) != kSuccess || count == 0)
     {
-        RuntimeLogger::Log(RuntimeLogLevel::Info,
+        RuntimeLogger::Log(RuntimeLogLevel::Warn,
             L"IGCL GPU telemetry unavailable: no usable device");
         return initializationFailure();
     }
     std::vector<igcl::Device> devices(count);
     if (enumerate(api_, &count, devices.data()) != kSuccess || count == 0)
     {
-        RuntimeLogger::Log(RuntimeLogLevel::Info,
+        RuntimeLogger::Log(RuntimeLogLevel::Warn,
             L"IGCL GPU telemetry unavailable: device enumeration failed");
         return initializationFailure();
     }
