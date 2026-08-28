@@ -34,14 +34,15 @@ int main()
         ok &= Check(Near(options.barPixelHeight, bar), "bar height");
         ok &= Check(Near(options.horizontalPaddingPx, padding), "horizontal padding");
         ok &= Check(Near(options.segmentGapPx, segmentGap), "segment gap");
+        ok &= Check(Near(options.metricGapPx, 8.0f), "metric gap");
         ok &= Check(Near(options.separatorGapPx, separatorGap), "separator gap");
     };
 
-    check(-2, 18.0f, 9.9f, 30.0f, 5.0f, 8.0f, 16.0f);
-    check(-1, 19.0f, 10.45f, 30.0f, 5.0f, 8.0f, 16.0f);
-    check(0, 20.0f, 11.0f, 30.0f, 5.0f, 8.0f, 16.0f);
-    check(1, 21.0f, 11.55f, 30.0f, 5.0f, 8.0f, 16.0f);
-    check(2, 22.0f, 12.1f, 30.0f, 5.0f, 8.0f, 16.0f);
+    check(-2, 18.0f, 9.9f, 30.0f, 5.0f, 10.0f, 16.0f);
+    check(-1, 19.0f, 10.45f, 30.0f, 5.0f, 10.0f, 16.0f);
+    check(0, 20.0f, 11.0f, 30.0f, 5.0f, 10.0f, 16.0f);
+    check(1, 21.0f, 11.55f, 30.0f, 5.0f, 10.0f, 16.0f);
+    check(2, 22.0f, 12.1f, 30.0f, 5.0f, 10.0f, 16.0f);
 
     ok &= Check(ClampHudSizeOffset(-100) == -2, "minimum clamp");
     ok &= Check(ClampHudSizeOffset(100) == 2, "maximum clamp");

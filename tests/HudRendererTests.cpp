@@ -130,7 +130,7 @@ int main()
         Near(kHudSeparatorOuterPx, 3.0f), "MangoHud separator and outline widths");
 
     HudRenderOptions options{};
-    ok &= Check(Near(options.segmentGapPx, 8.0f) && Near(options.metricGapPx, 6.0f) &&
+    ok &= Check(Near(options.segmentGapPx, 10.0f) && Near(options.metricGapPx, 8.0f) &&
         Near(options.separatorGapPx, 16.0f),
         "horizontal spacing defaults");
     ok &= Check(Near(options.fontPixelSize, 20.0f) &&
