@@ -73,6 +73,12 @@ bool ShouldShowHud(HudVisibilityMode mode, bool foregroundGameActive) noexcept
     return mode == HudVisibilityMode::Always || foregroundGameActive;
 }
 
+std::uint8_t HudOpacityByte(float opacityPercent) noexcept
+{
+    return static_cast<std::uint8_t>(std::lround(
+        std::clamp(opacityPercent, 0.0f, 100.0f) * 255.0f / 100.0f));
+}
+
 bool ShouldSampleProductionTelemetry(bool resolvedShow, bool diagnosticMode,
     bool suspended) noexcept
 {

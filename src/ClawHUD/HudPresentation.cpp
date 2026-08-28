@@ -27,7 +27,8 @@ HudPresentation::~HudPresentation()
     Shutdown();
 }
 
-HRESULT HudPresentation::Initialize(HINSTANCE instance, const HudRenderOptions& options)
+HRESULT HudPresentation::Initialize(HINSTANCE instance, const HudRenderOptions& options,
+    float opacityPercent)
 {
 #ifdef _DEBUG
     debugLastValidatedAlpha_ = -1;
@@ -52,7 +53,7 @@ HRESULT HudPresentation::Initialize(HINSTANCE instance, const HudRenderOptions& 
     if (!widthPx_ || !heightPx_)
         return E_INVALIDARG;
 
-    HRESULT hr = CreateWindowHost(instance);
+    HRESULT hr = CreateWindowHost(instance, opacityPercent);
     if (FAILED(hr)) { Shutdown(); return hr; }
     dpi_ = static_cast<float>(GetDpiForWindow(window_));
     if (dpi_ <= 0.0f) dpi_ = 96.0f;
@@ -104,7 +105,7 @@ HRESULT HudPresentation::Initialize(HINSTANCE instance, const HudRenderOptions& 
     return S_OK;
 }
 
-HRESULT HudPresentation::CreateWindowHost(HINSTANCE instance)
+HRESULT HudPresentation::CreateWindowHost(HINSTANCE instance, float opacityPercent)
 {
     WNDCLASSW windowClass{};
     windowClass.lpfnWndProc = WindowProc;
@@ -117,8 +118,9 @@ HRESULT HudPresentation::CreateWindowHost(HINSTANCE instance)
         nullptr, nullptr, instance, this);
     if (!window_)
         return LastErrorResult();
-    if (!SetLayeredWindowAttributes(window_, 0, 255, LWA_ALPHA))
-        return LastErrorResult();
+    const HRESULT opacityHr = SetHudOpacity(opacityPercent);
+    if (FAILED(opacityHr))
+        return opacityHr;
     if (!SetWindowPos(window_, HWND_TOPMOST, xPx_, yPx_, static_cast<int>(widthPx_),
         static_cast<int>(heightPx_), SWP_NOACTIVATE | SWP_NOOWNERZORDER))
         return LastErrorResult();
@@ -448,6 +450,16 @@ HRESULT HudPresentation::Hide()
     if (FAILED(hr)) return hr;
     ShowWindow(window_, SW_HIDE);
     visible_ = false;
+    return S_OK;
+}
+
+HRESULT HudPresentation::SetHudOpacity(float opacityPercent)
+{
+    if (!window_)
+        return E_UNEXPECTED;
+    const BYTE alpha = static_cast<BYTE>(HudOpacityByte(opacityPercent));
+    if (!SetLayeredWindowAttributes(window_, 0, alpha, LWA_ALPHA))
+        return LastErrorResult();
     return S_OK;
 }
 

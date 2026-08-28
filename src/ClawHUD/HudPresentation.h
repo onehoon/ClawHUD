@@ -51,10 +51,12 @@ class HudPresentation
 public:
     ~HudPresentation();
 
-    HRESULT Initialize(HINSTANCE instance, const HudRenderOptions& options = {});
+    HRESULT Initialize(HINSTANCE instance, const HudRenderOptions& options = {},
+        float opacityPercent = 100.0f);
     HRESULT Render(const HudTelemetrySnapshot& snapshot, const HudRenderOptions& options);
     HRESULT Show();
     HRESULT Hide();
+    HRESULT SetHudOpacity(float opacityPercent);
     bool Visible() const noexcept { return visible_; }
     bool Initialized() const noexcept { return initialized_; }
     void Shutdown() noexcept;
@@ -69,7 +71,7 @@ private:
     };
 
     static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
-    HRESULT CreateWindowHost(HINSTANCE instance);
+    HRESULT CreateWindowHost(HINSTANCE instance, float opacityPercent);
     HRESULT CreateGraphics();
     HRESULT CreatePresentationSurface();
     HRESULT CreateBitmapTargets();

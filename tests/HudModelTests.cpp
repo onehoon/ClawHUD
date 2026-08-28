@@ -23,7 +23,9 @@ int main()
     ok &= Check(defaults.visibilityMode == HudVisibilityMode::InGameOnly, "default visibility");
     ok &= Check(defaults.alignment == HudAlignment::Center, "default alignment");
     ok &= Check(defaults.backgroundMode == HudBackgroundMode::FullWidth, "default background");
-    ok &= Check(defaults.backgroundOpacity == 0.5f, "default opacity");
+    ok &= Check(defaults.backgroundOpacity == 0.65f, "default opacity");
+    ok &= Check(HudOpacityByte(50.0f) == 128 && HudOpacityByte(65.0f) == 166 &&
+        HudOpacityByte(100.0f) == 255, "whole-HUD opacity byte conversion");
     ok &= Check(HudBackgroundOpacityFromPercent(0) == 0.0f &&
         HudBackgroundOpacityFromPercent(37) == 0.37f &&
         HudBackgroundOpacityFromPercent(50) == 0.5f &&

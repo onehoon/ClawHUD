@@ -35,6 +35,8 @@ constexpr UINT kBatteryHudTimerIntervalMs = 5000;
 constexpr UINT kGraphicsApiRetryIntervalMs = 500;
 constexpr unsigned kGraphicsApiMaxAttempts = 5;
 constexpr wchar_t kInstanceMutexName[] = L"Local\\ClawHUD.SingleInstance";
+constexpr float kHudOpacityPocMinimum = 50.0f;
+constexpr float kHudOpacityPocMaximum = 100.0f;
 struct HudVisibilityRequest
 {
     bool restore{};
@@ -519,7 +521,8 @@ bool App::EnsureMockHud()
     if (!hudPresentation_)
         hudPresentation_ = std::make_unique<clawhud::HudPresentation>();
     const auto options = BuildHudRenderOptions();
-    HRESULT hr = hudPresentation_->Initialize(instance_, options);
+    HRESULT hr = hudPresentation_->Initialize(instance_, options,
+        hudOptions_.backgroundOpacity * 100.0f);
     if (FAILED(hr))
     {
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
@@ -676,7 +679,8 @@ void App::SetHudBackgroundOpacity(float opacity, bool persist)
         Log(L"HUD background opacity change ignored while VRR diagnostic is running");
         return;
     }
-    opacity = std::clamp(opacity, 0.0f, 1.0f);
+    opacity = std::clamp(opacity,
+        kHudOpacityPocMinimum / 100.0f, kHudOpacityPocMaximum / 100.0f);
     if (hudOptions_.backgroundOpacity == opacity)
     {
         if (persist) SaveHudSettings();
@@ -684,12 +688,16 @@ void App::SetHudBackgroundOpacity(float opacity, bool persist)
     }
     hudOptions_.backgroundOpacity = opacity;
     if (persist) SaveHudSettings();
-    if (persist)
-    {
-        std::wostringstream message;
-        message << L"HUD background opacity=" << opacity;
-        Log(message.str());
-    }
+    const auto alpha = clawhud::HudOpacityByte(opacity * 100.0f);
+    HRESULT opacityHr = S_OK;
+    if (hudPresentation_ && hudPresentation_->Initialized())
+        opacityHr = hudPresentation_->SetHudOpacity(opacity * 100.0f);
+    std::wostringstream message;
+    message << L"HUD opacity POC: percent=" << std::lround(opacity * 100.0f)
+        << L" alpha=" << static_cast<unsigned>(alpha)
+        << L" SetLayeredWindowAttributes="
+        << (SUCCEEDED(opacityHr) ? L"SUCCESS" : L"FAILURE");
+    Log(message.str());
     RefreshMockHud();
 }
 
@@ -725,9 +733,9 @@ clawhud::HudRenderOptions App::BuildHudRenderOptions() const
 {
     auto options = clawhud::BuildHudRenderOptionsForSize(
         hudSizeOffset_, hudOptions_, hudFont_);
-    // Temporary product policy: keep the opacity setting pipeline for future
-    // use, but force the production HUD background to 50% for now.
-    options.layout.backgroundOpacity = 0.5f;
+    // Whole-HUD opacity POC: renderer content is opaque so the layered HWND
+    // alpha is the only opacity source.
+    options.layout.backgroundOpacity = 1.0f;
     return options;
 }
 
@@ -742,7 +750,8 @@ bool App::RecreateHudPresentation(bool restoreVisible)
 
     const auto options = BuildHudRenderOptions();
     hudPresentation_->Shutdown();
-    HRESULT hr = hudPresentation_->Initialize(instance_, options);
+    HRESULT hr = hudPresentation_->Initialize(instance_, options,
+        hudOptions_.backgroundOpacity * 100.0f);
     if (FAILED(hr))
     {
         Log(L"HUD presentation recreation failed");
@@ -1726,12 +1735,12 @@ void App::LoadHudSettings()
     if (visibility == L"Always") hudOptions_.visibilityMode = clawhud::HudVisibilityMode::Always;
     else if (visibility == L"InGameOnly") hudOptions_.visibilityMode = clawhud::HudVisibilityMode::InGameOnly;
     hudSizeOffset_ = clawhud::ParseHudSizeOffset(ReadHudSetting(path, L"Size", L"0"));
-    const auto opacityText = ReadHudSetting(path, L"BackgroundOpacity", L"50");
+    const auto opacityText = ReadHudSetting(path, L"BackgroundOpacity", L"65");
     wchar_t* end{};
     const long parsed = std::wcstol(opacityText.c_str(), &end, 10);
     const bool valid = end != opacityText.c_str() && end && *end == L'\0';
     hudOptions_.backgroundOpacity = clawhud::HudBackgroundOpacityFromPercent(
-        valid ? parsed : 50L);
+        std::clamp(valid ? parsed : 65L, 50L, 100L));
     intelVrrRangeFixEnabled_ = ReadBoolSetting(path, L"Tweaks", L"IntelVrrRangeFixEnabled", true);
 }
 

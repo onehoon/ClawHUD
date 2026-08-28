@@ -37,7 +37,7 @@ struct HudLayoutOptions
     HudVisibilityMode visibilityMode{HudVisibilityMode::InGameOnly};
     HudAlignment alignment{HudAlignment::Center};
     HudBackgroundMode backgroundMode{HudBackgroundMode::FullWidth};
-    float backgroundOpacity{0.5f};
+    float backgroundOpacity{0.65f};
 };
 
 float HudBackgroundOpacityFromPercent(long percent) noexcept;
@@ -89,6 +89,7 @@ struct HudTextRun
 };
 
 bool ShouldShowHud(HudVisibilityMode mode, bool foregroundGameActive) noexcept;
+std::uint8_t HudOpacityByte(float opacityPercent) noexcept;
 bool ShouldSampleProductionTelemetry(bool resolvedShow, bool diagnosticMode,
     bool suspended) noexcept;
 std::vector<HudTextRun> FormatHud(const HudTelemetrySnapshot& snapshot);

@@ -423,17 +423,16 @@ void SettingsWindow::CreateSettingsControls()
     backgroundContent_ = CreateWindowW(L"BUTTON", L"Content width",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | BS_PUSHLIKE, 0, 0, 0, 0,
         settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kBackgroundContent)), instance_, nullptr);
-    const HWND opacityCaption = CreateWindowW(L"STATIC", L"Background opacity", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
+    CreateWindowW(L"STATIC", L"HUD opacity", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
         settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOpacityLabel)), instance_, nullptr);
     opacitySlider_ = CreateWindowExW(0, TRACKBAR_CLASSW, L"",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | TBS_NOTICKS, 0, 0, 0, 0,
         settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOpacitySlider)), instance_, nullptr);
-    SendMessageW(opacitySlider_, TBM_SETRANGE, TRUE, MAKELONG(0, 100));
-    opacityLabel_ = CreateWindowW(L"STATIC", L"50%", WS_CHILD | WS_VISIBLE,
+    SendMessageW(opacitySlider_, TBM_SETRANGE, TRUE, MAKELONG(50, 100));
+    SendMessageW(opacitySlider_, TBM_SETLINESIZE, 0, 5);
+    SendMessageW(opacitySlider_, TBM_SETPAGESIZE, 0, 5);
+    opacityLabel_ = CreateWindowW(L"STATIC", L"65%", WS_CHILD | WS_VISIBLE,
         0, 0, 0, 0, settingsPanel_, nullptr, instance_, nullptr);
-    ShowWindow(opacityCaption, SW_HIDE);
-    ShowWindow(opacitySlider_, SW_HIDE);
-    ShowWindow(opacityLabel_, SW_HIDE);
     EnableMouseWheelForwarding(startWithWindows_);
     EnableMouseWheelForwarding(enableHud_);
     EnableMouseWheelForwarding(visibilityInGameOnly_);
@@ -882,7 +881,9 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
     }
     if (message == WM_HSCROLL && reinterpret_cast<HWND>(lParam) == self->opacitySlider_)
     {
-        const int position = static_cast<int>(SendMessageW(self->opacitySlider_, TBM_GETPOS, 0, 0));
+        int position = static_cast<int>(SendMessageW(self->opacitySlider_, TBM_GETPOS, 0, 0));
+        position = std::clamp((position + 2) / 5 * 5, 50, 100);
+        SendMessageW(self->opacitySlider_, TBM_SETPOS, TRUE, position);
         const bool persist = LOWORD(wParam) != TB_THUMBTRACK;
         self->app_.SetHudBackgroundOpacity(position / 100.0f, persist);
         if (self->opacityLabel_)
