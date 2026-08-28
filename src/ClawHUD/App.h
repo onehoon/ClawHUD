@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "TrayIcon.h"
@@ -218,11 +219,13 @@ private:
     bool steamRunningAppIdInitialized_{};
     bool steamAllowBaselineRenderer_{ true };
     bool steamBaselineCaptured_{};
+    bool steamResolutionDeferred_{};
     SteamGameState steamGameState_{ SteamGameState::None };
     DWORD steamRendererPid_{};
     DWORD steamRendererCandidatePid_{};
     std::chrono::steady_clock::time_point steamCandidateProbeStarted_{};
     std::vector<DWORD> steamBaselineProcessIds_;
+    std::unordered_set<DWORD> steamProbeAttemptedPids_;
     std::optional<clawhud::WindowsPowerTelemetry> latestPowerTelemetry_;
     clawhud::WindowsUsageSampler usageSampler_;
     std::optional<clawhud::WindowsUsageTelemetry> latestUsageTelemetry_;

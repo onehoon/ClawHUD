@@ -126,8 +126,7 @@ void SteamRunningAppIdSource::WatchLoop()
             hadPreviousKind && previousKind != WatchKind::Steam;
         previousKind = kind;
         hadPreviousKind = true;
-        if (steamBecameAvailable && !PostMessageW(dispatchWindow_, changedMessage_,
-            static_cast<WPARAM>(ReadAppId(key)), 0))
+        if (steamBecameAvailable && !PostMessageW(dispatchWindow_, changedMessage_, 0, 0))
         {
             RegCloseKey(key);
             return;
@@ -151,8 +150,7 @@ void SteamRunningAppIdSource::WatchLoop()
         }
         if (kind == WatchKind::Steam)
         {
-            if (!PostMessageW(dispatchWindow_, changedMessage_,
-                static_cast<WPARAM>(ReadAppId(key)), 0))
+            if (!PostMessageW(dispatchWindow_, changedMessage_, 0, 0))
             {
                 RegCloseKey(key);
                 CloseHandle(changed);
@@ -175,16 +173,13 @@ void SteamRunningAppIdSource::WatchLoop()
         }
         const HANDLE handles[] = { stopEvent_, changed };
         const DWORD wait = WaitForMultipleObjects(2, handles, FALSE, INFINITE);
-        const auto appId = wait == WAIT_OBJECT_0 + 1 && kind == WatchKind::Steam
-            ? ReadAppId(key) : 0;
         RegCloseKey(key);
         CloseHandle(changed);
         if (wait == WAIT_OBJECT_0)
             return;
         if (wait != WAIT_OBJECT_0 + 1)
             return;
-        if (kind == WatchKind::Steam && !PostMessageW(dispatchWindow_, changedMessage_,
-            static_cast<WPARAM>(appId), 0))
+        if (kind == WatchKind::Steam && !PostMessageW(dispatchWindow_, changedMessage_, 0, 0))
             return;
     }
 }

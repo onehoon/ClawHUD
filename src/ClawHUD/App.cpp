@@ -1298,6 +1298,11 @@ void App::StartSteamRendererResolution()
 {
     if (!steamRunningAppId_ || suspended_ || DiagnosticRunning() || !mockHudEnabled_)
         return;
+    if (steamResolutionDeferred_)
+    {
+        steamAllowBaselineRenderer_ = true;
+        steamResolutionDeferred_ = false;
+    }
     StopSteamRendererResolution(true);
     steamGameState_ = SteamGameState::Resolving;
     steamRendererPid_ = 0;
@@ -1326,7 +1331,56 @@ void App::ResolveSteamRenderer()
     if (!mockHudEnabled_ || !steamRunningAppId_ || suspended_ || DiagnosticRunning())
         return;
     if (steamGameState_ == SteamGameState::Active)
+    {
+        if (!steamRendererPid_ || !ProcessAlive(steamRendererPid_))
+            return;
+        if (!steamGpuEngineSampler_.Initialized() &&
+            !steamGpuEngineSampler_.Initialize())
+            return;
+        const auto activity = steamGpuEngineSampler_.Sample();
+        const auto candidates = clawhud::SelectGpuActiveProcessIds(
+            activity, 0, steamBaselineProcessIds_, steamAllowBaselineRenderer_);
+        auto findChallenger = [this, &candidates]()
+        {
+            return std::find_if(candidates.begin(), candidates.end(),
+                [this](DWORD processId)
+                {
+                    return processId != steamRendererPid_ &&
+                        steamProbeAttemptedPids_.find(processId) ==
+                        steamProbeAttemptedPids_.end() && ProcessAlive(processId);
+                });
+        };
+        auto challenger = findChallenger();
+        if (challenger == candidates.end())
+        {
+            const bool hasChallenger = std::any_of(candidates.begin(), candidates.end(),
+                [this](DWORD processId)
+                {
+                    return processId != steamRendererPid_ && ProcessAlive(processId);
+                });
+            if (hasChallenger)
+                steamProbeAttemptedPids_.clear();
+            return;
+        }
+        if (presentMonHudTelemetry_ && presentMonHudTelemetry_->Running())
+        {
+            const auto now = std::chrono::steady_clock::now();
+            if (now - steamCandidateProbeStarted_ < kSteamCandidateProbeTimeout)
+                return;
+            steamProbeAttemptedPids_.insert(steamRendererCandidatePid_);
+            StopProductionPresentMonSampling(L"steam-challenger-timeout", false);
+            steamRendererCandidatePid_ = 0;
+            steamCandidateProbeStarted_ = {};
+            challenger = findChallenger();
+            if (challenger == candidates.end())
+                return;
+        }
+        steamRendererCandidatePid_ = *challenger;
+        steamCandidateProbeStarted_ = std::chrono::steady_clock::now();
+        StartGraphicsApiProbe(*challenger);
+        StartSteamPresentMon(*challenger);
         return;
+    }
     if (steamGameState_ != SteamGameState::Resolving)
         return;
     if (!steamGpuEngineSampler_.Initialized())
@@ -1343,24 +1397,23 @@ void App::ResolveSteamRenderer()
         presentMonHudTelemetry_->Running())
     {
         const auto now = std::chrono::steady_clock::now();
-        const bool betterCandidate = !candidates.empty() &&
-            candidates.front() != steamRendererCandidatePid_;
         const bool probeExpired = now - steamCandidateProbeStarted_ >=
             kSteamCandidateProbeTimeout;
-        if (ShouldWaitForSteamCandidateProbe(
-            steamRendererCandidatePid_, candidates.empty() ? 0 : candidates.front(),
-            probeExpired))
+        const bool betterCandidate = !candidates.empty() &&
+            candidates.front() != steamRendererCandidatePid_;
+        if (!probeExpired && !betterCandidate)
             return;
+        if (probeExpired)
+            steamProbeAttemptedPids_.insert(steamRendererCandidatePid_);
         StopProductionPresentMonSampling(
-            betterCandidate ? L"steam-candidate-replaced" : L"steam-candidate-timeout",
-            true);
+            betterCandidate ? L"steam-candidate-replaced" : L"steam-candidate-timeout", true);
         steamRendererCandidatePid_ = 0;
         steamCandidateProbeStarted_ = {};
-        if (!betterCandidate)
-            return;
     }
     for (const auto processId : candidates)
     {
+        if (steamProbeAttemptedPids_.find(processId) != steamProbeAttemptedPids_.end())
+            continue;
         if (processId == GetCurrentProcessId() || !ProcessAlive(processId))
             continue;
         if (processId == steamRendererCandidatePid_ && presentMonHudTelemetry_ &&
@@ -1379,11 +1432,20 @@ void App::ResolveSteamRenderer()
             L" igcl=" + (latestGraphicsApi_.value_or(L"unresolved")));
         if (!StartSteamPresentMon(processId))
         {
+            steamProbeAttemptedPids_.insert(processId);
             steamRendererCandidatePid_ = 0;
             steamCandidateProbeStarted_ = {};
         }
         return;
     }
+    if (!candidates.empty() && std::none_of(candidates.begin(), candidates.end(),
+        [this](DWORD processId)
+        {
+            return processId != GetCurrentProcessId() && ProcessAlive(processId) &&
+                steamProbeAttemptedPids_.find(processId) ==
+                steamProbeAttemptedPids_.end();
+        }))
+        steamProbeAttemptedPids_.clear();
 }
 
 bool App::StartSteamPresentMon(DWORD processId)
@@ -1422,6 +1484,8 @@ void App::HandleSteamRunningAppId(std::uint32_t appId)
     steamRunningAppId_ = appId;
     steamBaselineProcessIds_.clear();
     steamBaselineCaptured_ = false;
+    steamProbeAttemptedPids_.clear();
+    steamResolutionDeferred_ = false;
     clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info,
         L"Steam session changed oldAppId=" + std::to_wstring(oldAppId) +
         L" newAppId=" + std::to_wstring(appId) + L" state=" +
@@ -1432,6 +1496,11 @@ void App::HandleSteamRunningAppId(std::uint32_t appId)
     foregroundTracker_.SetTrackedProcessId(0);
     if (appId)
     {
+        if (!mockHudEnabled_)
+        {
+            steamResolutionDeferred_ = true;
+            return;
+        }
         StartSteamRendererResolution();
         return;
     }
@@ -1468,7 +1537,8 @@ void App::HandlePresentMonHudUpdate(DWORD processId, bool steamResolution,
             (steamGameState_ == SteamGameState::Resolving &&
                 steamRendererCandidatePid_ != processId) ||
             (steamGameState_ == SteamGameState::Active &&
-                steamRendererPid_ != processId))
+                steamRendererPid_ != processId &&
+                steamRendererCandidatePid_ != processId))
             return;
         if (steamGameState_ == SteamGameState::Resolving &&
             sample.hasDisplayedFrame && ProcessAlive(processId))
@@ -1476,8 +1546,7 @@ void App::HandlePresentMonHudUpdate(DWORD processId, bool steamResolution,
             steamRendererPid_ = processId;
             steamRendererCandidatePid_ = 0;
             steamCandidateProbeStarted_ = {};
-            KillTimer(tray_.Window(), kSteamRendererResolveTimerId);
-            steamGpuEngineSampler_.Reset();
+            steamProbeAttemptedPids_.clear();
             steamGameState_ = SteamGameState::Active;
             latestPresentMonDisplayedFps_ = displayedFps;
             foregroundTracker_.SetTrackedProcessId(processId);
@@ -1490,8 +1559,40 @@ void App::HandlePresentMonHudUpdate(DWORD processId, bool steamResolution,
             ReconcileHudVisibility();
             return;
         }
+        if (steamGameState_ == SteamGameState::Active &&
+            steamRendererCandidatePid_ == processId &&
+            processId != steamRendererPid_ && sample.hasDisplayedFrame &&
+            ProcessAlive(processId))
+        {
+            steamRendererPid_ = processId;
+            steamRendererCandidatePid_ = 0;
+            steamCandidateProbeStarted_ = {};
+            steamProbeAttemptedPids_.clear();
+            foregroundTracker_.SetTrackedProcessId(processId);
+            StartGraphicsApiProbe(processId);
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info,
+                L"Steam renderer challenger confirmed appId=" +
+                std::to_wstring(steamRunningAppId_) + L" pid=" +
+                std::to_wstring(processId) + L" firstPresent=1");
+            ReconcileHudVisibility();
+            return;
+        }
         if (sample.streamEnded || !ProcessAlive(processId))
         {
+            if (steamGameState_ == SteamGameState::Active &&
+                steamRendererCandidatePid_ == processId &&
+                processId != steamRendererPid_)
+            {
+                StopProductionPresentMonSampling(L"steam-challenger-lost", false);
+                steamRendererCandidatePid_ = 0;
+                steamCandidateProbeStarted_ = {};
+                if (steamRendererPid_ && ProcessAlive(steamRendererPid_))
+                {
+                    StartGraphicsApiProbe(steamRendererPid_);
+                    StartSteamPresentMon(steamRendererPid_);
+                }
+                return;
+            }
             if (steamGameState_ == SteamGameState::Active)
                 clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info,
                     L"Steam renderer lost appId=" +
@@ -2301,7 +2402,7 @@ int App::ProcessMessages()
         }
         if (message.message == kSteamRunningAppIdChanged)
         {
-            HandleSteamRunningAppId(static_cast<std::uint32_t>(message.wParam));
+            HandleSteamRunningAppId(steamRunningAppIdSource_.ReadCurrentAppId());
             continue;
         }
         if (message.message == kPresentMonHudUpdate)
