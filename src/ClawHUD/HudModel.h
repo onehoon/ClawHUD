@@ -88,6 +88,8 @@ struct HudTextRun
 };
 
 bool ShouldShowHud(HudVisibilityMode mode, bool foregroundGameActive) noexcept;
+bool ShouldSampleProductionTelemetry(bool resolvedShow, bool diagnosticMode,
+    bool suspended) noexcept;
 std::vector<HudTextRun> FormatHud(const HudTelemetrySnapshot& snapshot);
 std::wstring JoinHudRuns(const std::vector<HudTextRun>& runs);
 

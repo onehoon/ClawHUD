@@ -64,6 +64,12 @@ bool ShouldShowHud(HudVisibilityMode mode, bool foregroundGameActive) noexcept
     return mode == HudVisibilityMode::Always || foregroundGameActive;
 }
 
+bool ShouldSampleProductionTelemetry(bool resolvedShow, bool diagnosticMode,
+    bool suspended) noexcept
+{
+    return resolvedShow && !diagnosticMode && !suspended;
+}
+
 float HudBackgroundOpacityFromPercent(long percent) noexcept
 {
     return static_cast<float>(std::clamp(percent, 0L, 100L)) / 100.0f;

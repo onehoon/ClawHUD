@@ -187,7 +187,8 @@ if(BUILD_TESTING)
 
     add_executable(ClawHUD.ProductionTargetPolicyTests
         tests/ProductionTargetPolicyTests.cpp
-        src/ClawHUD/ProductionTargetPolicy.cpp)
+        src/ClawHUD/ProductionTargetPolicy.cpp
+        src/ClawHUD/HudModel.cpp)
     target_compile_features(ClawHUD.ProductionTargetPolicyTests PRIVATE cxx_std_20)
     target_include_directories(ClawHUD.ProductionTargetPolicyTests PRIVATE src/ClawHUD)
     set_target_properties(ClawHUD.ProductionTargetPolicyTests PROPERTIES CXX_EXTENSIONS OFF)

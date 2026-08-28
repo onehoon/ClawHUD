@@ -162,7 +162,8 @@ private:
     void StartProductionEcSampling();
     void PauseProductionSamplingForSuspend();
     void CancelResumeRecovery();
-    void StopProductionEcSampling(bool stopPresentMon = true);
+    void StopProductionEcSampling(bool stopPresentMon = true,
+        const wchar_t* reason = L"explicit-reset");
     void StartProductionPresentMonSampling(bool recoveryStart = false);
     void StopProductionPresentMonSampling(const wchar_t* reason = L"explicit-reset",
         bool clearLatestFps = false);
