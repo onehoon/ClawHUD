@@ -907,14 +907,32 @@ void App::ReleaseCommittedProductionTarget(const wchar_t* reason)
     pendingProductionTargetPid_ = 0;
     presentMonRestartPid_ = 0;
     presentMonRestartAttempts_ = 0;
-    if (release.stopPresentMon)
+    clawhud::CommittedTargetReleaseOps ops;
+    ops.stopPresentMon = [this, reason]
+    {
         StopProductionPresentMonSampling(reason, true);
-    if (release.stopGraphicsApiProbe)
+    };
+    ops.stopGraphicsApiProbe = [this]
+    {
         StopGraphicsApiProbe();
-    if (release.clearTrackedProcess)
+    };
+    ops.clearTrackedProcess = [this]
+    {
         foregroundTracker_.SetTrackedProcessId(0);
-    if (release.reconcileHudVisibility)
+    };
+    ops.startGlobalTelemetry = [this]
+    {
+        StartProductionEcSampling();
+    };
+    ops.stopGlobalTelemetry = [this, reason]
+    {
+        StopProductionEcSampling(false, reason);
+    };
+    ops.reconcileHudVisibility = [this]
+    {
         ReconcileHudVisibility();
+    };
+    clawhud::ApplyCommittedTargetReleasePlan(release, ops);
     Log(L"Production target cleared pid=" + std::to_wstring(processId) +
         L" reason=" + reason);
 }

@@ -22,6 +22,21 @@ int main()
         "committed target release clears only game-scoped state and reconciles visibility");
     ok &= Check(release.globalTelemetry == clawhud::GlobalTelemetryAction::Keep,
         "committed target release does not own global telemetry");
+    int globalStarts = 0;
+    int globalStops = 0;
+    int reconciles = 0;
+    clawhud::CommittedTargetReleaseOps ops;
+    ops.stopPresentMon = [] {};
+    ops.stopGraphicsApiProbe = [] {};
+    ops.clearTrackedProcess = [] {};
+    ops.startGlobalTelemetry = [&] { ++globalStarts; };
+    ops.stopGlobalTelemetry = [&] { ++globalStops; };
+    ops.reconcileHudVisibility = [&] { ++reconciles; };
+    clawhud::ApplyCommittedTargetReleasePlan(release, ops);
+    ok &= Check(globalStarts == 0 && globalStops == 0,
+        "committed target release never tears down or starts global telemetry");
+    ok &= Check(reconciles == 1,
+        "committed target release delegates global telemetry lifetime to visibility");
     ok &= Check(clawhud::ShouldSampleProductionTelemetry(
         clawhud::ShouldShowHud(clawhud::HudVisibilityMode::Always, false),
         false, false),

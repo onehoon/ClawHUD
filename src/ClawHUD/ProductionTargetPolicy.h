@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include <functional>
 #include <string_view>
 
 namespace clawhud
@@ -25,6 +26,43 @@ struct CommittedTargetReleasePlan
 constexpr CommittedTargetReleasePlan PlanCommittedTargetRelease() noexcept
 {
     return {};
+}
+
+struct CommittedTargetReleaseOps
+{
+    std::function<void()> stopPresentMon;
+    std::function<void()> stopGraphicsApiProbe;
+    std::function<void()> clearTrackedProcess;
+    std::function<void()> startGlobalTelemetry;
+    std::function<void()> stopGlobalTelemetry;
+    std::function<void()> reconcileHudVisibility;
+};
+
+inline void ApplyCommittedTargetReleasePlan(
+    const CommittedTargetReleasePlan& plan,
+    const CommittedTargetReleaseOps& ops)
+{
+    if (plan.stopPresentMon)
+        ops.stopPresentMon();
+    if (plan.stopGraphicsApiProbe)
+        ops.stopGraphicsApiProbe();
+    if (plan.clearTrackedProcess)
+        ops.clearTrackedProcess();
+
+    switch (plan.globalTelemetry)
+    {
+    case GlobalTelemetryAction::Keep:
+        break;
+    case GlobalTelemetryAction::Start:
+        ops.startGlobalTelemetry();
+        break;
+    case GlobalTelemetryAction::Stop:
+        ops.stopGlobalTelemetry();
+        break;
+    }
+
+    if (plan.reconcileHudVisibility)
+        ops.reconcileHudVisibility();
 }
 
 bool IsRejectedProductionTargetImage(std::wstring_view image) noexcept;
