@@ -34,6 +34,12 @@ int main()
 
     const auto dc = FormatHud(MakeGameDcSample());
     ok &= Check(JoinHudRuns(dc) == L"DX11 60FPS | CPU 36% 67\u00B0C | GPU 98% | TDP 18W | FAN 3540RPM | BAT 72% 2.5h", "game DC formatting");
+    auto fractionalTdp = MakeGameDcSample();
+    fractionalTdp.cpuPackagePowerW = 35.3;
+    const auto fractionalTdpText = JoinHudRuns(FormatHud(fractionalTdp));
+    ok &= Check(fractionalTdpText.find(L"TDP 35W") != std::wstring::npos &&
+        fractionalTdpText.find(L"35.3W") == std::wstring::npos,
+        "TDP rounds to integer watts");
     ok &= Check(dc.size() == 6, "game DC segment count");
 
     ok &= Check(JoinHudRuns(FormatHud(MakeGameAcSample())) ==

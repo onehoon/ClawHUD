@@ -288,7 +288,7 @@ int main()
         sameWidth(HudSegmentKind::Ram, L"RAM",
             {L"0.1GB", L"15.2GB", L"31.9GB", L"99.9GB"}, "stable RAM slot");
         sameWidth(HudSegmentKind::Tdp, L"TDP",
-            {L"5W", L"18W", L"99.9W"}, "stable TDP slot");
+            {L"5W", L"18W", L"35W"}, "stable TDP slot uses 35W exemplar");
         sameWidth(HudSegmentKind::SystemPower, L"SYS",
             {L"8W", L"24.5W", L"99.9W"}, "stable SystemPower slot");
         sameWidth(HudSegmentKind::Fan, L"FAN",
@@ -346,7 +346,7 @@ int main()
         ok &= Check(Near(segoeWidth(HudSegmentKind::Gpu, L"GPU", L"9%"),
                 segoeWidth(HudSegmentKind::Gpu, L"GPU", L"99%")) &&
             Near(segoeWidth(HudSegmentKind::Tdp, L"TDP", L"7W"),
-                segoeWidth(HudSegmentKind::Tdp, L"TDP", L"99.9W")) &&
+                segoeWidth(HudSegmentKind::Tdp, L"TDP", L"35W")) &&
             Near(segoeWidth(HudSegmentKind::Fan, L"FAN", L"999RPM"),
                 segoeWidth(HudSegmentKind::Fan, L"FAN", L"9999RPM")),
             "Segoe UI Variable segment widths stay reserved");

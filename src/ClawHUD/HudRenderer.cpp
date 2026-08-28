@@ -256,6 +256,7 @@ enum class HudMetricKind
     FanRpm,
     BatteryPercent,
     BatteryTime,
+    TdpPower,
 };
 
 struct HudMetricCell
@@ -274,6 +275,7 @@ const wchar_t* MetricExemplar(HudMetricKind kind) noexcept
     case HudMetricKind::Temperature: return L"100\u00B0C";
     case HudMetricKind::Vram: return L"99.9GB";
     case HudMetricKind::Power: return L"99.9W";
+    case HudMetricKind::TdpPower: return L"35W";
     case HudMetricKind::FanRpm: return L"9999RPM";
     case HudMetricKind::BatteryTime: return L"9.9h";
     }
@@ -298,7 +300,7 @@ HudMetricKind MetricKindForToken(HudSegmentKind kind, std::size_t index,
     case HudSegmentKind::Gpu: return HudMetricKind::UsagePercent;
     case HudSegmentKind::Ram:
     case HudSegmentKind::Vram: return HudMetricKind::Vram;
-    case HudSegmentKind::Tdp:
+    case HudSegmentKind::Tdp: return HudMetricKind::TdpPower;
     case HudSegmentKind::SystemPower: return HudMetricKind::Power;
     case HudSegmentKind::Fan: return HudMetricKind::FanRpm;
     case HudSegmentKind::Battery: return index == 0
@@ -589,7 +591,7 @@ HRESULT HudRenderer::MeasureReservedHudWidth(
         { HudSegmentKind::Graphics, L"Vulkan", L"999FPS" },
         { HudSegmentKind::Cpu, L"CPU", L"100% 100\u00B0C" },
         { HudSegmentKind::Gpu, L"GPU", L"100%" },
-        { HudSegmentKind::Tdp, L"TDP", L"99.9W" },
+        { HudSegmentKind::Tdp, L"TDP", L"35W" },
         { HudSegmentKind::Ram, L"RAM", L"99.9GB" },
         { HudSegmentKind::Vram, L"VRAM", L"99.9GB" },
         { HudSegmentKind::Fan, L"FAN", L"9999RPM" },
