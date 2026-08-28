@@ -31,7 +31,7 @@ struct HudRenderOptions
     float fontPixelSize{20.0f};
     float unitFontPixelSize{11.0f};
     float barPixelHeight{30.0f};
-    float horizontalPaddingPx{7.0f};
+    float horizontalPaddingPx{11.0f};
     float segmentGapPx{10.0f};
     float metricGapPx{8.0f};
     float separatorGapPx{16.0f};

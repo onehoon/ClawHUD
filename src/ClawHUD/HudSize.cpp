@@ -65,7 +65,7 @@ HudRenderOptions BuildHudRenderOptionsForSize(
     constexpr float kBaseFontSize = 20.0f;
     constexpr float kUnitScale = 0.55f;
     constexpr float kBaseBarHeight = 30.0f;
-    constexpr float kPhysicalPadding = 7.0f;
+    constexpr float kPhysicalPadding = 11.0f;
     constexpr float kSegmentGap = 10.0f;
     constexpr float kMetricGap = 8.0f;
     constexpr float kSeparatorGap = 16.0f;
