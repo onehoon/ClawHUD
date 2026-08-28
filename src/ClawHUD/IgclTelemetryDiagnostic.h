@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <atomic>
 #include <string>
@@ -33,6 +34,7 @@ struct IgclSampleSeries
 IgclDiagnosticClass ClassifyIgclSamples(const IgclSampleSeries& samples) noexcept;
 double IgclSampleMinimum(const IgclSampleSeries& samples) noexcept;
 double IgclSampleMaximum(const IgclSampleSeries& samples) noexcept;
+bool IsIgclApplicationNameLengthValid(std::size_t length) noexcept;
 
 class IgclTelemetryDiagnostic
 {

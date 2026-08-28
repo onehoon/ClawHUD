@@ -27,5 +27,7 @@ int main()
     check(IgclSampleMinimum(changing) == 0.0 && IgclSampleMaximum(changing) == 20.0, "min max");
     check(std::string(IgclDiagnosticClassName(IgclDiagnosticClass::SymbolMissing)) == "SYMBOL_MISSING", "raw classification names");
     check(std::string(IgclDiagnosticClassName(IgclDiagnosticClass::SkippedMutationCapable)) == "SKIPPED_MUTATION_CAPABLE", "safety classification name");
+    check(IsIgclApplicationNameLengthValid(127), "127-byte application name");
+    check(!IsIgclApplicationNameLengthValid(128), "128-byte application name rejected");
     return ok ? 0 : 1;
 }
