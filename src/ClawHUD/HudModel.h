@@ -54,6 +54,7 @@ struct HudTelemetrySnapshot
     std::optional<int> cpuTemperatureC;
     std::optional<double> cpuPackagePowerW;
     std::optional<double> gpuUsagePercent;
+    std::optional<double> gpuClockMHz;
     std::optional<int> gpuTemperatureC;
     std::optional<int> fan1Rpm;
     std::optional<int> fan2Rpm;

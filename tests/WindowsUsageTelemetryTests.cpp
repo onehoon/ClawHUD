@@ -34,11 +34,6 @@ int main()
         "turbo CPU usage capped");
     ok &= Check(!NormalizeUsagePercent(-1.0) && !NormalizeUsagePercent(NAN),
         "invalid CPU usage omitted");
-    ok &= Check(Near(MaxGpuUsagePercent({12.0, 44.0, 31.0}).value(), 44.0),
-        "maximum 3D GPU usage");
-    ok &= Check(!MaxGpuUsagePercent({-1.0, 101.0, NAN}),
-        "invalid GPU values omitted");
-
     const LUID intelLuid{0x12345678, static_cast<LONG>(0x9ABCDEF0)};
     const auto paddedLuid = ParseGpuMemoryInstanceLuid(
         L"luid_0x00000000_0x00123456_phys_0");

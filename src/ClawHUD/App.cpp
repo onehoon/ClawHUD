@@ -851,9 +851,13 @@ void App::RenderProductionHud(bool allowHidden)
     if (latestUsageTelemetry_)
     {
         snapshot.cpuUsagePercent = latestUsageTelemetry_->cpuUsagePercent;
-        snapshot.gpuUsagePercent = latestUsageTelemetry_->gpuUsagePercent;
         snapshot.systemMemoryUsedBytes = latestUsageTelemetry_->systemMemoryUsedBytes;
         snapshot.gpuMemoryUsedBytes = latestUsageTelemetry_->intelGpuMemoryUsedBytes;
+    }
+    if (latestIgclGpuTelemetry_)
+    {
+        snapshot.gpuUsagePercent = latestIgclGpuTelemetry_->gpuUsagePercent;
+        snapshot.gpuClockMHz = latestIgclGpuTelemetry_->gpuClockMHz;
     }
     if (latestPowerTelemetry_)
     {
@@ -886,13 +890,18 @@ void App::SampleProductionTelemetry()
     if (!usageSampler_.Initialized())
     {
         if (!usageSampler_.Initialize())
-        {
             latestUsageTelemetry_.reset();
-            RenderProductionHud();
-            return;
-        }
     }
-    latestUsageTelemetry_ = usageSampler_.Sample();
+    if (usageSampler_.Initialized())
+        latestUsageTelemetry_ = usageSampler_.Sample();
+
+    if (!igclGpuSampler_.Initialized() && !igclGpuSampler_.InitializationAttempted())
+    {
+        if (!igclGpuSampler_.Initialize())
+            latestIgclGpuTelemetry_.reset();
+    }
+    if (igclGpuSampler_.Initialized())
+        latestIgclGpuTelemetry_ = igclGpuSampler_.Sample();
     RenderProductionHud();
 }
 
@@ -938,6 +947,8 @@ void App::PauseProductionSamplingForSuspend()
     latestUsageTelemetry_.reset();
     latestPresentMonDisplayedFps_.reset();
     usageSampler_.Reset();
+    latestIgclGpuTelemetry_.reset();
+    igclGpuSampler_.Reset();
     ecHudSamplingActive_ = false;
     if (wasActive)
         Log(L"Production telemetry sampling stopped reason=suspend");
@@ -1005,6 +1016,8 @@ void App::StopProductionEcSampling(bool stopPresentMon, const wchar_t* reason)
     latestPowerTelemetry_.reset();
     latestUsageTelemetry_.reset();
     usageSampler_.Reset();
+    latestIgclGpuTelemetry_.reset();
+    igclGpuSampler_.Reset();
     ecHudSamplingActive_ = false;
     if (wasActive)
         Log(L"Production telemetry sampling stopped reason=" + std::wstring(reason));
@@ -1232,6 +1245,8 @@ void App::TrackMockGameWindow(HWND window)
     foregroundTracker_.SetTrackedProcessId(processId);
     usageSampler_.Reset();
     latestUsageTelemetry_.reset();
+    igclGpuSampler_.Reset();
+    latestIgclGpuTelemetry_.reset();
     StartGraphicsApiProbe(processId);
     if (EnsureMockHud())
     {
@@ -1352,6 +1367,8 @@ void App::ConfirmForegroundProductionTarget(DWORD processId)
     presentMonRestartAttempts_ = 0;
     usageSampler_.Reset();
     latestUsageTelemetry_.reset();
+    igclGpuSampler_.Reset();
+    latestIgclGpuTelemetry_.reset();
     StartGraphicsApiProbe(processId);
     Log(L"Production target confirmed pid=" + std::to_wstring(processId));
     if (previousProcessId && previousProcessId != processId)

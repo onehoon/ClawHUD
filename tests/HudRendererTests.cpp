@@ -236,6 +236,7 @@ int main()
     checkUnits(L"87% VRAM 3.4GB", {{2, 1}, {12, 2}},
         "percentage and VRAM unit ranges");
     checkUnits(L"1000RPM", {{4, 3}}, "fan unit range");
+    checkUnits(L"2300MHz", {{4, 3}}, "clock unit range");
     checkUnits(L"10Windows", {}, "power substring without trailing boundary");
     checkUnits(L"3GBps", {}, "VRAM substring without trailing boundary");
     checkUnits(L"60FPSCounter", {}, "FPS substring without trailing boundary");
@@ -294,6 +295,9 @@ int main()
         sameWidth(HudSegmentKind::Gpu, L"GPU",
             {L"1%", L"47%", L"100%"},
             "stable GPU slot");
+        sameWidth(HudSegmentKind::Gpu, L"GPU",
+            {L"450MHz", L"2300MHz", L"9999MHz"},
+            "stable GPU clock slot");
         sameWidth(HudSegmentKind::Vram, L"VRAM",
             {L"0.1GB", L"3.4GB", L"99.9GB"}, "stable VRAM slot");
         sameWidth(HudSegmentKind::Ram, L"RAM",

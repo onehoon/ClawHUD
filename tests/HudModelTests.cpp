@@ -99,6 +99,15 @@ int main()
     usage.gpuTemperatureC = 67;
     ok &= Check(JoinHudRuns(FormatHud(usage)) == L"CPU 33% 33\u00B0C | GPU 44%",
         "CPU usage and GPU usage formatting");
+    usage.gpuClockMHz = 2300.0;
+    ok &= Check(JoinHudRuns(FormatHud(usage)) == L"CPU 33% 33\u00B0C | GPU 44% 2300MHz",
+        "GPU usage and clock formatting");
+    usage.gpuUsagePercent.reset();
+    ok &= Check(JoinHudRuns(FormatHud(usage)) == L"CPU 33% 33\u00B0C | GPU 2300MHz",
+        "GPU clock-only formatting");
+    usage.gpuClockMHz.reset();
+    ok &= Check(JoinHudRuns(FormatHud(usage)) == L"CPU 33% 33\u00B0C",
+        "GPU metrics omitted when unavailable");
     ok &= Check(FormatHud(HudTelemetrySnapshot{}).empty(), "empty snapshot omitted");
 
     HudTelemetrySnapshot displayed{};
