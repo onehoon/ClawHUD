@@ -204,6 +204,8 @@ bool Launch(const std::wstring& command, PROCESS_INFORMATION& process)
 }
 }
 
+void PlayDiagnosticCompletionSound() noexcept { PlayDiagnosticSound(true); }
+
 bool VrrDiagnostic::Start()
 {
     if (running_.exchange(true)) return false;

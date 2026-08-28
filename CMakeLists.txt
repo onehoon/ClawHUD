@@ -58,6 +58,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/TrayIcon.cpp
     src/ClawHUD/SettingsWindow.cpp
     src/ClawHUD/EcDiagnostic.cpp
+    src/ClawHUD/IgclTelemetryDiagnostic.cpp
     src/ClawHUD/EcHelperClient.cpp
     src/ClawHUD/MsiEcHudTelemetry.cpp
     src/ClawHUD/PresentMonHudTelemetry.cpp
@@ -292,6 +293,17 @@ if(BUILD_TESTING)
     target_link_libraries(ClawHUD.IntelGraphicsApiProbeTests PRIVATE shell32 ole32)
     set_target_properties(ClawHUD.IntelGraphicsApiProbeTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.IntelGraphicsApiProbeTests COMMAND ClawHUD.IntelGraphicsApiProbeTests)
+
+    add_executable(ClawHUD.IgclTelemetryDiagnosticTests
+        tests/IgclTelemetryDiagnosticTests.cpp
+        src/ClawHUD/IgclTelemetryDiagnostic.cpp
+        src/ClawHUD/RuntimeLogger.cpp)
+    target_compile_features(ClawHUD.IgclTelemetryDiagnosticTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.IgclTelemetryDiagnosticTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.IgclTelemetryDiagnosticTests PRIVATE src/ClawHUD "${CMAKE_BINARY_DIR}/generated")
+    target_link_libraries(ClawHUD.IgclTelemetryDiagnosticTests PRIVATE shell32)
+    set_target_properties(ClawHUD.IgclTelemetryDiagnosticTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.IgclTelemetryDiagnosticTests COMMAND ClawHUD.IgclTelemetryDiagnosticTests)
 
     add_executable(ClawHUD.SupportedHardwareTests
         tests/SupportedHardwareTests.cpp

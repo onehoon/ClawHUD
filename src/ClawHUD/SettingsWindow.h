@@ -76,6 +76,7 @@ private:
     HWND fontUnispace_{};
     HWND fontSegoeUiVariable_{};
     HWND startEcButton_{};
+    HWND startIgclButton_{};
     HWND openLogsButton_{};
     HWND diagnosticStatus_{};
     HWND startVrrButton_{};

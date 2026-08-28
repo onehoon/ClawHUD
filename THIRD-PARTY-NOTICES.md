@@ -32,6 +32,17 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
+## Intel Graphics Control Library (IGCL) ABI declarations
+
+- Component: selected ABI declarations derived from Intel igcl_api.h v1.1
+- Purpose: compile-time declarations for dynamically loading the driver-installed ControlLib.dll
+- Project: https://github.com/intel/drivers.gpu.control-library
+- License: Intel Software License Agreement 10.07.21
+- Runtime binary: not redistributed by ClawHUD
+- Bundled license copy: `third_party/Intel-IGCL-LICENSE.txt` (verbatim upstream `LICENSE`)
+- Upstream revision: `b6c462933502e13d1537dd5024949a51be30e63d`
+- The derived compatibility header retains Intel's copyright notice and points to the bundled license copy.
+
 ## MangoHud
 
 - Purpose: visual style reference and adapted visual implementation
