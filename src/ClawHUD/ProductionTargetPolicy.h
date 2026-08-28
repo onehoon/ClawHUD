@@ -6,6 +6,27 @@
 
 namespace clawhud
 {
+enum class GlobalTelemetryAction
+{
+    Keep,
+    Start,
+    Stop,
+};
+
+struct CommittedTargetReleasePlan
+{
+    bool stopPresentMon{ true };
+    bool stopGraphicsApiProbe{ true };
+    bool clearTrackedProcess{ true };
+    bool reconcileHudVisibility{ true };
+    GlobalTelemetryAction globalTelemetry{ GlobalTelemetryAction::Keep };
+};
+
+constexpr CommittedTargetReleasePlan PlanCommittedTargetRelease() noexcept
+{
+    return {};
+}
+
 bool IsRejectedProductionTargetImage(std::wstring_view image) noexcept;
 bool ShouldEvaluateForegroundCandidate(DWORD committedProcessId,
     DWORD foregroundProcessId) noexcept;

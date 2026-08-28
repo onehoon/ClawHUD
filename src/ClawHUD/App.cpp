@@ -903,13 +903,18 @@ void App::ReleaseCommittedProductionTarget(const wchar_t* reason)
     const DWORD processId = foregroundTracker_.TrackedProcessId();
     if (!processId)
         return;
+    const auto release = clawhud::PlanCommittedTargetRelease();
     pendingProductionTargetPid_ = 0;
     presentMonRestartPid_ = 0;
     presentMonRestartAttempts_ = 0;
-    StopProductionPresentMonSampling(reason, true);
-    StopGraphicsApiProbe();
-    foregroundTracker_.SetTrackedProcessId(0);
-    ReconcileHudVisibility();
+    if (release.stopPresentMon)
+        StopProductionPresentMonSampling(reason, true);
+    if (release.stopGraphicsApiProbe)
+        StopGraphicsApiProbe();
+    if (release.clearTrackedProcess)
+        foregroundTracker_.SetTrackedProcessId(0);
+    if (release.reconcileHudVisibility)
+        ReconcileHudVisibility();
     Log(L"Production target cleared pid=" + std::to_wstring(processId) +
         L" reason=" + reason);
 }
