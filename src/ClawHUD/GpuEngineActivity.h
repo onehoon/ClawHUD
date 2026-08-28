@@ -5,6 +5,7 @@
 
 #include <optional>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace clawhud
@@ -20,7 +21,12 @@ struct GpuEngineActivity
 std::vector<DWORD> SelectGpuActiveProcessIds(
     const std::vector<GpuEngineActivity>& activities,
     DWORD foregroundProcessId,
-    const std::vector<DWORD>& baselineProcessIds = {}) noexcept;
+    const std::vector<DWORD>& baselineProcessIds = {},
+    bool allowBaselineRenderer = true) noexcept;
+
+std::vector<std::wstring> SelectUnboundGpuEnginePaths(
+    const std::vector<std::wstring>& paths,
+    const std::unordered_set<std::wstring>& boundPaths);
 
 class GpuEngineActivitySampler
 {
@@ -39,10 +45,11 @@ private:
         bool intelAdapter{};
         std::wstring engine;
     };
-    bool BindCounters();
+    bool BindNewCounters();
 
     PDH_HQUERY query_{};
     std::vector<Counter> counters_;
+    std::unordered_set<std::wstring> boundPaths_;
     bool primed_{};
 };
 }

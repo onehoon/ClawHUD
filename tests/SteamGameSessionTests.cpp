@@ -37,6 +37,23 @@ int main()
     check(candidates.size() == 3 && candidates[0] == 200 && candidates[1] == 300,
         "foreground and Intel GPU candidates rank first");
 
+    const std::vector<DWORD> baseline{100};
+    const auto freshLaunchCandidates = SelectGpuActiveProcessIds(
+        activity, 100, baseline, false);
+    check(freshLaunchCandidates.size() == 2 && freshLaunchCandidates[0] == 300 &&
+        freshLaunchCandidates[1] == 200,
+        "fresh Steam launch excludes pre-session renderer candidates");
+    const auto startupCandidates = SelectGpuActiveProcessIds(
+        activity, 100, baseline, true);
+    check(startupCandidates.size() == 3 && startupCandidates[0] == 100,
+        "startup with existing AppID allows baseline renderer candidates");
+
+    const std::vector<std::wstring> paths{L"pid_100_eng_3D", L"pid_200_eng_3D"};
+    const std::unordered_set<std::wstring> bound{L"pid_100_eng_3D"};
+    const auto newPaths = SelectUnboundGpuEnginePaths(paths, bound);
+    check(newPaths.size() == 1 && newPaths[0] == L"pid_200_eng_3D",
+        "new GPU Engine instances are discoverable after initialization");
+
     const PresentMonHudSample firstFrame{true, std::nullopt, false};
     check(firstFrame.hasDisplayedFrame && !firstFrame.displayedFps,
         "first displayed frame is independent from fps readiness");

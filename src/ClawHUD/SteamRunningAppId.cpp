@@ -109,6 +109,8 @@ std::uint32_t SteamRunningAppIdSource::ReadCurrentAppId() const noexcept
 
 void SteamRunningAppIdSource::WatchLoop()
 {
+    WatchKind previousKind{};
+    bool hadPreviousKind = false;
     for (;;)
     {
         WatchKind kind{};
@@ -120,15 +122,15 @@ void SteamRunningAppIdSource::WatchLoop()
             continue;
         }
 
-        if (kind == WatchKind::Steam)
+        const bool steamBecameAvailable = kind == WatchKind::Steam &&
+            hadPreviousKind && previousKind != WatchKind::Steam;
+        previousKind = kind;
+        hadPreviousKind = true;
+        if (steamBecameAvailable && !PostMessageW(dispatchWindow_, changedMessage_,
+            static_cast<WPARAM>(ReadAppId(key)), 0))
         {
-            const auto appId = ReadAppId(key);
-            if (!PostMessageW(dispatchWindow_, changedMessage_,
-                static_cast<WPARAM>(appId), 0))
-            {
-                RegCloseKey(key);
-                return;
-            }
+            RegCloseKey(key);
+            return;
         }
 
         const HANDLE changed = CreateEventW(nullptr, TRUE, FALSE, nullptr);
@@ -141,16 +143,24 @@ void SteamRunningAppIdSource::WatchLoop()
             ? REG_NOTIFY_CHANGE_LAST_SET : REG_NOTIFY_CHANGE_NAME;
         const LONG notify = RegNotifyChangeKeyValue(key, FALSE, filter,
             changed, TRUE);
-        RegCloseKey(key);
         if (notify != ERROR_SUCCESS)
         {
+            RegCloseKey(key);
             CloseHandle(changed);
             return;
         }
         const HANDLE handles[] = { stopEvent_, changed };
         const DWORD wait = WaitForMultipleObjects(2, handles, FALSE, INFINITE);
+        const auto appId = wait == WAIT_OBJECT_0 + 1 && kind == WatchKind::Steam
+            ? ReadAppId(key) : 0;
+        RegCloseKey(key);
         CloseHandle(changed);
         if (wait == WAIT_OBJECT_0)
+            return;
+        if (wait != WAIT_OBJECT_0 + 1)
+            return;
+        if (kind == WatchKind::Steam && !PostMessageW(dispatchWindow_, changedMessage_,
+            static_cast<WPARAM>(appId), 0))
             return;
     }
 }

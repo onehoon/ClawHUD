@@ -73,13 +73,17 @@ bool IsPositive(double value) noexcept
 std::vector<DWORD> SelectGpuActiveProcessIds(
     const std::vector<GpuEngineActivity>& activities,
     DWORD foregroundProcessId,
-    const std::vector<DWORD>& baselineProcessIds) noexcept
+    const std::vector<DWORD>& baselineProcessIds,
+    bool allowBaselineRenderer) noexcept
 {
     struct Candidate { bool intel{}; bool foreground{}; bool recent{}; double activity{}; };
     std::unordered_map<DWORD, Candidate> candidates;
     for (const auto& activity : activities)
     {
         if (!activity.processId || !IsPositive(activity.utilization))
+            continue;
+        if (!allowBaselineRenderer && std::find(baselineProcessIds.begin(),
+            baselineProcessIds.end(), activity.processId) != baselineProcessIds.end())
             continue;
         auto& candidate = candidates[activity.processId];
         candidate.intel = candidate.intel || activity.intelAdapter;
@@ -104,6 +108,19 @@ std::vector<DWORD> SelectGpuActiveProcessIds(
     return result;
 }
 
+std::vector<std::wstring> SelectUnboundGpuEnginePaths(
+    const std::vector<std::wstring>& paths,
+    const std::unordered_set<std::wstring>& boundPaths)
+{
+    std::vector<std::wstring> result;
+    for (const auto& path : paths)
+    {
+        if (boundPaths.find(path) == boundPaths.end())
+            result.push_back(path);
+    }
+    return result;
+}
+
 GpuEngineActivitySampler::~GpuEngineActivitySampler()
 {
     Reset();
@@ -115,6 +132,7 @@ void GpuEngineActivitySampler::Reset() noexcept
         PdhCloseQuery(query_);
     query_ = nullptr;
     counters_.clear();
+    boundPaths_.clear();
     primed_ = false;
 }
 
@@ -122,7 +140,7 @@ bool GpuEngineActivitySampler::Initialize()
 {
     Reset();
     if (PdhOpenQueryW(nullptr, 0, &query_) != ERROR_SUCCESS ||
-        !BindCounters())
+        !BindNewCounters())
     {
         Reset();
         return false;
@@ -136,11 +154,12 @@ bool GpuEngineActivitySampler::Initialize()
     return true;
 }
 
-bool GpuEngineActivitySampler::BindCounters()
+bool GpuEngineActivitySampler::BindNewCounters()
 {
     const auto adapter = FindIntelAdapterLuid();
-    const auto paths = ExpandEnginePaths();
-    for (const auto& path : paths)
+    bool added = false;
+    for (const auto& path : SelectUnboundGpuEnginePaths(
+        ExpandEnginePaths(), boundPaths_))
     {
         const auto pid = ParsePid(path);
         if (!pid)
@@ -148,16 +167,21 @@ bool GpuEngineActivitySampler::BindCounters()
         PDH_HCOUNTER counter{};
         if (PdhAddEnglishCounterW(query_, path.c_str(), 0, &counter) != ERROR_SUCCESS)
             continue;
+        boundPaths_.insert(path);
         counters_.push_back(Counter{counter, *pid,
             adapter && IsIntelGpuMemoryCounterInstance(path, *adapter),
             ParseEngine(path)});
+        added = true;
     }
-    return !counters_.empty();
+    return added || !counters_.empty();
 }
 
 std::vector<GpuEngineActivity> GpuEngineActivitySampler::Sample()
 {
-    if (!query_ || PdhCollectQueryData(query_) != ERROR_SUCCESS)
+    if (!query_)
+        return {};
+    BindNewCounters();
+    if (PdhCollectQueryData(query_) != ERROR_SUCCESS)
         return {};
     if (primed_)
     {

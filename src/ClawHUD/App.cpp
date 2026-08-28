@@ -1314,7 +1314,8 @@ void App::ResolveSteamRenderer()
     if (foreground)
         GetWindowThreadProcessId(foreground, &foregroundPid);
     const auto candidates = clawhud::SelectGpuActiveProcessIds(
-        activity, foregroundPid, steamBaselineProcessIds_);
+        activity, foregroundPid, steamBaselineProcessIds_,
+        steamAllowBaselineRenderer_);
     for (const auto processId : candidates)
     {
         if (processId == GetCurrentProcessId() || !ProcessAlive(processId))
@@ -1369,6 +1370,10 @@ void App::HandleSteamRunningAppId(std::uint32_t appId)
     if (appId == steamRunningAppId_)
         return;
     const auto oldAppId = steamRunningAppId_;
+    const bool freshSteamLaunch = steamRunningAppIdInitialized_ &&
+        oldAppId == 0 && appId != 0;
+    steamAllowBaselineRenderer_ = !freshSteamLaunch;
+    steamRunningAppIdInitialized_ = true;
     steamRunningAppId_ = appId;
     clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info,
         L"Steam session changed oldAppId=" + std::to_wstring(oldAppId) +

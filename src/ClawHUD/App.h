@@ -214,6 +214,8 @@ private:
     unsigned presentMonRestartAttempts_{};
     DWORD pendingProductionTargetPid_{};
     std::uint32_t steamRunningAppId_{};
+    bool steamRunningAppIdInitialized_{};
+    bool steamAllowBaselineRenderer_{ true };
     SteamGameState steamGameState_{ SteamGameState::None };
     DWORD steamRendererPid_{};
     DWORD steamRendererCandidatePid_{};
