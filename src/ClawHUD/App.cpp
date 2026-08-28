@@ -683,7 +683,12 @@ void App::SetHudSizeOffset(int offset)
 
 clawhud::HudRenderOptions App::BuildHudRenderOptions() const
 {
-    return clawhud::BuildHudRenderOptionsForSize(hudSizeOffset_, hudOptions_, hudFont_);
+    auto options = clawhud::BuildHudRenderOptionsForSize(
+        hudSizeOffset_, hudOptions_, hudFont_);
+    // Temporary product policy: keep the opacity setting pipeline for future
+    // use, but force the production HUD background to 50% for now.
+    options.layout.backgroundOpacity = 0.5f;
+    return options;
 }
 
 bool App::RecreateHudPresentation(bool restoreVisible)

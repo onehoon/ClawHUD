@@ -419,7 +419,7 @@ void SettingsWindow::CreateSettingsControls()
     backgroundContent_ = CreateWindowW(L"BUTTON", L"Content width",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | BS_PUSHLIKE, 0, 0, 0, 0,
         settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kBackgroundContent)), instance_, nullptr);
-    CreateWindowW(L"STATIC", L"Background opacity", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
+    const HWND opacityCaption = CreateWindowW(L"STATIC", L"Background opacity", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
         settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOpacityLabel)), instance_, nullptr);
     opacitySlider_ = CreateWindowExW(0, TRACKBAR_CLASSW, L"",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | TBS_NOTICKS, 0, 0, 0, 0,
@@ -427,6 +427,9 @@ void SettingsWindow::CreateSettingsControls()
     SendMessageW(opacitySlider_, TBM_SETRANGE, TRUE, MAKELONG(0, 100));
     opacityLabel_ = CreateWindowW(L"STATIC", L"50%", WS_CHILD | WS_VISIBLE,
         0, 0, 0, 0, settingsPanel_, nullptr, instance_, nullptr);
+    ShowWindow(opacityCaption, SW_HIDE);
+    ShowWindow(opacitySlider_, SW_HIDE);
+    ShowWindow(opacityLabel_, SW_HIDE);
     EnableMouseWheelForwarding(startWithWindows_);
     EnableMouseWheelForwarding(enableHud_);
     EnableMouseWheelForwarding(visibilityInGameOnly_);
