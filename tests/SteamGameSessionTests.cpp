@@ -62,12 +62,14 @@ int main()
     const std::vector<DWORD> baseline{100};
     const auto freshLaunchCandidates = SelectGpuActiveProcessIds(
         activity, 100, baseline, false);
-    check(freshLaunchCandidates.size() == 2 && freshLaunchCandidates[0] == 300 &&
+    check(freshLaunchCandidates.size() == 3 && freshLaunchCandidates[0] == 300 &&
         freshLaunchCandidates[1] == 200,
-        "fresh Steam launch excludes pre-session renderer candidates");
+        "fresh Steam launch keeps post-notification baseline candidates eligible");
     const auto startupCandidates = SelectGpuActiveProcessIds(
         activity, 100, baseline, true);
-    check(startupCandidates.size() == 3 && startupCandidates[0] == 100,
+    check(startupCandidates.size() == 3 &&
+        std::find(startupCandidates.begin(), startupCandidates.end(), 100) !=
+            startupCandidates.end(),
         "startup with existing AppID allows baseline renderer candidates");
     const std::vector<GpuEngineActivity> handoffActivity{
         {200, 3.0, true, L"3D"}};
@@ -78,6 +80,10 @@ int main()
     const auto noGpuEvidenceCandidates = SelectGpuActiveProcessIds({}, 400);
     check(noGpuEvidenceCandidates.empty(),
         "foreground-only process is not a Steam renderer candidate");
+    const std::unordered_set<DWORD> retired{200};
+    check(!ShouldProbeSteamRendererCandidate(300, 200, retired) &&
+        ShouldProbeSteamRendererCandidate(300, 400, retired),
+        "retired renderer cannot immediately reverse a live handoff");
 
     const std::vector<std::wstring> paths{L"pid_100_eng_3D", L"pid_200_eng_3D"};
     const std::unordered_set<std::wstring> bound{L"pid_100_eng_3D"};

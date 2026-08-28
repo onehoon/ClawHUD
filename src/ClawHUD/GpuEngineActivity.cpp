@@ -74,16 +74,13 @@ std::vector<DWORD> SelectGpuActiveProcessIds(
     const std::vector<GpuEngineActivity>& activities,
     DWORD foregroundProcessId,
     const std::vector<DWORD>& baselineProcessIds,
-    bool allowBaselineRenderer) noexcept
+    bool /*allowBaselineRenderer*/) noexcept
 {
     struct Candidate { bool intel{}; bool foreground{}; bool recent{}; double activity{}; };
     std::unordered_map<DWORD, Candidate> candidates;
     for (const auto& activity : activities)
     {
         if (!activity.processId || !IsPositive(activity.utilization))
-            continue;
-        if (!allowBaselineRenderer && std::find(baselineProcessIds.begin(),
-            baselineProcessIds.end(), activity.processId) != baselineProcessIds.end())
             continue;
         auto& candidate = candidates[activity.processId];
         candidate.intel = candidate.intel || activity.intelAdapter;
@@ -100,8 +97,8 @@ std::vector<DWORD> SelectGpuActiveProcessIds(
     {
         const auto& a = candidates[left];
         const auto& b = candidates[right];
-        if (a.foreground != b.foreground) return a.foreground > b.foreground;
         if (a.recent != b.recent) return a.recent > b.recent;
+        if (a.foreground != b.foreground) return a.foreground > b.foreground;
         if (a.intel != b.intel) return a.intel > b.intel;
         return a.activity > b.activity;
     });

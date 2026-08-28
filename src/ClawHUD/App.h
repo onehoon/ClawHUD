@@ -196,6 +196,7 @@ private:
     void ReconcileProductionTargetAuthority();
     void StartSteamRendererResolution();
     bool StartSteamPresentMon(DWORD processId);
+    void RestoreConfirmedSteamRenderer();
     void StopSteamRendererResolution(bool clearFps = true);
 
     HINSTANCE instance_{};
@@ -226,6 +227,7 @@ private:
     std::chrono::steady_clock::time_point steamCandidateProbeStarted_{};
     std::vector<DWORD> steamBaselineProcessIds_;
     std::unordered_set<DWORD> steamProbeAttemptedPids_;
+    std::unordered_set<DWORD> steamRetiredRendererPids_;
     std::optional<clawhud::WindowsPowerTelemetry> latestPowerTelemetry_;
     clawhud::WindowsUsageSampler usageSampler_;
     std::optional<clawhud::WindowsUsageTelemetry> latestUsageTelemetry_;

@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include <cstdint>
+#include <unordered_set>
 
 enum class SteamGameState
 {
@@ -57,4 +58,12 @@ constexpr bool ShouldRunSteamRendererResolution(
 {
     return hudEnabled && state == SteamGameState::Resolving && appId != 0 &&
         !suspended && !diagnosticRunning;
+}
+
+inline bool ShouldProbeSteamRendererCandidate(
+    DWORD confirmedRendererPid, DWORD candidatePid,
+    const std::unordered_set<DWORD>& retiredRendererPids) noexcept
+{
+    return candidatePid != 0 && candidatePid != confirmedRendererPid &&
+        retiredRendererPids.find(candidatePid) == retiredRendererPids.end();
 }

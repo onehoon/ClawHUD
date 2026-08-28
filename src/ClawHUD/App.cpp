@@ -1345,7 +1345,8 @@ void App::ResolveSteamRenderer()
             return std::find_if(candidates.begin(), candidates.end(),
                 [this](DWORD processId)
                 {
-                    return processId != steamRendererPid_ &&
+                    return ShouldProbeSteamRendererCandidate(steamRendererPid_, processId,
+                        steamRetiredRendererPids_) &&
                         steamProbeAttemptedPids_.find(processId) ==
                         steamProbeAttemptedPids_.end() && ProcessAlive(processId);
                 });
@@ -1362,7 +1363,8 @@ void App::ResolveSteamRenderer()
                 steamProbeAttemptedPids_.clear();
             return;
         }
-        if (presentMonHudTelemetry_ && presentMonHudTelemetry_->Running())
+        if (steamRendererCandidatePid_ && presentMonHudTelemetry_ &&
+            presentMonHudTelemetry_->Running())
         {
             const auto now = std::chrono::steady_clock::now();
             if (now - steamCandidateProbeStarted_ < kSteamCandidateProbeTimeout)
@@ -1373,21 +1375,26 @@ void App::ResolveSteamRenderer()
             steamCandidateProbeStarted_ = {};
             challenger = findChallenger();
             if (challenger == candidates.end())
+            {
+                steamProbeAttemptedPids_.clear();
+                RestoreConfirmedSteamRenderer();
                 return;
+            }
+        }
+        else if (steamRendererCandidatePid_)
+        {
+            RestoreConfirmedSteamRenderer();
         }
         steamRendererCandidatePid_ = *challenger;
         steamCandidateProbeStarted_ = std::chrono::steady_clock::now();
+        StopProductionPresentMonSampling(L"steam-challenger-start", false);
         StartGraphicsApiProbe(*challenger);
         if (!StartSteamPresentMon(*challenger))
         {
             steamProbeAttemptedPids_.insert(*challenger);
             steamRendererCandidatePid_ = 0;
             steamCandidateProbeStarted_ = {};
-            if (steamRendererPid_ && ProcessAlive(steamRendererPid_))
-            {
-                StartGraphicsApiProbe(steamRendererPid_);
-                StartSteamPresentMon(steamRendererPid_);
-            }
+            RestoreConfirmedSteamRenderer();
         }
         return;
     }
@@ -1456,6 +1463,18 @@ void App::ResolveSteamRenderer()
                 steamProbeAttemptedPids_.end();
         }))
         steamProbeAttemptedPids_.clear();
+}
+
+void App::RestoreConfirmedSteamRenderer()
+{
+    steamRendererCandidatePid_ = 0;
+    steamCandidateProbeStarted_ = {};
+    if (!steamRendererPid_ || !ProcessAlive(steamRendererPid_))
+        return;
+    StartGraphicsApiProbe(steamRendererPid_);
+    if (!presentMonHudTelemetry_ || presentMonProcessId_ != steamRendererPid_ ||
+        !presentMonHudTelemetry_->Running())
+        StartSteamPresentMon(steamRendererPid_);
 }
 
 bool App::StartSteamPresentMon(DWORD processId)
@@ -1574,7 +1593,10 @@ void App::HandlePresentMonHudUpdate(DWORD processId, bool steamResolution,
             processId != steamRendererPid_ && sample.hasDisplayedFrame &&
             ProcessAlive(processId))
         {
+            const DWORD oldRenderer = steamRendererPid_;
             steamRendererPid_ = processId;
+            if (oldRenderer && oldRenderer != processId)
+                steamRetiredRendererPids_.insert(oldRenderer);
             steamRendererCandidatePid_ = 0;
             steamCandidateProbeStarted_ = {};
             steamProbeAttemptedPids_.clear();
