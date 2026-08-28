@@ -56,6 +56,8 @@ int main()
     ok &= Check(output0.output != output1.output && SummarizeVblank(output0).validDeltas == 1 && SummarizeVblank(output1).validDeltas == 1,
         "output target series remain separate");
     ok &= Check(IntelCtlResultName(0xDEADBEEF) == "UNKNOWN", "unknown result name remains raw-compatible");
+    ok &= Check(IntelCtlResultName(0x00000001) == "CTL_RESULT_SUCCESS_STILL_OPEN_BY_ANOTHER_CALLER",
+        "still-open success result name");
     ok &= Check(IntelCtlResultName(0x40000017) == "CTL_RESULT_ERROR_KMD_CALL", "KMD call failure result name");
     ok &= Check(IntelCtlResultName(0x40000010) == "CTL_RESULT_ERROR_UNSUPPORTED_SIZE", "unsupported size result name");
     ok &= Check(IntelCtlResultName(0x40000008) == "CTL_RESULT_ERROR_UNINITIALIZED", "uninitialized result name");
