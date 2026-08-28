@@ -13,6 +13,8 @@
 #include <wrl/client.h>
 
 #include <array>
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <memory>
 
@@ -27,6 +29,16 @@ inline HudRenderOptions BuildEffectiveHudRenderOptions(
     effective.dpi = dpi;
     effective.barPixelHeight = initialized.barPixelHeight;
     return effective;
+}
+
+inline UINT CalculateHudContentWidthPixels(
+    float contentWidthDip, float dpi, UINT monitorWidth) noexcept
+{
+    const double scale = dpi > 0.0f ? static_cast<double>(dpi) / 96.0 : 1.0;
+    const double nonNegativeWidth = contentWidthDip > 0.0f ? contentWidthDip : 0.0f;
+    const double pixels = std::ceil(nonNegativeWidth * scale);
+    return static_cast<UINT>(std::clamp(
+        pixels, 1.0, static_cast<double>(monitorWidth)));
 }
 
 class HudPresentation
@@ -56,6 +68,7 @@ private:
     HRESULT CreateGraphics();
     HRESULT CreatePresentationSurface();
     HRESULT CreateBitmapTargets();
+    HRESULT ResizeContentWidth(UINT widthPx, HudAlignment alignment);
     HRESULT TryAcquireAvailableBuffer(HudFrameBuffer*& selected) noexcept;
     HRESULT RefreshDisplayIfNeeded();
     HRESULT CommitVisibility(bool visible);
@@ -65,6 +78,7 @@ private:
     HANDLE surfaceHandle_{ INVALID_HANDLE_VALUE };
     int xPx_{};
     int yPx_{};
+    RECT monitorRect_{};
     UINT widthPx_{};
     UINT heightPx_{};
     float dpi_{ 96.0f };

@@ -1,5 +1,6 @@
 #include "HudRenderer.h"
 #include "HudWindowGeometry.h"
+#include "HudPresentation.h"
 
 #include <dwrite.h>
 #include <d2d1_1.h>
@@ -29,10 +30,10 @@ bool Near(float actual, float expected)
     return std::abs(actual - expected) < 0.01f;
 }
 
-bool ReadBackgroundAlpha(HudRenderer& renderer, HudRenderOptions options, BYTE& alpha,
-    bool& foregroundVisible)
+bool ReadBackgroundAlpha(HudRenderer& renderer, HudRenderOptions options, BYTE& backgroundAlpha,
+    BYTE& transparentAreaAlpha, bool& foregroundVisible)
 {
-    constexpr UINT width = 160;
+    constexpr UINT width = 512;
     constexpr UINT height = 64;
     D3D_FEATURE_LEVEL featureLevel{};
     ComPtr<ID3D11Device> device;
@@ -89,7 +90,8 @@ bool ReadBackgroundAlpha(HudRenderer& renderer, HudRenderOptions options, BYTE& 
     D3D11_MAPPED_SUBRESOURCE mapped{};
     if (FAILED(deviceContext->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped))) return false;
     const auto* bytes = static_cast<const BYTE*>(mapped.pData);
-    alpha = bytes[1 * mapped.RowPitch + 1 * 4 + 3];
+    backgroundAlpha = bytes[1 * mapped.RowPitch + (width / 2) * 4 + 3];
+    transparentAreaAlpha = bytes[1 * mapped.RowPitch + 1 * 4 + 3];
     foregroundVisible = false;
     for (UINT y = 0; y < height && !foregroundVisible; ++y)
         for (UINT x = 0; x < width; ++x)
@@ -111,6 +113,10 @@ int main()
 {
     bool ok = true;
     ok &= Check(Near(DipFromPhysicalPixels(14.0f, 144.0f), 9.3333f), "physical pixels to DIP");
+    ok &= Check(CalculateHudContentWidthPixels(1000.0f, 96.0f, 1920) == 1000 &&
+        CalculateHudContentWidthPixels(1000.0f, 144.0f, 1920) == 1500 &&
+        CalculateHudContentWidthPixels(3000.0f, 96.0f, 1920) == 1920,
+        "production ContentWidth converts measured DIP width to monitor pixels");
     ok &= Check(kHudBackgroundColor == 0x020202 && kHudCpuColor == 0x2E97CB &&
         kHudGpuColor == 0x2E9762 && kHudVramColor == 0xAD64C1 &&
         kHudGraphicsColor == 0xEB5B5B && kHudSystemColor == 0xFF9078 &&
@@ -382,15 +388,20 @@ int main()
             "ContentWidth measures only current runs");
 
         HudRenderOptions pixelOptions{};
+        pixelOptions.layout.backgroundMode = HudBackgroundMode::ContentWidth;
+        pixelOptions.layout.alignment = HudAlignment::Center;
         const auto checkAlpha = [&](float opacity, BYTE expected, const char* message)
         {
             pixelOptions.layout.backgroundOpacity = opacity;
             BYTE actual{};
+            BYTE transparent{};
             bool foregroundVisible{};
             const bool rendered = ReadBackgroundAlpha(privateRenderer, pixelOptions,
-                actual, foregroundVisible);
+                actual, transparent, foregroundVisible);
             ok &= Check(rendered && std::abs(static_cast<int>(actual) - static_cast<int>(expected)) <= 2,
                 message);
+            ok &= Check(rendered && transparent == 0,
+                "transparent cleared area stays transparent");
             return foregroundVisible;
         };
         checkAlpha(0.0f, 0, "background alpha at 0 percent");
@@ -400,9 +411,11 @@ int main()
         checkAlpha(1.0f, 255, "background alpha at 100 percent");
         pixelOptions.layout.backgroundOpacity = 0.0f;
         BYTE transparentAlpha{};
+        BYTE clearedAreaAlpha{};
         bool foregroundVisible{};
         ok &= Check(ReadBackgroundAlpha(privateRenderer, pixelOptions,
-            transparentAlpha, foregroundVisible) && transparentAlpha == 0 && foregroundVisible,
+            transparentAlpha, clearedAreaAlpha, foregroundVisible) &&
+            transparentAlpha == 0 && clearedAreaAlpha == 0 && foregroundVisible,
             "foreground remains visible when background is transparent");
     }
     return ok ? 0 : 1;

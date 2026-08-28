@@ -39,9 +39,10 @@ HRESULT HudPresentation::Initialize(HINSTANCE instance, const HudRenderOptions& 
     MONITORINFO monitor{ sizeof(monitor) };
     if (!GetMonitorInfoW(MonitorFromPoint(POINT{ 0, 0 }, MONITOR_DEFAULTTOPRIMARY), &monitor))
         return LastErrorResult();
-    xPx_ = monitor.rcMonitor.left;
-    yPx_ = monitor.rcMonitor.top;
-    widthPx_ = static_cast<UINT>(monitor.rcMonitor.right - monitor.rcMonitor.left);
+    monitorRect_ = monitor.rcMonitor;
+    xPx_ = monitorRect_.left;
+    yPx_ = monitorRect_.top;
+    widthPx_ = static_cast<UINT>(monitorRect_.right - monitorRect_.left);
     heightPx_ = 1;
     if (!widthPx_ || !heightPx_)
         return E_INVALIDARG;
@@ -75,18 +76,11 @@ HRESULT HudPresentation::Initialize(HINSTANCE instance, const HudRenderOptions& 
     heightPx_ = static_cast<UINT>(std::max(1.0f, std::ceil(barPixelHeight_)));
     if (options.layout.backgroundMode == HudBackgroundMode::ContentWidth)
     {
-        float reservedWidthDip{};
-        if (FAILED(hr = renderer_->MeasureReservedHudWidth(
-            initializationOptions_, reservedWidthDip)))
-        {
-            Shutdown();
-            return hr;
-        }
-        const UINT reservedWidthPx = static_cast<UINT>(std::ceil(
-            reservedWidthDip * dpi_ / 96.0f));
+        // The first frame supplies the actual runs. Start with a minimal surface;
+        // Render() grows it to the measured width when content is available.
         const auto geometry = CalculateHudWindowGeometry(
-            monitor.rcMonitor, options.layout.backgroundMode,
-            options.layout.alignment, reservedWidthPx);
+            monitorRect_, options.layout.backgroundMode,
+            options.layout.alignment, 1);
         xPx_ = geometry.xPx;
         yPx_ = geometry.yPx;
         widthPx_ = geometry.widthPx;
@@ -237,16 +231,34 @@ HRESULT HudPresentation::Render(const HudTelemetrySnapshot& snapshot, const HudR
     HRESULT hr = RefreshDisplayIfNeeded();
     if (FAILED(hr))
         return hr;
+    const HudRenderOptions effective = BuildEffectiveHudRenderOptions(
+        options, initializationOptions_, dpi_);
+    const auto runs = FormatHud(snapshot);
+    if (effective.layout.backgroundMode == HudBackgroundMode::ContentWidth)
+    {
+        HudMeasureResult measure{};
+        hr = renderer_->Measure(runs, effective, measure);
+        if (FAILED(hr)) return hr;
+        const UINT requiredWidthPx = CalculateHudContentWidthPixels(
+            measure.contentWidth, dpi_,
+            static_cast<UINT>(std::max<LONG>(0, monitorRect_.right - monitorRect_.left)));
+        const auto geometry = CalculateHudWindowGeometry(
+            monitorRect_, HudBackgroundMode::ContentWidth,
+            effective.layout.alignment, requiredWidthPx);
+        if (geometry.widthPx != widthPx_ || geometry.xPx != xPx_)
+        {
+            hr = ResizeContentWidth(geometry.widthPx, effective.layout.alignment);
+            if (FAILED(hr)) return hr;
+        }
+    }
     HudFrameBuffer* buffer{};
     hr = TryAcquireAvailableBuffer(buffer);
     if (FAILED(hr) || hr == S_FALSE)
         return hr;
-    const HudRenderOptions effective = BuildEffectiveHudRenderOptions(
-        options, initializationOptions_, dpi_);
-    const auto runs = FormatHud(snapshot);
     const float widthDip = DipFromPhysicalPixels(static_cast<float>(widthPx_), dpi_);
     const float heightDip = DipFromPhysicalPixels(static_cast<float>(heightPx_), dpi_);
     d2dContext_->SetTarget(buffer->bitmapTarget.Get());
+    d2dContext_->SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_SOURCE_OVER);
     d2dContext_->BeginDraw();
     d2dContext_->Clear(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f));
     hr = runs.empty() ? S_OK : renderer_->Draw(d2dContext_.Get(), runs, effective,
@@ -257,6 +269,58 @@ HRESULT HudPresentation::Render(const HudTelemetrySnapshot& snapshot, const HudR
     deviceContext_->Flush();
     if (FAILED(hr = presentationSurface_->SetBuffer(buffer->presentationBuffer.Get()))) return hr;
     return presentationManager_->Present();
+}
+
+HRESULT HudPresentation::ResizeContentWidth(UINT widthPx, HudAlignment alignment)
+{
+    const auto geometry = CalculateHudWindowGeometry(
+        monitorRect_, HudBackgroundMode::ContentWidth, alignment, widthPx);
+    if (geometry.widthPx == widthPx_)
+    {
+        if (!SetWindowPos(window_, HWND_TOPMOST, geometry.xPx, geometry.yPx,
+            static_cast<int>(widthPx_), static_cast<int>(heightPx_),
+            SWP_NOACTIVATE | SWP_NOOWNERZORDER))
+            return LastErrorResult();
+        xPx_ = geometry.xPx;
+        yPx_ = geometry.yPx;
+        return S_OK;
+    }
+
+    const bool wasVisible = visible_;
+    for (auto& buffer : buffers_)
+    {
+        buffer.bitmapTarget.Reset();
+        buffer.presentationBuffer.Reset();
+        buffer.texture.Reset();
+    }
+    if (visual_ && compositionDevice_)
+    {
+        visual_->SetContent(nullptr);
+        compositionDevice_->Commit();
+    }
+    compositionSurface_.Reset();
+    presentationSurface_.Reset();
+    presentationManager_.Reset();
+    presentationFactory_.Reset();
+    if (surfaceHandle_ != INVALID_HANDLE_VALUE)
+    {
+        CloseHandle(surfaceHandle_);
+        surfaceHandle_ = INVALID_HANDLE_VALUE;
+    }
+
+    widthPx_ = geometry.widthPx;
+    xPx_ = geometry.xPx;
+    yPx_ = geometry.yPx;
+    if (!SetWindowPos(window_, HWND_TOPMOST, xPx_, yPx_,
+        static_cast<int>(widthPx_), static_cast<int>(heightPx_),
+        SWP_NOACTIVATE | SWP_NOOWNERZORDER))
+        return LastErrorResult();
+    HRESULT hr = CreatePresentationSurface();
+    if (FAILED(hr)) return hr;
+    if (FAILED(hr = CreateBitmapTargets())) return hr;
+    if (wasVisible)
+        return CommitVisibility(true);
+    return S_OK;
 }
 
 HRESULT HudPresentation::RefreshDisplayIfNeeded()
