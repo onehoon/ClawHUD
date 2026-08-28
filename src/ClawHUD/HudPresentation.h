@@ -95,6 +95,7 @@ private:
     bool visible_{};
     bool initialized_{};
     bool displayChangePending_{};
+    bool opacityPocBackgroundPainted_{};
     bool opacityPocLogged_{};
     HudRenderOptions initializationOptions_{};
 

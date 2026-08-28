@@ -17,6 +17,7 @@ namespace clawhud
 namespace
 {
 constexpr wchar_t kWindowClass[] = L"ClawHUD.MockHudSurface";
+constexpr COLORREF kOpacityPocClientPaintColor = RGB(255, 0, 255);
 
 HRESULT LastErrorResult() noexcept
 {
@@ -32,6 +33,7 @@ HudPresentation::~HudPresentation()
 HRESULT HudPresentation::Initialize(HINSTANCE instance, const HudRenderOptions& options)
 {
     opacityPocLogged_ = false;
+    opacityPocBackgroundPainted_ = false;
     if (initialized_)
         return S_OK;
     if (!instance || options.barPixelHeight <= 0.0f)
@@ -524,6 +526,25 @@ LRESULT CALLBACK HudPresentation::WindowProc(HWND window, UINT message, WPARAM w
     if (message == WM_DISPLAYCHANGE || message == WM_DPICHANGED)
     {
         if (self) self->displayChangePending_ = true;
+        return 0;
+    }
+    if (message == WM_PAINT)
+    {
+        PAINTSTRUCT paint{};
+        const HDC dc = BeginPaint(window, &paint);
+        if (self && !self->opacityPocBackgroundPainted_)
+        {
+            RECT client{};
+            GetClientRect(window, &client);
+            HBRUSH brush = CreateSolidBrush(kOpacityPocClientPaintColor);
+            if (brush)
+            {
+                FillRect(dc, &client, brush);
+                DeleteObject(brush);
+            }
+            self->opacityPocBackgroundPainted_ = true;
+        }
+        EndPaint(window, &paint);
         return 0;
     }
     if (message == WM_NCHITTEST) return HTTRANSPARENT;
