@@ -16,6 +16,7 @@ int main()
     IgclSampleSeries unsupported; unsupported.supported = false; unsupported.values = { 0.0 }; check(ClassifyIgclSamples(unsupported) == IgclDiagnosticClass::Unsupported, "unsupported");
     IgclSampleSeries missing; missing.hasDomain = false; check(ClassifyIgclSamples(missing) == IgclDiagnosticClass::NoDomain, "no domain");
     IgclSampleSeries error; error.apiSucceeded = false; check(ClassifyIgclSamples(error) == IgclDiagnosticClass::ApiError, "api error");
+    IgclSampleSeries symbol; symbol.symbolPresent = false; check(ClassifyIgclSamples(symbol) == IgclDiagnosticClass::SymbolMissing, "missing symbol");
     check(IgclSampleMinimum(changing) == 0.0 && IgclSampleMaximum(changing) == 20.0, "min max");
     check(std::string(IgclDiagnosticClassName(IgclDiagnosticClass::SymbolMissing)) == "SYMBOL_MISSING", "raw classification names");
     check(std::string(IgclDiagnosticClassName(IgclDiagnosticClass::SkippedMutationCapable)) == "SKIPPED_MUTATION_CAPABLE", "safety classification name");
