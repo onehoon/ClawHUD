@@ -126,7 +126,7 @@ int main()
 
     HudRenderOptions options{};
     ok &= Check(Near(options.segmentGapPx, 8.0f) && Near(options.metricGapPx, 6.0f) &&
-        Near(options.separatorGapPx, 14.0f),
+        Near(options.separatorGapPx, 16.0f),
         "horizontal spacing defaults");
     ok &= Check(Near(options.fontPixelSize, 20.0f) &&
         Near(options.unitFontPixelSize, 11.0f) &&
@@ -316,7 +316,7 @@ int main()
         ok &= Check(Near(MeasureWidth(renderer, {
                 {HudSegmentKind::Gpu, L"GPU", L"47%"},
                 {HudSegmentKind::Cpu, L"CPU", L"36%"}}, stableOptions), expectedPairWidth),
-            "separator uses two physical 14px gaps");
+            "separator uses two physical 16px gaps");
         float reservedWidth{};
         ok &= Check(SUCCEEDED(renderer.MeasureReservedHudWidth(stableOptions, reservedWidth)) &&
             reservedWidth > 0.0f, "measure reserved HUD envelope");

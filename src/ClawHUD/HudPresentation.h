@@ -80,6 +80,7 @@ private:
     int yPx_{};
     RECT monitorRect_{};
     UINT widthPx_{};
+    UINT surfaceWidthPx_{};
     UINT heightPx_{};
     float dpi_{ 96.0f };
     float barPixelHeight_{ 30.0f };

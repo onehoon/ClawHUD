@@ -43,6 +43,7 @@ HRESULT HudPresentation::Initialize(HINSTANCE instance, const HudRenderOptions& 
     xPx_ = monitorRect_.left;
     yPx_ = monitorRect_.top;
     widthPx_ = static_cast<UINT>(monitorRect_.right - monitorRect_.left);
+    surfaceWidthPx_ = widthPx_;
     heightPx_ = 1;
     if (!widthPx_ || !heightPx_)
         return E_INVALIDARG;
@@ -190,7 +191,7 @@ HRESULT HudPresentation::CreatePresentationSurface()
         kHudPresentationContract.letterboxBottom))) return hr;
 
     D3D11_TEXTURE2D_DESC description{};
-    description.Width = widthPx_; description.Height = heightPx_;
+    description.Width = surfaceWidthPx_; description.Height = heightPx_;
     description.MipLevels = 1; description.ArraySize = 1;
     description.Format = kHudPresentationContract.textureFormat;
     description.SampleDesc.Count = kHudPresentationContract.sampleCount;
@@ -286,28 +287,6 @@ HRESULT HudPresentation::ResizeContentWidth(UINT widthPx, HudAlignment alignment
         return S_OK;
     }
 
-    const bool wasVisible = visible_;
-    for (auto& buffer : buffers_)
-    {
-        buffer.bitmapTarget.Reset();
-        buffer.presentationBuffer.Reset();
-        buffer.texture.Reset();
-    }
-    if (visual_ && compositionDevice_)
-    {
-        visual_->SetContent(nullptr);
-        compositionDevice_->Commit();
-    }
-    compositionSurface_.Reset();
-    presentationSurface_.Reset();
-    presentationManager_.Reset();
-    presentationFactory_.Reset();
-    if (surfaceHandle_ != INVALID_HANDLE_VALUE)
-    {
-        CloseHandle(surfaceHandle_);
-        surfaceHandle_ = INVALID_HANDLE_VALUE;
-    }
-
     widthPx_ = geometry.widthPx;
     xPx_ = geometry.xPx;
     yPx_ = geometry.yPx;
@@ -315,12 +294,8 @@ HRESULT HudPresentation::ResizeContentWidth(UINT widthPx, HudAlignment alignment
         static_cast<int>(widthPx_), static_cast<int>(heightPx_),
         SWP_NOACTIVATE | SWP_NOOWNERZORDER))
         return LastErrorResult();
-    HRESULT hr = CreatePresentationSurface();
-    if (FAILED(hr)) return hr;
-    if (FAILED(hr = CreateBitmapTargets())) return hr;
-    if (wasVisible)
-        return CommitVisibility(true);
-    return S_OK;
+    RECT sourceRect{ 0, 0, static_cast<LONG>(widthPx_), static_cast<LONG>(heightPx_) };
+    return presentationSurface_->SetSourceRect(&sourceRect);
 }
 
 HRESULT HudPresentation::RefreshDisplayIfNeeded()

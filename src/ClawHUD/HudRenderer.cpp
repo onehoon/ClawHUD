@@ -47,6 +47,11 @@ float SeparatorGap(const HudRenderOptions& options) noexcept
     return DipFromPhysicalPixels(options.separatorGapPx, options.dpi);
 }
 
+float UnitGap(const HudRenderOptions& options) noexcept
+{
+    return DipFromPhysicalPixels(kHudUnitGapPx, options.dpi);
+}
+
 float SeparatorWidth(const HudRenderOptions& options) noexcept;
 
 float SeparatorBlockWidth(const HudRenderOptions& options) noexcept
@@ -136,6 +141,14 @@ std::vector<HudUnitRange> FindHudUnitRangesImpl(const std::wstring& text)
     std::sort(ranges.begin(), ranges.end(), [](const auto& left, const auto& right)
         { return left.start < right.start; });
     return ranges;
+}
+
+float Width(IDWriteTextLayout* layout) noexcept;
+
+float MetricLayoutWidth(IDWriteTextLayout* layout, const std::wstring& text,
+    const HudRenderOptions& options) noexcept
+{
+    return Width(layout) + static_cast<float>(FindHudUnitRangesImpl(text).size()) * UnitGap(options);
 }
 
 HRESULT ApplyUnitTypography(IDWriteTextLayout* layout, const std::wstring& text,
@@ -341,7 +354,7 @@ HRESULT MeasureMetricSlot(IDWriteFactory* factory, IDWriteTextFormat* format,
         true, true, exemplar);
     if (FAILED(hr))
         return hr;
-    width = Width(exemplar.Get());
+    width = MetricLayoutWidth(exemplar.Get(), MetricExemplar(kind), options);
     return S_OK;
 }
 
@@ -377,6 +390,7 @@ HRESULT DrawValue(ID2D1DeviceContext* context, IDWriteFactory* factory,
         const std::wstring unitText = text.substr(range.start, range.length);
         hr = CreateLayout(factory, unitFormat.Get(), unitText, options, true, false, unit);
         if (FAILED(hr)) return hr;
+        x += UnitGap(options);
         const float unitY = y + CalculateUnitBaselineOffset(
             FirstBaseline(mainLayout), FirstBaseline(unit.Get()), options);
         DrawOutlinedLayout(context, unit.Get(), x, unitY, brush, outlineBrush, options);
@@ -413,7 +427,7 @@ HRESULT MeasureGroup(IDWriteFactory* factory, IDWriteTextFormat* format,
         float slotWidth{};
         hr = MeasureMetricSlot(factory, format, options, cells[i].kind, slotWidth);
         if (FAILED(hr)) return hr;
-        width += std::max(slotWidth, Width(metric.Get()));
+        width += std::max(slotWidth, MetricLayoutWidth(metric.Get(), cells[i].text, options));
         height = std::max(height, Height(metric.Get()));
         if (i + 1 < cells.size())
             width += MetricGap(options);
@@ -684,8 +698,10 @@ HRESULT HudRenderer::Draw(ID2D1DeviceContext* context,
             float slotWidth{};
             hr = MeasureMetricSlot(factory_, format.Get(), options, cells[cellIndex].kind, slotWidth);
             if (FAILED(hr)) return hr;
-            slotWidth = std::max(slotWidth, Width(metric.Get()));
-            const float metricX = x + slotWidth - Width(metric.Get());
+            slotWidth = std::max(slotWidth,
+                MetricLayoutWidth(metric.Get(), cells[cellIndex].text, options));
+            const float metricX = x + slotWidth -
+                MetricLayoutWidth(metric.Get(), cells[cellIndex].text, options);
             hr = DrawValue(context, factory_, fontCollection_.Get(), format.Get(),
                 cells[cellIndex].text, metric.Get(), options, metricX,
                 mainY, white.Get(), outlineBrush.Get());

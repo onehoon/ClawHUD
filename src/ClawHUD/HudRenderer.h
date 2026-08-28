@@ -20,6 +20,7 @@ inline constexpr std::uint32_t kHudGraphicsColor = 0xEB5B5B;
 inline constexpr std::uint32_t kHudSystemColor = 0xFF9078;
 inline constexpr std::uint32_t kHudSeparatorColor = 0xAD64C1;
 inline constexpr float kHudTextOutlinePx = 1.5f;
+inline constexpr float kHudUnitGapPx = 1.0f;
 inline constexpr float kHudSeparatorCorePx = 2.0f;
 inline constexpr float kHudSeparatorOuterPx = 3.0f;
 
@@ -33,7 +34,7 @@ struct HudRenderOptions
     float horizontalPaddingPx{5.0f};
     float segmentGapPx{8.0f};
     float metricGapPx{6.0f};
-    float separatorGapPx{14.0f};
+    float separatorGapPx{16.0f};
     float dpi{96.0f};
     std::wstring fontFilePath;
 };
