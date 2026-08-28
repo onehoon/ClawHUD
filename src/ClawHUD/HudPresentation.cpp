@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <iomanip>
+#include <optional>
 #include <sstream>
 
 using Microsoft::WRL::ComPtr;
@@ -29,9 +31,7 @@ HudPresentation::~HudPresentation()
 
 HRESULT HudPresentation::Initialize(HINSTANCE instance, const HudRenderOptions& options)
 {
-#ifdef _DEBUG
-    debugLastValidatedAlpha_ = -1;
-#endif
+    opacityPocLogged_ = false;
     if (initialized_)
         return S_OK;
     if (!instance || options.barPixelHeight <= 0.0f)
@@ -272,31 +272,67 @@ HRESULT HudPresentation::Render(const HudTelemetrySnapshot& snapshot, const HudR
     if (FAILED(hr)) return hr;
     if (FAILED(endHr)) return endHr;
     deviceContext_->Flush();
-#ifdef _DEBUG
     const BYTE expectedBackgroundAlpha = static_cast<BYTE>(std::lround(
         std::clamp(effective.layout.backgroundOpacity, 0.0f, 1.0f) * 255.0f));
-    const bool canonicalOpacity = expectedBackgroundAlpha == 0 ||
-        expectedBackgroundAlpha == 255 ||
-        std::abs(static_cast<int>(expectedBackgroundAlpha) - 128) <= 2;
-    if (!runs.empty() && canonicalOpacity &&
-        debugLastValidatedAlpha_ != expectedBackgroundAlpha)
+    const bool diagnoseFrame = !runs.empty() && !opacityPocLogged_;
+    std::optional<std::array<BYTE, 4>> sample;
+    UINT sampleX{};
+    UINT sampleY{};
+    HRESULT readbackHr = S_OK;
+    if (diagnoseFrame)
     {
-        const UINT sampleX = std::min<UINT>(2, widthPx_ - 1);
-        const UINT sampleY = std::min<UINT>(2, heightPx_ - 1);
-        if (FAILED(ValidatePresentedAlpha(buffer->texture.Get(), sampleX, sampleY,
-            expectedBackgroundAlpha)))
-            RuntimeLogger::Log(RuntimeLogLevel::Warn,
-                L"Production buffer alpha validation failed");
-        debugLastValidatedAlpha_ = expectedBackgroundAlpha;
+        sampleX = std::min<UINT>(2, widthPx_ - 1);
+        sampleY = std::min<UINT>(2, heightPx_ - 1);
+        std::array<BYTE, 4> pixel{};
+        readbackHr = ValidatePresentedAlpha(buffer->texture.Get(), sampleX, sampleY,
+            pixel[0], pixel[1], pixel[2], pixel[3]);
+        if (SUCCEEDED(readbackHr))
+            sample = pixel;
+        opacityPocLogged_ = true;
     }
-#endif
-    if (FAILED(hr = presentationSurface_->SetBuffer(buffer->presentationBuffer.Get()))) return hr;
-    return presentationManager_->Present();
+
+    const HRESULT setBufferHr = presentationSurface_->SetBuffer(
+        buffer->presentationBuffer.Get());
+    HRESULT presentHr = S_OK;
+    if (SUCCEEDED(setBufferHr))
+        presentHr = presentationManager_->Present();
+    if (diagnoseFrame)
+    {
+        std::wostringstream message;
+        message << L"HUD opacity POC: requestedOpacity=" << std::fixed
+            << std::setprecision(3) << effective.layout.backgroundOpacity
+            << L" expectedAlpha=" << static_cast<unsigned>(expectedBackgroundAlpha)
+            << L" sampleX=" << sampleX << L" sampleY=" << sampleY;
+        if (sample)
+        {
+            message << L" B=" << static_cast<unsigned>((*sample)[0])
+                << L" G=" << static_cast<unsigned>((*sample)[1])
+                << L" R=" << static_cast<unsigned>((*sample)[2])
+                << L" A=" << static_cast<unsigned>((*sample)[3]);
+        }
+        else
+        {
+            message << L" BGRA=<readback-failed hr=0x" << std::hex << std::setw(8)
+                << std::setfill(L'0') << static_cast<unsigned long>(readbackHr)
+                << std::setfill(L' ') << std::dec << L">";
+        }
+        message << L" textureFormat=DXGI_FORMAT_B8G8R8A8_UNORM"
+            << L" alphaMode=PREMULTIPLIED bufferAlphaResult="
+            << (sample && std::abs(static_cast<int>((*sample)[3]) -
+                static_cast<int>(expectedBackgroundAlpha)) <= 2 ? L"PASS" : L"FAIL")
+            << L" SetBuffer=0x" << std::hex << std::setw(8) << std::setfill(L'0')
+            << static_cast<unsigned long>(setBufferHr) << std::setfill(L' ')
+            << L" Present=0x" << std::setw(8) << static_cast<unsigned long>(presentHr);
+        RuntimeLogger::Log(SUCCEEDED(setBufferHr) && SUCCEEDED(presentHr)
+            ? RuntimeLogLevel::Info : RuntimeLogLevel::Warn, message.str());
+    }
+    if (FAILED(setBufferHr)) return setBufferHr;
+    return presentHr;
 }
 
-#ifdef _DEBUG
 HRESULT HudPresentation::ValidatePresentedAlpha(
-    ID3D11Texture2D* texture, UINT sampleX, UINT sampleY, BYTE expectedAlpha)
+    ID3D11Texture2D* texture, UINT sampleX, UINT sampleY,
+    BYTE& blue, BYTE& green, BYTE& red, BYTE& alpha)
 {
     if (!texture || !device_ || !deviceContext_)
         return E_INVALIDARG;
@@ -328,20 +364,13 @@ HRESULT HudPresentation::ValidatePresentedAlpha(
     if (FAILED(hr))
         return hr;
     const auto* pixel = static_cast<const BYTE*>(mapped.pData);
-    const BYTE actualAlpha = pixel[3];
+    blue = pixel[0];
+    green = pixel[1];
+    red = pixel[2];
+    alpha = pixel[3];
     deviceContext_->Unmap(readback.Get(), 0);
-    if (std::abs(static_cast<int>(actualAlpha) - static_cast<int>(expectedAlpha)) > 2)
-    {
-        std::wostringstream message;
-        message << L"Production buffer alpha mismatch expected="
-            << static_cast<unsigned>(expectedAlpha) << L" actual="
-            << static_cast<unsigned>(actualAlpha);
-        RuntimeLogger::Log(RuntimeLogLevel::Warn, message.str());
-        return E_FAIL;
-    }
     return S_OK;
 }
-#endif
 
 HRESULT HudPresentation::ResizeContentWidth(UINT widthPx, HudAlignment alignment)
 {

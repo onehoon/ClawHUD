@@ -74,11 +74,9 @@ private:
     HRESULT CreatePresentationSurface();
     HRESULT CreateBitmapTargets();
     HRESULT ResizeContentWidth(UINT widthPx, HudAlignment alignment);
-#ifdef _DEBUG
     HRESULT ValidatePresentedAlpha(
         ID3D11Texture2D* texture, UINT sampleX, UINT sampleY,
-        BYTE expectedAlpha);
-#endif
+        BYTE& blue, BYTE& green, BYTE& red, BYTE& alpha);
     HRESULT TryAcquireAvailableBuffer(HudFrameBuffer*& selected) noexcept;
     HRESULT RefreshDisplayIfNeeded();
     HRESULT CommitVisibility(bool visible);
@@ -97,9 +95,7 @@ private:
     bool visible_{};
     bool initialized_{};
     bool displayChangePending_{};
-#ifdef _DEBUG
-    int debugLastValidatedAlpha_{ -1 };
-#endif
+    bool opacityPocLogged_{};
     HudRenderOptions initializationOptions_{};
 
     Microsoft::WRL::ComPtr<ID3D11Device> device_;
