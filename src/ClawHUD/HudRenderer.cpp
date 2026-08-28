@@ -484,7 +484,7 @@ HudRenderer::HudRenderer(IDWriteFactory* factory, const std::wstring& fontFilePa
         privateFontLoaded_ = true;
         std::wostringstream message;
         message << L"HUD font loaded: Unispace (private), path=" << fontFilePath;
-        RuntimeLogger::Log(RuntimeLogLevel::Info, message.str());
+        RuntimeLogger::Log(RuntimeLogLevel::Debug, message.str());
     }
     else
     {

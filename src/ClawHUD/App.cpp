@@ -25,6 +25,7 @@
 
 namespace
 {
+constexpr unsigned kIgclUnavailableFailureThreshold = 3;
 constexpr UINT kSettingsDestroyed = WM_APP + 1;
 constexpr UINT kForegroundChanged = WM_APP + 2;
 constexpr UINT kHudVisibilityRequest = WM_APP + 3;
@@ -113,9 +114,11 @@ App::App(HINSTANCE instance) : instance_(instance), tray_(*this)
     wchar_t path[MAX_PATH]{}; const DWORD length = GetModuleFileNameW(instance_, path, ARRAYSIZE(path));
     executablePath_.assign(path, length);
     LoadHudSettings();
+    clawhud::RuntimeLogger::SetDebugLogging(debugLoggingEnabled_);
     Log(L"ClawHUD started version=" CLAWHUD_VERSION L" pid=" +
         std::to_wstring(GetCurrentProcessId()));
-    Log(L"Runtime settings HUDEnabled=" + std::to_wstring(mockHudEnabled_ ? 1 : 0) +
+    clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
+        L"Runtime settings HUDEnabled=" + std::to_wstring(mockHudEnabled_ ? 1 : 0) +
         L" HUDSizeOffset=" + std::to_wstring(hudSizeOffset_) +
         L" StartWithWindows=" + std::to_wstring(startWithWindows_ ? 1 : 0));
 }
@@ -177,7 +180,8 @@ int App::Run()
     hudHotkeyRegistered_ = RegisterHotKey(tray_.Window(), kHudToggleHotkeyId,
         MOD_NOREPEAT, VK_F8) != FALSE;
     if (!hudHotkeyRegistered_)
-        Log(L"RegisterHotKey(F8) failed; continuing without the global HUD toggle");
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+            L"RegisterHotKey(F8) failed; continuing without the global HUD toggle");
     ecDiagnostic_ = std::make_unique<EcDiagnostic>(tray_.Window());
     igclDiagnostic_ = std::make_unique<clawhud::IgclTelemetryDiagnostic>(tray_.Window());
     vrrDiagnostic_ = std::make_unique<VrrDiagnostic>(*this, tray_.Window());
@@ -206,7 +210,8 @@ int App::Run()
         if (!EnsureMockHud())
         {
             mockHudEnabled_ = false;
-            Log(L"Persisted HUD enable restore failed during initialization");
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+                L"Persisted HUD enable restore failed during initialization");
         }
         else
         {
@@ -231,6 +236,17 @@ void App::SetIntelVrrRangeFixEnabled(bool enabled)
             L"Settings save failed key=IntelVrrRangeFixEnabled");
 }
 
+void App::SetDebugLoggingEnabled(bool enabled)
+{
+    if (debugLoggingEnabled_ == enabled)
+        return;
+    debugLoggingEnabled_ = enabled;
+    clawhud::RuntimeLogger::SetDebugLogging(enabled);
+    SaveHudSettings();
+    clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info,
+        enabled ? L"Debug logging enabled" : L"Debug logging disabled");
+}
+
 std::optional<clawhud::IntelVrrRunResult> App::IntelVrrLastResult() const
 {
     return clawhud::IntelVrrResultStore::Load();
@@ -245,7 +261,8 @@ void App::SetStartWithWindows(bool enabled)
     if (!ApplyStartupRegistration())
     {
         startWithWindows_ = previous;
-        Log(enabled ? L"Startup registration failed" : L"Startup shortcut removal failed");
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+            enabled ? L"Startup registration failed" : L"Startup shortcut removal failed");
         return;
     }
     SaveHudSettings();
@@ -306,7 +323,9 @@ void App::FinishIgclDiagnostic(bool success)
         mockHudEnabled_, DiagnosticRunning(), suspended_))
         AdoptForegroundProductionTarget();
     ReconcileHudVisibility();
-    if (!success) Log(L"IGCL diagnostic completed without success; production telemetry restored");
+    if (!success)
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+            L"IGCL diagnostic completed without success; production telemetry restored");
 }
 void App::StopEcDiagnostic()
 {
@@ -334,7 +353,8 @@ bool App::StartVrrDiagnostic()
     if (!VrrDiagnosticCanWaitForF8(hudHotkeyRegistered_))
     {
         vrrStatus_ = L"F8 unavailable";
-        Log(L"VRR diagnostic start failed: global F8 hotkey is not registered");
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+            L"VRR diagnostic start failed: global F8 hotkey is not registered");
         return false;
     }
     StopProductionEcSampling(false, L"diagnostic-start");
@@ -549,7 +569,8 @@ void App::StopMockHud()
 {
     if (VrrDiagnosticRunning())
     {
-        Log(L"Hide Mock HUD ignored while VRR diagnostic is running");
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
+            L"Hide Mock HUD ignored while VRR diagnostic is running");
         return;
     }
     if (mockHudEnabled_) Log(L"HUD disabled");
@@ -571,7 +592,8 @@ bool App::SetHudEnabled(bool enabled)
 {
     if (VrrDiagnosticRunning())
     {
-        Log(L"HUD enable change ignored while VRR diagnostic is running");
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
+            L"HUD enable change ignored while VRR diagnostic is running");
         return false;
     }
     if (!enabled)
@@ -595,7 +617,8 @@ void App::SetHudAlignment(clawhud::HudAlignment alignment)
 {
     if (VrrDiagnosticRunning())
     {
-        Log(L"HUD alignment change ignored while VRR diagnostic is running");
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
+            L"HUD alignment change ignored while VRR diagnostic is running");
         return;
     }
     if (hudOptions_.alignment == alignment)
@@ -613,7 +636,8 @@ void App::SetHudAlignment(clawhud::HudAlignment alignment)
         {
             RecreateHudPresentation(restoreVisible);
             SaveHudSettings();
-            Log(L"HUD alignment change rolled back after presentation recreation failure");
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+                L"HUD alignment change rolled back after presentation recreation failure");
             return;
         }
     }
@@ -636,7 +660,8 @@ void App::SetHudFont(clawhud::HudFont font)
     {
         hudFont_ = previousFont;
         RecreateHudPresentation(restoreVisible);
-        Log(L"HUD font change rolled back after presentation recreation failure");
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+            L"HUD font change rolled back after presentation recreation failure");
         return;
     }
     SaveHudSettings();
@@ -648,7 +673,8 @@ void App::SetHudBackgroundMode(clawhud::HudBackgroundMode mode)
 {
     if (VrrDiagnosticRunning())
     {
-        Log(L"HUD background mode change ignored while VRR diagnostic is running");
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
+            L"HUD background mode change ignored while VRR diagnostic is running");
         return;
     }
     if (hudOptions_.backgroundMode == mode)
@@ -664,7 +690,8 @@ void App::SetHudBackgroundMode(clawhud::HudBackgroundMode mode)
     {
         RecreateHudPresentation(restoreVisible);
         SaveHudSettings();
-        Log(L"HUD background mode change rolled back after presentation recreation failure");
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+            L"HUD background mode change rolled back after presentation recreation failure");
         return;
     }
     SaveHudSettings();
@@ -674,7 +701,8 @@ bool App::SetHudOpacity(float opacity, bool persist)
 {
     if (VrrDiagnosticRunning())
     {
-        Log(L"HUD opacity change ignored while VRR diagnostic is running");
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
+            L"HUD opacity change ignored while VRR diagnostic is running");
         return false;
     }
     const long requestedPercent = static_cast<long>(std::lround(opacity * 100.0f));
@@ -704,7 +732,8 @@ void App::SetHudSizeOffset(int offset)
 {
     if (VrrDiagnosticRunning())
     {
-        Log(L"HUD size change ignored while VRR diagnostic is running");
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
+            L"HUD size change ignored while VRR diagnostic is running");
         return;
     }
     offset = clawhud::ClampHudSizeOffset(offset);
@@ -721,7 +750,8 @@ void App::SetHudSizeOffset(int offset)
     if (!recreated)
     {
         RecreateHudPresentation(restoreVisible);
-        Log(L"HUD size change rolled back after presentation recreation failure");
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+            L"HUD size change rolled back after presentation recreation failure");
         return;
     }
     Log(L"HUD presentation recreated");
@@ -752,7 +782,8 @@ bool App::RecreateHudPresentation(bool restoreVisible)
         hudOptions_.backgroundOpacity * 100.0f);
     if (FAILED(hr))
     {
-        Log(L"HUD presentation recreation failed");
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
+            L"HUD presentation recreation failed hr=" + HexHresult(hr));
         return false;
     }
     if (mockHudEnabled_)
@@ -767,7 +798,8 @@ bool App::RecreateHudPresentation(bool restoreVisible)
         hr = hudPresentation_->Show();
         if (FAILED(hr))
         {
-            Log(L"HUD size visibility restore failed");
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+                L"HUD visibility restore failed hr=" + HexHresult(hr));
             return false;
         }
     }
@@ -805,7 +837,8 @@ void App::RenderMockHud(bool allowHidden)
     if (FAILED(hr))
     {
         if (!hudRenderFailureLogged_)
-            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error, L"HUD render failed");
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
+                L"HUD render failed hr=" + HexHresult(hr));
         hudRenderFailureLogged_ = true;
     }
     else
@@ -879,7 +912,8 @@ void App::RenderProductionHud(bool allowHidden)
     if (FAILED(hr))
     {
         if (!hudRenderFailureLogged_)
-            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error, L"HUD render failed");
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
+                L"HUD render failed hr=" + HexHresult(hr));
         hudRenderFailureLogged_ = true;
     }
     else
@@ -906,9 +940,34 @@ void App::SampleProductionTelemetry()
     {
         if (!igclGpuSampler_.Initialize())
             latestIgclGpuTelemetry_.reset();
+        else
+            igclTelemetryAvailable_ = true;
     }
     if (igclGpuSampler_.Initialized())
+    {
         latestIgclGpuTelemetry_ = igclGpuSampler_.Sample();
+        if (latestIgclGpuTelemetry_)
+        {
+            igclTelemetryFailureCount_ = 0;
+        }
+        else
+        {
+            ++igclTelemetryFailureCount_;
+        }
+        const auto transition = clawhud::ObserveIgclTelemetryTransition(
+            igclTelemetryAvailable_, igclTelemetryFailureCount_,
+            latestIgclGpuTelemetry_.has_value(), kIgclUnavailableFailureThreshold);
+        if (transition == clawhud::IgclTelemetryTransition::Recovered)
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info,
+                L"IGCL telemetry recovered");
+        else if (transition == clawhud::IgclTelemetryTransition::Unavailable)
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+                L"IGCL telemetry unavailable");
+        if (latestIgclGpuTelemetry_)
+            igclTelemetryAvailable_ = true;
+        else if (igclTelemetryFailureCount_ >= kIgclUnavailableFailureThreshold)
+            igclTelemetryAvailable_ = false;
+    }
     RenderProductionHud();
 }
 
@@ -956,6 +1015,8 @@ void App::PauseProductionSamplingForSuspend()
     usageSampler_.Reset();
     latestIgclGpuTelemetry_.reset();
     igclGpuSampler_.Reset();
+    igclTelemetryAvailable_ = false;
+    igclTelemetryFailureCount_ = 0;
     ecHudSamplingActive_ = false;
     if (wasActive)
         Log(L"Production telemetry sampling stopped reason=suspend");
@@ -1025,6 +1086,8 @@ void App::StopProductionEcSampling(bool stopPresentMon, const wchar_t* reason)
     usageSampler_.Reset();
     latestIgclGpuTelemetry_.reset();
     igclGpuSampler_.Reset();
+    igclTelemetryAvailable_ = false;
+    igclTelemetryFailureCount_ = 0;
     ecHudSamplingActive_ = false;
     if (wasActive)
         Log(L"Production telemetry sampling stopped reason=" + std::wstring(reason));
@@ -1241,7 +1304,8 @@ void App::TrackMockGameWindow(HWND window)
 {
     if (VrrDiagnosticRunning())
     {
-        Log(L"Track Mock Game ignored while VRR diagnostic is running");
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
+            L"Track Mock Game ignored while VRR diagnostic is running");
         return;
     }
     DWORD processId{};
@@ -1254,6 +1318,8 @@ void App::TrackMockGameWindow(HWND window)
     latestUsageTelemetry_.reset();
     igclGpuSampler_.Reset();
     latestIgclGpuTelemetry_.reset();
+    igclTelemetryAvailable_ = false;
+    igclTelemetryFailureCount_ = 0;
     StartGraphicsApiProbe(processId);
     if (EnsureMockHud())
     {
@@ -1298,7 +1364,8 @@ bool App::AdoptForegroundProductionTarget(HWND window, DWORD processId)
         if (pendingProductionTargetPid_ &&
             ProcessAlive(pendingProductionTargetPid_))
             return true;
-        Log(L"Production target rejected pid=" + std::to_wstring(processId) +
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
+            L"Production target rejected pid=" + std::to_wstring(processId) +
             L" image=" + (imageName.empty() ? L"<unavailable>" : imageName));
         if (pendingProductionTargetPid_)
         {
@@ -1316,7 +1383,8 @@ bool App::AdoptForegroundProductionTarget(HWND window, DWORD processId)
     {
         const DWORD oldProcessId = pendingProductionTargetPid_
             ? pendingProductionTargetPid_ : committedProcessId;
-        Log(L"Production target foreground changed old=" +
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
+            L"Production target foreground changed old=" +
             std::to_wstring(oldProcessId) + L" new=" +
             std::to_wstring(processId));
         pendingProductionTargetPid_ = processId;
@@ -1324,9 +1392,11 @@ bool App::AdoptForegroundProductionTarget(HWND window, DWORD processId)
         presentMonRestartAttempts_ = 0;
         StopProductionPresentMonSampling(L"target-handoff", true);
         StopGraphicsApiProbe();
-        Log(L"Production target candidate pid=" + std::to_wstring(processId) +
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
+            L"Production target candidate pid=" + std::to_wstring(processId) +
             L" image=" + imageName);
-        Log(L"Production target validation started pid=" +
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
+            L"Production target validation started pid=" +
             std::to_wstring(processId));
         StartGraphicsApiProbe(processId);
     }
@@ -1358,7 +1428,8 @@ void App::ConfirmForegroundProductionTarget(DWORD processId)
             pendingProductionTargetPid_, foregroundProcessId, foregroundUsable,
             ProcessAlive(processId)))
             return;
-        Log(L"Production target validation discarded pid=" +
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
+            L"Production target validation discarded pid=" +
             std::to_wstring(processId) + L" reason=foreground-changed");
         pendingProductionTargetPid_ = 0;
         if (presentMonProcessId_ == processId)
@@ -1376,6 +1447,8 @@ void App::ConfirmForegroundProductionTarget(DWORD processId)
     latestUsageTelemetry_.reset();
     igclGpuSampler_.Reset();
     latestIgclGpuTelemetry_.reset();
+    igclTelemetryAvailable_ = false;
+    igclTelemetryFailureCount_ = 0;
     StartGraphicsApiProbe(processId);
     Log(L"Production target confirmed pid=" + std::to_wstring(processId));
     if (previousProcessId && previousProcessId != processId)
@@ -1417,7 +1490,8 @@ void App::SetHudVisibilityMode(clawhud::HudVisibilityMode mode)
 {
     if (VrrDiagnosticRunning())
     {
-        Log(L"HUD visibility mode change ignored while VRR diagnostic is running");
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
+            L"HUD visibility mode change ignored while VRR diagnostic is running");
         return;
     }
     hudOptions_.visibilityMode = mode;
@@ -1436,14 +1510,16 @@ void App::HandleHudToggleHotkey()
     }
     if (VrrDiagnosticRunning())
     {
-        Log(L"F8 ignored while VRR diagnostic is running");
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
+            L"F8 ignored while VRR diagnostic is running");
         return;
     }
     if (!mockHudEnabled_)
     {
         if (!EnsureMockHud())
         {
-            Log(L"F8 HUD ON initialization failed");
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
+                L"F8 HUD ON initialization failed");
             return;
         }
         mockHudEnabled_ = true;
@@ -1667,7 +1743,7 @@ void App::ReconcileHudVisibility()
         {
             if (!hudShowFailureLogged_)
                 clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
-                    L"HUD show failed");
+                    L"HUD show failed hr=" + HexHresult(hr));
             hudShowFailureLogged_ = true;
         }
     }
@@ -1682,7 +1758,7 @@ void App::ReconcileHudVisibility()
         }
         else if (!hudHideFailureLogged_)
             clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
-                L"HUD hide failed");
+                L"HUD hide failed hr=" + HexHresult(hr));
         if (FAILED(hr))
             hudHideFailureLogged_ = true;
         KillTimer(tray_.Window(), kMockHudTimerId);
@@ -1718,6 +1794,8 @@ void App::LoadHudSettings()
     mockHudEnabled_ = ReadBoolSetting(path, L"HUD", L"Enabled", true);
     diagnosticsTabEnabled_ = ReadBoolSetting(
         path, L"Developer", L"DiagnosticsTabEnabled", false);
+    debugLoggingEnabled_ = ReadBoolSetting(
+        path, L"Developer", L"DebugLoggingEnabled", false);
     wchar_t startup[8]{};
     GetPrivateProfileStringW(L"General", L"StartWithWindows", L"1", startup,
         ARRAYSIZE(startup), path.c_str());
@@ -1768,6 +1846,8 @@ void App::SaveHudSettings() const
     saved = WritePrivateProfileStringW(L"HUD", L"Size", size, path.c_str()) != FALSE && saved;
     saved = WritePrivateProfileStringW(L"General", L"StartWithWindows",
         startWithWindows_ ? L"1" : L"0", path.c_str()) != FALSE && saved;
+    saved = WritePrivateProfileStringW(L"Developer", L"DebugLoggingEnabled",
+        debugLoggingEnabled_ ? L"1" : L"0", path.c_str()) != FALSE && saved;
     if (!saved)
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error, L"Settings save failed");
 }
@@ -1851,7 +1931,8 @@ void App::OpenSettings()
 {
     if (VrrDiagnosticRunning())
     {
-        Log(L"Open Settings ignored while VRR diagnostic is running");
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
+            L"Open Settings ignored while VRR diagnostic is running");
         return;
     }
     if (settings_)

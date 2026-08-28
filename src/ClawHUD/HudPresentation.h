@@ -98,6 +98,7 @@ private:
     float barPixelHeight_{ 30.0f };
     bool visible_{};
     bool initialized_{};
+    bool initializationLogged_{};
     bool displayChangePending_{};
 #ifdef _DEBUG
     int debugLastValidatedAlpha_{ -1 };

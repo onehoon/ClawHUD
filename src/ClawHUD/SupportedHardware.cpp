@@ -26,6 +26,11 @@ void Log(const std::wstring& message)
     clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info, message);
 }
 
+void LogWarn(const std::wstring& message)
+{
+    clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn, message);
+}
+
 std::wstring TrimWhitespace(std::wstring_view value)
 {
     std::size_t first = 0;
@@ -98,7 +103,7 @@ HardwareSupport CheckSupportedHardware()
     ComInitialization com;
     if (!com.Initialize())
     {
-        Log(L"BaseBoard Product unavailable");
+        LogWarn(L"BaseBoard Product unavailable; startup aborted");
         return HardwareSupport::Indeterminate;
     }
 
@@ -109,7 +114,7 @@ HardwareSupport CheckSupportedHardware()
             CLSCTX_INPROC_SERVER,
             IID_PPV_ARGS(&locator))))
     {
-        Log(L"BaseBoard Product unavailable");
+        LogWarn(L"BaseBoard Product unavailable; startup aborted");
         return HardwareSupport::Indeterminate;
     }
 
@@ -129,7 +134,7 @@ HardwareSupport CheckSupportedHardware()
             nullptr,
             EOAC_NONE)))
     {
-        Log(L"BaseBoard Product unavailable");
+        LogWarn(L"BaseBoard Product unavailable; startup aborted");
         return HardwareSupport::Indeterminate;
     }
 
@@ -144,7 +149,7 @@ HardwareSupport CheckSupportedHardware()
     SysFreeString(query);
     if (FAILED(queryResult) || !results)
     {
-        Log(L"BaseBoard Product unavailable");
+        LogWarn(L"BaseBoard Product unavailable; startup aborted");
         return HardwareSupport::Indeterminate;
     }
 
@@ -152,7 +157,7 @@ HardwareSupport CheckSupportedHardware()
     ULONG returned = 0;
     if (results->Next(WBEM_INFINITE, 1, &board, &returned) != S_OK || returned != 1 || !board)
     {
-        Log(L"BaseBoard Product unavailable");
+        LogWarn(L"BaseBoard Product unavailable; startup aborted");
         return HardwareSupport::Indeterminate;
     }
 
@@ -161,7 +166,7 @@ HardwareSupport CheckSupportedHardware()
     if (FAILED(productResult) || V_VT(&product) != VT_BSTR || !V_BSTR(&product))
     {
         VariantClear(&product);
-        Log(L"BaseBoard Product unavailable");
+        LogWarn(L"BaseBoard Product unavailable; startup aborted");
         return HardwareSupport::Indeterminate;
     }
 
@@ -173,6 +178,6 @@ HardwareSupport CheckSupportedHardware()
     else if (status == HardwareSupport::Unsupported)
         Log(L"Unsupported BaseBoard Product=" + TrimWhitespace(boardProduct));
     else
-        Log(L"BaseBoard Product unavailable");
+        LogWarn(L"BaseBoard Product unavailable; startup aborted");
     return status;
 }

@@ -15,6 +15,30 @@ struct IgclGpuTelemetry
     std::optional<double> gpuClockMHz;
 };
 
+enum class IgclTelemetryTransition
+{
+    None,
+    Unavailable,
+    Recovered
+};
+
+constexpr bool ShouldLogIgclInitializationFailure(bool alreadyLogged) noexcept
+{
+    return !alreadyLogged;
+}
+
+constexpr IgclTelemetryTransition ObserveIgclTelemetryTransition(
+    bool wasAvailable, unsigned consecutiveFailures, bool sampleSucceeded,
+    unsigned failureThreshold) noexcept
+{
+    if (wasAvailable && !sampleSucceeded &&
+        consecutiveFailures >= failureThreshold)
+        return IgclTelemetryTransition::Unavailable;
+    if (!wasAvailable && sampleSucceeded)
+        return IgclTelemetryTransition::Recovered;
+    return IgclTelemetryTransition::None;
+}
+
 std::optional<double> CalculateIgclGpuUsage(
     double previousTimestamp, double previousActivity,
     double currentTimestamp, double currentActivity) noexcept;
@@ -31,6 +55,8 @@ public:
     bool InitializationAttempted() const noexcept { return initializationAttempted_; }
 
 private:
+    void ReleaseResources() noexcept;
+
     HMODULE library_{};
     igcl::Api api_{};
     igcl::Device device_{};
@@ -39,5 +65,6 @@ private:
     std::optional<double> previousTimestamp_;
     std::optional<double> previousActivity_;
     bool initializationAttempted_{};
+    bool initializationFailureLogged_{};
 };
 }

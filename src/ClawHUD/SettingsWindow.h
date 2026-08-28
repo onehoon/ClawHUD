@@ -60,6 +60,7 @@ private:
     HWND diagnosticsPanel_{};
     HWND tweaksPanel_{};
     HWND intelVrrToggle_{};
+    HWND debugLoggingToggle_{};
     HWND intelVrrPanel_{};
     HWND intelVrrRange_{};
     HWND intelVrrResult_{};

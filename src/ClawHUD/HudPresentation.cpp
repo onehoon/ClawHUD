@@ -79,7 +79,7 @@ HRESULT HudPresentation::Initialize(HINSTANCE instance, const HudRenderOptions& 
         << L" bar=" << barPixelHeight_
         << L" opacity=" << initializationOptions_.layout.backgroundOpacity
         << L" padding=" << initializationOptions_.horizontalPaddingPx;
-    RuntimeLogger::Log(RuntimeLogLevel::Info, style.str());
+    RuntimeLogger::Log(RuntimeLogLevel::Debug, style.str());
     heightPx_ = static_cast<UINT>(std::max(1.0f, std::ceil(barPixelHeight_)));
     if (options.layout.backgroundMode == HudBackgroundMode::ContentWidth)
     {
@@ -103,6 +103,16 @@ HRESULT HudPresentation::Initialize(HINSTANCE instance, const HudRenderOptions& 
     if (FAILED(hr = CreateBitmapTargets())) { Shutdown(); return hr; }
     displayChangePending_ = false;
     initialized_ = true;
+    if (!initializationLogged_)
+    {
+        std::wostringstream message;
+        message << L"HUD presentation initialized backend=PresentationAPI independentFlip="
+            << (kHudPresentationContract.independentFlipRequired ? L"required" : L"optional")
+            << L" alpha=premultiplied surface=" << surfaceWidthPx_ << L"x" << heightPx_
+            << L" dpi=" << dpi_;
+        RuntimeLogger::Log(RuntimeLogLevel::Info, message.str());
+        initializationLogged_ = true;
+    }
     return S_OK;
 }
 

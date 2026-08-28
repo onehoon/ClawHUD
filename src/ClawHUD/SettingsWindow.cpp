@@ -32,6 +32,7 @@ constexpr int kBackgroundFull = 1204;
 constexpr int kBackgroundContent = 1205;
 constexpr int kOpacitySlider = 1206;
 constexpr int kIntelVrrToggle = 1301;
+constexpr int kDebugLoggingToggle = 1302;
 constexpr int kEnableHud = 1207;
 constexpr int kVisibilityAlways = 1208;
 constexpr int kVisibilityInGameOnly = 1209;
@@ -285,7 +286,7 @@ int SettingsWindow::ContentHeightForTab(int tab) const noexcept
     case kTabSettings: return 454;
     case kTabTweaks: return 230;
     case kTabAbout: return 260;
-    case kTabDiagnostics: return 500;
+    case kTabDiagnostics: return 540;
     default: return 0;
     }
 }
@@ -531,6 +532,9 @@ void SettingsWindow::CreateDiagnosticsControls()
     startIgclButton_ = CreateWindowW(L"BUTTON", L"Start IGCL Test",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, 0, 0, diagnosticsPanel_,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kStartIgcl)), instance_, nullptr);
+    debugLoggingToggle_ = CreateWindowW(L"BUTTON", L"Enable debug logging",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, 0, 0, 0, 0,
+        diagnosticsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kDebugLoggingToggle)), instance_, nullptr);
     openLogsButton_ = CreateWindowW(L"BUTTON", L"Open Log Folder",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, 0, 0, diagnosticsPanel_,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOpenLogs)), instance_, nullptr);
@@ -540,6 +544,7 @@ void SettingsWindow::CreateDiagnosticsControls()
     EnableMouseWheelForwarding(stopVrrButton_);
     EnableMouseWheelForwarding(startEcButton_);
     EnableMouseWheelForwarding(startIgclButton_);
+    EnableMouseWheelForwarding(debugLoggingToggle_);
     EnableMouseWheelForwarding(openLogsButton_);
     EnableStaticPanForwarding(diagnosticsPanel_);
 }
@@ -663,7 +668,8 @@ void SettingsWindow::LayoutDiagnostics()
     MoveControl(diagnosticsPanel_, kDiagnosticsIgclDescription, x, Scale(360) - scrollY, contentWidth, Scale(48));
     MoveWindow(startIgclButton_, x, Scale(416) - scrollY, Scale(140), Scale(32), TRUE);
     MoveWindow(openLogsButton_, x + Scale(152), Scale(416) - scrollY, Scale(150), Scale(32), TRUE);
-    MoveWindow(diagnosticStatus_, x, Scale(456) - scrollY, contentWidth, Scale(24), TRUE);
+    MoveWindow(debugLoggingToggle_, x, Scale(456) - scrollY, Scale(300), Scale(32), TRUE);
+    MoveWindow(diagnosticStatus_, x, Scale(496) - scrollY, contentWidth, Scale(24), TRUE);
 }
 
 void SettingsWindow::UpdateGeneralControls()
@@ -771,6 +777,8 @@ void SettingsWindow::UpdateDiagnosticButtons()
     if (startIgclButton_) EnableWindow(startIgclButton_, !busy);
     if (startVrrButton_) EnableWindow(startVrrButton_, !busy);
     if (stopVrrButton_) EnableWindow(stopVrrButton_, app_.VrrDiagnosticRunning());
+    if (debugLoggingToggle_) SendMessageW(debugLoggingToggle_, BM_SETCHECK,
+        app_.DebugLoggingEnabled() ? BST_CHECKED : BST_UNCHECKED, 0);
 }
 
 LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
@@ -875,6 +883,10 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
             self->UpdateHudControls();
             return 0;
         case kIntelVrrToggle: self->app_.SetIntelVrrRangeFixEnabled(SendMessageW(self->intelVrrToggle_, BM_GETCHECK, 0, 0) == BST_CHECKED); return 0;
+        case kDebugLoggingToggle:
+            self->app_.SetDebugLoggingEnabled(SendMessageW(self->debugLoggingToggle_,
+                BM_GETCHECK, 0, 0) == BST_CHECKED);
+            return 0;
         default: break;
         }
     }

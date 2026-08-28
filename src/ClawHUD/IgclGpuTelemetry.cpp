@@ -66,6 +66,12 @@ IgclGpuTelemetrySampler::~IgclGpuTelemetrySampler()
 
 void IgclGpuTelemetrySampler::Reset() noexcept
 {
+    ReleaseResources();
+    initializationFailureLogged_ = false;
+}
+
+void IgclGpuTelemetrySampler::ReleaseResources() noexcept
+{
     initializationAttempted_ = false;
     previousTimestamp_.reset();
     previousActivity_.reset();
@@ -82,22 +88,24 @@ void IgclGpuTelemetrySampler::Reset() noexcept
 
 bool IgclGpuTelemetrySampler::Initialize()
 {
-    Reset();
+    ReleaseResources();
     initializationAttempted_ = true;
-    const auto initializationFailure = [this]
+    const auto initializationFailure = [this](const wchar_t* message)
     {
-        Reset();
+        if (ShouldLogIgclInitializationFailure(initializationFailureLogged_))
+        {
+            RuntimeLogger::Log(RuntimeLogLevel::Warn, message);
+            initializationFailureLogged_ = true;
+        }
+        ReleaseResources();
         initializationAttempted_ = true;
         return false;
     };
     library_ = LoadLibraryExW(L"ControlLib.dll", nullptr,
         LOAD_LIBRARY_SEARCH_SYSTEM32);
     if (!library_)
-    {
-        RuntimeLogger::Log(RuntimeLogLevel::Info,
+        return initializationFailure(
             L"IGCL GPU telemetry unavailable: ControlLib.dll load failed");
-        return initializationFailure();
-    }
     const auto init = Resolve<igcl::InitFn>(library_, "ctlInit");
     close_ = Resolve<igcl::CloseFn>(library_, "ctlClose");
     const auto enumerate = Resolve<igcl::EnumDevicesFn>(library_,
@@ -105,37 +113,26 @@ bool IgclGpuTelemetrySampler::Initialize()
     telemetry_ = Resolve<igcl::TelemetryFn>(library_,
         "ctlPowerTelemetryGetV2");
     if (!init || !close_ || !enumerate || !telemetry_)
-    {
-        RuntimeLogger::Log(RuntimeLogLevel::Info,
+        return initializationFailure(
             L"IGCL GPU telemetry unavailable: required symbol missing");
-        return initializationFailure();
-    }
 
     igcl::InitArgs args{};
     args.size = sizeof(args);
     args.appVersion = kApiVersion;
     args.flags = kUseLevelZero;
     if (init(&args, &api_) != kSuccess)
-    {
-        RuntimeLogger::Log(RuntimeLogLevel::Info,
+        return initializationFailure(
             L"IGCL GPU telemetry unavailable: initialization failed");
-        return initializationFailure();
-    }
     std::uint32_t count{};
     if (enumerate(api_, &count, nullptr) != kSuccess || count == 0)
-    {
-        RuntimeLogger::Log(RuntimeLogLevel::Info,
+        return initializationFailure(
             L"IGCL GPU telemetry unavailable: no usable device");
-        return initializationFailure();
-    }
     std::vector<igcl::Device> devices(count);
     if (enumerate(api_, &count, devices.data()) != kSuccess || count == 0)
-    {
-        RuntimeLogger::Log(RuntimeLogLevel::Info,
+        return initializationFailure(
             L"IGCL GPU telemetry unavailable: device enumeration failed");
-        return initializationFailure();
-    }
     device_ = devices.front();
+    initializationFailureLogged_ = false;
     RuntimeLogger::Log(RuntimeLogLevel::Info,
         L"IGCL GPU telemetry initialized");
     return true;
