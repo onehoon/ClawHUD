@@ -32,8 +32,8 @@ struct HudRenderOptions
     float unitFontPixelSize{11.0f};
     float barPixelHeight{30.0f};
     float horizontalPaddingPx{5.0f};
-    float segmentGapPx{8.0f};
-    float metricGapPx{6.0f};
+    float segmentGapPx{10.0f};
+    float metricGapPx{8.0f};
     float separatorGapPx{16.0f};
     float dpi{96.0f};
     std::wstring fontFilePath;
