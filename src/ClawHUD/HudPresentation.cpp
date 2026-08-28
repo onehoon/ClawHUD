@@ -29,6 +29,9 @@ HudPresentation::~HudPresentation()
 
 HRESULT HudPresentation::Initialize(HINSTANCE instance, const HudRenderOptions& options)
 {
+#ifdef _DEBUG
+    debugLastValidatedAlpha_ = -1;
+#endif
     if (initialized_)
         return S_OK;
     if (!instance || options.barPixelHeight <= 0.0f)
