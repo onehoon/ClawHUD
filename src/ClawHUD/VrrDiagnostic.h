@@ -101,3 +101,4 @@ private:
 
 constexpr UINT kVrrDiagnosticStatus = WM_APP + 21;
 constexpr UINT kVrrDiagnosticCompleted = WM_APP + 22;
+void PlayDiagnosticCompletionSound() noexcept;

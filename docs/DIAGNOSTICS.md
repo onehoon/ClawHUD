@@ -1,5 +1,13 @@
 # EC Diagnostics
 
+## IGCL read-only capability survey
+
+The Diagnostics tab also provides **Start IGCL Test**. It is explicit-action only: selecting Settings or Diagnostics does not load IGCL. Starting the test closes Settings, waits five seconds, captures the current foreground HWND/PID/path, then dynamically loads the driver-installed System32 `ControlLib.dll` with `CTL_INIT_FLAG_USE_LEVEL_ZERO`.
+
+The bounded survey enumerates every adapter and records read-only device, PCI, 3D Live State, frequency, engine, memory, temperature, power, fan, display/output, and Power Telemetry V2 information when the installed runtime exports the relevant symbols. It performs no IGCL setter/reset/control call. Dynamic Power Telemetry V2 is sampled at 250 ms for 20 samples; raw support flags, type/unit enums, values, counters, timestamps, symbolic/raw result codes, and missing/unsupported/error classifications are retained in `igcl-YYYYMMDD-HHMMSS.txt` under `%LOCALAPPDATA%\\ClawHUD\\logs`.
+
+The survey is diagnostic-only and does not feed HUD telemetry or alter existing EC, Windows, PresentMon, VRR, or Intel VRR Fix behavior. Successful cleanup plays the existing Diagnostics completion sound; cancellation, initialization failure, and incomplete logging do not.
+
 The current Diagnostics implementation is intentionally limited to an MSI Claw EC read probe. Opening Settings or selecting the Diagnostics tab does not initialize WMI. Press **Start EC Test** to start one bounded worker. `ClawHUD.exe` remains unelevated; the first EC test starts `ClawHUD.EcHelper.exe` with `runas` and uses a private per-process named pipe for the read-only transport. The helper is reused for the ten samples and exits when the pipe reaches EOF.
 
 The test connects to `ROOT\WMI`, invokes only `Get_Temperature`, `Get_Fan`, and `Get_Data`, records ten samples at approximately one-second intervals, then releases WMI. Each sample keeps the raw payload and records decoded CPU/GPU temperature, fan RPM, and CPU package power where the documented payload is available. The battery current and voltage selectors are preserved as raw bytes; system-power decoding remains deferred until hardware validation closes the documented sign/scaling questions.

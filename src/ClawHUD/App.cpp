@@ -179,6 +179,7 @@ int App::Run()
     if (!hudHotkeyRegistered_)
         Log(L"RegisterHotKey(F8) failed; continuing without the global HUD toggle");
     ecDiagnostic_ = std::make_unique<EcDiagnostic>(tray_.Window());
+    igclDiagnostic_ = std::make_unique<clawhud::IgclTelemetryDiagnostic>(tray_.Window());
     vrrDiagnostic_ = std::make_unique<VrrDiagnostic>(*this, tray_.Window());
     if (!foregroundTracker_.Start(tray_.Window(), kForegroundChanged,
         [this](bool matches)
@@ -268,6 +269,34 @@ bool App::StartEcDiagnostic()
     ecStatus_ = L"Running";
     return true;
 }
+bool App::StartIgclDiagnostic()
+{
+    if (!igclDiagnostic_ || EcDiagnosticRunning() || VrrDiagnosticRunning() || ecHudSamplingActive_)
+        return false;
+    pendingProductionTargetPid_ = 0;
+    StopProductionPresentMonSampling(L"igcl-diagnostic-start", false);
+    StopGraphicsApiProbe();
+    if (!igclDiagnostic_->Start())
+    {
+        if (mockHudEnabled_ && !suspended_) AdoptForegroundProductionTarget();
+        ReconcileHudVisibility();
+        return false;
+    }
+    igclStatus_ = L"Waiting 5 seconds...";
+    if (settings_) settings_->RequestClose();
+    return true;
+}
+void App::StopIgclDiagnostic() { if (igclDiagnostic_) igclDiagnostic_->Stop(); }
+bool App::IgclDiagnosticRunning() const { return igclDiagnostic_ && igclDiagnostic_->Running(); }
+void App::FinishIgclDiagnostic(bool success)
+{
+    if (igclDiagnostic_) igclDiagnostic_->Stop();
+    if (clawhud::ShouldReevaluateForegroundAfterDiagnostic(
+        mockHudEnabled_, DiagnosticRunning(), suspended_))
+        AdoptForegroundProductionTarget();
+    ReconcileHudVisibility();
+    if (!success) Log(L"IGCL diagnostic completed without success; production telemetry restored");
+}
 void App::StopEcDiagnostic()
 {
     if (ecDiagnostic_)
@@ -326,8 +355,8 @@ void App::StopVrrDiagnostic()
     ReconcileHudVisibility();
 }
 bool App::VrrDiagnosticRunning() const { return vrrDiagnostic_ && vrrDiagnostic_->Running(); }
-bool App::DiagnosticRunning() const { return EcDiagnosticRunning() || VrrDiagnosticRunning(); }
-void App::StopDiagnostic() { StopVrrDiagnostic(); StopEcDiagnostic(); }
+bool App::DiagnosticRunning() const { return EcDiagnosticRunning() || VrrDiagnosticRunning() || IgclDiagnosticRunning(); }
+void App::StopDiagnostic() { StopVrrDiagnostic(); StopEcDiagnostic(); StopIgclDiagnostic(); }
 
 void App::HandleSystemSuspend()
 {
@@ -1811,6 +1840,7 @@ void App::Exit()
     foregroundTracker_.Stop();
     if (vrrDiagnostic_) vrrDiagnostic_->Stop();
     if (ecDiagnostic_) ecDiagnostic_->Stop();
+    if (igclDiagnostic_) igclDiagnostic_->Stop();
     DiscardPendingHudVisibilityRequests();
     if (hudHotkeyRegistered_ && tray_.Window())
     {
@@ -1873,6 +1903,18 @@ int App::ProcessMessages()
             auto* status = reinterpret_cast<std::wstring*>(message.wParam);
             if (status) { ecStatus_ = *status; if (settings_) settings_->SetDiagnosticStatus(*status); }
             delete status;
+            continue;
+        }
+        if (message.message == clawhud::kIgclDiagnosticStatus)
+        {
+            auto* status = reinterpret_cast<std::wstring*>(message.wParam);
+            if (status) { igclStatus_ = *status; if (settings_) settings_->SetDiagnosticStatus(*status); }
+            delete status;
+            continue;
+        }
+        if (message.message == clawhud::kIgclDiagnosticCompleted)
+        {
+            FinishIgclDiagnostic(message.wParam != 0);
             continue;
         }
         if (message.message == kVrrDiagnosticStatus)

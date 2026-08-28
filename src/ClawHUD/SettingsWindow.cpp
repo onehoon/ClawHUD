@@ -21,6 +21,7 @@ constexpr int kTabDiagnostics = 3;
 constexpr int kTabCount = 4;
 constexpr int kStartWithWindows = 1001;
 constexpr int kStartEc = 1101;
+constexpr int kStartIgcl = 1105;
 constexpr int kOpenLogs = 1102;
 constexpr int kStartVrr = 1103;
 constexpr int kStopVrr = 1104;
@@ -52,6 +53,8 @@ constexpr int kDiagnosticsVrrHeading = 2201;
 constexpr int kDiagnosticsVrrDescription = 2202;
 constexpr int kDiagnosticsEcHeading = 2203;
 constexpr int kDiagnosticsEcDescription = 2204;
+constexpr int kDiagnosticsIgclHeading = 2205;
+constexpr int kDiagnosticsIgclDescription = 2206;
 constexpr int kAboutTitle = 2301;
 constexpr int kAboutDescription = 2302;
 constexpr int kAboutVersion = 2303;
@@ -183,7 +186,7 @@ bool SettingsWindow::Show(HINSTANCE instance)
     UpdateWindow(window_);
     SetForegroundWindow(window_);
     UpdateHudControls();
-    SetDiagnosticStatus(app_.EcStatus()); SetVrrStatus(app_.VrrStatus());
+    SetDiagnosticStatus(app_.IgclStatus() == L"Idle" ? app_.EcStatus() : app_.IgclStatus()); SetVrrStatus(app_.VrrStatus());
     UpdateTweaksControls();
     return true;
 }
@@ -281,7 +284,7 @@ int SettingsWindow::ContentHeightForTab(int tab) const noexcept
     case kTabSettings: return 454;
     case kTabTweaks: return 230;
     case kTabAbout: return 260;
-    case kTabDiagnostics: return 340;
+    case kTabDiagnostics: return 500;
     default: return 0;
     }
 }
@@ -517,6 +520,13 @@ void SettingsWindow::CreateDiagnosticsControls()
     startEcButton_ = CreateWindowW(L"BUTTON", L"Start EC Test",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, 0, 0, diagnosticsPanel_,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kStartEc)), instance_, nullptr);
+    CreateWindowW(L"STATIC", L"IGCL Read-only Capability Test", WS_CHILD | WS_VISIBLE,
+        0, 0, 0, 0, diagnosticsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kDiagnosticsIgclHeading)), instance_, nullptr);
+    CreateWindowW(L"STATIC", L"Uses the driver-installed ControlLib.dll. Closes Settings, waits 5 seconds, then records read-only IGCL capabilities and telemetry for approximately 5 seconds.", WS_CHILD | WS_VISIBLE,
+        0, 0, 0, 0, diagnosticsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kDiagnosticsIgclDescription)), instance_, nullptr);
+    startIgclButton_ = CreateWindowW(L"BUTTON", L"Start IGCL Test",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, 0, 0, diagnosticsPanel_,
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kStartIgcl)), instance_, nullptr);
     openLogsButton_ = CreateWindowW(L"BUTTON", L"Open Log Folder",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, 0, 0, diagnosticsPanel_,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOpenLogs)), instance_, nullptr);
@@ -525,6 +535,7 @@ void SettingsWindow::CreateDiagnosticsControls()
     EnableMouseWheelForwarding(startVrrButton_);
     EnableMouseWheelForwarding(stopVrrButton_);
     EnableMouseWheelForwarding(startEcButton_);
+    EnableMouseWheelForwarding(startIgclButton_);
     EnableMouseWheelForwarding(openLogsButton_);
     EnableStaticPanForwarding(diagnosticsPanel_);
 }
@@ -639,8 +650,11 @@ void SettingsWindow::LayoutDiagnostics()
     MoveControl(diagnosticsPanel_, kDiagnosticsEcHeading, x, Scale(196) - scrollY, contentWidth, Scale(28));
     MoveControl(diagnosticsPanel_, kDiagnosticsEcDescription, x, Scale(228) - scrollY, contentWidth, Scale(44));
     MoveWindow(startEcButton_, x, Scale(280) - scrollY, Scale(140), Scale(32), TRUE);
-    MoveWindow(openLogsButton_, x + Scale(152), Scale(280) - scrollY, Scale(150), Scale(32), TRUE);
-    MoveWindow(diagnosticStatus_, x, Scale(320) - scrollY, contentWidth, Scale(24), TRUE);
+    MoveControl(diagnosticsPanel_, kDiagnosticsIgclHeading, x, Scale(328) - scrollY, contentWidth, Scale(28));
+    MoveControl(diagnosticsPanel_, kDiagnosticsIgclDescription, x, Scale(360) - scrollY, contentWidth, Scale(48));
+    MoveWindow(startIgclButton_, x, Scale(416) - scrollY, Scale(140), Scale(32), TRUE);
+    MoveWindow(openLogsButton_, x + Scale(152), Scale(416) - scrollY, Scale(150), Scale(32), TRUE);
+    MoveWindow(diagnosticStatus_, x, Scale(456) - scrollY, contentWidth, Scale(24), TRUE);
 }
 
 void SettingsWindow::UpdateGeneralControls()
@@ -744,6 +758,7 @@ void SettingsWindow::UpdateDiagnosticButtons()
 {
     const bool busy = app_.DiagnosticRunning();
     if (startEcButton_) EnableWindow(startEcButton_, !busy);
+    if (startIgclButton_) EnableWindow(startIgclButton_, !busy);
     if (startVrrButton_) EnableWindow(startVrrButton_, !busy);
     if (stopVrrButton_) EnableWindow(stopVrrButton_, app_.VrrDiagnosticRunning());
 }
@@ -872,6 +887,11 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
     if (message == WM_COMMAND && LOWORD(wParam) == kStartEc)
     {
         if (self->app_.StartEcDiagnostic()) self->SetDiagnosticStatus(L"Running"); return 0;
+    }
+    if (message == WM_COMMAND && LOWORD(wParam) == kStartIgcl)
+    {
+        if (self->app_.StartIgclDiagnostic()) self->SetDiagnosticStatus(L"Waiting 5 seconds...");
+        return 0;
     }
     if (message == WM_COMMAND && LOWORD(wParam) == kStartVrr)
     {

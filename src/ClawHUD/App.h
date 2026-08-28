@@ -18,6 +18,7 @@
 #include "WindowsPowerTelemetry.h"
 #include "WindowsUsageTelemetry.h"
 #include "IntelGraphicsApiProbe.h"
+#include "IgclTelemetryDiagnostic.h"
 #include "Tweaks/TweakStartupCoordinator.h"
 #include "Tweaks/IntelVrr/IntelVrrRunResult.h"
 
@@ -101,7 +102,12 @@ public:
     void StopVrrDiagnostic();
     bool VrrDiagnosticRunning() const;
     bool DiagnosticRunning() const;
+    bool StartIgclDiagnostic();
+    void StopIgclDiagnostic();
+    bool IgclDiagnosticRunning() const;
+    const std::wstring& IgclStatus() const noexcept { return igclStatus_; }
     void StopDiagnostic();
+    void FinishIgclDiagnostic(bool success);
     void HandleSystemSuspend();
     void HandleSystemResume();
     void TryResumeRecovery();
@@ -178,6 +184,7 @@ private:
     HANDLE instanceMutex_{};
     TrayIcon tray_;
     std::unique_ptr<EcDiagnostic> ecDiagnostic_;
+    std::unique_ptr<clawhud::IgclTelemetryDiagnostic> igclDiagnostic_;
     std::unique_ptr<VrrDiagnostic> vrrDiagnostic_;
     std::unique_ptr<clawhud::HudPresentation> hudPresentation_;
     std::unique_ptr<EcHelperClient> ecHudClient_;
@@ -206,6 +213,7 @@ private:
     bool exiting_{};
     std::wstring ecStatus_{ L"Idle" };
     std::wstring vrrStatus_{ L"Idle" };
+    std::wstring igclStatus_{ L"Idle" };
     std::wstring executablePath_;
     int hudSizeOffset_{};
     bool hudHotkeyRegistered_{};
