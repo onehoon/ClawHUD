@@ -253,9 +253,10 @@ void App::SetStartWithWindows(bool enabled)
 
 bool App::StartEcDiagnostic()
 {
-    if (!ecDiagnostic_ || VrrDiagnosticRunning() || ecHudSamplingActive_)
+    if (!ecDiagnostic_ || DiagnosticRunning() || ecHudSamplingActive_)
         return false;
 
+    igclStatus_ = L"Idle";
     pendingProductionTargetPid_ = 0;
     StopProductionPresentMonSampling(L"diagnostic-start", false);
     StopGraphicsApiProbe();
@@ -271,8 +272,9 @@ bool App::StartEcDiagnostic()
 }
 bool App::StartIgclDiagnostic()
 {
-    if (!igclDiagnostic_ || EcDiagnosticRunning() || VrrDiagnosticRunning())
+    if (!igclDiagnostic_ || DiagnosticRunning())
         return false;
+    ecStatus_ = L"Idle";
     pendingProductionTargetPid_ = 0;
     StopProductionEcSampling(false, L"igcl-diagnostic-start");
     StopProductionPresentMonSampling(L"igcl-diagnostic-start", false);
@@ -328,7 +330,7 @@ void App::OpenDiagnosticLogFolder()
 }
 bool App::StartVrrDiagnostic()
 {
-    if (!vrrDiagnostic_ || EcDiagnosticRunning()) return false;
+    if (!vrrDiagnostic_ || DiagnosticRunning()) return false;
     if (!VrrDiagnosticCanWaitForF8(hudHotkeyRegistered_))
     {
         vrrStatus_ = L"F8 unavailable";

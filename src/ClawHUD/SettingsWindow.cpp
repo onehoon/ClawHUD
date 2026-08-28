@@ -264,6 +264,7 @@ void SettingsWindow::ApplyHeadingFont()
     apply(aboutPanel_, kAboutHowToUse);
     apply(diagnosticsPanel_, kDiagnosticsVrrHeading);
     apply(diagnosticsPanel_, kDiagnosticsEcHeading);
+    apply(diagnosticsPanel_, kDiagnosticsIgclHeading);
 }
 
 int SettingsWindow::Scale(int value) const noexcept
