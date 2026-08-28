@@ -42,20 +42,7 @@ constexpr std::uint32_t kCustom = 5;
 
 using InitArgs = igcl::InitArgs; using LiveState = igcl::LiveState; using FeatureRequest = igcl::FeatureRequest;
 using Item = igcl::Item; using PowerV2 = igcl::PowerTelemetryV2;
-struct DeviceProps { std::uint32_t size{}; std::uint8_t version{}; void* deviceId{}; std::uint32_t deviceIdSize{}; std::uint32_t deviceType{}; std::uint64_t supported{}; std::uint64_t driverVersion{}; std::uint8_t firmware[32]{}; std::uint32_t vendor{}, device{}, revision{}, eus{}, subslices{}, slices{}; char name[100]{}; std::uint64_t graphicsFlags{}; std::uint32_t frequency{}; std::uint16_t subsys{}, subsysVendor{}; std::uint8_t bdf[3]{}; std::uint8_t bdfPad{}; std::uint32_t xeCores{}; std::uint8_t reserved[108]{}; };
-struct PciProps { std::uint32_t size{}; std::uint8_t version{}; std::uint8_t data[96]{}; };
-struct PciState { std::uint32_t size{}; std::uint8_t version{}; std::uint8_t data[64]{}; };
-struct FreqProps { std::uint32_t size{}; std::uint8_t version{}; std::uint32_t type{}; bool canControl{}; double min{}, max{}; };
-struct FreqState { std::uint32_t size{}; std::uint8_t version{}; double voltage{}, request{}, tdp{}, efficient{}, actual{}; std::uint32_t throttle{}; };
-struct EngineProps { std::uint32_t size{}; std::uint8_t version{}; std::uint32_t type{}; };
-struct EngineStats { std::uint32_t size{}; std::uint8_t version{}; std::uint64_t active{}, timestamp{}; };
-struct MemProps { std::uint32_t size{}; std::uint8_t version{}; std::uint32_t type{}; std::uint64_t physical{}; };
-struct MemState { std::uint32_t size{}; std::uint8_t version{}; std::uint64_t free{}, sizeBytes{}; };
-struct TempProps { std::uint32_t size{}; std::uint8_t version{}; std::uint32_t type{}; double max{}; };
-struct TempState { std::uint32_t size{}; std::uint8_t version{}; double current{}; };
-struct PowerProps { std::uint32_t size{}; std::uint8_t version{}; bool canControl{}; std::int32_t def{}, min{}, max{}; };
-struct Energy { std::uint32_t size{}; std::uint8_t version{}; std::uint64_t energy{}, timestamp{}; };
-struct FanProps { std::uint32_t size{}; std::uint8_t version{}; std::uint32_t modes{}, units{}; };
+using DeviceProps = igcl::DeviceProperties; using PciProps = igcl::PciProperties;
 
 template<class T> T Get(HMODULE m, const char* n) { return reinterpret_cast<T>(GetProcAddress(m, n)); }
 std::string ResultName(Result r) { switch(r) { case 0:return "CTL_RESULT_SUCCESS"; case 0x40000007:return "CTL_RESULT_ERROR_NOT_AVAILABLE"; case 0x4000000a:return "CTL_RESULT_ERROR_UNSUPPORTED_FEATURE"; case 0x40000009:return "CTL_RESULT_ERROR_UNSUPPORTED_VERSION"; case 0x4000000b:return "CTL_RESULT_ERROR_INVALID_ARGUMENT"; default:return "UNKNOWN"; } }
@@ -87,10 +74,21 @@ void ProbeCategory(std::ofstream& o, HMODULE lib, Device device, const char* tit
         else o << "Read-only output handle enumerated; typed display properties are unavailable in this pinned subset.\n";
     }
 }
+double DecodeItem(const Item& item) noexcept
+{
+    switch (item.type) { case 0:return item.value.i8; case 1:return item.value.u8; case 2:return item.value.i16; case 3:return item.value.u16; case 4:return item.value.i32; case 5:return item.value.u32; case 6:return static_cast<double>(item.value.i64); case 7:return static_cast<double>(item.value.u64); case 8:return item.value.f; case 9:return item.value.d; default:return 0.0; }
+}
+void SampleDynamicDomains(HMODULE lib, Device device, std::size_t adapter,
+    std::map<std::string, IgclSampleSeries>& metrics)
+{
+    auto collect=[&](const std::string& name,double value,std::uint64_t raw,bool supported,bool ok){auto& s=metrics["adapter["+std::to_string(adapter)+"]."+name];s.supported&=supported;s.apiSucceeded&=ok;if(ok&&supported){s.values.push_back(value);s.rawValues.push_back(raw);}};
+    auto sample=[&](const char* ename,const char* sname,const char* metric){auto en=Get<EnumFn>(lib,ename);auto st=Get<OneStateFn>(lib,sname);if(!en||!st)return;std::uint32_t n{};if(en(device,&n,nullptr)!=kSuccess||!n)return;std::vector<Handle> hs(n);if(en(device,&n,hs.data())!=kSuccess)return;for(std::uint32_t i=0;i<n;++i){if(std::string(metric)=="frequency") {igcl::FrequencyState v{};v.Size=sizeof(v);auto r=st(hs[i],&v);collect("frequency["+std::to_string(i)+"].actual",v.actual,static_cast<std::uint64_t>(v.actual),true,r==kSuccess);} else if(std::string(metric)=="engine") {igcl::EngineStats v{};v.Size=sizeof(v);auto r=st(hs[i],&v);collect("engine["+std::to_string(i)+"].activeTime",static_cast<double>(v.activeTime),v.activeTime,true,r==kSuccess);} else if(std::string(metric)=="memory") {igcl::MemoryState v{};v.Size=sizeof(v);auto r=st(hs[i],&v);collect("memory["+std::to_string(i)+"].free",static_cast<double>(v.free),v.free,true,r==kSuccess);} else if(std::string(metric)=="power") {igcl::PowerEnergy v{};v.Size=sizeof(v);auto r=st(hs[i],&v);collect("power["+std::to_string(i)+"].energy",static_cast<double>(v.energy),v.energy,true,r==kSuccess);} }};
+    sample("ctlEnumFrequencyDomains","ctlFrequencyGetState","frequency"); sample("ctlEnumEngineGroups","ctlEngineGetActivity","engine"); sample("ctlEnumMemoryModules","ctlMemoryGetState","memory"); sample("ctlEnumPowerDomains","ctlPowerGetEnergyCounter","power");
+}
 }
 
 const char* IgclDiagnosticClassName(IgclDiagnosticClass v) noexcept { switch(v){case IgclDiagnosticClass::SupportedActive:return "SUPPORTED_ACTIVE";case IgclDiagnosticClass::SupportedZero:return "SUPPORTED_ZERO";case IgclDiagnosticClass::SupportedConstant:return "SUPPORTED_CONSTANT";case IgclDiagnosticClass::Unsupported:return "UNSUPPORTED";case IgclDiagnosticClass::NoDomain:return "NO_DOMAIN";case IgclDiagnosticClass::SymbolMissing:return "SYMBOL_MISSING";case IgclDiagnosticClass::ApiError:return "API_ERROR";default:return "SKIPPED_MUTATION_CAPABLE";} }
-IgclDiagnosticClass ClassifyIgclSamples(const IgclSampleSeries& s) noexcept { if(!s.hasDomain)return IgclDiagnosticClass::NoDomain; if(!s.apiSucceeded)return IgclDiagnosticClass::ApiError; if(!s.supported)return IgclDiagnosticClass::Unsupported; if(s.values.empty())return IgclDiagnosticClass::SupportedZero; const auto [a,b]=std::minmax_element(s.values.begin(),s.values.end()); if(*a==0.0&&*b==0.0)return IgclDiagnosticClass::SupportedZero; return *a==*b?IgclDiagnosticClass::SupportedConstant:IgclDiagnosticClass::SupportedActive; }
+IgclDiagnosticClass ClassifyIgclSamples(const IgclSampleSeries& s) noexcept { if(!s.hasDomain)return IgclDiagnosticClass::NoDomain; if(!s.apiSucceeded)return IgclDiagnosticClass::ApiError; if(!s.supported)return IgclDiagnosticClass::Unsupported; if(s.values.empty())return IgclDiagnosticClass::SupportedZero; const bool integerType=!s.types.empty()&&std::all_of(s.types.begin(),s.types.end(),[](std::uint32_t t){return t<=7;}); if(integerType&&!s.rawValues.empty()){const auto [a,b]=std::minmax_element(s.rawValues.begin(),s.rawValues.end());if(*a==0&&*b==0)return IgclDiagnosticClass::SupportedZero;return *a==*b?IgclDiagnosticClass::SupportedConstant:IgclDiagnosticClass::SupportedActive;} const auto [a,b]=std::minmax_element(s.values.begin(),s.values.end()); if(*a==0.0&&*b==0.0)return IgclDiagnosticClass::SupportedZero; return *a==*b?IgclDiagnosticClass::SupportedConstant:IgclDiagnosticClass::SupportedActive; }
 double IgclSampleMinimum(const IgclSampleSeries& s) noexcept { return s.values.empty()?0.0:*std::min_element(s.values.begin(),s.values.end()); }
 double IgclSampleMaximum(const IgclSampleSeries& s) noexcept { return s.values.empty()?0.0:*std::max_element(s.values.begin(),s.values.end()); }
 
@@ -113,12 +111,17 @@ void IgclTelemetryDiagnostic::Run()
         const auto init=Get<InitFn>(library,"ctlInit"); const auto close=Get<CloseFn>(library,"ctlClose"); log<<"ctlInit symbol: "<<(init?"PRESENT":"MISSING")<<"\n"; if(!init||!close)throw std::runtime_error("symbol");
         InitArgs args{};args.size=sizeof(args);args.appVersion=kApiVersion;args.flags=kUseLevelZero;Result r=init(&args,&api);log<<"IGCL initialization result: "<<ResultName(r)<<" ("<<Hex(r)<<")\nRequested API version: 1.1\nSupported/returned API version: "<<(args.supportedVersion>>16)<<"."<<(args.supportedVersion&0xffff)<<"\nInitialization flags: CTL_INIT_FLAG_USE_LEVEL_ZERO (0x1)\n";if(r!=kSuccess)throw std::runtime_error("init");
         auto en=Get<EnumDevicesFn>(library,"ctlEnumerateDevices"); if(!en){log<<"ctlEnumerateDevices: SYMBOL_MISSING\n";throw std::runtime_error("enum symbol");} std::uint32_t count=0;r=en(api,&count,nullptr);LogCall(log,"ctlEnumerateDevices(count)",r);if(r!=0||!count){log<<"Adapters: NO_DOMAIN\n";success=true;throw std::runtime_error("no adapters");}std::vector<Device> ds(count);r=en(api,&count,ds.data());LogCall(log,"ctlEnumerateDevices(handles)",r);if(r!=0)throw std::runtime_error("enum");
-        auto devProps=Get<DevicePropsFn>(library,"ctlGetDeviceProperties");auto pci=Get<PciFn>(library,"ctlPciGetProperties");auto tele=Get<TelemetryFn>(library,"ctlPowerTelemetryGetV2");
+        auto devProps=Get<DevicePropsFn>(library,"ctlGetDeviceProperties");auto pci=Get<PciFn>(library,"ctlPciGetProperties");auto pciState=Get<PciFn>(library,"ctlPciGetState");auto tele=Get<TelemetryFn>(library,"ctlPowerTelemetryGetV2");
         for(std::uint32_t i=0;i<count;++i){log<<"\n=== ADAPTER "<<i<<" ===\n";if(devProps){DeviceProps p{};p.size=sizeof(p);r=devProps(ds[i],&p);LogCall(log,"ctlGetDeviceProperties",r);if(r==0)log<<"Device: "<<p.name<<"\nVendor ID: 0x"<<std::hex<<p.vendor<<" Device ID: 0x"<<p.device<<" Revision: 0x"<<p.revision<<"\nDevice Type: "<<std::dec<<p.deviceType<<"\nDriver Version Raw: "<<p.driverVersion<<"\nGraphics Capability Flags Raw: 0x"<<std::hex<<p.graphicsFlags<<"\n";}else log<<"ctlGetDeviceProperties: SYMBOL_MISSING\n";if(pci){PciProps p{};p.size=sizeof(p);r=pci(ds[i],&p);LogCall(log,"ctlPciGetProperties",r);log<<"PCI raw bytes retained: "<<sizeof(p.data)<<"\n";}else log<<"ctlPciGetProperties: SYMBOL_MISSING\n";log<<"\n=== POWER TELEMETRY V2 ===\n";if(tele){PowerV2 p{};p.size=sizeof(p);r=tele(ds[i],&p);LogCall(log,"ctlPowerTelemetryGetV2",r);const char* names[]={"timeStamp","gpuEnergyCounter","gpuVoltage","gpuCurrentClockFrequency","gpuCurrentTemperature","globalActivityCounter","renderComputeActivityCounter","mediaActivityCounter","vramEnergyCounter","vramVoltage","vramCurrentClockFrequency","vramCurrentEffectiveFrequency","vramReadBandwidthCounter","vramWriteBandwidthCounter","vramCurrentTemperature","totalCardEnergyCounter","gpuVrTemp","vramVrTemp","saVrTemp","gpuEffectiveClock","gpuOverVoltagePercent","gpuPowerPercent","gpuTemperaturePercent","vramReadBandwidth","vramWriteBandwidth"};Item* items[]={&p.timeStamp,&p.gpuEnergyCounter,&p.gpuVoltage,&p.gpuCurrentClockFrequency,&p.gpuCurrentTemperature,&p.globalActivityCounter,&p.renderComputeActivityCounter,&p.mediaActivityCounter,&p.vramEnergyCounter,&p.vramVoltage,&p.vramCurrentClockFrequency,&p.vramCurrentEffectiveFrequency,&p.vramReadBandwidthCounter,&p.vramWriteBandwidthCounter,&p.vramCurrentTemperature,&p.totalCardEnergyCounter,&p.gpuVrTemp,&p.vramVrTemp,&p.saVrTemp,&p.gpuEffectiveClock,&p.gpuOverVoltagePercent,&p.gpuPowerPercent,&p.gpuTemperaturePercent,&p.vramReadBandwidth,&p.vramWriteBandwidth};for(size_t j=0;j<std::size(names);++j)log<<names[j]<<"\n  Supported: "<<(items[j]->supported?"true":"false")<<"\n  Type: "<<(unsigned)items[j]->type<<"\n  Units: "<<items[j]->units<<"\n  Raw uint64: "<<items[j]->value.u64<<"\n  Raw double: "<<items[j]->value.d<<"\n";}else log<<"ctlPowerTelemetryGetV2: SYMBOL_MISSING\n";
             log<<"\n=== SAFE SURFACE SYMBOL INVENTORY ===\n";const char* syms[]={"ctlEnumFrequencyDomains","ctlFrequencyGetProperties","ctlFrequencyGetState","ctlEnumEngineGroups","ctlEngineGetProperties","ctlEngineGetActivity","ctlEnumMemoryModules","ctlMemoryGetProperties","ctlMemoryGetState","ctlMemoryGetBandwidth","ctlEnumTemperatureSensors","ctlTemperatureGetProperties","ctlTemperatureGetState","ctlEnumPowerDomains","ctlPowerGetProperties","ctlPowerGetEnergyCounter","ctlEnumFans","ctlFanGetProperties","ctlFanGetState","ctlEnumerateDisplayOutputs","ctlGetDisplayProperties","ctlGetSet3DFeature"};for(auto s:syms)log<<s<<": "<<(Get<void*>(library,s)?"PRESENT_READ_ONLY_OR_MIXED":"SYMBOL_MISSING")<<"\n";log<<"Mutation-capable setters are never dispatched: SKIPPED_MUTATION_CAPABLE\n";}
         for(std::uint32_t i=0;i<count;++i)
         {
             log << "\n=== ADAPTER " << i << " READ-ONLY DOMAINS ===\n";
+            if (pciState)
+            {
+                igcl::PciState state{}; state.Size=sizeof(state); const Result pr=pciState(ds[i],&state);
+                LogCall(log,"ctlPciGetState",pr); if(pr==kSuccess) log<<"PCI current generation: "<<state.speed.gen<<" width: "<<state.speed.width<<" max bandwidth: "<<state.speed.maxBandwidth<<"\n";
+            }
             log << "\n=== 3D LIVE STATE ===\n";
             if (const auto live = Get<GetSet3DFn>(library, "ctlGetSet3DFeature"); live)
             {
@@ -134,15 +137,22 @@ void IgclTelemetryDiagnostic::Run()
             ProbeCategory(log,library,ds[i],"POWER","ctlEnumPowerDomains","ctlPowerGetProperties","ctlPowerGetEnergyCounter");
             ProbeCategory(log,library,ds[i],"FAN","ctlEnumFans","ctlFanGetProperties",nullptr);
             ProbeCategory(log,library,ds[i],"DISPLAY / OUTPUT","ctlEnumerateDisplayOutputs","ctlGetDisplayProperties",nullptr);
+            if (auto outputs=Get<EnumOutputsFn>(library,"ctlEnumerateDisplayOutputs"))
+            {
+                std::uint32_t outputCount{}; Result orr=outputs(ds[i],&outputCount,nullptr); if(orr==kSuccess && outputCount){std::vector<Handle> handles(outputCount);orr=outputs(ds[i],&outputCount,handles.data());for(std::uint32_t oi=0;orr==kSuccess&&oi<outputCount;++oi){if(auto props=Get<OnePropsFn>(library,"ctlGetDisplayProperties")){igcl::DisplayProperties p{};p.Size=sizeof(p);const Result dr=props(handles[oi],&p);LogCall(log,"ctlGetDisplayProperties",dr);if(dr==kSuccess)log<<"Output "<<oi<<" Type: "<<p.type<<" BPC flags: "<<p.supportedOutputBpcFlags<<" Config flags: "<<p.displayConfigFlags<<"\n";}else log<<"ctlGetDisplayProperties: SYMBOL_MISSING\n";}}
+            }
         }
         log<<"\n=== SAMPLING ===\nCadence: 250 ms\nTarget samples: 20\nRaw samples retain support/type/unit/value fields above. Counters are not converted to instantaneous values.\n";
-        auto collect = [&](const char* name, const Item& item, bool counter=false) { auto& s=metrics[name]; s.supported=item.supported; s.values.push_back(item.value.d); s.rawValues.push_back(item.value.u64); s.timestamps.push_back(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count())); (void)counter; };
+        std::size_t currentAdapter=0;
+        auto collect = [&](const char* name, const Item& item, bool counter=false) { auto& s=metrics["adapter["+std::to_string(currentAdapter)+"]."+name]; s.supported&=item.supported; s.values.push_back(DecodeItem(item)); s.rawValues.push_back(item.value.u64); s.timestamps.push_back(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count())); s.types.push_back(item.type); (void)counter; };
         if (tele) for (int sample=1; sample<=20 && !stop_; ++sample)
         {
             log << "Sample " << std::setw(2) << std::setfill('0') << sample << " timestamp_ms="
                 << (sample-1)*250 << "\n";
             for (std::uint32_t i=0;i<count;++i)
             {
+                currentAdapter=i;
+                SampleDynamicDomains(library, ds[i], i, metrics);
                 PowerV2 p{}; p.size=sizeof(p); const Result sr=tele(ds[i],&p);
                 if (sr == kSuccess) { collect("gpuCurrentClockFrequency",p.gpuCurrentClockFrequency); collect("gpuCurrentTemperature",p.gpuCurrentTemperature); collect("gpuEnergyCounter",p.gpuEnergyCounter,true); collect("globalActivityCounter",p.globalActivityCounter,true); collect("renderComputeActivityCounter",p.renderComputeActivityCounter,true); collect("mediaActivityCounter",p.mediaActivityCounter,true); collect("vramEnergyCounter",p.vramEnergyCounter,true); collect("vramCurrentClockFrequency",p.vramCurrentClockFrequency); collect("vramCurrentEffectiveFrequency",p.vramCurrentEffectiveFrequency); collect("vramReadBandwidthCounter",p.vramReadBandwidthCounter,true); collect("vramWriteBandwidthCounter",p.vramWriteBandwidthCounter,true); collect("vramCurrentTemperature",p.vramCurrentTemperature); collect("totalCardEnergyCounter",p.totalCardEnergyCounter,true); collect("gpuEffectiveClock",p.gpuEffectiveClock); collect("gpuPowerPercent",p.gpuPowerPercent); collect("vramReadBandwidth",p.vramReadBandwidth); collect("vramWriteBandwidth",p.vramWriteBandwidth); }
                 log << "  Adapter " << i << " ctlPowerTelemetryGetV2: " << ResultName(sr) << " (" << Hex(sr) << ")\n";

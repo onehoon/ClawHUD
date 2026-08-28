@@ -23,6 +23,7 @@ struct IgclSampleSeries
     std::vector<double> values;
     std::vector<std::uint64_t> rawValues;
     std::vector<std::uint64_t> timestamps;
+    std::vector<std::uint32_t> types;
     bool supported{true};
     bool apiSucceeded{true};
     bool hasDomain{true};

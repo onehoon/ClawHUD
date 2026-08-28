@@ -1,0 +1,13 @@
+Intel Graphics Control Library header license notice
+
+The selected ABI declarations in src/ClawHUD/IgclApiCompat.h are derived from
+Intel's igcl_api.h v1.1:
+https://github.com/intel/drivers.gpu.control-library
+
+Copyright (C) 2025 Intel Corporation.
+
+The Intel header and related materials are provided under the Intel Software
+License Agreement 10.07.21. The applicable Intel copyright and license terms
+are retained here for the derived compile-time declarations. ClawHUD does not
+redistribute ControlLib.dll; the runtime is loaded from the installed Intel
+graphics driver.
