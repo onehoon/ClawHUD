@@ -34,6 +34,7 @@ constexpr UINT kUsageSamplingIntervalMs = 1000;
 constexpr UINT kBatteryHudTimerIntervalMs = 5000;
 constexpr UINT kGraphicsApiRetryIntervalMs = 500;
 constexpr unsigned kGraphicsApiMaxAttempts = 5;
+constexpr float kOpacityPocValue = 0.0f;
 constexpr wchar_t kInstanceMutexName[] = L"Local\\ClawHUD.SingleInstance";
 struct HudVisibilityRequest
 {
@@ -685,9 +686,9 @@ clawhud::HudRenderOptions App::BuildHudRenderOptions() const
 {
     auto options = clawhud::BuildHudRenderOptionsForSize(
         hudSizeOffset_, hudOptions_, hudFont_);
-    // Temporary product policy: keep the opacity setting pipeline for future
-    // use, but force the production HUD background to 50% for now.
-    options.layout.backgroundOpacity = 0.5f;
+    // POC-only override: keep the production opacity pipeline unchanged while
+    // testing whether fully transparent content still produces a black bar.
+    options.layout.backgroundOpacity = kOpacityPocValue;
     return options;
 }
 
