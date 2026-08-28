@@ -125,7 +125,7 @@ App::~App()
     Log(L"ClawHUD exiting");
     KillTimer(tray_.Window(), kMockHudTimerId);
     CancelResumeRecovery();
-    StopProductionEcSampling(false);
+    StopProductionEcSampling(false, L"app-shutdown");
     StopGraphicsApiProbe();
     foregroundTracker_.Stop();
     if (vrrDiagnostic_) vrrDiagnostic_->Stop();
@@ -297,7 +297,7 @@ bool App::StartVrrDiagnostic()
         Log(L"VRR diagnostic start failed: global F8 hotkey is not registered");
         return false;
     }
-    StopProductionEcSampling(false);
+    StopProductionEcSampling(false, L"diagnostic-start");
     StopProductionPresentMonSampling(L"diagnostic-start", false);
     StopGraphicsApiProbe();
     pendingProductionTargetPid_ = 0;
@@ -515,7 +515,7 @@ void App::StopMockHud()
     mockHudEnabled_ = false;
     manualHudVisibilityOverride_.reset();
     KillTimer(tray_.Window(), kMockHudTimerId);
-    StopProductionEcSampling();
+    StopProductionEcSampling(true, L"hud-disabled");
     StopGraphicsApiProbe();
     pendingProductionTargetPid_ = 0;
     ReconcileHudVisibility();
@@ -867,6 +867,7 @@ void App::StartProductionEcSampling()
     if (!ecHudSamplingActive_)
     {
         ecHudSamplingActive_ = true;
+        Log(L"Production telemetry sampling started");
         SampleProductionTelemetry();
         SetTimer(tray_.Window(), kEcHudTimerId, kUsageSamplingIntervalMs, nullptr);
         SampleProductionBatteryTelemetry();
@@ -877,6 +878,7 @@ void App::StartProductionEcSampling()
 
 void App::PauseProductionSamplingForSuspend()
 {
+    const bool wasActive = ecHudSamplingActive_;
     KillTimer(tray_.Window(), kEcHudTimerId);
     KillTimer(tray_.Window(), kBatteryHudTimerId);
     StopProductionPresentMonSampling(L"suspend", false);
@@ -892,6 +894,8 @@ void App::PauseProductionSamplingForSuspend()
     latestPresentMonDisplayedFps_.reset();
     usageSampler_.Reset();
     ecHudSamplingActive_ = false;
+    if (wasActive)
+        Log(L"Production telemetry sampling stopped reason=suspend");
 }
 
 void App::ReleaseCommittedProductionTarget(const wchar_t* reason)
@@ -904,8 +908,8 @@ void App::ReleaseCommittedProductionTarget(const wchar_t* reason)
     presentMonRestartAttempts_ = 0;
     StopProductionPresentMonSampling(reason, true);
     StopGraphicsApiProbe();
-    StopProductionEcSampling(false);
     foregroundTracker_.SetTrackedProcessId(0);
+    ReconcileHudVisibility();
     Log(L"Production target cleared pid=" + std::to_wstring(processId) +
         L" reason=" + reason);
 }
@@ -917,8 +921,9 @@ void App::CancelResumeRecovery()
     resumeRecoveryAttempts_ = 0;
 }
 
-void App::StopProductionEcSampling(bool stopPresentMon)
+void App::StopProductionEcSampling(bool stopPresentMon, const wchar_t* reason)
 {
+    const bool wasActive = ecHudSamplingActive_;
     KillTimer(tray_.Window(), kEcHudTimerId);
     KillTimer(tray_.Window(), kBatteryHudTimerId);
     if (stopPresentMon)
@@ -933,6 +938,8 @@ void App::StopProductionEcSampling(bool stopPresentMon)
     latestUsageTelemetry_.reset();
     usageSampler_.Reset();
     ecHudSamplingActive_ = false;
+    if (wasActive)
+        Log(L"Production telemetry sampling stopped reason=" + std::wstring(reason));
 }
 
 void App::StartProductionPresentMonSampling(bool recoveryStart)
@@ -1366,7 +1373,7 @@ HudVisibilityState App::CaptureHudVisibilityState() const noexcept
 bool App::ApplyDiagnosticHudVisibility(bool visible)
 {
     diagnosticHudMode_.reset();
-    StopProductionEcSampling();
+    StopProductionEcSampling(true, L"diagnostic-start");
     manualHudVisibilityOverride_ = visible;
     if (visible && !mockHudEnabled_)
     {
@@ -1381,7 +1388,7 @@ bool App::ApplyDiagnosticHudVisibility(bool visible)
 bool App::ApplyDiagnosticHudMode(DiagnosticHudMode mode)
 {
     StopProductionPresentMonSampling(L"diagnostic-start", false);
-    StopProductionEcSampling(false);
+    StopProductionEcSampling(false, L"diagnostic-start");
     pendingProductionTargetPid_ = 0;
     diagnosticHudMode_ = mode;
     manualHudVisibilityOverride_ = mode == DiagnosticHudMode::Off
@@ -1553,7 +1560,8 @@ void App::ReconcileHudVisibility()
         {
             if (!wasVisible) Log(L"HUD shown");
             hudShowFailureLogged_ = false;
-            if (!diagnosticHudMode_.has_value())
+            if (clawhud::ShouldSampleProductionTelemetry(
+                    resolvedShow, diagnosticHudMode_.has_value(), suspended_))
             {
                 KillTimer(tray_.Window(), kMockHudTimerId);
                 StartProductionEcSampling();
@@ -1587,7 +1595,7 @@ void App::ReconcileHudVisibility()
             hudHideFailureLogged_ = true;
         KillTimer(tray_.Window(), kMockHudTimerId);
         if (!diagnosticHudMode_.has_value())
-            StopProductionEcSampling(false);
+            StopProductionEcSampling(false, L"hud-hidden");
     }
 }
 
@@ -1775,7 +1783,7 @@ void App::Exit()
     exiting_ = true;
     CancelResumeRecovery();
     KillTimer(tray_.Window(), kMockHudTimerId);
-    StopProductionEcSampling();
+    StopProductionEcSampling(true, L"app-shutdown");
     StopGraphicsApiProbe();
     foregroundTracker_.Stop();
     if (vrrDiagnostic_) vrrDiagnostic_->Stop();

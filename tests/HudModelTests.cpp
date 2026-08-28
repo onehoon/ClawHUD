@@ -43,6 +43,28 @@ int main()
     ok &= Check(ShouldShowHud(HudVisibilityMode::Always, false), "always visibility");
     ok &= Check(!ShouldShowHud(HudVisibilityMode::InGameOnly, false), "in-game-only visibility");
     ok &= Check(ShouldShowHud(HudVisibilityMode::InGameOnly, true), "foreground game visibility");
+    ok &= Check(ShouldSampleProductionTelemetry(
+        ShouldShowHud(HudVisibilityMode::Always, false), false, false),
+        "always mode keeps global telemetry alive after game exit");
+    ok &= Check(!ShouldSampleProductionTelemetry(
+        ShouldShowHud(HudVisibilityMode::InGameOnly, false), false, false),
+        "in-game-only mode stops global telemetry with no game");
+    ok &= Check(ShouldSampleProductionTelemetry(
+        ShouldShowHud(HudVisibilityMode::InGameOnly, true), false, false),
+        "in-game-only mode starts global telemetry on game entry");
+    ok &= Check(!ShouldSampleProductionTelemetry(
+        ShouldShowHud(HudVisibilityMode::InGameOnly, false), false, false),
+        "in-game-only mode stops global telemetry on Alt-Tab");
+    ok &= Check(ShouldSampleProductionTelemetry(
+        ShouldShowHud(HudVisibilityMode::InGameOnly, true), false, false),
+        "in-game-only mode resumes global telemetry on return");
+    ok &= Check(!ShouldSampleProductionTelemetry(
+        ShouldShowHud(HudVisibilityMode::InGameOnly, false), false, false),
+        "in-game-only mode stops global telemetry after game exit");
+    ok &= Check(!ShouldSampleProductionTelemetry(true, true, false),
+        "diagnostic mode owns telemetry lifecycle");
+    ok &= Check(!ShouldSampleProductionTelemetry(true, false, true),
+        "suspend pauses telemetry lifecycle");
 
     HudTelemetrySnapshot missing{};
     missing.graphicsApi = L"DX12";
