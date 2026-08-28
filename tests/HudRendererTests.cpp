@@ -144,17 +144,17 @@ int main()
     ok &= Check(Near(geometry.background.left, 300.0f) &&
         Near(geometry.background.right, 700.0f),
         "center ContentWidth background uses measured content");
-    ok &= Check(Near(geometry.textOrigin.x, 305.0f), "center text origin");
+    ok &= Check(Near(geometry.textOrigin.x, 307.0f), "center text origin");
 
     options.layout.alignment = HudAlignment::Left;
     geometry = CalculateHudGeometry(viewport, measure, options);
     ok &= Check(Near(geometry.background.left, 0.0f) &&
-        Near(geometry.background.right, 400.0f) && Near(geometry.textOrigin.x, 5.0f),
+        Near(geometry.background.right, 400.0f) && Near(geometry.textOrigin.x, 7.0f),
         "left ContentWidth geometry");
     options.layout.alignment = HudAlignment::Right;
     geometry = CalculateHudGeometry(viewport, measure, options);
     ok &= Check(Near(geometry.background.left, 600.0f) &&
-        Near(geometry.background.right, 1000.0f) && Near(geometry.textOrigin.x, 605.0f),
+        Near(geometry.background.right, 1000.0f) && Near(geometry.textOrigin.x, 607.0f),
         "right ContentWidth geometry");
 
     options.layout.backgroundMode = HudBackgroundMode::FullWidth;
@@ -173,7 +173,7 @@ int main()
         DipFromPhysicalPixels(30.0f, options.dpi)};
     geometry = CalculateHudGeometry(viewport, scaledMeasure, options);
     ok &= Check(Near(geometry.background.right, 266.6667f), "144 DPI content width");
-    ok &= Check(Near(geometry.textOrigin.x, 3.3333f), "144 DPI physical padding");
+    ok &= Check(Near(geometry.textOrigin.x, 4.6667f), "144 DPI physical padding");
 
     const HudRenderOptions geometryOptions{};
     geometry = CalculateHudGeometry(viewport, HudMeasureResult{400.0f, 42.0f, 32.0f}, geometryOptions);
