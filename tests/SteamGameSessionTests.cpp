@@ -35,12 +35,20 @@ int main()
     check(freshLaunch.shouldHandle && freshLaunch.freshLaunch &&
         !freshLaunch.allowBaselineRenderer && freshLaunch.state == SteamGameState::Resolving,
         "zero to nonzero app id is a fresh Steam launch");
+    const auto replacement = EvaluateSteamAppIdTransition(true, 1234, 5678);
+    check(replacement.freshLaunch && !replacement.allowBaselineRenderer &&
+        replacement.state == SteamGameState::Resolving,
+        "nonzero app id replacement creates a new session boundary");
     check(!EvaluateSteamAppIdTransition(true, 1234, 1234).shouldHandle,
         "unchanged app id is ignored");
     check(ShouldRunSteamRendererResolution(true, SteamGameState::Resolving,
         1234, false, false), "enabled Steam session can resolve renderer");
     check(!ShouldRunSteamRendererResolution(false, SteamGameState::Resolving,
         1234, false, false), "disabled HUD stops Steam renderer resolution");
+    check(ShouldConsiderSteamRendererHandoff(true, SteamGameState::Active,
+        1234, 100, 200), "active Steam session can consider a foreground handoff");
+    check(!ShouldConsiderSteamRendererHandoff(true, SteamGameState::Active,
+        1234, 100, 0), "handoff requires a foreground process");
 
     const std::vector<GpuEngineActivity> activity{
         {100, 2.0, false, L"3D"},

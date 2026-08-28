@@ -149,6 +149,30 @@ void SteamRunningAppIdSource::WatchLoop()
             CloseHandle(changed);
             return;
         }
+        if (kind == WatchKind::Steam)
+        {
+            if (!PostMessageW(dispatchWindow_, changedMessage_,
+                static_cast<WPARAM>(ReadAppId(key)), 0))
+            {
+                RegCloseKey(key);
+                CloseHandle(changed);
+                return;
+            }
+        }
+        else
+        {
+            WatchKind latestKind{};
+            if (const auto latestKey = OpenWatchKey(latestKind))
+            {
+                RegCloseKey(latestKey);
+                if (latestKind == WatchKind::Steam)
+                {
+                    RegCloseKey(key);
+                    CloseHandle(changed);
+                    continue;
+                }
+            }
+        }
         const HANDLE handles[] = { stopEvent_, changed };
         const DWORD wait = WaitForMultipleObjects(2, handles, FALSE, INFINITE);
         const auto appId = wait == WAIT_OBJECT_0 + 1 && kind == WatchKind::Steam

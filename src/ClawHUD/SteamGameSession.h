@@ -44,10 +44,20 @@ constexpr SteamAppIdTransition EvaluateSteamAppIdTransition(
     if (initialized && currentAppId == nextAppId)
         return {};
     const bool firstObservation = !initialized;
-    const bool freshLaunch = initialized && currentAppId == 0 && nextAppId != 0;
+    const bool freshLaunch = initialized && nextAppId != 0 &&
+        currentAppId != nextAppId;
     return { true, firstObservation, freshLaunch,
         firstObservation || !freshLaunch,
         nextAppId ? SteamGameState::Resolving : SteamGameState::None };
+}
+
+constexpr bool ShouldConsiderSteamRendererHandoff(
+    bool hudEnabled, SteamGameState state, std::uint32_t appId,
+    DWORD currentRendererPid, DWORD foregroundPid) noexcept
+{
+    return hudEnabled && state == SteamGameState::Active && appId != 0 &&
+        currentRendererPid != 0 && foregroundPid != 0 &&
+        currentRendererPid != foregroundPid;
 }
 
 constexpr bool ShouldRunSteamRendererResolution(
