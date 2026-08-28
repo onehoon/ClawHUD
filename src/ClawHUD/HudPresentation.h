@@ -41,6 +41,11 @@ inline UINT CalculateHudContentWidthPixels(
         pixels, 1.0, static_cast<double>(monitorWidth)));
 }
 
+inline D3D11_BOX HudAlphaSampleSourceBox(UINT x, UINT y) noexcept
+{
+    return D3D11_BOX{ x, y, 0, x + 1, y + 1, 1 };
+}
+
 class HudPresentation
 {
 public:

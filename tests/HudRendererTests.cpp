@@ -117,6 +117,11 @@ int main()
         CalculateHudContentWidthPixels(1000.0f, 144.0f, 1920) == 1500 &&
         CalculateHudContentWidthPixels(3000.0f, 96.0f, 1920) == 1920,
         "production ContentWidth converts measured DIP width to monitor pixels");
+    const auto alphaBox = HudAlphaSampleSourceBox(17, 23);
+    ok &= Check(alphaBox.left == 17 && alphaBox.top == 23 &&
+        alphaBox.right == 18 && alphaBox.bottom == 24 &&
+        alphaBox.front == 0 && alphaBox.back == 1,
+        "alpha readback copies source pixel into staging origin");
     ok &= Check(kHudBackgroundColor == 0x020202 && kHudCpuColor == 0x2E97CB &&
         kHudGpuColor == 0x2E9762 && kHudVramColor == 0xAD64C1 &&
         kHudGraphicsColor == 0xEB5B5B && kHudSystemColor == 0xFF9078 &&

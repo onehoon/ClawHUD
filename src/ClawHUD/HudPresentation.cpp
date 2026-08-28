@@ -278,8 +278,8 @@ HRESULT HudPresentation::Render(const HudTelemetrySnapshot& snapshot, const HudR
     if (!runs.empty() && canonicalOpacity &&
         debugLastValidatedAlpha_ != expectedBackgroundAlpha)
     {
-        const UINT sampleX = widthPx_ / 2;
-        const UINT sampleY = std::min<UINT>(heightPx_ / 2, heightPx_ - 1);
+        const UINT sampleX = std::min<UINT>(2, widthPx_ - 1);
+        const UINT sampleY = std::min<UINT>(2, heightPx_ - 1);
         if (FAILED(ValidatePresentedAlpha(buffer->texture.Get(), sampleX, sampleY,
             expectedBackgroundAlpha)))
             RuntimeLogger::Log(RuntimeLogLevel::Warn,
@@ -315,9 +315,7 @@ HRESULT HudPresentation::ValidatePresentedAlpha(
     HRESULT hr = device_->CreateTexture2D(&staging, nullptr, &readback);
     if (FAILED(hr))
         return hr;
-    const D3D11_BOX box{
-        sampleX, sampleY, 0,
-        sampleX + 1, sampleY + 1, 1 };
+    const D3D11_BOX box = HudAlphaSampleSourceBox(sampleX, sampleY);
     deviceContext_->CopySubresourceRegion(
         readback.Get(), 0, 0, 0, 0, texture, 0, &box);
     deviceContext_->Flush();
@@ -326,8 +324,7 @@ HRESULT HudPresentation::ValidatePresentedAlpha(
     hr = deviceContext_->Map(readback.Get(), 0, D3D11_MAP_READ, 0, &mapped);
     if (FAILED(hr))
         return hr;
-    const auto* pixel = static_cast<const BYTE*>(mapped.pData) +
-        sampleY * mapped.RowPitch + sampleX * 4;
+    const auto* pixel = static_cast<const BYTE*>(mapped.pData);
     const BYTE actualAlpha = pixel[3];
     deviceContext_->Unmap(readback.Get(), 0);
     if (std::abs(static_cast<int>(actualAlpha) - static_cast<int>(expectedAlpha)) > 2)
