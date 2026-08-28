@@ -1,7 +1,7 @@
 # HUD Presentation / VRR / Click-Through / Opacity Decision History
 
-> Status: historical design and hardware-validation record  
-> Last updated: 2026-08-28  
+> Status: historical design and hardware-validation record
+> Last updated: 2026-08-28
 > Scope: ClawHUD HUD presentation path, VRR/Independent Flip safety, click-through, and opacity decisions
 
 ## Purpose
