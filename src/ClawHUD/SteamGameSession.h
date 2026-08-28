@@ -58,3 +58,10 @@ constexpr bool ShouldRunSteamRendererResolution(
     return hudEnabled && state == SteamGameState::Resolving && appId != 0 &&
         !suspended && !diagnosticRunning;
 }
+
+constexpr bool ShouldWaitForSteamCandidateProbe(
+    DWORD currentCandidatePid, DWORD bestCandidatePid, bool probeExpired) noexcept
+{
+    return currentCandidatePid != 0 && currentCandidatePid == bestCandidatePid &&
+        !probeExpired;
+}

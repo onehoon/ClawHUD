@@ -13,6 +13,7 @@
 #include <Velopack.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <memory>
@@ -36,6 +37,7 @@ constexpr UINT kUsageSamplingIntervalMs = 1000;
 constexpr UINT kBatteryHudTimerIntervalMs = 5000;
 constexpr UINT kGraphicsApiRetryIntervalMs = 500;
 constexpr unsigned kGraphicsApiMaxAttempts = 5;
+constexpr auto kSteamCandidateProbeTimeout = std::chrono::seconds(3);
 constexpr wchar_t kInstanceMutexName[] = L"Local\\ClawHUD.SingleInstance";
 struct HudVisibilityRequest
 {
@@ -444,8 +446,12 @@ void App::HandleSystemResume()
         Log(L"Suspend notification was missed; resume fallback prepared");
     }
     suspended_ = false;
-    if (steamRunningAppIdSource_.Running())
-        HandleSteamRunningAppId(steamRunningAppIdSource_.ReadCurrentAppId());
+    const auto currentAppId = steamRunningAppIdSource_.Running()
+        ? steamRunningAppIdSource_.ReadCurrentAppId() : 0u;
+    if (currentAppId != steamRunningAppId_)
+        HandleSteamRunningAppId(currentAppId);
+    else if (currentAppId && mockHudEnabled_)
+        StartSteamRendererResolution();
     resumeRecoveryActive_ = true;
     resumeRecoveryAttempts_ = 0;
     SetTimer(tray_.Window(), kResumeRecoveryTimerId,
@@ -1043,6 +1049,7 @@ void App::PauseProductionSamplingForSuspend()
     {
         StopSteamRendererResolution(true);
         steamRendererPid_ = 0;
+        foregroundTracker_.SetTrackedProcessId(0);
         steamGameState_ = SteamGameState::Resolving;
     }
     StopGraphicsApiProbe();
@@ -1279,6 +1286,7 @@ void App::StopSteamRendererResolution(bool clearFps)
     KillTimer(tray_.Window(), kSteamRendererResolveTimerId);
     steamGpuEngineSampler_.Reset();
     steamRendererCandidatePid_ = 0;
+    steamCandidateProbeStarted_ = {};
     if (presentMonHudTelemetry_)
         StopProductionPresentMonSampling(L"steam-resolution-reset", clearFps);
     else if (clearFps)
@@ -1331,6 +1339,26 @@ void App::ResolveSteamRenderer()
     auto candidates = clawhud::SelectGpuActiveProcessIds(
         activity, foregroundPid, steamBaselineProcessIds_,
         steamAllowBaselineRenderer_);
+    if (steamRendererCandidatePid_ && presentMonHudTelemetry_ &&
+        presentMonHudTelemetry_->Running())
+    {
+        const auto now = std::chrono::steady_clock::now();
+        const bool betterCandidate = !candidates.empty() &&
+            candidates.front() != steamRendererCandidatePid_;
+        const bool probeExpired = now - steamCandidateProbeStarted_ >=
+            kSteamCandidateProbeTimeout;
+        if (ShouldWaitForSteamCandidateProbe(
+            steamRendererCandidatePid_, candidates.empty() ? 0 : candidates.front(),
+            probeExpired))
+            return;
+        StopProductionPresentMonSampling(
+            betterCandidate ? L"steam-candidate-replaced" : L"steam-candidate-timeout",
+            true);
+        steamRendererCandidatePid_ = 0;
+        steamCandidateProbeStarted_ = {};
+        if (!betterCandidate)
+            return;
+    }
     for (const auto processId : candidates)
     {
         if (processId == GetCurrentProcessId() || !ProcessAlive(processId))
@@ -1340,6 +1368,7 @@ void App::ResolveSteamRenderer()
             return;
         const bool candidateChanged = steamRendererCandidatePid_ != processId;
         steamRendererCandidatePid_ = processId;
+        steamCandidateProbeStarted_ = std::chrono::steady_clock::now();
         if (candidateChanged)
             StopProductionPresentMonSampling(L"steam-candidate-changed", true);
         StartGraphicsApiProbe(processId);
@@ -1351,6 +1380,7 @@ void App::ResolveSteamRenderer()
         if (!StartSteamPresentMon(processId))
         {
             steamRendererCandidatePid_ = 0;
+            steamCandidateProbeStarted_ = {};
         }
         return;
     }
@@ -1445,6 +1475,9 @@ void App::HandlePresentMonHudUpdate(DWORD processId, bool steamResolution,
         {
             steamRendererPid_ = processId;
             steamRendererCandidatePid_ = 0;
+            steamCandidateProbeStarted_ = {};
+            KillTimer(tray_.Window(), kSteamRendererResolveTimerId);
+            steamGpuEngineSampler_.Reset();
             steamGameState_ = SteamGameState::Active;
             latestPresentMonDisplayedFps_ = displayedFps;
             foregroundTracker_.SetTrackedProcessId(processId);

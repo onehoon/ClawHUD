@@ -47,6 +47,13 @@ int main()
         1234, false, false), "disabled HUD stops Steam renderer resolution");
     check(!ShouldRunSteamRendererResolution(true, SteamGameState::Active,
         1234, false, false), "active Steam session ignores foreground changes");
+    check(ShouldRunSteamRendererResolution(true, SteamGameState::Resolving,
+        1234, false, false), "resume can restart Steam renderer resolution");
+    check(ShouldWaitForSteamCandidateProbe(100, 100, false),
+        "live candidate probe waits while it is still the best candidate");
+    check(!ShouldWaitForSteamCandidateProbe(100, 200, false) &&
+        !ShouldWaitForSteamCandidateProbe(100, 100, true),
+        "new best candidate or timeout releases a live candidate probe");
 
     const std::vector<GpuEngineActivity> activity{
         {100, 2.0, false, L"3D"},

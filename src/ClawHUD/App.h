@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include <chrono>
 #include <memory>
 #include <cstddef>
 #include <cstdint>
@@ -220,6 +221,7 @@ private:
     SteamGameState steamGameState_{ SteamGameState::None };
     DWORD steamRendererPid_{};
     DWORD steamRendererCandidatePid_{};
+    std::chrono::steady_clock::time_point steamCandidateProbeStarted_{};
     std::vector<DWORD> steamBaselineProcessIds_;
     std::optional<clawhud::WindowsPowerTelemetry> latestPowerTelemetry_;
     clawhud::WindowsUsageSampler usageSampler_;
