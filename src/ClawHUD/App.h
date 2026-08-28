@@ -150,6 +150,7 @@ private:
     void RefreshMockHud();
     bool EnsureMockHud();
     void ReconcileHudVisibility();
+    void ReleaseCommittedProductionTarget(const wchar_t* reason);
     bool AdoptForegroundProductionTarget();
     bool AdoptForegroundProductionTarget(HWND window, DWORD processId);
     void ConfirmForegroundProductionTarget(DWORD processId);
@@ -162,8 +163,9 @@ private:
     void PauseProductionSamplingForSuspend();
     void CancelResumeRecovery();
     void StopProductionEcSampling(bool stopPresentMon = true);
-    void StartProductionPresentMonSampling();
-    void StopProductionPresentMonSampling();
+    void StartProductionPresentMonSampling(bool recoveryStart = false);
+    void StopProductionPresentMonSampling(const wchar_t* reason = L"explicit-reset",
+        bool clearLatestFps = false);
     void HandlePresentMonHudUpdate(DWORD processId, std::optional<double> displayedFps);
     void StartGraphicsApiProbe(DWORD processId);
     void StopGraphicsApiProbe();
@@ -182,6 +184,8 @@ private:
     std::unique_ptr<clawhud::PresentMonHudTelemetry> presentMonHudTelemetry_;
     std::optional<double> latestPresentMonDisplayedFps_;
     DWORD presentMonProcessId_{};
+    DWORD presentMonRestartPid_{};
+    unsigned presentMonRestartAttempts_{};
     DWORD pendingProductionTargetPid_{};
     std::optional<clawhud::WindowsPowerTelemetry> latestPowerTelemetry_;
     clawhud::WindowsUsageSampler usageSampler_;

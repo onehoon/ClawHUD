@@ -22,7 +22,7 @@ bool IsRejectedProductionTargetImage(std::wstring_view image) noexcept
 bool ShouldEvaluateForegroundCandidate(DWORD committedProcessId,
     DWORD foregroundProcessId) noexcept
 {
-    return foregroundProcessId != 0 && foregroundProcessId != committedProcessId;
+    return committedProcessId == 0 && foregroundProcessId != 0;
 }
 
 bool ShouldReplacePendingCandidate(DWORD pendingProcessId,
@@ -34,13 +34,20 @@ bool ShouldReplacePendingCandidate(DWORD pendingProcessId,
 DWORD SelectProductionSamplingProcess(DWORD trackedProcessId,
     DWORD pendingProcessId) noexcept
 {
-    return pendingProcessId ? pendingProcessId : trackedProcessId;
+    return trackedProcessId ? trackedProcessId : pendingProcessId;
 }
 
-bool ShouldSampleProductionPresentMon(DWORD pendingProcessId,
-    bool foregroundIsTrackedProcess) noexcept
+bool ShouldSampleProductionPresentMon(DWORD committedProcessId,
+    DWORD pendingProcessId, bool committedProcessAlive) noexcept
 {
-    return pendingProcessId != 0 || foregroundIsTrackedProcess;
+    return (committedProcessId != 0 && committedProcessAlive) ||
+        (committedProcessId == 0 && pendingProcessId != 0);
+}
+
+bool ShouldRetainCommittedProductionTarget(DWORD committedProcessId,
+    bool processAlive) noexcept
+{
+    return committedProcessId != 0 && processAlive;
 }
 
 bool ShouldPreservePendingProductionValidation(DWORD pendingProcessId,
@@ -48,6 +55,28 @@ bool ShouldPreservePendingProductionValidation(DWORD pendingProcessId,
 {
     return pendingProcessId != 0 && pendingProcessId == presentMonProcessId &&
         presentMonRunning;
+}
+
+bool ShouldDeferPendingProductionValidation(DWORD pendingProcessId,
+    DWORD foregroundProcessId, bool foregroundUsable,
+    bool candidateProcessAlive) noexcept
+{
+    return pendingProcessId != 0 && candidateProcessAlive &&
+        (foregroundProcessId == 0 || !foregroundUsable);
+}
+
+bool ShouldRetryProductionPresentMon(DWORD retryProcessId,
+    unsigned retryAttempts, DWORD processId) noexcept
+{
+    return processId != 0 && (retryProcessId != processId || retryAttempts == 0);
+}
+
+bool ShouldAllowProductionPresentMonStart(DWORD committedProcessId,
+    DWORD processId, DWORD retryProcessId, unsigned retryAttempts,
+    bool recoveryStart) noexcept
+{
+    return committedProcessId != processId || recoveryStart ||
+        ShouldRetryProductionPresentMon(retryProcessId, retryAttempts, processId);
 }
 
 bool ShouldReevaluateForegroundAfterResume(bool hudEnabled,
