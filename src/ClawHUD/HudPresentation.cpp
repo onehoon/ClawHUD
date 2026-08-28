@@ -409,6 +409,9 @@ HRESULT HudPresentation::ResizeContentWidth(UINT widthPx, HudAlignment alignment
     widthPx_ = geometry.widthPx;
     xPx_ = geometry.xPx;
     yPx_ = geometry.yPx;
+    opacityPocBackgroundPainted_ = false;
+    InvalidateRect(window_, nullptr, FALSE);
+    UpdateWindow(window_);
     return S_OK;
 }
 
