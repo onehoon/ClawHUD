@@ -528,7 +528,9 @@ float MainTextYOffset(const HudRenderOptions& options) noexcept
 
 float UnitTextYOffset(const HudRenderOptions& options) noexcept
 {
-    return DipFromPhysicalPixels(2.0f, options.dpi);
+    const float offsetPx =
+        options.font == HudFont::SegoeUiVariable ? 3.0f : 2.0f;
+    return DipFromPhysicalPixels(offsetPx, options.dpi);
 }
 
 std::vector<HudUnitRange> FindHudUnitRanges(const std::wstring& text)
