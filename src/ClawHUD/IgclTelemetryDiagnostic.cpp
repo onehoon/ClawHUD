@@ -156,6 +156,33 @@ void IgclTelemetryDiagnostic::Run()
             }
         }
         log<<"\n=== SAMPLING ===\nCadence: 250 ms\nTarget samples: 20\nRaw samples retain support/type/unit/value fields above. Counters are not converted to instantaneous values.\n";
+        const char* powerMetricNames[] = {
+            "timeStamp","gpuEnergyCounter","gpuVoltage","gpuCurrentClockFrequency","gpuCurrentTemperature",
+            "globalActivityCounter","renderComputeActivityCounter","mediaActivityCounter",
+            "gpuPowerLimited","gpuTemperatureLimited","gpuCurrentLimited","gpuVoltageLimited","gpuUtilizationLimited",
+            "vramEnergyCounter","vramVoltage","vramCurrentClockFrequency","vramCurrentEffectiveFrequency",
+            "vramReadBandwidthCounter","vramWriteBandwidthCounter","vramCurrentTemperature","totalCardEnergyCounter",
+            "gpuVrTemp","vramVrTemp","saVrTemp","gpuEffectiveClock","gpuOverVoltagePercent","gpuPowerPercent",
+            "gpuTemperaturePercent","vramReadBandwidth","vramWriteBandwidth"
+        };
+        auto markPowerUnavailable = [&](std::uint32_t adapter, bool symbolPresent, bool apiSucceeded) {
+            const auto prefix = "adapter["+std::to_string(adapter)+"].";
+            for (const auto name : powerMetricNames) {
+                auto& series = metrics[prefix+name];
+                series.symbolPresent &= symbolPresent;
+                series.apiSucceeded &= apiSucceeded;
+            }
+            for (std::size_t i=0; i<5; ++i) {
+                for (const auto suffix : {"supported", "energy", "voltage"}) {
+                    auto& series = metrics[prefix+"psu["+std::to_string(i)+"]."+suffix];
+                    series.symbolPresent &= symbolPresent;
+                    series.apiSucceeded &= apiSucceeded;
+                }
+                auto& fan = metrics[prefix+"fanSpeed["+std::to_string(i)+"]"];
+                fan.symbolPresent &= symbolPresent;
+                fan.apiSucceeded &= apiSucceeded;
+            }
+        };
         std::size_t currentAdapter=0;
         auto collect = [&](const std::string& name, const Item& item, bool counter=false) { auto& s=metrics["adapter["+std::to_string(currentAdapter)+"]."+name]; s.supported&=item.supported; if(item.supported){s.values.push_back(DecodeItem(item)); s.rawValues.push_back(item.value.u64); s.timestamps.push_back(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count())); s.types.push_back(item.type);} (void)counter; };
         if (tele) for (int sample=1; sample<=20 && !stop_; ++sample)
@@ -175,18 +202,20 @@ void IgclTelemetryDiagnostic::Run()
                 }
                 else
                 {
-                    const char* missing[] = {"timeStamp","gpuEnergyCounter","gpuVoltage","gpuCurrentClockFrequency","gpuCurrentTemperature","globalActivityCounter","renderComputeActivityCounter","mediaActivityCounter","vramEnergyCounter","vramVoltage","vramCurrentClockFrequency","vramCurrentEffectiveFrequency","vramReadBandwidthCounter","vramWriteBandwidthCounter","vramCurrentTemperature","totalCardEnergyCounter","gpuVrTemp","vramVrTemp","saVrTemp","gpuEffectiveClock","gpuOverVoltagePercent","gpuPowerPercent","gpuTemperaturePercent","vramReadBandwidth","vramWriteBandwidth"};
-                    for (const auto name : missing) metrics["adapter["+std::to_string(currentAdapter)+"]."+name].apiSucceeded=false;
+                    markPowerUnavailable(static_cast<std::uint32_t>(currentAdapter), true, false);
                 }
                 log << "  Adapter " << i << " ctlPowerTelemetryGetV2: " << ResultName(sr) << " (" << Hex(sr) << ")\n";
-                if(sr==kSuccess) { const Item* items[]={&p.timeStamp,&p.gpuEnergyCounter,&p.gpuCurrentClockFrequency,&p.gpuCurrentTemperature,&p.globalActivityCounter,&p.renderComputeActivityCounter,&p.mediaActivityCounter,&p.vramEnergyCounter,&p.vramCurrentClockFrequency,&p.vramCurrentEffectiveFrequency,&p.vramReadBandwidthCounter,&p.vramWriteBandwidthCounter,&p.vramCurrentTemperature,&p.totalCardEnergyCounter,&p.gpuEffectiveClock,&p.gpuPowerPercent}; for(size_t j=0;j<std::size(items);++j) log<<"    field["<<j<<"] supported="<<(items[j]->supported?"true":"false")<<" type="<<(unsigned)items[j]->type<<" units="<<items[j]->units<<" raw_u64="<<items[j]->value.u64<<" raw_double="<<items[j]->value.d<<"\n"; }
+                if(sr==kSuccess) {
+                    VisitPowerTelemetry(p,
+                        [&](const std::string& name, const Item& item) { log<<"    "<<name<<" supported="<<(item.supported?"true":"false")<<" type="<<(unsigned)item.type<<" units="<<item.units<<" raw_u64="<<item.value.u64<<" raw_double="<<item.value.d<<" decoded="<<DecodeItem(item)<<"\n"; },
+                        [&](const std::string& name, bool value) { log<<"    "<<name<<" raw_bool="<<(value?"true":"false")<<"\n"; });
+                }
             }
             log.flush(); if(sample<20) std::this_thread::sleep_for(std::chrono::milliseconds(250));
         }
         if (!tele)
         {
-            const char* fields[] = {"timeStamp","gpuEnergyCounter","gpuVoltage","gpuCurrentClockFrequency","gpuCurrentTemperature","globalActivityCounter","renderComputeActivityCounter","mediaActivityCounter","vramEnergyCounter","vramVoltage","vramCurrentClockFrequency","vramCurrentEffectiveFrequency","vramReadBandwidthCounter","vramWriteBandwidthCounter","vramCurrentTemperature","totalCardEnergyCounter","gpuVrTemp","vramVrTemp","saVrTemp","gpuEffectiveClock","gpuOverVoltagePercent","gpuPowerPercent","gpuTemperaturePercent","vramReadBandwidth","vramWriteBandwidth"};
-            for (std::uint32_t i=0;i<count;++i) for (const auto field : fields) metrics["adapter["+std::to_string(i)+"]."+field].symbolPresent=false;
+            for (std::uint32_t i=0;i<count;++i) markPowerUnavailable(i, false, true);
         }
         success=!stop_;
     } catch(...) { }

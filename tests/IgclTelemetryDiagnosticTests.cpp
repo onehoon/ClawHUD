@@ -17,6 +17,10 @@ int main()
     IgclSampleSeries missing; missing.hasDomain = false; check(ClassifyIgclSamples(missing) == IgclDiagnosticClass::NoDomain, "no domain");
     IgclSampleSeries error; error.apiSucceeded = false; check(ClassifyIgclSamples(error) == IgclDiagnosticClass::ApiError, "api error");
     IgclSampleSeries symbol; symbol.symbolPresent = false; check(ClassifyIgclSamples(symbol) == IgclDiagnosticClass::SymbolMissing, "missing symbol");
+    IgclSampleSeries largeCounter; largeCounter.values = { 9007199254740992.0, 9007199254740992.0 };
+    largeCounter.rawValues = { 9007199254740992ULL, 9007199254740993ULL };
+    largeCounter.types = { 7, 7 };
+    check(ClassifyIgclSamples(largeCounter) == IgclDiagnosticClass::SupportedActive, "changing uint64 counter");
     check(IgclSampleMinimum(changing) == 0.0 && IgclSampleMaximum(changing) == 20.0, "min max");
     check(std::string(IgclDiagnosticClassName(IgclDiagnosticClass::SymbolMissing)) == "SYMBOL_MISSING", "raw classification names");
     check(std::string(IgclDiagnosticClassName(IgclDiagnosticClass::SkippedMutationCapable)) == "SKIPPED_MUTATION_CAPABLE", "safety classification name");
