@@ -892,12 +892,7 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
         SendMessageW(self->opacitySlider_, TBM_SETPOS, TRUE, position);
         const bool persist = LOWORD(wParam) != TB_THUMBTRACK;
         self->app_.SetHudOpacity(position / 100.0f, persist);
-        if (self->opacityLabel_)
-        {
-            wchar_t text[8]{};
-            swprintf_s(text, L"%d%%", position);
-            SetWindowTextW(self->opacityLabel_, text);
-        }
+        self->UpdateHudControls();
         return 0;
     }
     if (message == WM_COMMAND && LOWORD(wParam) == kStartEc)

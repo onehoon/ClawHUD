@@ -670,12 +670,12 @@ void App::SetHudBackgroundMode(clawhud::HudBackgroundMode mode)
     SaveHudSettings();
 }
 
-void App::SetHudOpacity(float opacity, bool persist)
+bool App::SetHudOpacity(float opacity, bool persist)
 {
     if (VrrDiagnosticRunning())
     {
         Log(L"HUD opacity change ignored while VRR diagnostic is running");
-        return;
+        return false;
     }
     const long requestedPercent = static_cast<long>(std::lround(opacity * 100.0f));
     const long percent = clawhud::ClampHudOpacityPercent(requestedPercent);
@@ -683,7 +683,7 @@ void App::SetHudOpacity(float opacity, bool persist)
     if (hudOptions_.backgroundOpacity == newOpacity)
     {
         if (persist) SaveHudSettings();
-        return;
+        return true;
     }
     if (hudPresentation_ && hudPresentation_->Initialized())
     {
@@ -692,11 +692,12 @@ void App::SetHudOpacity(float opacity, bool persist)
         {
             clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
                 L"SetLayeredWindowAttributes for HUD opacity failed hr=" + HexHresult(hr));
-            return;
+            return false;
         }
     }
     hudOptions_.backgroundOpacity = newOpacity;
     if (persist) SaveHudSettings();
+    return true;
 }
 
 void App::SetHudSizeOffset(int offset)
