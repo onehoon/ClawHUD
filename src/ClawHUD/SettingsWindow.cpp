@@ -549,9 +549,14 @@ void SettingsWindow::Layout()
     if (!window_) return;
     RECT client{};
     GetClientRect(window_, &client);
+    int tabHeaderHeight = Scale(32);
+    RECT tabItem{};
+    if (tabs_ && TabCtrl_GetItemRect(tabs_, 0, &tabItem))
+        tabHeaderHeight = std::max(tabHeaderHeight,
+            static_cast<int>(tabItem.bottom) + Scale(2));
     MoveWindow(tabs_, 0, 0,
         std::max(0, static_cast<int>(client.right)),
-        std::max(0, static_cast<int>(client.bottom)), TRUE);
+        std::min(std::max(0, static_cast<int>(client.bottom)), tabHeaderHeight), TRUE);
     const int panelX = Scale(24);
     const int panelY = Scale(52);
     const int panelWidth = std::max(0, static_cast<int>(client.right) - Scale(48));
