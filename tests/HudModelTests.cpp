@@ -49,7 +49,7 @@ int main()
         "settings opacity runtime to percent round trip");
 
     const auto dc = FormatHud(MakeGameDcSample());
-    ok &= Check(JoinHudRuns(dc) == L"DX11 60FPS | CPU 36% 67\u00B0C | GPU 98% | TDP 18W | FAN 3540RPM | BAT 72% 2.5h", "game DC formatting");
+    ok &= Check(JoinHudRuns(dc) == L"60FPS | CPU 36% 67\u00B0C | GPU 98% | TDP 18W | FAN 3540RPM | BAT 72% 2.5h", "game DC formatting");
     auto fractionalTdp = MakeGameDcSample();
     fractionalTdp.cpuPackagePowerW = 35.3;
     const auto fractionalTdpText = JoinHudRuns(FormatHud(fractionalTdp));
@@ -62,7 +62,7 @@ int main()
     ok &= Check(dc.size() == 6, "game DC segment count");
 
     ok &= Check(JoinHudRuns(FormatHud(MakeGameAcSample())) ==
-        L"DX11 60FPS | CPU 36% 67\u00B0C | GPU 98% | TDP 18W | FAN 3540RPM | BAT 72%", "game AC formatting");
+        L"60FPS | CPU 36% 67\u00B0C | GPU 98% | TDP 18W | FAN 3540RPM | BAT 72%", "game AC formatting");
     ok &= Check(JoinHudRuns(FormatHud(MakeNoGameAlwaysSample())) ==
         L"CPU 36% 67\u00B0C | GPU 98% | TDP 18W | FAN 3540RPM | BAT 72% 2.5h", "no-game formatting");
     ok &= Check(ShouldShowHud(HudVisibilityMode::Always, false), "always visibility");
@@ -128,18 +128,50 @@ int main()
 
     HudTelemetrySnapshot displayed{};
     displayed.presentMonDisplayedFps = 120.0;
-    ok &= Check(JoinHudRuns(FormatHud(displayed)) == L"FPS 120",
-        "PresentMon displayed FPS formatting");
+    auto displayedRuns = FormatHud(displayed);
+    ok &= Check(displayedRuns.size() == 1 && displayedRuns[0].label.empty() &&
+        displayedRuns[0].value == L"120FPS",
+        "PresentMon FPS without API uses unit-formatted value");
     displayed.graphicsApi = L"DX12";
-    ok &= Check(JoinHudRuns(FormatHud(displayed)) == L"DX12 120FPS",
+    displayedRuns = FormatHud(displayed);
+    ok &= Check(displayedRuns.size() == 1 && displayedRuns[0].label == L"DX12" &&
+        displayedRuns[0].value == L"120FPS",
         "graphics API and displayed FPS formatting");
+    displayed.graphicsApi = L"DX11";
+    displayedRuns = FormatHud(displayed);
+    ok &= Check(displayedRuns.size() == 1 && displayedRuns[0].label.empty() &&
+        displayedRuns[0].value == L"120FPS",
+        "DX11 API is hidden from FPS formatting");
+    displayed.graphicsApi = L"Vulkan";
+    displayedRuns = FormatHud(displayed);
+    ok &= Check(displayedRuns.size() == 1 && displayedRuns[0].label.empty() &&
+        displayedRuns[0].value == L"120FPS",
+        "non-DX12 API is hidden from FPS formatting");
+    displayed.graphicsApi = L"DX11+DX12";
+    displayedRuns = FormatHud(displayed);
+    ok &= Check(displayedRuns.size() == 1 && displayedRuns[0].label.empty() &&
+        displayedRuns[0].value == L"120FPS",
+        "mixed API value is hidden from FPS formatting");
+
+    HudTelemetrySnapshot rendered{};
+    rendered.graphicsApi = L"DX12";
+    rendered.renderFps = 120.0;
+    auto renderedRuns = FormatHud(rendered);
+    ok &= Check(renderedRuns.size() == 1 && renderedRuns[0].label == L"DX12" &&
+        renderedRuns[0].value == L"120FPS",
+        "render FPS uses the confirmed DX12 label");
+    rendered.graphicsApi = L"DX11";
+    renderedRuns = FormatHud(rendered);
+    ok &= Check(renderedRuns.size() == 1 && renderedRuns[0].label.empty() &&
+        renderedRuns[0].value == L"120FPS",
+        "render FPS hides a non-DX12 API");
 
     HudTelemetrySnapshot unavailableApi{};
     unavailableApi.presentMonDisplayedFps = 120.0;
     unavailableApi.cpuUsagePercent = 33.0;
     unavailableApi.gpuUsagePercent = 44.0;
     ok &= Check(JoinHudRuns(FormatHud(unavailableApi)) ==
-        L"FPS 120 | CPU 33% | GPU 44%",
+        L"120FPS | CPU 33% | GPU 44%",
         "missing graphics API preserves other telemetry");
 
     HudTelemetrySnapshot vram{};

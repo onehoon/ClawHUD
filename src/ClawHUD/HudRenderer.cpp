@@ -400,7 +400,7 @@ HRESULT MeasureGroup(IDWriteFactory* factory, IDWriteTextFormat* format,
     width = Width(label.Get());
     height = Height(label.Get());
     const auto cells = BuildMetricCells(run);
-    if (!cells.empty())
+    if (!run.label.empty() && !cells.empty())
         width += SegmentGap(options);
     for (std::size_t i = 0; i < cells.size(); ++i)
     {
@@ -671,7 +671,7 @@ HRESULT HudRenderer::Draw(ID2D1DeviceContext* context,
             labelBrush.Get(), outlineBrush.Get(), options);
         x += Width(label.Get());
         const auto cells = BuildMetricCells(runs[i]);
-        if (!cells.empty())
+        if (!runs[i].label.empty() && !cells.empty())
             x += SegmentGap(options);
         for (std::size_t cellIndex = 0; cellIndex < cells.size(); ++cellIndex)
         {
