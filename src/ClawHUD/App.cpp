@@ -636,7 +636,8 @@ void App::SetHudAlignment(clawhud::HudAlignment alignment)
         {
             RecreateHudPresentation(restoreVisible);
             SaveHudSettings();
-            Log(L"HUD alignment change rolled back after presentation recreation failure");
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+                L"HUD alignment change rolled back after presentation recreation failure");
             return;
         }
     }
@@ -659,7 +660,8 @@ void App::SetHudFont(clawhud::HudFont font)
     {
         hudFont_ = previousFont;
         RecreateHudPresentation(restoreVisible);
-        Log(L"HUD font change rolled back after presentation recreation failure");
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+            L"HUD font change rolled back after presentation recreation failure");
         return;
     }
     SaveHudSettings();
@@ -688,7 +690,8 @@ void App::SetHudBackgroundMode(clawhud::HudBackgroundMode mode)
     {
         RecreateHudPresentation(restoreVisible);
         SaveHudSettings();
-        Log(L"HUD background mode change rolled back after presentation recreation failure");
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+            L"HUD background mode change rolled back after presentation recreation failure");
         return;
     }
     SaveHudSettings();
@@ -747,7 +750,8 @@ void App::SetHudSizeOffset(int offset)
     if (!recreated)
     {
         RecreateHudPresentation(restoreVisible);
-        Log(L"HUD size change rolled back after presentation recreation failure");
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+            L"HUD size change rolled back after presentation recreation failure");
         return;
     }
     Log(L"HUD presentation recreated");
@@ -778,7 +782,8 @@ bool App::RecreateHudPresentation(bool restoreVisible)
         hudOptions_.backgroundOpacity * 100.0f);
     if (FAILED(hr))
     {
-        Log(L"HUD presentation recreation failed");
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
+            L"HUD presentation recreation failed hr=" + HexHresult(hr));
         return false;
     }
     if (mockHudEnabled_)
@@ -793,7 +798,8 @@ bool App::RecreateHudPresentation(bool restoreVisible)
         hr = hudPresentation_->Show();
         if (FAILED(hr))
         {
-            Log(L"HUD size visibility restore failed");
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+                L"HUD visibility restore failed hr=" + HexHresult(hr));
             return false;
         }
     }
@@ -1512,7 +1518,8 @@ void App::HandleHudToggleHotkey()
     {
         if (!EnsureMockHud())
         {
-            Log(L"F8 HUD ON initialization failed");
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
+                L"F8 HUD ON initialization failed");
             return;
         }
         mockHudEnabled_ = true;
@@ -1736,7 +1743,7 @@ void App::ReconcileHudVisibility()
         {
             if (!hudShowFailureLogged_)
                 clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
-                    L"HUD show failed");
+                    L"HUD show failed hr=" + HexHresult(hr));
             hudShowFailureLogged_ = true;
         }
     }
@@ -1751,7 +1758,7 @@ void App::ReconcileHudVisibility()
         }
         else if (!hudHideFailureLogged_)
             clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
-                L"HUD hide failed");
+                L"HUD hide failed hr=" + HexHresult(hr));
         if (FAILED(hr))
             hudHideFailureLogged_ = true;
         KillTimer(tray_.Window(), kMockHudTimerId);

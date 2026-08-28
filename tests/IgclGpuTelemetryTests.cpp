@@ -1,6 +1,5 @@
 #include "IgclGpuTelemetry.h"
 
-#include <cassert>
 #include <cmath>
 #include <iostream>
 
@@ -8,25 +7,45 @@ using namespace clawhud;
 
 int main()
 {
-    assert(ShouldLogIgclInitializationFailure(false));
-    assert(!ShouldLogIgclInitializationFailure(true));
-    bool initializationFailureLogged = false;
-    assert(ShouldLogIgclInitializationFailure(initializationFailureLogged));
-    initializationFailureLogged = true;
-    assert(!ShouldLogIgclInitializationFailure(initializationFailureLogged));
+    bool ok = true;
+    const auto check = [&](bool value, const char* name)
+    {
+        if (!value)
+        {
+            std::cerr << name << "\n";
+            ok = false;
+        }
+    };
 
-    assert(clawhud::ObserveIgclTelemetryTransition(true, 1, false, 3) ==
-        clawhud::IgclTelemetryTransition::None);
-    assert(clawhud::ObserveIgclTelemetryTransition(true, 3, false, 3) ==
-        clawhud::IgclTelemetryTransition::Unavailable);
-    assert(clawhud::ObserveIgclTelemetryTransition(false, 1, false, 3) ==
-        clawhud::IgclTelemetryTransition::None);
-    assert(clawhud::ObserveIgclTelemetryTransition(false, 0, true, 3) ==
-        clawhud::IgclTelemetryTransition::Recovered);
-    assert(clawhud::ObserveIgclTelemetryTransition(true, 0, true, 3) ==
-        clawhud::IgclTelemetryTransition::None);
-    assert(clawhud::ObserveIgclTelemetryTransition(true, 1, true, 3) ==
-        clawhud::IgclTelemetryTransition::None);
+    check(ShouldLogIgclInitializationFailure(false),
+        "first initialization failure is logged");
+    check(!ShouldLogIgclInitializationFailure(true),
+        "repeated initialization failure is suppressed");
+    bool initializationFailureLogged = false;
+    check(ShouldLogIgclInitializationFailure(initializationFailureLogged),
+        "initialization outage starts logging");
+    initializationFailureLogged = true;
+    check(!ShouldLogIgclInitializationFailure(initializationFailureLogged),
+        "initialization outage remains deduplicated");
+
+    check(clawhud::ObserveIgclTelemetryTransition(true, 1, false, 3) ==
+        clawhud::IgclTelemetryTransition::None,
+        "single failure does not mark unavailable");
+    check(clawhud::ObserveIgclTelemetryTransition(true, 3, false, 3) ==
+        clawhud::IgclTelemetryTransition::Unavailable,
+        "third consecutive failure marks unavailable");
+    check(clawhud::ObserveIgclTelemetryTransition(false, 1, false, 3) ==
+        clawhud::IgclTelemetryTransition::None,
+        "unavailable state ignores incomplete failure streak");
+    check(clawhud::ObserveIgclTelemetryTransition(false, 0, true, 3) ==
+        clawhud::IgclTelemetryTransition::Recovered,
+        "successful sample recovers unavailable telemetry");
+    check(clawhud::ObserveIgclTelemetryTransition(true, 0, true, 3) ==
+        clawhud::IgclTelemetryTransition::None,
+        "successful sample keeps available telemetry healthy");
+    check(clawhud::ObserveIgclTelemetryTransition(true, 1, true, 3) ==
+        clawhud::IgclTelemetryTransition::None,
+        "successful sample clears failure streak");
 
     unsigned failures = 0;
     bool available = true;
@@ -44,23 +63,20 @@ int main()
             available = true;
         return transition;
     };
-    assert(observe(true) == clawhud::IgclTelemetryTransition::None);
-    assert(observe(false) == clawhud::IgclTelemetryTransition::None);
-    assert(observe(true) == clawhud::IgclTelemetryTransition::None);
-    assert(observe(false) == clawhud::IgclTelemetryTransition::None);
-    assert(observe(false) == clawhud::IgclTelemetryTransition::None);
-    assert(observe(false) == clawhud::IgclTelemetryTransition::Unavailable);
-    assert(observe(true) == clawhud::IgclTelemetryTransition::Recovered);
-    bool ok = true;
-    const auto check = [&](bool value, const char* name)
-    {
-        if (!value)
-        {
-            std::cerr << name << "\n";
-            ok = false;
-        }
-    };
-
+    check(observe(true) == clawhud::IgclTelemetryTransition::None,
+        "healthy sample has no transition");
+    check(observe(false) == clawhud::IgclTelemetryTransition::None,
+        "first failure has no transition");
+    check(observe(true) == clawhud::IgclTelemetryTransition::None,
+        "recovery before threshold has no transition");
+    check(observe(false) == clawhud::IgclTelemetryTransition::None,
+        "new failure streak starts without transition");
+    check(observe(false) == clawhud::IgclTelemetryTransition::None,
+        "second consecutive failure has no transition");
+    check(observe(false) == clawhud::IgclTelemetryTransition::Unavailable,
+        "third consecutive failure emits unavailable");
+    check(observe(true) == clawhud::IgclTelemetryTransition::Recovered,
+        "successful sample emits recovery");
     const auto almostEqual = [](double actual, double expected)
     {
         return std::abs(actual - expected) < 0.001;
