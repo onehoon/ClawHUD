@@ -175,17 +175,20 @@ int main()
     ok &= Check(Near(geometry.textOrigin.y, 5.0f), "vertical centering uses measured text height");
 
     HudRenderOptions typographyOptions{};
-    ok &= Check(Near(MainTextYOffset(typographyOptions), 0.0f) &&
-        Near(UnitTextYOffset(typographyOptions), 2.0f),
+    ok &= Check(Near(MainTextYOffset(typographyOptions), 1.0f) &&
+        Near(UnitTextYOffset(typographyOptions), 0.0f),
         "Unispace text offsets");
     typographyOptions.font = HudFont::SegoeUiVariable;
-    ok &= Check(Near(MainTextYOffset(typographyOptions), -2.0f) &&
-        Near(UnitTextYOffset(typographyOptions), 2.0f),
+    ok &= Check(Near(MainTextYOffset(typographyOptions), 0.0f) &&
+        Near(UnitTextYOffset(typographyOptions), 0.0f),
         "Segoe UI Variable text offsets");
     typographyOptions.dpi = 144.0f;
-    ok &= Check(Near(MainTextYOffset(typographyOptions), -1.3333f) &&
-        Near(UnitTextYOffset(typographyOptions), 1.3333f),
+    typographyOptions.font = HudFont::Unispace;
+    ok &= Check(Near(MainTextYOffset(typographyOptions), 0.6667f) &&
+        Near(UnitTextYOffset(typographyOptions), 0.0f),
         "text offsets preserve physical pixels at high DPI");
+    ok &= Check(Near(CalculateUnitBaselineOffset(18.0f, 10.0f, typographyOptions), 8.0f),
+        "unit offset uses DirectWrite baseline difference");
 
     const RECT monitor{ -1920, -100, 0, 980 };
     const auto fullWindow = CalculateHudWindowGeometry(

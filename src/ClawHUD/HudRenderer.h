@@ -60,6 +60,9 @@ struct HudRenderGeometry
 float DipFromPhysicalPixels(float pixels, float dpi) noexcept;
 float MainTextYOffset(const HudRenderOptions& options) noexcept;
 float UnitTextYOffset(const HudRenderOptions& options) noexcept;
+float CalculateUnitBaselineOffset(
+    float mainBaseline, float unitBaseline,
+    const HudRenderOptions& options) noexcept;
 std::vector<HudUnitRange> FindHudUnitRanges(const std::wstring& text);
 HudRenderGeometry CalculateHudGeometry(
     const D2D1_RECT_F& viewport,

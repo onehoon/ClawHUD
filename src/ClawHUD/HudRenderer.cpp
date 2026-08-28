@@ -240,6 +240,20 @@ float Width(IDWriteTextLayout* layout) noexcept
     return SUCCEEDED(layout->GetMetrics(&metrics)) ? metrics.widthIncludingTrailingWhitespace : 0.0f;
 }
 
+float FirstBaseline(IDWriteTextLayout* layout) noexcept
+{
+    if (!layout)
+        return 0.0f;
+    UINT32 lineCount{};
+    if (FAILED(layout->GetLineMetrics(nullptr, 0, &lineCount)) || lineCount == 0)
+        return 0.0f;
+    std::vector<DWRITE_LINE_METRICS> lines(lineCount);
+    UINT32 actualCount{};
+    if (FAILED(layout->GetLineMetrics(lines.data(), lineCount, &actualCount)) || actualCount == 0)
+        return 0.0f;
+    return lines[0].baseline;
+}
+
 float Height(IDWriteTextLayout* layout) noexcept
 {
     DWRITE_TEXT_METRICS metrics{};
@@ -363,7 +377,8 @@ HRESULT DrawValue(ID2D1DeviceContext* context, IDWriteFactory* factory,
         const std::wstring unitText = text.substr(range.start, range.length);
         hr = CreateLayout(factory, unitFormat.Get(), unitText, options, true, false, unit);
         if (FAILED(hr)) return hr;
-        const float unitY = y + UnitTextYOffset(options);
+        const float unitY = y + CalculateUnitBaselineOffset(
+            FirstBaseline(mainLayout), FirstBaseline(unit.Get()), options);
         DrawOutlinedLayout(context, unit.Get(), x, unitY, brush, outlineBrush, options);
         x += Width(unit.Get());
         cursor = range.start + range.length;
@@ -504,13 +519,20 @@ float DipFromPhysicalPixels(float pixels, float dpi) noexcept
 
 float MainTextYOffset(const HudRenderOptions& options) noexcept
 {
-    return options.font == HudFont::SegoeUiVariable
-        ? DipFromPhysicalPixels(-2.0f, options.dpi) : 0.0f;
+    return options.font == HudFont::Unispace
+        ? DipFromPhysicalPixels(1.0f, options.dpi) : 0.0f;
 }
 
 float UnitTextYOffset(const HudRenderOptions& options) noexcept
 {
-    return DipFromPhysicalPixels(2.0f, options.dpi);
+    return 0.0f;
+}
+
+float CalculateUnitBaselineOffset(
+    float mainBaseline, float unitBaseline,
+    const HudRenderOptions& options) noexcept
+{
+    return mainBaseline - unitBaseline + UnitTextYOffset(options);
 }
 
 std::vector<HudUnitRange> FindHudUnitRanges(const std::wstring& text)
@@ -678,12 +700,14 @@ HRESULT HudRenderer::Draw(ID2D1DeviceContext* context,
             const float separatorHeight = SeparatorHeight(options);
             const float separatorY = viewport.top +
                 std::max(0.0f, (geometry.background.bottom - geometry.background.top - separatorHeight) / 2.0f);
+            const float adjustedSeparatorY = separatorY +
+                DipFromPhysicalPixels(1.0f, options.dpi);
             const float centerX = x + SeparatorWidth(options) / 2.0f;
-            context->DrawLine(D2D1::Point2F(centerX, separatorY),
-                D2D1::Point2F(centerX, separatorY + separatorHeight),
+            context->DrawLine(D2D1::Point2F(centerX, adjustedSeparatorY),
+                D2D1::Point2F(centerX, adjustedSeparatorY + separatorHeight),
                 outlineBrush.Get(), DipFromPhysicalPixels(kHudSeparatorOuterPx, options.dpi));
-            context->DrawLine(D2D1::Point2F(centerX, separatorY),
-                D2D1::Point2F(centerX, separatorY + separatorHeight),
+            context->DrawLine(D2D1::Point2F(centerX, adjustedSeparatorY),
+                D2D1::Point2F(centerX, adjustedSeparatorY + separatorHeight),
                 separatorBrush.Get(), DipFromPhysicalPixels(kHudSeparatorCorePx, options.dpi));
             x += SeparatorWidth(options) + SeparatorGap(options);
         }
