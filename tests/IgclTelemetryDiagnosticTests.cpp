@@ -34,5 +34,16 @@ int main()
     IgclSampleSeries noSamples;
     check(ClassifyIgclSamples(noSamples) == IgclDiagnosticClass::NoSamples, "no samples is not supported zero");
     check(std::string(IgclDiagnosticClassName(IgclDiagnosticClass::NoSamples)) == "NO_SAMPLES", "no samples classification name");
+    IgclSampleSeries frequencyParent;
+    IgclSampleSeries frequencyActual;
+    RecordIgclDynamicLeaf(frequencyParent, true, true, true, 0.0, 0, 9);
+    RecordIgclDynamicLeaf(frequencyActual, true, true, true, 100.0, 100, 9);
+    RecordIgclDynamicLeaf(frequencyParent, true, true, true, 0.0, 0, 9);
+    RecordIgclDynamicLeaf(frequencyActual, true, true, true, 110.0, 110, 9);
+    RecordIgclDynamicLeaf(frequencyParent, true, true, false, 0.0, 0, 9);
+    RecordIgclDynamicLeaf(frequencyActual, true, true, false, 0.0, 0, 9);
+    check(ClassifyIgclSamples(frequencyParent) == IgclDiagnosticClass::ApiError, "parent reports final API failure");
+    check(ClassifyIgclSamples(frequencyActual) == IgclDiagnosticClass::ApiError, "frequency actual reports final API failure");
+    check(frequencyActual.values.size() == 2 && frequencyActual.values[0] == 100.0 && frequencyActual.values[1] == 110.0, "failed poll does not append synthetic leaf value");
     return ok ? 0 : 1;
 }

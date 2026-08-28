@@ -31,6 +31,10 @@ struct IgclSampleSeries
     bool hasDomain{true};
 };
 
+void RecordIgclDynamicLeaf(IgclSampleSeries& series,
+    bool symbolPresent, bool hasDomain, bool apiSucceeded,
+    double value, std::uint64_t rawValue, std::uint32_t type) noexcept;
+
 IgclDiagnosticClass ClassifyIgclSamples(const IgclSampleSeries& samples) noexcept;
 double IgclSampleMinimum(const IgclSampleSeries& samples) noexcept;
 double IgclSampleMaximum(const IgclSampleSeries& samples) noexcept;
