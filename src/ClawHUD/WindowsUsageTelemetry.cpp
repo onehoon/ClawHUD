@@ -20,7 +20,7 @@ namespace
 constexpr DWORD kPdhMoreData = 0x800007D2u;
 constexpr unsigned int kMaxIntelMemoryRebindAttempts = 3;
 
-void LogMemoryDiagnostic(const std::wstring& message)
+void LogMemoryDebug(const std::wstring& message)
 {
     RuntimeLogger::Log(RuntimeLogLevel::Debug, message);
 }
@@ -203,7 +203,7 @@ bool WindowsUsageSampler::Initialize()
         return false;
     }
     if (!TryBindIntelGpuMemoryCounters())
-        LogMemoryDiagnostic(L"Initial Intel GPU memory counter binding unavailable; bounded retry enabled");
+        LogMemoryDebug(L"Initial Intel GPU memory counter binding unavailable; bounded retry enabled");
     if (PdhCollectQueryData(query_) != ERROR_SUCCESS)
     {
         Reset();
@@ -219,7 +219,7 @@ bool WindowsUsageSampler::AddIntelGpuMemoryCounters()
     if (!adapterLuid)
         return false;
 
-    LogMemoryDiagnostic(L"Intel GPU adapter LUID=" + LuidToken(*adapterLuid));
+    LogMemoryDebug(L"Intel GPU adapter LUID=" + LuidToken(*adapterLuid));
 
     std::vector<std::wstring> dedicatedPaths;
     std::vector<std::wstring> sharedPaths;
@@ -228,7 +228,7 @@ bool WindowsUsageSampler::AddIntelGpuMemoryCounters()
     const bool sharedExpanded = ExpandCounterPaths(
         L"\\GPU Adapter Memory(*)\\Shared Usage", sharedPaths);
 
-    LogMemoryDiagnostic(L"GPU memory dedicated paths=" +
+    LogMemoryDebug(L"GPU memory dedicated paths=" +
         std::to_wstring(dedicatedPaths.size()) + L" shared paths=" +
         std::to_wstring(sharedPaths.size()));
     if (!dedicatedExpanded || !sharedExpanded)
@@ -244,7 +244,7 @@ bool WindowsUsageSampler::AddIntelGpuMemoryCounters()
         PDH_HCOUNTER counter{};
         const PDH_STATUS status = PdhAddEnglishCounterW(
             query_, path.c_str(), 0, &counter);
-        LogMemoryDiagnostic(L"GPU memory counter add kind=Dedicated path=" +
+        LogMemoryDebug(L"GPU memory counter add kind=Dedicated path=" +
             path + L" status=" + HexPdhStatus(status));
         if (status == ERROR_SUCCESS)
             intelDedicatedMemoryCounters_.push_back(counter);
@@ -257,12 +257,12 @@ bool WindowsUsageSampler::AddIntelGpuMemoryCounters()
         PDH_HCOUNTER counter{};
         const PDH_STATUS status = PdhAddEnglishCounterW(
             query_, path.c_str(), 0, &counter);
-        LogMemoryDiagnostic(L"GPU memory counter add kind=Shared path=" +
+        LogMemoryDebug(L"GPU memory counter add kind=Shared path=" +
             path + L" status=" + HexPdhStatus(status));
         if (status == ERROR_SUCCESS)
             intelSharedMemoryCounters_.push_back(counter);
     }
-    LogMemoryDiagnostic(L"GPU memory dedicated matches=" +
+    LogMemoryDebug(L"GPU memory dedicated matches=" +
         std::to_wstring(dedicatedMatches) + L" shared matches=" +
         std::to_wstring(sharedMatches));
     return !intelDedicatedMemoryCounters_.empty() &&
@@ -369,10 +369,21 @@ std::optional<WindowsUsageTelemetry> WindowsUsageSampler::Sample()
         {
             return value ? std::to_wstring(*value) : std::wstring(L"unavailable");
         };
-        LogMemoryDiagnostic(L"GPU memory dedicated first=" + format(dedicated) +
-            L" shared first=" + format(shared) + L" combined=" +
-            format(CombineGpuMemoryBytes(dedicated, shared)));
-        memoryDiagnosticsLogged_ = true;
+        if (result.intelGpuMemoryUsedBytes)
+        {
+            LogMemoryDebug(L"GPU memory dedicated first=" + format(dedicated) +
+                L" shared first=" + format(shared) + L" combined=" +
+                format(result.intelGpuMemoryUsedBytes));
+            memoryDiagnosticsLogged_ = true;
+        }
+        else if (intelMemoryRebindAttempts_ >= kMaxIntelMemoryRebindAttempts ||
+            (!intelDedicatedMemoryCounters_.empty() &&
+                !intelSharedMemoryCounters_.empty()))
+        {
+            RuntimeLogger::Log(RuntimeLogLevel::Warn,
+                L"Intel GPU memory telemetry unavailable after bounded counter rebind attempts");
+            memoryDiagnosticsLogged_ = true;
+        }
     }
     return result;
 }
