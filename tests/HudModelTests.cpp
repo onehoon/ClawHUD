@@ -23,13 +23,29 @@ int main()
     ok &= Check(defaults.visibilityMode == HudVisibilityMode::InGameOnly, "default visibility");
     ok &= Check(defaults.alignment == HudAlignment::Center, "default alignment");
     ok &= Check(defaults.backgroundMode == HudBackgroundMode::FullWidth, "default background");
-    ok &= Check(defaults.backgroundOpacity == 0.5f, "default opacity");
-    ok &= Check(HudBackgroundOpacityFromPercent(0) == 0.0f &&
-        HudBackgroundOpacityFromPercent(37) == 0.37f &&
-        HudBackgroundOpacityFromPercent(50) == 0.5f &&
-        HudBackgroundOpacityFromPercent(100) == 1.0f,
+    ok &= Check(defaults.backgroundOpacity == 0.7f, "default opacity");
+    ok &= Check(ClampHudOpacityPercent(49) == 50 &&
+        ClampHudOpacityPercent(70) == 70 && ClampHudOpacityPercent(101) == 100,
+        "HUD opacity range");
+    ok &= Check(HudOpacityPercentFromText(L"") == 70 &&
+        HudOpacityPercentFromText(L"invalid") == 70 &&
+        HudOpacityPercentFromText(L"49") == 50 &&
+        HudOpacityPercentFromText(L"101") == 100 &&
+        HudOpacityPercentFromText(L"70") == 70,
+        "HUD opacity settings parsing");
+    ok &= Check(HudOpacityPercentFromSettings(L"70", true, L"50") == 70 &&
+        HudOpacityPercentFromSettings(L"", false, L"75") == 75 &&
+        HudOpacityPercentFromSettings(L"invalid", true, L"80") == 70,
+        "HUD opacity legacy setting precedence");
+    ok &= Check(HudOpacityByte(50.0f) == 128 && HudOpacityByte(65.0f) == 166 &&
+        HudOpacityByte(70.0f) == 179 && HudOpacityByte(75.0f) == 191 &&
+        HudOpacityByte(100.0f) == 255, "HUD opacity byte conversion");
+    ok &= Check(HudOpacityFractionFromPercent(0) == 0.0f &&
+        HudOpacityFractionFromPercent(37) == 0.37f &&
+        HudOpacityFractionFromPercent(50) == 0.5f &&
+        HudOpacityFractionFromPercent(100) == 1.0f,
         "settings opacity percent to runtime");
-    ok &= Check(HudBackgroundOpacityToPercent(HudBackgroundOpacityFromPercent(37)) == 37,
+    ok &= Check(HudOpacityPercentFromFraction(HudOpacityFractionFromPercent(37)) == 37,
         "settings opacity runtime to percent round trip");
 
     const auto dc = FormatHud(MakeGameDcSample());

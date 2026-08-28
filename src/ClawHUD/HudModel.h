@@ -3,6 +3,7 @@
 #include <optional>
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace clawhud
@@ -37,11 +38,20 @@ struct HudLayoutOptions
     HudVisibilityMode visibilityMode{HudVisibilityMode::InGameOnly};
     HudAlignment alignment{HudAlignment::Center};
     HudBackgroundMode backgroundMode{HudBackgroundMode::FullWidth};
-    float backgroundOpacity{0.5f};
+    float backgroundOpacity{0.7f};
 };
 
-float HudBackgroundOpacityFromPercent(long percent) noexcept;
-long HudBackgroundOpacityToPercent(float opacity) noexcept;
+constexpr long kHudOpacityMinimumPercent = 50;
+constexpr long kHudOpacityMaximumPercent = 100;
+constexpr long kDefaultHudOpacityPercent = 70;
+constexpr long kHudOpacityStepPercent = 5;
+
+float HudOpacityFractionFromPercent(long percent) noexcept;
+long HudOpacityPercentFromFraction(float opacity) noexcept;
+long ClampHudOpacityPercent(long percent) noexcept;
+long HudOpacityPercentFromText(std::wstring_view text) noexcept;
+long HudOpacityPercentFromSettings(std::wstring_view hudOpacity,
+    bool hasHudOpacity, std::wstring_view legacyOpacity) noexcept;
 
 struct HudTelemetrySnapshot
 {
@@ -89,6 +99,7 @@ struct HudTextRun
 };
 
 bool ShouldShowHud(HudVisibilityMode mode, bool foregroundGameActive) noexcept;
+std::uint8_t HudOpacityByte(float opacityPercent) noexcept;
 bool ShouldSampleProductionTelemetry(bool resolvedShow, bool diagnosticMode,
     bool suspended) noexcept;
 std::vector<HudTextRun> FormatHud(const HudTelemetrySnapshot& snapshot);

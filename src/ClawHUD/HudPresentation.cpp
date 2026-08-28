@@ -27,7 +27,8 @@ HudPresentation::~HudPresentation()
     Shutdown();
 }
 
-HRESULT HudPresentation::Initialize(HINSTANCE instance, const HudRenderOptions& options)
+HRESULT HudPresentation::Initialize(HINSTANCE instance, const HudRenderOptions& options,
+    float opacityPercent)
 {
 #ifdef _DEBUG
     debugLastValidatedAlpha_ = -1;
@@ -39,6 +40,7 @@ HRESULT HudPresentation::Initialize(HINSTANCE instance, const HudRenderOptions& 
 
     instance_ = instance;
     initializationOptions_ = options;
+    opacityPercent_ = opacityPercent;
     barPixelHeight_ = options.barPixelHeight;
     MONITORINFO monitor{ sizeof(monitor) };
     if (!GetMonitorInfoW(MonitorFromPoint(POINT{ 0, 0 }, MONITOR_DEFAULTTOPRIMARY), &monitor))
@@ -52,7 +54,7 @@ HRESULT HudPresentation::Initialize(HINSTANCE instance, const HudRenderOptions& 
     if (!widthPx_ || !heightPx_)
         return E_INVALIDARG;
 
-    HRESULT hr = CreateWindowHost(instance);
+    HRESULT hr = CreateWindowHost(instance, opacityPercent);
     if (FAILED(hr)) { Shutdown(); return hr; }
     dpi_ = static_cast<float>(GetDpiForWindow(window_));
     if (dpi_ <= 0.0f) dpi_ = 96.0f;
@@ -104,7 +106,7 @@ HRESULT HudPresentation::Initialize(HINSTANCE instance, const HudRenderOptions& 
     return S_OK;
 }
 
-HRESULT HudPresentation::CreateWindowHost(HINSTANCE instance)
+HRESULT HudPresentation::CreateWindowHost(HINSTANCE instance, float opacityPercent)
 {
     WNDCLASSW windowClass{};
     windowClass.lpfnWndProc = WindowProc;
@@ -117,8 +119,9 @@ HRESULT HudPresentation::CreateWindowHost(HINSTANCE instance)
         nullptr, nullptr, instance, this);
     if (!window_)
         return LastErrorResult();
-    if (!SetLayeredWindowAttributes(window_, 0, 255, LWA_ALPHA))
-        return LastErrorResult();
+    const HRESULT opacityHr = SetHudOpacity(opacityPercent);
+    if (FAILED(opacityHr))
+        return opacityHr;
     if (!SetWindowPos(window_, HWND_TOPMOST, xPx_, yPx_, static_cast<int>(widthPx_),
         static_cast<int>(heightPx_), SWP_NOACTIVATE | SWP_NOOWNERZORDER))
         return LastErrorResult();
@@ -389,7 +392,7 @@ HRESULT HudPresentation::RefreshDisplayIfNeeded()
     displayChangePending_ = false;
     const HINSTANCE instance = instance_;
     Shutdown();
-    HRESULT hr = Initialize(instance, initializationOptions_);
+    HRESULT hr = Initialize(instance, initializationOptions_, opacityPercent_);
     if (FAILED(hr) || !refreshPlan.restoreVisibility)
         return hr;
     hr = CommitVisibility(true);
@@ -448,6 +451,18 @@ HRESULT HudPresentation::Hide()
     if (FAILED(hr)) return hr;
     ShowWindow(window_, SW_HIDE);
     visible_ = false;
+    return S_OK;
+}
+
+HRESULT HudPresentation::SetHudOpacity(float opacityPercent)
+{
+    if (!window_)
+        return E_UNEXPECTED;
+    const float clamped = std::clamp(opacityPercent, 0.0f, 100.0f);
+    const BYTE alpha = static_cast<BYTE>(HudOpacityByte(clamped));
+    if (!SetLayeredWindowAttributes(window_, 0, alpha, LWA_ALPHA))
+        return LastErrorResult();
+    opacityPercent_ = clamped;
     return S_OK;
 }
 

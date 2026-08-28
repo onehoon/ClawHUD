@@ -79,14 +79,56 @@ bool ShouldSampleProductionTelemetry(bool resolvedShow, bool diagnosticMode,
     return resolvedShow && !diagnosticMode && !suspended;
 }
 
-float HudBackgroundOpacityFromPercent(long percent) noexcept
+float HudOpacityFractionFromPercent(long percent) noexcept
 {
     return static_cast<float>(std::clamp(percent, 0L, 100L)) / 100.0f;
 }
 
-long HudBackgroundOpacityToPercent(float opacity) noexcept
+long HudOpacityPercentFromFraction(float opacity) noexcept
 {
     return static_cast<long>(std::lround(std::clamp(opacity, 0.0f, 1.0f) * 100.0f));
+}
+
+long ClampHudOpacityPercent(long percent) noexcept
+{
+    return std::clamp(percent, kHudOpacityMinimumPercent, kHudOpacityMaximumPercent);
+}
+
+long HudOpacityPercentFromText(std::wstring_view text) noexcept
+{
+    if (text.empty())
+        return kDefaultHudOpacityPercent;
+    std::size_t index = 0;
+    bool negative = false;
+    if (text.front() == L'+' || text.front() == L'-')
+    {
+        negative = text.front() == L'-';
+        index = 1;
+    }
+    if (index == text.size())
+        return kDefaultHudOpacityPercent;
+    long value = 0;
+    for (; index < text.size(); ++index)
+    {
+        if (text[index] < L'0' || text[index] > L'9')
+            return kDefaultHudOpacityPercent;
+        value = value * 10 + (text[index] - L'0');
+        if (value > kHudOpacityMaximumPercent)
+            value = kHudOpacityMaximumPercent;
+    }
+    return ClampHudOpacityPercent(negative ? -value : value);
+}
+
+long HudOpacityPercentFromSettings(std::wstring_view hudOpacity,
+    bool hasHudOpacity, std::wstring_view legacyOpacity) noexcept
+{
+    return HudOpacityPercentFromText(hasHudOpacity ? hudOpacity : legacyOpacity);
+}
+
+std::uint8_t HudOpacityByte(float opacityPercent) noexcept
+{
+    return static_cast<std::uint8_t>(std::lround(
+        std::clamp(opacityPercent, 0.0f, 100.0f) * 255.0f / 100.0f));
 }
 
 std::vector<HudTextRun> FormatHud(const HudTelemetrySnapshot& snapshot)

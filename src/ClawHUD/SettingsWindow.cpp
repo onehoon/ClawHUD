@@ -423,17 +423,17 @@ void SettingsWindow::CreateSettingsControls()
     backgroundContent_ = CreateWindowW(L"BUTTON", L"Content width",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | BS_PUSHLIKE, 0, 0, 0, 0,
         settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kBackgroundContent)), instance_, nullptr);
-    const HWND opacityCaption = CreateWindowW(L"STATIC", L"Background opacity", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
+    CreateWindowW(L"STATIC", L"HUD Opacity", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
         settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOpacityLabel)), instance_, nullptr);
     opacitySlider_ = CreateWindowExW(0, TRACKBAR_CLASSW, L"",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | TBS_NOTICKS, 0, 0, 0, 0,
         settingsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOpacitySlider)), instance_, nullptr);
-    SendMessageW(opacitySlider_, TBM_SETRANGE, TRUE, MAKELONG(0, 100));
-    opacityLabel_ = CreateWindowW(L"STATIC", L"50%", WS_CHILD | WS_VISIBLE,
+    SendMessageW(opacitySlider_, TBM_SETRANGE, TRUE, MAKELONG(
+        clawhud::kHudOpacityMinimumPercent, clawhud::kHudOpacityMaximumPercent));
+    SendMessageW(opacitySlider_, TBM_SETLINESIZE, 0, clawhud::kHudOpacityStepPercent);
+    SendMessageW(opacitySlider_, TBM_SETPAGESIZE, 0, clawhud::kHudOpacityStepPercent);
+    opacityLabel_ = CreateWindowW(L"STATIC", L"70%", WS_CHILD | WS_VISIBLE,
         0, 0, 0, 0, settingsPanel_, nullptr, instance_, nullptr);
-    ShowWindow(opacityCaption, SW_HIDE);
-    ShowWindow(opacitySlider_, SW_HIDE);
-    ShowWindow(opacityLabel_, SW_HIDE);
     EnableMouseWheelForwarding(startWithWindows_);
     EnableMouseWheelForwarding(enableHud_);
     EnableMouseWheelForwarding(visibilityInGameOnly_);
@@ -704,7 +704,8 @@ void SettingsWindow::UpdateHudControls()
         options.backgroundMode == clawhud::HudBackgroundMode::FullWidth ? BST_CHECKED : BST_UNCHECKED, 0);
     if (backgroundContent_) SendMessageW(backgroundContent_, BM_SETCHECK,
         options.backgroundMode == clawhud::HudBackgroundMode::ContentWidth ? BST_CHECKED : BST_UNCHECKED, 0);
-    const int percent = static_cast<int>(options.backgroundOpacity * 100.0f + 0.5f);
+    const int percent = static_cast<int>(clawhud::ClampHudOpacityPercent(
+        static_cast<long>(std::lround(options.backgroundOpacity * 100.0f))));
     if (opacitySlider_) SendMessageW(opacitySlider_, TBM_SETPOS, TRUE, percent);
     if (opacityLabel_)
     {
@@ -882,15 +883,16 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
     }
     if (message == WM_HSCROLL && reinterpret_cast<HWND>(lParam) == self->opacitySlider_)
     {
-        const int position = static_cast<int>(SendMessageW(self->opacitySlider_, TBM_GETPOS, 0, 0));
+        int position = static_cast<int>(SendMessageW(self->opacitySlider_, TBM_GETPOS, 0, 0));
+        position = ((position - clawhud::kHudOpacityMinimumPercent +
+            clawhud::kHudOpacityStepPercent / 2) /
+            clawhud::kHudOpacityStepPercent) * clawhud::kHudOpacityStepPercent +
+            clawhud::kHudOpacityMinimumPercent;
+        position = static_cast<int>(clawhud::ClampHudOpacityPercent(position));
+        SendMessageW(self->opacitySlider_, TBM_SETPOS, TRUE, position);
         const bool persist = LOWORD(wParam) != TB_THUMBTRACK;
-        self->app_.SetHudBackgroundOpacity(position / 100.0f, persist);
-        if (self->opacityLabel_)
-        {
-            wchar_t text[8]{};
-            swprintf_s(text, L"%d%%", position);
-            SetWindowTextW(self->opacityLabel_, text);
-        }
+        self->app_.SetHudOpacity(position / 100.0f, persist);
+        self->UpdateHudControls();
         return 0;
     }
     if (message == WM_COMMAND && LOWORD(wParam) == kStartEc)

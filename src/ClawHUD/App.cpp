@@ -519,7 +519,8 @@ bool App::EnsureMockHud()
     if (!hudPresentation_)
         hudPresentation_ = std::make_unique<clawhud::HudPresentation>();
     const auto options = BuildHudRenderOptions();
-    HRESULT hr = hudPresentation_->Initialize(instance_, options);
+    HRESULT hr = hudPresentation_->Initialize(instance_, options,
+        hudOptions_.backgroundOpacity * 100.0f);
     if (FAILED(hr))
     {
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
@@ -669,28 +670,34 @@ void App::SetHudBackgroundMode(clawhud::HudBackgroundMode mode)
     SaveHudSettings();
 }
 
-void App::SetHudBackgroundOpacity(float opacity, bool persist)
+bool App::SetHudOpacity(float opacity, bool persist)
 {
     if (VrrDiagnosticRunning())
     {
-        Log(L"HUD background opacity change ignored while VRR diagnostic is running");
-        return;
+        Log(L"HUD opacity change ignored while VRR diagnostic is running");
+        return false;
     }
-    opacity = std::clamp(opacity, 0.0f, 1.0f);
-    if (hudOptions_.backgroundOpacity == opacity)
+    const long requestedPercent = static_cast<long>(std::lround(opacity * 100.0f));
+    const long percent = clawhud::ClampHudOpacityPercent(requestedPercent);
+    const float newOpacity = static_cast<float>(percent) / 100.0f;
+    if (hudOptions_.backgroundOpacity == newOpacity)
     {
         if (persist) SaveHudSettings();
-        return;
+        return true;
     }
-    hudOptions_.backgroundOpacity = opacity;
-    if (persist) SaveHudSettings();
-    if (persist)
+    if (hudPresentation_ && hudPresentation_->Initialized())
     {
-        std::wostringstream message;
-        message << L"HUD background opacity=" << opacity;
-        Log(message.str());
+        const HRESULT hr = hudPresentation_->SetHudOpacity(static_cast<float>(percent));
+        if (FAILED(hr))
+        {
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
+                L"SetLayeredWindowAttributes for HUD opacity failed hr=" + HexHresult(hr));
+            return false;
+        }
     }
-    RefreshMockHud();
+    hudOptions_.backgroundOpacity = newOpacity;
+    if (persist) SaveHudSettings();
+    return true;
 }
 
 void App::SetHudSizeOffset(int offset)
@@ -725,9 +732,8 @@ clawhud::HudRenderOptions App::BuildHudRenderOptions() const
 {
     auto options = clawhud::BuildHudRenderOptionsForSize(
         hudSizeOffset_, hudOptions_, hudFont_);
-    // Temporary product policy: keep the opacity setting pipeline for future
-    // use, but force the production HUD background to 50% for now.
-    options.layout.backgroundOpacity = 0.5f;
+    // The renderer remains opaque; the existing layered HWND owns HUD opacity.
+    options.layout.backgroundOpacity = 1.0f;
     return options;
 }
 
@@ -742,7 +748,8 @@ bool App::RecreateHudPresentation(bool restoreVisible)
 
     const auto options = BuildHudRenderOptions();
     hudPresentation_->Shutdown();
-    HRESULT hr = hudPresentation_->Initialize(instance_, options);
+    HRESULT hr = hudPresentation_->Initialize(instance_, options,
+        hudOptions_.backgroundOpacity * 100.0f);
     if (FAILED(hr))
     {
         Log(L"HUD presentation recreation failed");
@@ -1726,12 +1733,11 @@ void App::LoadHudSettings()
     if (visibility == L"Always") hudOptions_.visibilityMode = clawhud::HudVisibilityMode::Always;
     else if (visibility == L"InGameOnly") hudOptions_.visibilityMode = clawhud::HudVisibilityMode::InGameOnly;
     hudSizeOffset_ = clawhud::ParseHudSizeOffset(ReadHudSetting(path, L"Size", L"0"));
-    const auto opacityText = ReadHudSetting(path, L"BackgroundOpacity", L"50");
-    wchar_t* end{};
-    const long parsed = std::wcstol(opacityText.c_str(), &end, 10);
-    const bool valid = end != opacityText.c_str() && end && *end == L'\0';
-    hudOptions_.backgroundOpacity = clawhud::HudBackgroundOpacityFromPercent(
-        valid ? parsed : 50L);
+    const auto configuredOpacity = ReadHudSetting(path, L"HudOpacity", L"__missing__");
+    const auto legacyOpacity = ReadHudSetting(path, L"BackgroundOpacity", L"");
+    hudOptions_.backgroundOpacity = clawhud::HudOpacityFractionFromPercent(
+        clawhud::HudOpacityPercentFromSettings(configuredOpacity,
+            configuredOpacity != L"__missing__", legacyOpacity));
     intelVrrRangeFixEnabled_ = ReadBoolSetting(path, L"Tweaks", L"IntelVrrRangeFixEnabled", true);
 }
 
@@ -1750,12 +1756,12 @@ void App::SaveHudSettings() const
         ? L"Always" : L"InGameOnly";
     const wchar_t* font = clawhud::HudFontIniToken(hudFont_);
     wchar_t opacity[8]{};
-    swprintf_s(opacity, L"%ld", clawhud::HudBackgroundOpacityToPercent(
+    swprintf_s(opacity, L"%ld", clawhud::HudOpacityPercentFromFraction(
         hudOptions_.backgroundOpacity));
     bool saved = WritePrivateProfileStringW(L"HUD", L"Alignment", alignment, path.c_str()) != FALSE;
     saved = WritePrivateProfileStringW(L"HUD", L"Font", font, path.c_str()) != FALSE && saved;
     saved = WritePrivateProfileStringW(L"HUD", L"BackgroundWidth", background, path.c_str()) != FALSE && saved;
-    saved = WritePrivateProfileStringW(L"HUD", L"BackgroundOpacity", opacity, path.c_str()) != FALSE && saved;
+    saved = WritePrivateProfileStringW(L"HUD", L"HudOpacity", opacity, path.c_str()) != FALSE && saved;
     saved = WritePrivateProfileStringW(L"HUD", L"VisibilityMode", visibility, path.c_str()) != FALSE && saved;
     wchar_t size[8]{};
     swprintf_s(size, L"%d", clawhud::ClampHudSizeOffset(hudSizeOffset_));

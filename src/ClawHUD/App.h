@@ -128,7 +128,7 @@ public:
     void SetHudAlignment(clawhud::HudAlignment alignment);
     void SetHudFont(clawhud::HudFont font);
     void SetHudBackgroundMode(clawhud::HudBackgroundMode mode);
-    void SetHudBackgroundOpacity(float opacity, bool persist = true);
+    bool SetHudOpacity(float opacity, bool persist = true);
     void SetHudSizeOffset(int offset);
     void TrackMockGameWindow(HWND window);
     void SetHudVisibilityMode(clawhud::HudVisibilityMode mode);
