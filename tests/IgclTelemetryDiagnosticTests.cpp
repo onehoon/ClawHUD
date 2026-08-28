@@ -21,6 +21,9 @@ int main()
     largeCounter.rawValues = { 9007199254740992ULL, 9007199254740993ULL };
     largeCounter.types = { 7, 7 };
     check(ClassifyIgclSamples(largeCounter) == IgclDiagnosticClass::SupportedActive, "changing uint64 counter");
+    IgclSampleSeries twenty;
+    for (int i = 0; i < 20; ++i) twenty.values.push_back(static_cast<double>(i));
+    check(twenty.values.size() == 20, "twenty-sample aggregation");
     check(IgclSampleMinimum(changing) == 0.0 && IgclSampleMaximum(changing) == 20.0, "min max");
     check(std::string(IgclDiagnosticClassName(IgclDiagnosticClass::SymbolMissing)) == "SYMBOL_MISSING", "raw classification names");
     check(std::string(IgclDiagnosticClassName(IgclDiagnosticClass::SkippedMutationCapable)) == "SKIPPED_MUTATION_CAPABLE", "safety classification name");

@@ -271,9 +271,10 @@ bool App::StartEcDiagnostic()
 }
 bool App::StartIgclDiagnostic()
 {
-    if (!igclDiagnostic_ || EcDiagnosticRunning() || VrrDiagnosticRunning() || ecHudSamplingActive_)
+    if (!igclDiagnostic_ || EcDiagnosticRunning() || VrrDiagnosticRunning())
         return false;
     pendingProductionTargetPid_ = 0;
+    StopProductionEcSampling(false, L"igcl-diagnostic-start");
     StopProductionPresentMonSampling(L"igcl-diagnostic-start", false);
     StopGraphicsApiProbe();
     if (!igclDiagnostic_->Start())

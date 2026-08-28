@@ -45,10 +45,13 @@ struct PowerProperties { std::uint32_t Size{}; std::uint8_t Version{}; bool canC
 struct PowerEnergy { std::uint32_t Size{}; std::uint8_t Version{}; std::uint64_t energy{},timestamp{}; };
 struct FanProperties { std::uint32_t Size{}; std::uint8_t Version{}; bool canControl{}; std::uint32_t supportedModes{},supportedUnits{}; std::int32_t maxRPM{},maxPoints{}; };
 struct PciSpeed { std::uint32_t Size{}; std::uint8_t Version{}; std::int32_t gen{}; std::int32_t width{}; std::int64_t maxBandwidth{}; };
-struct PciAddress { std::uint32_t domain{}; std::uint32_t bus{}; std::uint32_t device{}; std::uint32_t function{}; };
+struct PciAddress { std::uint32_t Size{}; std::uint8_t Version{}; std::uint32_t domain{}; std::uint32_t bus{}; std::uint32_t device{}; std::uint32_t function{}; };
 struct PciProperties { union { std::uint32_t Size; std::uint32_t size; }; std::uint8_t Version{}; union { PciAddress address; std::uint8_t data[16]; }; PciSpeed maxSpeed{}; bool resizable_bar_supported{}; bool resizable_bar_enabled{}; };
 struct PciState { std::uint32_t Size{}; std::uint8_t Version{}; PciSpeed speed{}; };
-struct DisplayProperties { std::uint32_t Size{}; std::uint8_t Version{}; std::uint32_t displayId{}; std::uint32_t type{}; std::uint32_t attachedMux{}; std::uint32_t protocolConverterOutput{}; std::uint8_t supportedSpec[32]{}; std::uint32_t supportedOutputBpcFlags{}; std::uint32_t protocolConverterType{}; std::uint32_t displayConfigFlags{}; std::uint8_t reserved[256]{}; };
+struct GenericVoidDatatype { void* pData{}; std::uint32_t size{}; };
+union OsDisplayEncoderIdentifier { std::uint32_t WindowsDisplayEncoderID{}; GenericVoidDatatype DisplayEncoderID; };
+struct DisplayTiming { std::uint32_t Size{}; std::uint8_t Version{}; std::uint64_t PixelClock{}; std::uint32_t HActive{},VActive{},HTotal{},VTotal{},HBlank{},VBlank{},HSync{},VSync{}; float RefreshRate{}; std::uint32_t SignalStandard{}; std::uint8_t VicId{}; };
+struct DisplayProperties { std::uint32_t Size{}; std::uint8_t Version{}; OsDisplayEncoderIdentifier Os_display_encoder_handle{}; std::uint32_t type{}; std::uint32_t attachedMux{}; std::uint32_t protocolConverterOutput{}; struct { std::uint8_t major_version{},minor_version{},revision_version{}; } supportedSpec{}; std::uint32_t supportedOutputBpcFlags{}; std::uint32_t protocolConverterType{}; std::uint32_t displayConfigFlags{}; std::uint32_t featureEnabledFlags{}; std::uint32_t featureSupportedFlags{}; std::uint32_t advancedFeatureEnabledFlags{}; std::uint32_t advancedFeatureSupportedFlags{}; DisplayTiming displayTiming{}; std::uint32_t reserved[16]{}; };
 struct LiveState { std::uint32_t gfxApi{},targetFps{},framePacingStatus{},reserved[4]{}; };
 struct FeatureRequest { std::uint32_t size{}; std::uint8_t version{}; std::uint32_t featureType{}; char* applicationName{}; std::int8_t applicationNameLength{}; bool set{}; std::uint32_t valueType{}; std::uint64_t value{}; std::int32_t customValueSize{}; void* customValue{}; };
 static_assert(offsetof(PowerTelemetryV2, vramEnergyCounter) > offsetof(PowerTelemetryV2, gpuUtilizationLimited));
@@ -66,4 +69,8 @@ static_assert(offsetof(DeviceProperties, firmware_version) > offsetof(DeviceProp
 static_assert(offsetof(DeviceProperties, pci_vendor_id) > offsetof(DeviceProperties, firmware_version));
 static_assert(offsetof(DeviceProperties, graphics_adapter_properties) > offsetof(DeviceProperties, name));
 static_assert(offsetof(DeviceProperties, adapter_bdf) > offsetof(DeviceProperties, pci_subsys_vendor_id));
+static_assert(sizeof(PciAddress) == 24);
+static_assert(sizeof(OsDisplayEncoderIdentifier) == 16);
+static_assert(offsetof(DisplayProperties, type) == 24);
+static_assert(sizeof(DisplayProperties) == 200);
 }
