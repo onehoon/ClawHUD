@@ -288,8 +288,11 @@ int main()
             for (const auto* value : values)
                 ok &= Check(Near(width(kind, label, value), first), message);
         };
-        sameWidth(HudSegmentKind::Graphics, L"FPS",
+        sameWidth(HudSegmentKind::Graphics, L"",
             {L"9FPS", L"99FPS", L"999FPS"}, "stable Graphics slot");
+        ok &= Check(width(HudSegmentKind::Graphics, L"", L"120FPS") <
+            width(HudSegmentKind::Graphics, L"DX12", L"120FPS"),
+            "FPS-only graphics segment omits label spacing");
         sameWidth(HudSegmentKind::Cpu, L"CPU",
             {L"1% 40\u00B0C", L"36% 67\u00B0C", L"100% 100\u00B0C"},
             "stable CPU slot");
