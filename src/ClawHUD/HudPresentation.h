@@ -92,6 +92,9 @@ private:
     bool visible_{};
     bool initialized_{};
     bool displayChangePending_{};
+#ifdef _DEBUG
+    int debugLastValidatedAlpha_{ -1 };
+#endif
     HudRenderOptions initializationOptions_{};
 
     Microsoft::WRL::ComPtr<ID3D11Device> device_;

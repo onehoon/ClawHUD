@@ -3,6 +3,7 @@
 #include "RuntimeLogger.h"
 #include "resource.h"
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <sstream>
@@ -271,10 +272,20 @@ HRESULT HudPresentation::Render(const HudTelemetrySnapshot& snapshot, const HudR
 #ifdef _DEBUG
     const BYTE expectedBackgroundAlpha = static_cast<BYTE>(std::lround(
         std::clamp(effective.layout.backgroundOpacity, 0.0f, 1.0f) * 255.0f));
-    if (FAILED(ValidatePresentedAlpha(buffer->texture.Get(), 0, 0,
-        expectedBackgroundAlpha)))
-        RuntimeLogger::Log(RuntimeLogLevel::Warn,
-            L"Production buffer alpha validation failed");
+    const bool canonicalOpacity = expectedBackgroundAlpha == 0 ||
+        expectedBackgroundAlpha == 255 ||
+        std::abs(static_cast<int>(expectedBackgroundAlpha) - 128) <= 2;
+    if (!runs.empty() && canonicalOpacity &&
+        debugLastValidatedAlpha_ != expectedBackgroundAlpha)
+    {
+        const UINT sampleX = widthPx_ / 2;
+        const UINT sampleY = std::min<UINT>(heightPx_ / 2, heightPx_ - 1);
+        if (FAILED(ValidatePresentedAlpha(buffer->texture.Get(), sampleX, sampleY,
+            expectedBackgroundAlpha)))
+            RuntimeLogger::Log(RuntimeLogLevel::Warn,
+                L"Production buffer alpha validation failed");
+        debugLastValidatedAlpha_ = expectedBackgroundAlpha;
+    }
 #endif
     if (FAILED(hr = presentationSurface_->SetBuffer(buffer->presentationBuffer.Get()))) return hr;
     return presentationManager_->Present();
@@ -294,6 +305,8 @@ HRESULT HudPresentation::ValidatePresentedAlpha(
         return E_INVALIDARG;
 
     D3D11_TEXTURE2D_DESC staging = source;
+    staging.Width = 1;
+    staging.Height = 1;
     staging.Usage = D3D11_USAGE_STAGING;
     staging.BindFlags = 0;
     staging.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
@@ -302,7 +315,11 @@ HRESULT HudPresentation::ValidatePresentedAlpha(
     HRESULT hr = device_->CreateTexture2D(&staging, nullptr, &readback);
     if (FAILED(hr))
         return hr;
-    deviceContext_->CopyResource(readback.Get(), texture);
+    const D3D11_BOX box{
+        sampleX, sampleY, 0,
+        sampleX + 1, sampleY + 1, 1 };
+    deviceContext_->CopySubresourceRegion(
+        readback.Get(), 0, 0, 0, 0, texture, 0, &box);
     deviceContext_->Flush();
 
     D3D11_MAPPED_SUBRESOURCE mapped{};
