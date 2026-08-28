@@ -141,14 +141,16 @@ std::vector<HudTextRun> FormatHud(const HudTelemetrySnapshot& snapshot)
 {
     std::vector<HudTextRun> runs;
 
+    std::optional<double> fps;
     if (snapshot.presentMonDisplayedFps)
+        fps = snapshot.presentMonDisplayedFps;
+    else if (snapshot.renderFps)
+        fps = snapshot.renderFps;
+
+    if (fps)
         Add(runs, HudSegmentKind::Graphics,
             VisibleGraphicsApiLabel(snapshot.graphicsApi),
-            Integer(*snapshot.presentMonDisplayedFps) + L"FPS");
-    else if (snapshot.graphicsApi && snapshot.renderFps)
-        Add(runs, HudSegmentKind::Graphics,
-            VisibleGraphicsApiLabel(snapshot.graphicsApi),
-            Integer(*snapshot.renderFps) + L"FPS");
+            Integer(*fps) + L"FPS");
 
     const auto cpu = CpuValue(snapshot);
     if (!cpu.empty())

@@ -165,6 +165,12 @@ int main()
     ok &= Check(renderedRuns.size() == 1 && renderedRuns[0].label.empty() &&
         renderedRuns[0].value == L"120FPS",
         "render FPS hides a non-DX12 API");
+    HudTelemetrySnapshot renderedWithoutApi{};
+    renderedWithoutApi.renderFps = 120.0;
+    renderedRuns = FormatHud(renderedWithoutApi);
+    ok &= Check(renderedRuns.size() == 1 && renderedRuns[0].label.empty() &&
+        renderedRuns[0].value == L"120FPS",
+        "render FPS without API remains visible");
 
     HudTelemetrySnapshot unavailableApi{};
     unavailableApi.presentMonDisplayedFps = 120.0;
