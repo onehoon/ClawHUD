@@ -1,8 +1,15 @@
 #pragma once
 
-// Pinned to Intel IGCL igcl_api.h v1.1 (2025 header).  Only the documented
-// read-only ABI used by the survey is mirrored here; no ControlLib runtime is
-// bundled.  Keep this file in lock-step with the pinned header revision.
+// Copyright (C) 2025 Intel Corporation
+// Selected read-only ABI declarations below are derived from Intel IGCL
+// igcl_api.h at b6c462933502e13d1537dd5024949a51be30e63d and are redistributed
+// under the Intel Software License Agreement bundled at:
+// third_party/Intel-IGCL-LICENSE.txt
+// ClawHUD does not redistribute ControlLib.dll.
+//
+// Pinned to Intel IGCL igcl_api.h v1.1 (2025 header). Only the documented
+// read-only ABI used by the survey is mirrored here. Keep this file in
+// lock-step with the pinned header revision.
 #include <windows.h>
 #include <cstdint>
 #include <cstddef>

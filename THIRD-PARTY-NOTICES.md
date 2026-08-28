@@ -39,8 +39,9 @@ DEALINGS IN THE SOFTWARE.
 - Project: https://github.com/intel/drivers.gpu.control-library
 - License: Intel Software License Agreement 10.07.21
 - Runtime binary: not redistributed by ClawHUD
-- Bundled license copy: `third_party/Intel-IGCL-LICENSE.txt`
-- The compatibility header retains the applicable Intel copyright/license terms from the upstream header.
+- Bundled license copy: `third_party/Intel-IGCL-LICENSE.txt` (verbatim upstream `LICENSE`)
+- Upstream revision: `b6c462933502e13d1537dd5024949a51be30e63d`
+- The derived compatibility header retains Intel's copyright notice and points to the bundled license copy.
 
 ## MangoHud
 

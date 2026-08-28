@@ -13,6 +13,7 @@
 #include <iomanip>
 #include <limits>
 #include <map>
+#include <optional>
 #include <sstream>
 #include <thread>
 
@@ -50,6 +51,15 @@ std::string ResultName(Result r) { switch(r) { case 0:return "CTL_RESULT_SUCCESS
 std::string Hex(Result r) { std::ostringstream s; s<<"0x"<<std::uppercase<<std::hex<<std::setw(8)<<std::setfill('0')<<r; return s.str(); }
 std::wstring Now(bool file=false) { auto t=std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()); std::tm tm{}; localtime_s(&tm,&t); std::wstringstream s; s<<std::put_time(&tm,file?L"%Y%m%d-%H%M%S":L"%Y-%m-%d %H:%M:%S"); return s.str(); }
 std::string Narrow(const std::wstring& v) { if(v.empty())return{}; int n=WideCharToMultiByte(CP_UTF8,0,v.data(),(int)v.size(),nullptr,0,nullptr,nullptr); std::string s(n,'\0'); WideCharToMultiByte(CP_UTF8,0,v.data(),(int)v.size(),s.data(),n,nullptr,nullptr); return s; }
+std::optional<std::string> ToIgclApplicationName(const std::wstring& filename)
+{
+    if(filename.empty())return std::nullopt;
+    const int required=WideCharToMultiByte(CP_ACP,WC_NO_BEST_FIT_CHARS,filename.data(),static_cast<int>(filename.size()),nullptr,0,nullptr,nullptr);
+    if(required<=0||!IsIgclApplicationNameLengthValid(static_cast<std::size_t>(required)))return std::nullopt;
+    std::string result(static_cast<std::size_t>(required),'\0');
+    if(!WideCharToMultiByte(CP_ACP,WC_NO_BEST_FIT_CHARS,filename.data(),static_cast<int>(filename.size()),result.data(),required,nullptr,nullptr))return std::nullopt;
+    return result;
+}
 bool Elevated() { HANDLE token{}; TOKEN_ELEVATION e{}; DWORD n{}; bool ok=OpenProcessToken(GetCurrentProcess(),TOKEN_QUERY,&token)!=FALSE && GetTokenInformation(token,TokenElevation,&e,sizeof(e),&n)!=FALSE; if(token)CloseHandle(token); return ok&&e.TokenIsElevated!=FALSE; }
 void LogCall(std::ofstream& o,const char* n,Result r) { o<<n<<": "<<ResultName(r)<<" ("<<Hex(r)<<")\n"; }
 std::string Class(Result r, bool supported=true) { if(!supported)return "UNSUPPORTED"; return r==0?"SUPPORTED":"API_ERROR"; }
@@ -84,7 +94,7 @@ void SampleDynamicDomains(HMODULE lib, Device device, std::size_t adapter,
 {
     auto key=[&](const std::string& name){return "adapter["+std::to_string(adapter)+"]."+name;};
     auto fail=[&](const std::string& name,bool symbol,bool domain,bool api){auto& s=metrics[key(name)];s.symbolPresent&=symbol;s.hasDomain&=domain;s.apiSucceeded&=api;};
-    auto collect=[&](const std::string& name,double value,std::uint64_t raw,std::uint32_t type,bool ok){auto& s=metrics[key(name)];s.apiSucceeded&=ok;if(ok){s.values.push_back(value);s.rawValues.push_back(raw);s.types.push_back(type);}};
+    auto collect=[&](const std::string& name,double value,std::uint64_t raw,std::uint32_t type,bool ok){auto& s=metrics[key(name)];const auto separator=name.rfind('.');if(separator!=std::string::npos){const auto& parent=metrics[key(name.substr(0,separator))];s.symbolPresent&=parent.symbolPresent;s.hasDomain&=parent.hasDomain;s.apiSucceeded&=parent.apiSucceeded;}s.apiSucceeded&=ok;if(ok){s.values.push_back(value);s.rawValues.push_back(raw);s.types.push_back(type);}};
     auto sample=[&](const char* ename,const char* sname,const char* metric){auto en=Get<EnumFn>(lib,ename);auto st=Get<OneStateFn>(lib,sname);if(!en||!st){fail(metric,en&&st,true,true);return;}std::uint32_t n{};const Result cr=en(device,&n,nullptr);if(cr!=kSuccess){fail(metric,true,true,false);return;}if(!n){fail(metric,true,false,true);return;}std::vector<Handle> hs(n);const Result er=en(device,&n,hs.data());if(er!=kSuccess){fail(metric,true,true,false);return;}for(std::uint32_t i=0;i<n;++i){const std::string index=std::string(metric)+"["+std::to_string(i)+"]";if(std::string(metric)=="frequency"){igcl::FrequencyState v{};v.Size=sizeof(v);const Result r=st(hs[i],&v);fail(index,true,true,r==kSuccess);if(r==kSuccess)collect(index+".actual",v.actual,static_cast<std::uint64_t>(v.actual),9,true);}else if(std::string(metric)=="engine"){igcl::EngineStats v{};v.Size=sizeof(v);const Result r=st(hs[i],&v);fail(index,true,true,r==kSuccess);if(r==kSuccess)collect(index+".activeTime",static_cast<double>(v.activeTime),v.activeTime,7,true);}else if(std::string(metric)=="memory"){igcl::MemoryState v{};v.Size=sizeof(v);const Result r=st(hs[i],&v);fail(index,true,true,r==kSuccess);if(r==kSuccess)collect(index+".free",static_cast<double>(v.free),v.free,7,true);auto bw=Get<OneStateFn>(lib,"ctlMemoryGetBandwidth");auto& bs=metrics[key(index+".bandwidth.readCounter")];if(!bw){bs.symbolPresent=false;}else{igcl::MemoryBandwidth b{};b.Size=sizeof(b);const Result br=bw(hs[i],&b);bs.apiSucceeded&=br==kSuccess;if(br==kSuccess){collect(index+".bandwidth.readCounter",static_cast<double>(b.readCounter),b.readCounter,7,true);collect(index+".bandwidth.writeCounter",static_cast<double>(b.writeCounter),b.writeCounter,7,true);}}}else if(std::string(metric)=="power"){igcl::PowerEnergy v{};v.Size=sizeof(v);const Result r=st(hs[i],&v);fail(index,true,true,r==kSuccess);if(r==kSuccess)collect(index+".energy",static_cast<double>(v.energy),v.energy,7,true);}}};
     auto sampleFull=[&](const char* ename,const char* sname,const char* metric){
         auto en=Get<EnumFn>(lib,ename); auto st=Get<OneStateFn>(lib,sname);
@@ -153,15 +163,19 @@ void IgclTelemetryDiagnostic::Run()
             if (const auto live = Get<GetSet3DFn>(library, "ctlGetSet3DFeature"); live)
             {
                 LiveState state{}; FeatureRequest request{}; request.size=sizeof(request); request.featureType=19; request.valueType=5; request.customValueSize=sizeof(state); request.customValue=&state;
-                std::string appName=""; if(!path.empty()) appName=std::filesystem::path(path).filename().string();
-                if(!IsIgclApplicationNameLengthValid(appName.size()))
+                std::optional<std::string> appName;
+                if(!path.empty())
                 {
-                    log<<"ctlGetSet3DFeature (read-only): SKIPPED_INVALID_APPLICATION_NAME_LENGTH\n"
-                       <<"Application name bytes: "<<appName.size()<<" (maximum encodable length: "<<INT8_MAX<<")\n";
+                    try { appName=ToIgclApplicationName(std::filesystem::path(path).filename().wstring()); }
+                    catch(const std::exception&) { appName=std::nullopt; }
+                }
+                if(!path.empty()&&!appName)
+                {
+                    log<<"ctlGetSet3DFeature (read-only): SKIPPED_INVALID_APPLICATION_NAME\n";
                 }
                 else
                 {
-                    request.applicationName=appName.empty()?nullptr:appName.data(); request.applicationNameLength=static_cast<std::int8_t>(appName.size());
+                    request.applicationName=appName?appName->data():nullptr; request.applicationNameLength=static_cast<std::int8_t>(appName?appName->size():0);
                     const Result lr=live(ds[i],&request); LogCall(log,"ctlGetSet3DFeature (read-only)",lr); log<<"Graphics API mask raw: 0x"<<std::hex<<state.gfxApi<<"\nTarget FPS raw: "<<std::dec<<state.targetFps<<"\nFrame pacing raw: "<<state.framePacingStatus<<"\n";
                 }
             }
@@ -208,7 +222,9 @@ void IgclTelemetryDiagnostic::Run()
         };
         std::size_t currentAdapter=0;
         auto collect = [&](const std::string& name, const Item& item, bool counter=false) { auto& s=metrics["adapter["+std::to_string(currentAdapter)+"]."+name]; s.supported&=item.supported; if(item.supported){s.values.push_back(DecodeItem(item)); s.rawValues.push_back(item.value.u64); s.timestamps.push_back(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count())); s.types.push_back(item.type);} (void)counter; };
+        constexpr auto samplingCadence = std::chrono::milliseconds(250);
         const auto samplingStart = std::chrono::steady_clock::now();
+        auto nextSample = samplingStart;
         for (int sample=1; sample<=20 && !stop_; ++sample)
         {
             const auto sampleTimestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -240,7 +256,14 @@ void IgclTelemetryDiagnostic::Run()
                         [&](const std::string& name, bool value) { log<<"    "<<name<<" raw_bool="<<(value?"true":"false")<<"\n"; });
                 }
             }
-            log.flush(); if(sample<20) std::this_thread::sleep_for(std::chrono::milliseconds(250));
+            log.flush();
+            nextSample += samplingCadence;
+            if(sample<20)
+            {
+                const auto now=std::chrono::steady_clock::now();
+                if(now<nextSample) std::this_thread::sleep_until(nextSample);
+                else log<<"Sampling deadline overrun_ms="<<std::chrono::duration_cast<std::chrono::milliseconds>(now-nextSample).count()<<"\n";
+            }
         }
         if (!tele)
         {

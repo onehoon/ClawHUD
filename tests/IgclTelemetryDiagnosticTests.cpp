@@ -29,5 +29,7 @@ int main()
     check(std::string(IgclDiagnosticClassName(IgclDiagnosticClass::SkippedMutationCapable)) == "SKIPPED_MUTATION_CAPABLE", "safety classification name");
     check(IsIgclApplicationNameLengthValid(127), "127-byte application name");
     check(!IsIgclApplicationNameLengthValid(128), "128-byte application name rejected");
+    IgclSampleSeries intermittentFailure; intermittentFailure.values = { 100.0, 110.0 }; intermittentFailure.apiSucceeded = false;
+    check(ClassifyIgclSamples(intermittentFailure) == IgclDiagnosticClass::ApiError, "leaf reports intermittent API failure");
     return ok ? 0 : 1;
 }
