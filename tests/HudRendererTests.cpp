@@ -185,7 +185,7 @@ int main()
         "Unispace text offsets");
     typographyOptions.font = HudFont::SegoeUiVariable;
     ok &= Check(Near(MainTextYOffset(typographyOptions), 0.0f) &&
-        Near(UnitTextYOffset(typographyOptions), 3.0f),
+        Near(UnitTextYOffset(typographyOptions), 4.0f),
         "Segoe UI Variable text offsets");
     typographyOptions.dpi = 144.0f;
     typographyOptions.font = HudFont::Unispace;
@@ -194,8 +194,8 @@ int main()
         "Unispace unit optical offset remains 2 physical px at high DPI");
     typographyOptions.font = HudFont::SegoeUiVariable;
     ok &= Check(Near(MainTextYOffset(typographyOptions), 0.0f) &&
-        Near(UnitTextYOffset(typographyOptions), 2.0f),
-        "Segoe UI Variable unit optical offset is 3 physical px at high DPI");
+        Near(UnitTextYOffset(typographyOptions), 2.6667f),
+        "Segoe UI Variable unit optical offset is 4 physical px at high DPI");
     ok &= Check(Near(UnitAdvanceGap(HudRenderOptions{}), 4.0f),
         "unit visible gap uses 4 physical px at 96 DPI");
     typographyOptions.dpi = 144.0f;

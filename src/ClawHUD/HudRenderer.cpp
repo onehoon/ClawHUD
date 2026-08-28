@@ -529,7 +529,7 @@ float MainTextYOffset(const HudRenderOptions& options) noexcept
 float UnitTextYOffset(const HudRenderOptions& options) noexcept
 {
     const float offsetPx =
-        options.font == HudFont::SegoeUiVariable ? 3.0f : 2.0f;
+        options.font == HudFont::SegoeUiVariable ? 4.0f : 2.0f;
     return DipFromPhysicalPixels(offsetPx, options.dpi);
 }
 
