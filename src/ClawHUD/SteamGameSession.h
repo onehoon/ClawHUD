@@ -51,15 +51,6 @@ constexpr SteamAppIdTransition EvaluateSteamAppIdTransition(
         nextAppId ? SteamGameState::Resolving : SteamGameState::None };
 }
 
-constexpr bool ShouldConsiderSteamRendererHandoff(
-    bool hudEnabled, SteamGameState state, std::uint32_t appId,
-    DWORD currentRendererPid, DWORD foregroundPid) noexcept
-{
-    return hudEnabled && state == SteamGameState::Active && appId != 0 &&
-        currentRendererPid != 0 && foregroundPid != 0 &&
-        currentRendererPid != foregroundPid;
-}
-
 constexpr bool ShouldRunSteamRendererResolution(
     bool hudEnabled, SteamGameState state, std::uint32_t appId,
     bool suspended, bool diagnosticRunning) noexcept

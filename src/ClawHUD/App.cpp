@@ -1318,41 +1318,7 @@ void App::ResolveSteamRenderer()
     if (!mockHudEnabled_ || !steamRunningAppId_ || suspended_ || DiagnosticRunning())
         return;
     if (steamGameState_ == SteamGameState::Active)
-    {
-        if (!steamRendererPid_)
-            return;
-        if (!steamGpuEngineSampler_.Initialized())
-            steamGpuEngineSampler_.Initialize();
-        HWND foreground = GetForegroundWindow();
-        DWORD foregroundPid{};
-        if (foreground)
-            GetWindowThreadProcessId(foreground, &foregroundPid);
-        if (!ShouldConsiderSteamRendererHandoff(mockHudEnabled_, steamGameState_,
-            steamRunningAppId_, steamRendererPid_, foregroundPid))
-            return;
-        const auto activity = steamGpuEngineSampler_.Sample();
-        const auto candidates = clawhud::SelectGpuActiveProcessIds(
-            activity, foregroundPid, steamBaselineProcessIds_,
-            steamAllowBaselineRenderer_);
-        const bool foregroundEligible = foregroundPid &&
-            foregroundPid != GetCurrentProcessId() && ProcessAlive(foregroundPid) &&
-            (steamAllowBaselineRenderer_ || std::find(steamBaselineProcessIds_.begin(),
-                steamBaselineProcessIds_.end(), foregroundPid) ==
-                steamBaselineProcessIds_.end());
-        const bool foregroundHasGpuEvidence = std::find(candidates.begin(),
-            candidates.end(), foregroundPid) != candidates.end();
-        if (!foregroundEligible || (!foregroundHasGpuEvidence && !candidates.empty()))
-            return;
-        steamGameState_ = SteamGameState::Resolving;
-        steamRendererCandidatePid_ = foregroundPid;
-        StopProductionPresentMonSampling(L"steam-renderer-handoff", true);
-        StartGraphicsApiProbe(foregroundPid);
-        StartSteamPresentMon(foregroundPid);
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info,
-            L"Steam renderer handoff appId=" + std::to_wstring(steamRunningAppId_) +
-            L" pid=" + std::to_wstring(foregroundPid));
         return;
-    }
     if (steamGameState_ != SteamGameState::Resolving)
         return;
     if (!steamGpuEngineSampler_.Initialized())
@@ -1365,13 +1331,6 @@ void App::ResolveSteamRenderer()
     auto candidates = clawhud::SelectGpuActiveProcessIds(
         activity, foregroundPid, steamBaselineProcessIds_,
         steamAllowBaselineRenderer_);
-    if (foregroundPid && foregroundPid != GetCurrentProcessId() &&
-        ProcessAlive(foregroundPid) &&
-        (steamAllowBaselineRenderer_ || std::find(steamBaselineProcessIds_.begin(),
-            steamBaselineProcessIds_.end(), foregroundPid) ==
-            steamBaselineProcessIds_.end()) &&
-        std::find(candidates.begin(), candidates.end(), foregroundPid) == candidates.end())
-        candidates.push_back(foregroundPid);
     for (const auto processId : candidates)
     {
         if (processId == GetCurrentProcessId() || !ProcessAlive(processId))

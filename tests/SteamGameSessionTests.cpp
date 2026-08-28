@@ -45,10 +45,8 @@ int main()
         1234, false, false), "enabled Steam session can resolve renderer");
     check(!ShouldRunSteamRendererResolution(false, SteamGameState::Resolving,
         1234, false, false), "disabled HUD stops Steam renderer resolution");
-    check(ShouldConsiderSteamRendererHandoff(true, SteamGameState::Active,
-        1234, 100, 200), "active Steam session can consider a foreground handoff");
-    check(!ShouldConsiderSteamRendererHandoff(true, SteamGameState::Active,
-        1234, 100, 0), "handoff requires a foreground process");
+    check(!ShouldRunSteamRendererResolution(true, SteamGameState::Active,
+        1234, false, false), "active Steam session ignores foreground changes");
 
     const std::vector<GpuEngineActivity> activity{
         {100, 2.0, false, L"3D"},
@@ -75,6 +73,9 @@ int main()
         handoffActivity, 0, baseline, false);
     check(handoffCandidates.size() == 1 && handoffCandidates[0] == 200,
         "renderer handoff keeps a new process eligible within the same session");
+    const auto noGpuEvidenceCandidates = SelectGpuActiveProcessIds({}, 400);
+    check(noGpuEvidenceCandidates.empty(),
+        "foreground-only process is not a Steam renderer candidate");
 
     const std::vector<std::wstring> paths{L"pid_100_eng_3D", L"pid_200_eng_3D"};
     const std::unordered_set<std::wstring> bound{L"pid_100_eng_3D"};
