@@ -56,6 +56,7 @@ int main()
     ok &= Check(output0.output != output1.output && SummarizeVblank(output0).validDeltas == 1 && SummarizeVblank(output1).validDeltas == 1,
         "output target series remain separate");
     ok &= Check(IntelCtlResultName(0xDEADBEEF) == "UNKNOWN", "unknown result name remains raw-compatible");
+    ok &= Check(IntelCtlResultName(0x40000017) == "UNKNOWN", "unmapped driver result remains raw-compatible");
     ok &= Check(IntelCtlResultName(0x40000008) == "CTL_RESULT_ERROR_UNINITIALIZED", "uninitialized result name");
     return ok ? 0 : 1;
 }

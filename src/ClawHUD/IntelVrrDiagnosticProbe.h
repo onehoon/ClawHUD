@@ -57,6 +57,10 @@ private:
     {
         void* handle{};
         std::size_t index{};
+        bool vblankEligible{};
+        std::uint32_t lastVblankError{};
+        std::size_t vblankErrorCount{};
+        std::size_t vblankSuccessCount{};
         std::vector<VblankSeries> series;
     };
     void SampleLoop();
@@ -68,7 +72,6 @@ private:
     std::wofstream* log_{};
     std::atomic_bool sampling_{};
     std::thread sampler_;
-    std::uint32_t lastSampleError_{};
     bool initialized_{};
     bool vblankAvailable_{};
 };

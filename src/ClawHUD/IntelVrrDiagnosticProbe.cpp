@@ -65,6 +65,9 @@ using ArcInfoFn = Result(__cdecl*)(OutputHandle, MonitorParams*);
 using ArcProfileFn = Result(__cdecl*)(OutputHandle, ProfileParams*);
 using VblankFn = Result(__cdecl*)(OutputHandle, VblankArgs*);
 
+static_assert(offsetof(VblankArgs, VblankTS) == 8);
+static_assert(sizeof(VblankArgs) == 136);
+
 constexpr Result kSuccess = 0;
 constexpr std::uint32_t kErrorNotAvailable = 0x40000007;
 constexpr std::uint32_t kIgclApiVersion = (1u << 16) | 1u;
@@ -213,7 +216,8 @@ void IntelVrrDiagnosticProbe::LogState(std::wofstream& log)
     for (auto& output : outputs_)
     {
         MonitorParams capability{}; capability.Size = sizeof(capability);
-        const Result infoResult = info(output.handle, &capability); log << L"Output[" << output.index << L"]\n";
+        const Result infoResult = info(output.handle, &capability); output.vblankEligible = infoResult == kSuccess;
+        log << L"Output[" << output.index << L"]\n";
         if (infoResult != kSuccess) { log << L"Arc Sync Supported: Unavailable\n"; LogResult(log, L"ctlGetIntelArcSyncInfoForMonitor", infoResult); continue; }
         log << L"Arc Sync Supported: " << (capability.IsIntelArcSyncSupported ? L"YES" : L"NO")
             << L"\nCapability Range: " << capability.MinimumRefreshRateInHz << L"-" << capability.MaximumRefreshRateInHz << L" Hz\n"
@@ -229,13 +233,19 @@ void IntelVrrDiagnosticProbe::LogState(std::wofstream& log)
 void IntelVrrDiagnosticProbe::StartSampling()
 {
     if (!initialized_ || !vblankAvailable_ || outputs_.empty()) return;
-    for (auto& output : outputs_) { output.series.clear(); output.series.resize(16); for (std::size_t i = 0; i < output.series.size(); ++i) { output.series[i].output = output.index; output.series[i].target = i; } }
-    lastSampleError_ = 0; sampling_ = true; sampler_ = std::thread(&IntelVrrDiagnosticProbe::SampleLoop, this);
+    for (auto& output : outputs_)
+    {
+        output.series.clear(); output.series.resize(16);
+        output.lastVblankError = 0; output.vblankErrorCount = 0; output.vblankSuccessCount = 0;
+        for (std::size_t i = 0; i < output.series.size(); ++i) { output.series[i].output = output.index; output.series[i].target = i; }
+    }
+    sampling_ = true; sampler_ = std::thread(&IntelVrrDiagnosticProbe::SampleLoop, this);
 }
 
 void IntelVrrDiagnosticProbe::SampleLoop()
 {
     const auto vblank = Resolve<VblankFn>(library_, "ctlGetVblankTimestamp");
+    if (!vblank) return;
     HANDLE timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
         TIMER_MODIFY_STATE | SYNCHRONIZE);
     LARGE_INTEGER due{}; due.QuadPart = -10'000;
@@ -245,8 +255,13 @@ void IntelVrrDiagnosticProbe::SampleLoop()
     {
         for (auto& output : outputs_)
         {
+            if (!output.vblankEligible) continue;
             VblankArgs args{}; args.Size = sizeof(args); const Result result = vblank(output.handle, &args);
-            if (result != kSuccess) { lastSampleError_ = result; continue; }
+            if (result != kSuccess)
+            {
+                output.lastVblankError = result; ++output.vblankErrorCount; continue;
+            }
+            ++output.vblankSuccessCount;
             const auto count = std::min<std::size_t>(args.NumOfTargets, 16);
             for (std::size_t i = 0; i < count; ++i) RecordVblankTimestamp(output.series[i], args.VblankTS[i]);
         }
@@ -261,24 +276,40 @@ std::vector<VblankSummary> IntelVrrDiagnosticProbe::StopSampling(std::wofstream&
     sampling_ = false; if (sampler_.joinable()) sampler_.join(); std::vector<VblankSummary> summaries;
     log << L"IGCL VBlank (" << phase << L"):\n";
     if (!initialized_ || !vblankAvailable_) { log << L"Unavailable\n"; return summaries; }
-    for (const auto& output : outputs_) for (const auto& series : output.series)
+    for (const auto& output : outputs_)
     {
-        if (series.timestamps.empty()) continue; const auto summary = SummarizeVblank(series); summaries.push_back(summary);
-        log << L"Output[" << series.output << L"] Target[" << series.target << L"]\nUnique timestamps: " << summary.uniqueSamples << L"\nValid deltas: " << summary.validDeltas
-            << L"\nFirst timestamp: " << summary.first << L"\nLast timestamp: " << summary.last << L"\n";
-        if (summary.validDeltas > 0)
+        if (!output.vblankEligible)
         {
-            log << L"Average delta us: " << summary.averageDeltaUs << L"\nMedian delta us: " << summary.medianDeltaUs
-                << L"\nMin/Max delta us: " << summary.minimumDeltaUs << L"/" << summary.maximumDeltaUs
-                << L"\nMeasured VBlank Hz: " << *summary.measuredHz << L"\n";
+            log << L"Output[" << output.index << L"] VBlank sampling skipped: Arc Sync output query unavailable\n";
         }
-        else
+        if (output.vblankErrorCount > 0)
         {
-            log << L"Average delta us: Unavailable\nMedian delta us: Unavailable\nMin/Max delta us: Unavailable\nMeasured VBlank Hz: Unavailable\n";
+            log << L"Output[" << output.index << L"] VBlank calls succeeded: " << output.vblankSuccessCount << L"\n";
+            log << L"Output[" << output.index << L"] VBlank call failures: " << output.vblankErrorCount << L"\n";
+            LogResult(log, L"ctlGetVblankTimestamp", output.lastVblankError);
         }
-        log << L"Reset events: " << series.resetCount << L"\n";
+        else if (output.vblankEligible)
+        {
+            log << L"Output[" << output.index << L"] VBlank calls succeeded: " << output.vblankSuccessCount << L"\n";
+        }
+        for (const auto& series : output.series)
+        {
+            if (series.timestamps.empty()) continue; const auto summary = SummarizeVblank(series); summaries.push_back(summary);
+            log << L"Output[" << series.output << L"] Target[" << series.target << L"]\nUnique timestamps: " << summary.uniqueSamples << L"\nValid deltas: " << summary.validDeltas
+                << L"\nFirst timestamp: " << summary.first << L"\nLast timestamp: " << summary.last << L"\n";
+            if (summary.validDeltas > 0)
+            {
+                log << L"Average delta us: " << summary.averageDeltaUs << L"\nMedian delta us: " << summary.medianDeltaUs
+                    << L"\nMin/Max delta us: " << summary.minimumDeltaUs << L"/" << summary.maximumDeltaUs
+                    << L"\nMeasured VBlank Hz: " << *summary.measuredHz << L"\n";
+            }
+            else
+            {
+                log << L"Average delta us: Unavailable\nMedian delta us: Unavailable\nMin/Max delta us: Unavailable\nMeasured VBlank Hz: Unavailable\n";
+            }
+            log << L"Reset events: " << series.resetCount << L"\n";
+        }
     }
-    if (lastSampleError_) LogResult(log, L"ctlGetVblankTimestamp", lastSampleError_);
     if (summaries.empty()) log << L"Unavailable\n";
     return summaries;
 }
