@@ -600,7 +600,10 @@ void App::StopMockHud()
     mockHudEnabled_ = false;
     manualHudVisibilityOverride_.reset();
     KillTimer(tray_.Window(), kMockHudTimerId);
+    KillTimer(tray_.Window(), kSteamRendererResolveTimerId);
     StopProductionEcSampling(true, L"hud-disabled");
+    steamGpuEngineSampler_.Reset();
+    steamRendererCandidatePid_ = 0;
     StopGraphicsApiProbe();
     pendingProductionTargetPid_ = 0;
     ReconcileHudVisibility();
@@ -629,7 +632,16 @@ bool App::SetHudEnabled(bool enabled)
     if (!mockHudEnabled_) Log(L"HUD enabled");
     mockHudEnabled_ = true;
     mockFrameIndex_ = 0;
-    AdoptForegroundProductionTarget();
+    if (steamRunningAppId_)
+    {
+        if (steamGameState_ == SteamGameState::Active && steamRendererPid_ &&
+            ProcessAlive(steamRendererPid_))
+            ReconcileProductionTargetAuthority();
+        else
+            StartSteamRendererResolution();
+    }
+    else
+        AdoptForegroundProductionTarget();
     manualHudVisibilityOverride_.reset();
     ReconcileHudVisibility();
     SaveHudEnabledSetting(true);
@@ -1266,7 +1278,6 @@ void App::StopSteamRendererResolution(bool clearFps)
 {
     KillTimer(tray_.Window(), kSteamRendererResolveTimerId);
     steamGpuEngineSampler_.Reset();
-    steamBaselineProcessIds_.clear();
     steamRendererCandidatePid_ = 0;
     if (presentMonHudTelemetry_)
         StopProductionPresentMonSampling(L"steam-resolution-reset", clearFps);
@@ -1286,13 +1297,17 @@ void App::StartSteamRendererResolution()
     if (!steamGpuEngineSampler_.Initialize())
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
             L"Steam GPU Engine resolver failed to initialize");
-    steamGpuEngineSampler_.Sample();
-    for (const auto& activity : steamGpuEngineSampler_.Sample())
+    if (!steamBaselineCaptured_)
     {
-        if (std::find(steamBaselineProcessIds_.begin(),
-            steamBaselineProcessIds_.end(), activity.processId) ==
-            steamBaselineProcessIds_.end())
-            steamBaselineProcessIds_.push_back(activity.processId);
+        steamGpuEngineSampler_.Sample();
+        for (const auto& activity : steamGpuEngineSampler_.Sample())
+        {
+            if (std::find(steamBaselineProcessIds_.begin(),
+                steamBaselineProcessIds_.end(), activity.processId) ==
+                steamBaselineProcessIds_.end())
+                steamBaselineProcessIds_.push_back(activity.processId);
+        }
+        steamBaselineCaptured_ = true;
     }
     ResolveSteamRenderer();
     SetTimer(tray_.Window(), kSteamRendererResolveTimerId, 500, nullptr);
@@ -1300,8 +1315,9 @@ void App::StartSteamRendererResolution()
 
 void App::ResolveSteamRenderer()
 {
-    if (steamGameState_ != SteamGameState::Resolving || !steamRunningAppId_ ||
-        suspended_ || DiagnosticRunning())
+    if (!ShouldRunSteamRendererResolution(
+        mockHudEnabled_, steamGameState_, steamRunningAppId_, suspended_,
+        DiagnosticRunning()))
         return;
     if (!steamGpuEngineSampler_.Initialized())
     {
@@ -1367,14 +1383,16 @@ bool App::StartSteamPresentMon(DWORD processId)
 
 void App::HandleSteamRunningAppId(std::uint32_t appId)
 {
-    if (appId == steamRunningAppId_)
+    const auto transition = EvaluateSteamAppIdTransition(
+        steamRunningAppIdInitialized_, steamRunningAppId_, appId);
+    if (!transition.shouldHandle)
         return;
     const auto oldAppId = steamRunningAppId_;
-    const bool freshSteamLaunch = steamRunningAppIdInitialized_ &&
-        oldAppId == 0 && appId != 0;
-    steamAllowBaselineRenderer_ = !freshSteamLaunch;
+    steamAllowBaselineRenderer_ = transition.allowBaselineRenderer;
     steamRunningAppIdInitialized_ = true;
     steamRunningAppId_ = appId;
+    steamBaselineProcessIds_.clear();
+    steamBaselineCaptured_ = false;
     clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info,
         L"Steam session changed oldAppId=" + std::to_wstring(oldAppId) +
         L" newAppId=" + std::to_wstring(appId) + L" state=" +

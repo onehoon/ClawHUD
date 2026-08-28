@@ -27,6 +27,20 @@ int main()
         "zero app id ends session");
     check(DecodeSteamRunningAppId(0xF1234567u) == 0xF1234567u,
         "high-bit app id remains uint32");
+    const auto initialIdle = EvaluateSteamAppIdTransition(false, 0, 0);
+    check(initialIdle.shouldHandle && initialIdle.firstObservation &&
+        initialIdle.allowBaselineRenderer && initialIdle.state == SteamGameState::None,
+        "initial zero app id is recorded as an observation");
+    const auto freshLaunch = EvaluateSteamAppIdTransition(true, 0, 1234);
+    check(freshLaunch.shouldHandle && freshLaunch.freshLaunch &&
+        !freshLaunch.allowBaselineRenderer && freshLaunch.state == SteamGameState::Resolving,
+        "zero to nonzero app id is a fresh Steam launch");
+    check(!EvaluateSteamAppIdTransition(true, 1234, 1234).shouldHandle,
+        "unchanged app id is ignored");
+    check(ShouldRunSteamRendererResolution(true, SteamGameState::Resolving,
+        1234, false, false), "enabled Steam session can resolve renderer");
+    check(!ShouldRunSteamRendererResolution(false, SteamGameState::Resolving,
+        1234, false, false), "disabled HUD stops Steam renderer resolution");
 
     const std::vector<GpuEngineActivity> activity{
         {100, 2.0, false, L"3D"},
@@ -47,6 +61,12 @@ int main()
         activity, 100, baseline, true);
     check(startupCandidates.size() == 3 && startupCandidates[0] == 100,
         "startup with existing AppID allows baseline renderer candidates");
+    const std::vector<GpuEngineActivity> handoffActivity{
+        {200, 3.0, true, L"3D"}};
+    const auto handoffCandidates = SelectGpuActiveProcessIds(
+        handoffActivity, 0, baseline, false);
+    check(handoffCandidates.size() == 1 && handoffCandidates[0] == 200,
+        "renderer handoff keeps a new process eligible within the same session");
 
     const std::vector<std::wstring> paths{L"pid_100_eng_3D", L"pid_200_eng_3D"};
     const std::unordered_set<std::wstring> bound{L"pid_100_eng_3D"};
