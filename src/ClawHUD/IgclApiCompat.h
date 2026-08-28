@@ -16,6 +16,9 @@
 
 namespace clawhud::igcl
 {
+constexpr std::uint8_t kLegacyStateVersion = 0;
+constexpr std::uint8_t kTelemetryVersion = 1;
+
 using Result = std::uint32_t;
 using Api = void*; using Device = void*; using Output = void*;
 using Frequency = void*; using Engine = void*; using Memory = void*;
