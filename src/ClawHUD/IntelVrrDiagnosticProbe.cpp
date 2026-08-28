@@ -164,6 +164,7 @@ std::string IntelCtlResultName(std::uint32_t result)
     switch (result)
     {
     case 0: return "CTL_RESULT_SUCCESS";
+    case 0x00000001: return "CTL_RESULT_SUCCESS_STILL_OPEN_BY_ANOTHER_CALLER";
     case 0x40000001: return "CTL_RESULT_ERROR_NOT_INITIALIZED";
     case 0x40000002: return "CTL_RESULT_ERROR_ALREADY_INITIALIZED";
     case 0x40000003: return "CTL_RESULT_ERROR_DEVICE_LOST";
@@ -229,7 +230,8 @@ bool IntelVrrDiagnosticProbe::Initialize(std::wofstream& log)
     }
     initialized_ = true; vblankAvailable_ = vblank != nullptr;
     log << L"IGCL requested API version: 1.1\nIGCL supported API version: " << (args.SupportedVersion >> 16) << L"." << (args.SupportedVersion & 0xFFFFu)
-        << L"\n=== INTEL IGCL VRR STATE ===\nIGCL: Available\nVBlank API: " << (vblankAvailable_ ? L"Available" : L"Unavailable") << L"\n";
+        << L"\n=== INTEL IGCL VRR STATE ===\nIGCL: Available\nVBlank API: "
+        << (vblankAvailable_ ? (kEnableVblankProbe ? L"Available" : L"Available (sampling disabled)") : L"Unavailable") << L"\n";
     LogPanelIdentities(log);
     std::uint32_t deviceCount{}; Result enumerateResult = enumerateDevices(apiHandle_, &deviceCount, nullptr);
     if (enumerateResult != kSuccess || !deviceCount) { LogResult(log, L"ctlEnumerateDevices", enumerateResult); return true; }
@@ -289,7 +291,7 @@ void IntelVrrDiagnosticProbe::LogState(std::wofstream& log)
 
 void IntelVrrDiagnosticProbe::StartSampling()
 {
-    if (!initialized_ || !vblankAvailable_ || outputs_.empty()) return;
+    if (!kEnableVblankProbe || !initialized_ || !vblankAvailable_ || outputs_.empty()) return;
     for (auto& output : outputs_)
     {
         output.series.clear(); output.series.resize(16);
@@ -331,6 +333,7 @@ std::vector<VblankSummary> IntelVrrDiagnosticProbe::StopSampling(std::wofstream&
 {
     sampling_ = false; if (sampler_.joinable()) sampler_.join(); std::vector<VblankSummary> summaries;
     log << L"IGCL VBlank (" << phase << L"):\n";
+    if (!kEnableVblankProbe) { log << L"Disabled by device configuration\n"; return summaries; }
     if (!initialized_ || !vblankAvailable_) { log << L"Unavailable\n"; return summaries; }
     for (const auto& output : outputs_)
     {

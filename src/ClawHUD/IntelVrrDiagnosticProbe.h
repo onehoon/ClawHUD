@@ -14,6 +14,7 @@
 namespace clawhud
 {
 inline constexpr auto kVblankPollInterval = std::chrono::milliseconds(1);
+inline constexpr bool kEnableVblankProbe = false;
 
 struct VblankSeries
 {
