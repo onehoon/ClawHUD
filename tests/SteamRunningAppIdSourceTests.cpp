@@ -52,15 +52,20 @@ int main()
         "missing registry hierarchy has no key target");
 
     SteamRunningAppIdSource source;
-    ok &= Check(source.Start(reinterpret_cast<HWND>(static_cast<ULONG_PTR>(1)), WM_APP + 1),
+    const bool started = source.Start(
+        reinterpret_cast<HWND>(static_cast<ULONG_PTR>(1)), WM_APP + 1);
+    ok &= Check(started,
         "watcher starts");
-    const auto firstRead = source.GetRunningAppId();
-    const auto secondRead = source.GetRunningAppId();
-    ok &= Check(firstRead == secondRead,
-        "consumer reads the current registry value");
+    if (started)
+    {
+        const auto firstRead = source.GetRunningAppId();
+        const auto secondRead = source.GetRunningAppId();
+        ok &= Check(firstRead == secondRead,
+            "consumer reads current value after watcher is armed");
+        ok &= Check(!RunningAppIdChanged(firstRead, firstRead),
+            "duplicate notification is harmless");
+    }
     source.Stop();
     source.Stop();
-    ok &= Check(!RunningAppIdChanged(firstRead, firstRead),
-        "duplicate notification is harmless");
     return ok ? 0 : 1;
 }

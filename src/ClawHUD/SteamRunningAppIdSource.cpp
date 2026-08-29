@@ -39,19 +39,29 @@ bool SteamRunningAppIdSource::Start(HWND notifyWindow, UINT notifyMessage)
 {
     if (!notifyWindow || notifyMessage == 0 || worker_.joinable()) return false;
     stopEvent_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    if (!stopEvent_) return false;
+    readyEvent_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (!stopEvent_ || !readyEvent_)
+    {
+        Stop();
+        return false;
+    }
     notifyWindow_ = notifyWindow;
     notifyMessage_ = notifyMessage;
+    watchArmed_ = false;
     try
     {
         worker_ = std::thread(&SteamRunningAppIdSource::WatchLoop, this);
     }
     catch (...)
     {
-        CloseHandle(stopEvent_);
-        stopEvent_ = nullptr;
-        notifyWindow_ = nullptr;
-        notifyMessage_ = 0;
+        Stop();
+        return false;
+    }
+    const HANDLE waits[] = { stopEvent_, readyEvent_ };
+    const auto waitResult = WaitForMultipleObjects(2, waits, FALSE, INFINITE);
+    if (waitResult != WAIT_OBJECT_0 + 1 || !watchArmed_.load())
+    {
+        Stop();
         return false;
     }
     return true;
@@ -66,6 +76,12 @@ void SteamRunningAppIdSource::Stop() noexcept
         CloseHandle(stopEvent_);
         stopEvent_ = nullptr;
     }
+    if (readyEvent_)
+    {
+        CloseHandle(readyEvent_);
+        readyEvent_ = nullptr;
+    }
+    watchArmed_ = false;
     notifyWindow_ = nullptr;
     notifyMessage_ = 0;
 }
@@ -88,7 +104,11 @@ std::uint32_t SteamRunningAppIdSource::GetRunningAppId() const noexcept
 void SteamRunningAppIdSource::WatchLoop()
 {
     HANDLE changeEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    if (!changeEvent) return;
+    if (!changeEvent)
+    {
+        if (readyEvent_) SetEvent(readyEvent_);
+        return;
+    }
 
     for (;;)
     {
@@ -96,6 +116,7 @@ void SteamRunningAppIdSource::WatchLoop()
         HKEY key = OpenWatchKey(target);
         if (!key)
         {
+            if (readyEvent_) SetEvent(readyEvent_);
             WaitForSingleObject(stopEvent_, INFINITE);
             break;
         }
@@ -104,9 +125,12 @@ void SteamRunningAppIdSource::WatchLoop()
             SteamRunningAppIdWatchFilter(target), changeEvent, TRUE);
         if (notifyResult != ERROR_SUCCESS)
         {
+            if (readyEvent_) SetEvent(readyEvent_);
             RegCloseKey(key);
             break;
         }
+        if (!watchArmed_.exchange(true) && readyEvent_)
+            SetEvent(readyEvent_);
         const HANDLE waits[] = { stopEvent_, changeEvent };
         const auto waitResult = WaitForMultipleObjects(2, waits, FALSE, INFINITE);
         RegCloseKey(key);

@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include <cstdint>
+#include <atomic>
 #include <thread>
 
 enum class SteamRunningAppIdWatchTarget
@@ -59,5 +60,7 @@ private:
     HWND notifyWindow_{};
     UINT notifyMessage_{};
     HANDLE stopEvent_{};
+    HANDLE readyEvent_{};
+    std::atomic_bool watchArmed_{};
     std::thread worker_;
 };
