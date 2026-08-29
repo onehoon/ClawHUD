@@ -303,7 +303,91 @@ No additional Center M isolation work is currently required because Center M OSD
 
 ---
 
-# 6. Current conclusions as of 2026-08-29
+# 6. VRR OFF fixed-refresh control
+
+Source folder:
+
+```text
+C:\GoogleDrive\ClawHUD\logs\0829\ds-30fps-nofg-VRRoff
+```
+
+This run intentionally disabled Intel device VRR while preserving the same Death Stranding 30 FPS / no-FG / VSync OFF test condition.
+
+## Device state confirmation
+
+The diagnostic's IGCL output confirmed the fixed-refresh control condition:
+
+```text
+Current Profile: OFF
+Active Range: 120-120 Hz
+Capability Range: 48-120 Hz
+```
+
+Special K was manually observed as:
+
+- `Constant Rate 120 Hz`
+- LFC display remained approximately x4 at the 30 FPS game rate
+
+The LFC multiplier display is therefore not treated as equivalent to an "active VRR" flag.
+
+## PresentMon
+
+Both phases remained presentation-path stable:
+
+| Metric | HUD OFF | DYNAMIC @ 500 ms |
+|---|---:|---:|
+| Target rows | 838 | 839 |
+| Independent Flip | 100% | 100% |
+| Dominant PresentMode | Hardware Composed: Independent Flip | Hardware Composed: Independent Flip |
+| Swapchain | same | same |
+| AllowsTearing | 1 | 1 |
+| Avg `MsBetweenDisplayChange` | 33.330 ms | 33.331 ms |
+| Not-displayed frames | 0 | 0 |
+
+The game remained approximately 30 FPS even though the display was explicitly configured for fixed 120 Hz.
+
+This is direct control evidence that **100% Independent Flip and `AllowsTearing=1` do not prove that VRR is active**.
+
+## D3DKMT
+
+The D3DKMT PoC closely matched the fixed-refresh device state:
+
+| Metric | HUD OFF | DYNAMIC @ 500 ms |
+|---|---:|---:|
+| Sample count | 3387 | 3385 |
+| Phase elapsed Hz | **119.826** | **119.860** |
+| Median-derived Hz | **120.109** | **120.029** |
+| Windowed Hz range | 116–120 | 117–120 |
+| Windowed Hz average | **119.9** | **119.9** |
+
+After the initial partial/startup window, essentially every complete 1-second window reported 120 events/s in both phases.
+
+## Comparison with the VRR ON control
+
+The difference from the otherwise similar VRR ON 30 FPS / no-FG run is clear:
+
+| Device state | Special K | D3DKMT 1-second cadence |
+|---|---|---|
+| VRR ON | Variable Rate below 120 Hz, LFC x3/x4 | Variable, approximately 97–116 Hz across tested phases |
+| VRR OFF | **Constant Rate 120 Hz**, LFC x4 | **Fixed, approximately 120 Hz** |
+
+### Interpretation
+
+This is the strongest D3DKMT control result collected so far.
+
+Under ClawHUD-only conditions:
+
+- when Special K reported variable refresh, D3DKMT produced variable sub-120 cadence;
+- when Intel VRR was explicitly disabled and Special K reported Constant Rate 120 Hz, D3DKMT produced a stable ~119.9 Hz cadence;
+- PresentMon retained 100% Independent Flip in both VRR ON and VRR OFF conditions, confirming that presentation mode alone cannot distinguish active VRR from fixed refresh.
+
+This materially strengthens the evidence that `D3DKMTWaitForVerticalBlankEvent` can provide a useful external cadence reference on the tested MSI Claw / Intel display path.
+
+It remains experimental and is not yet an authoritative physical scanout API or an automatic VRR verdict source.
+
+---
+
+# 7. Current conclusions as of 2026-08-29
 
 ## Production ClawHUD presentation
 
@@ -311,8 +395,9 @@ Current hardware evidence supports the following:
 
 - Normal ClawHUD HUD operation has not shown a reproducible loss of Independent Flip.
 - Current 500 ms production-representative diagnostic rendering preserves 100% Independent Flip in tested Death Stranding runs.
-- In the tested 30 FPS / no-FG condition, Special K continued to show variable refresh/LFC behavior with normal ClawHUD and with the 500 ms DYNAMIC diagnostic.
+- In the tested 30 FPS / no-FG condition, Special K continued to show variable refresh/LFC behavior with normal ClawHUD and with the 500 ms DYNAMIC diagnostic when device VRR was enabled.
 - The old 100 ms synthetic diagnostic was not production representative and could itself force a fixed 120 Hz state.
+- VRR OFF control testing also retained 100% Independent Flip, demonstrating that Independent Flip is a presentation-path requirement rather than proof of active VRR.
 
 ## D3DKMT PoC
 
@@ -320,8 +405,9 @@ Current status: **PROMISING, NOT PRODUCTION-READY**.
 
 Evidence in favor:
 
-- ClawHUD-only runs showed variable D3DKMT cadence below 120 Hz.
-- Fixed-120 diagnostic coexistence runs with Center M OSD produced repeatable ~119.9 Hz D3DKMT cadence matching the manual Special K observation directionally.
+- ClawHUD-only VRR ON runs showed variable D3DKMT cadence below 120 Hz.
+- Explicit VRR OFF testing produced stable ~119.9 Hz D3DKMT cadence matching the `120-120 Hz` IGCL state and Special K `Constant Rate 120 Hz` observation.
+- Fixed-120 diagnostic coexistence runs with Center M OSD also produced repeatable ~119.9 Hz D3DKMT cadence matching the manual Special K observation directionally.
 - 1-second event-count/elapsed-time windows are more useful than individual-delta median values for this research.
 
 Remaining limitations:
@@ -341,26 +427,27 @@ It must not be interpreted as a standalone proof that the physical panel was act
 
 ---
 
-# 7. Next validation work
+# 8. Next validation work
 
 Continue appending hardware results here.
 
 Useful next runs include:
 
-- additional DX12 game(s), 30 FPS, no FG, VSync OFF, Special K visible
-- another low-FPS target where LFC multiplier visibly changes
-- later XeFG validation after no-FG cadence behavior is considered sufficiently understood
+- VRR ON, approximately 73 FPS, no FG, VSync OFF, to validate a no-LFC variable-refresh case
+- another low-FPS target such as approximately 40 FPS to observe a different LFC condition
+- later XeFG 2x/3x validation after no-FG cadence behavior is considered sufficiently understood
+- one additional game after the Death Stranding matrix is complete, to rule out a game-specific result
 
 For D3DKMT correlation, record both:
 
-- Special K manual Variable Rate / LFC observation
+- Special K manual Variable Rate / Constant Rate / LFC observation
 - D3DKMT 1-second window range and phase-wide elapsed Hz
 
 Do not add compensation factors or heuristics merely to force D3DKMT to match Special K.
 
 ---
 
-# 8. Append template for future runs
+# 9. Append template for future runs
 
 ```markdown
 ## YYYY-MM-DD — Game — FPS / FG condition
