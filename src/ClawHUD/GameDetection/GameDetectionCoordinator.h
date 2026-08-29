@@ -58,6 +58,7 @@ enum class GameDetectionTransition
     CandidateStarted,
     CandidateUpdated,
     CandidateReplaced,
+    CandidateCleared,
     RendererReady,
     Committed,
     Reset
@@ -80,6 +81,7 @@ public:
         DWORD processId, HWND window, GameDetectionTrigger trigger) noexcept;
     bool MarkRendererReady(DWORD processId, std::uint64_t generation) noexcept;
     bool CommitCandidate(DWORD processId, std::uint64_t generation) noexcept;
+    GameDetectionTransitionResult ClearCandidatePreservingSession() noexcept;
     void ClearSteamSession(std::uint32_t appId = 0) noexcept;
     GameDetectionTransitionResult Reset() noexcept;
 

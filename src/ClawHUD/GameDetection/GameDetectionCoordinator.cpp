@@ -150,6 +150,25 @@ bool GameDetectionCoordinator::CommitCandidate(
     return true;
 }
 
+GameDetectionTransitionResult
+GameDetectionCoordinator::ClearCandidatePreservingSession() noexcept
+{
+    ++context_.generation;
+    context_.candidateProcessId = 0;
+    context_.candidateWindow = nullptr;
+    context_.rendererObserved = false;
+    context_.microsoftGameIdentity = false;
+    context_.evidence.genericForeground = false;
+    context_.evidence.microsoftGameIdentity = false;
+    context_.state = context_.steamAppId != 0
+        ? GameDetectionState::Armed : GameDetectionState::Idle;
+    context_.evidence.steamSession = context_.steamAppId != 0;
+    context_.primaryTrigger = context_.steamAppId != 0
+        ? GameDetectionTrigger::SteamRunningAppId
+        : GameDetectionTrigger::GenericForeground;
+    return Result(GameDetectionTransition::CandidateCleared);
+}
+
 void GameDetectionCoordinator::ClearSteamSession(std::uint32_t appId) noexcept
 {
     if (appId != 0 && context_.steamAppId != appId)

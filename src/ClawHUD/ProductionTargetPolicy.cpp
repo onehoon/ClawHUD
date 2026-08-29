@@ -4,6 +4,29 @@
 
 namespace clawhud
 {
+CandidateDisposition DecideCandidateDisposition(
+    const GameDetectionContext& context,
+    GameDetectionTrigger incomingTrigger, DWORD incomingProcessId) noexcept
+{
+    if (incomingProcessId == 0)
+        return CandidateDisposition::Ignore;
+    if (context.candidateProcessId == incomingProcessId)
+        return CandidateDisposition::Merge;
+    if (context.state == GameDetectionState::Committed)
+        return CandidateDisposition::Ignore;
+    if (context.state == GameDetectionState::Ready)
+        return CandidateDisposition::Ignore;
+    if (context.candidateProcessId == 0)
+        return CandidateDisposition::Replace;
+    if (context.evidence.microsoftGameIdentity)
+        return CandidateDisposition::Ignore;
+    if (context.state == GameDetectionState::Verifying &&
+        (incomingTrigger == GameDetectionTrigger::MicrosoftGameIdentity ||
+            incomingTrigger == GameDetectionTrigger::GenericForeground))
+        return CandidateDisposition::Replace;
+    return CandidateDisposition::Ignore;
+}
+
 bool IsRejectedProductionTargetImage(std::wstring_view image) noexcept
 {
     constexpr std::array<std::wstring_view, 21> rejected{
@@ -20,50 +43,10 @@ bool IsRejectedProductionTargetImage(std::wstring_view image) noexcept
     return false;
 }
 
-bool ShouldEvaluateForegroundCandidate(DWORD committedProcessId,
-    DWORD foregroundProcessId) noexcept
-{
-    return committedProcessId == 0 && foregroundProcessId != 0;
-}
-
-bool ShouldReplacePendingCandidate(DWORD pendingProcessId,
-    DWORD foregroundProcessId) noexcept
-{
-    return foregroundProcessId != 0 && foregroundProcessId != pendingProcessId;
-}
-
-DWORD SelectProductionSamplingProcess(DWORD trackedProcessId,
-    DWORD pendingProcessId) noexcept
-{
-    return trackedProcessId ? trackedProcessId : pendingProcessId;
-}
-
-bool ShouldSampleProductionPresentMon(DWORD committedProcessId,
-    DWORD pendingProcessId, bool committedProcessAlive) noexcept
-{
-    return (committedProcessId != 0 && committedProcessAlive) ||
-        (committedProcessId == 0 && pendingProcessId != 0);
-}
-
 bool ShouldRetainCommittedProductionTarget(DWORD committedProcessId,
     bool processAlive) noexcept
 {
     return committedProcessId != 0 && processAlive;
-}
-
-bool ShouldPreservePendingProductionValidation(DWORD pendingProcessId,
-    DWORD presentMonProcessId, bool presentMonRunning) noexcept
-{
-    return pendingProcessId != 0 && pendingProcessId == presentMonProcessId &&
-        presentMonRunning;
-}
-
-bool ShouldDeferPendingProductionValidation(DWORD pendingProcessId,
-    DWORD foregroundProcessId, bool foregroundUsable,
-    bool candidateProcessAlive) noexcept
-{
-    return pendingProcessId != 0 && candidateProcessAlive &&
-        (foregroundProcessId == 0 || !foregroundUsable);
 }
 
 bool ShouldRetryProductionPresentMon(DWORD retryProcessId,
@@ -92,24 +75,10 @@ bool ShouldReevaluateForegroundAfterDiagnostic(bool hudEnabled,
     return hudEnabled && !diagnosticRunning && !suspended;
 }
 
-bool ShouldCancelPendingCandidateOnCommittedReturn(DWORD committedProcessId,
-    DWORD pendingProcessId, DWORD foregroundProcessId) noexcept
-{
-    return committedProcessId != 0 && committedProcessId == foregroundProcessId &&
-        pendingProcessId != 0 && pendingProcessId != committedProcessId;
-}
-
 bool ShouldRestartGraphicsApiProbe(DWORD probedProcessId,
     DWORD committedProcessId) noexcept
 {
     return committedProcessId != 0 && probedProcessId != committedProcessId;
-}
-
-bool ShouldConfirmProductionTarget(DWORD pendingProcessId, DWORD observedProcessId,
-    DWORD foregroundProcessId, bool displayedFpsAvailable) noexcept
-{
-    return pendingProcessId != 0 && pendingProcessId == observedProcessId &&
-        foregroundProcessId == observedProcessId && displayedFpsAvailable;
 }
 
 bool ShouldConsiderForegroundProductionTarget(bool hudEnabled, bool diagnosticRunning,
