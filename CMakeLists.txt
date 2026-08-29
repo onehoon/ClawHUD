@@ -63,6 +63,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/SettingsWindow.cpp
     src/ClawHUD/SettingsWindow.Diagnostics.cpp
     src/ClawHUD/SettingsWindow.Tweaks.cpp
+    src/ClawHUD/SettingsWindow.About.cpp
     src/ClawHUD/SettingsWindow.Settings.cpp
     src/ClawHUD/SettingsWindowInternal.cpp
     src/ClawHUD/SettingsWindowGeometry.cpp
