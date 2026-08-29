@@ -96,6 +96,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/HudPresentationLifecycle.cpp
     src/ClawHUD/ForegroundTracker.cpp
     src/ClawHUD/GameDetection/WindowsGameIdentitySource.cpp
+    src/ClawHUD/GameDetection/WindowsGameIdentityProbe.cpp
     src/ClawHUD/ProductionTargetPolicy.cpp
     src/ClawHUD/SteamRunningAppIdSource.cpp)
 target_compile_features(ClawHUD PRIVATE cxx_std_20)
@@ -420,6 +421,7 @@ if(BUILD_TESTING)
     add_executable(ClawHUD.WindowsGameIdentitySourceTests
         tests/WindowsGameIdentitySourceTests.cpp
         src/ClawHUD/GameDetection/WindowsGameIdentitySource.cpp
+        src/ClawHUD/GameDetection/WindowsGameIdentityProbe.cpp
         src/ClawHUD/RuntimeLogger.cpp)
     target_compile_features(ClawHUD.WindowsGameIdentitySourceTests PRIVATE cxx_std_20)
     target_compile_definitions(ClawHUD.WindowsGameIdentitySourceTests PRIVATE
