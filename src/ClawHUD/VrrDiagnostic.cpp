@@ -368,7 +368,7 @@ bool VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
         igcl.LogState(log);
         HMONITOR targetMonitor{};
         if (foregroundWindow && IsWindow(foregroundWindow))
-            targetMonitor = MonitorFromWindow(foregroundWindow, MONITOR_DEFAULTTOPRIMARY);
+            targetMonitor = MonitorFromWindow(foregroundWindow, MONITOR_DEFAULTTONULL);
         if (!targetMonitor)
             targetMonitor = MonitorFromPoint(POINT{ 0, 0 }, MONITOR_DEFAULTTOPRIMARY);
         d3dkmt.Initialize(log, targetMonitor);
