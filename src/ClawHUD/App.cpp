@@ -29,8 +29,9 @@ constexpr unsigned kIgclUnavailableFailureThreshold = 3;
 constexpr UINT kSettingsDestroyed = WM_APP + 1;
 constexpr UINT kForegroundChanged = WM_APP + 2;
 constexpr UINT kHudVisibilityRequest = WM_APP + 3;
-constexpr UINT kPresentMonHudUpdate = WM_APP + 4;
 constexpr UINT kSteamRunningAppIdChanged = WM_APP + 5;
+constexpr UINT kMicrosoftGameEvidence = WM_APP + 6;
+constexpr UINT kGameRenderVerifierUpdate = WM_APP + 7;
 constexpr UINT kUsageSamplingIntervalMs = 1000;
 constexpr UINT kBatteryHudTimerIntervalMs = 5000;
 constexpr UINT kGraphicsApiRetryIntervalMs = 500;
@@ -50,10 +51,14 @@ struct HudVisibilityRequest
     ~HudVisibilityRequest() { if (complete) CloseHandle(complete); }
 };
 
-struct PresentMonHudUpdate
+struct MicrosoftGameEvidenceUpdate
 {
-    DWORD processId{};
-    clawhud::PresentMonHudEvent event;
+    clawhud::MicrosoftGameTriggerEvidence evidence;
+};
+
+struct GameRenderVerifierUpdate
+{
+    clawhud::GameRenderVerifierEvent event;
 };
 
 std::wstring HudSettingsPath()
@@ -131,6 +136,7 @@ App::~App()
     CancelResumeRecovery();
     StopProductionEcSampling(false, L"app-shutdown");
     StopGraphicsApiProbe();
+    productionGameWindowSource_.Stop();
     foregroundTracker_.Stop();
     windowLifecycleSource_.Stop();
     presentActivitySource_.Stop();
@@ -139,7 +145,8 @@ App::~App()
     DiscardPendingHudVisibilityRequests();
     StopProductionPresentMonSampling(L"app-shutdown", true);
     steamRunningAppIdSource_.Stop();
-    DiscardPendingPresentMonHudUpdates();
+    DiscardPendingGameRenderVerifierEvents();
+    DiscardPendingMicrosoftGameEvidence();
     vrrDiagnostic_.reset();
     if (hudHotkeyRegistered_ && tray_.Window())
         UnregisterHotKey(tray_.Window(), kHudToggleHotkeyId);
@@ -182,13 +189,29 @@ int App::Run()
             L"Tray initialization failed");
         return 1;
     }
+    if (!productionGameWindowSource_.Start(
+        [this](const clawhud::ProductionWindowEvent& event)
+        {
+            if (const auto evidence = microsoftGameTrigger_.InspectWindowEvent(event))
+            {
+                auto* update = new MicrosoftGameEvidenceUpdate{*evidence};
+                if (!PostMessageW(tray_.Window(), kMicrosoftGameEvidence,
+                    reinterpret_cast<WPARAM>(update), 0))
+                    delete update;
+            }
+        }))
+    {
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+            L"Production game window source failed to start; continuing with generic/Steam detection");
+    }
     const bool steamWatcherStarted = steamRunningAppIdSource_.Start(
         tray_.Window(), kSteamRunningAppIdChanged);
     if (!steamWatcherStarted)
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
             L"Steam RunningAppID watcher initialization failed");
     steamRunningAppId_ = steamRunningAppIdSource_.GetRunningAppId();
-    steamRunningAppTrigger_.Initialize(steamRunningAppId_);
+    HandleGameDetectionTransition(
+        steamRunningAppTrigger_.Initialize(steamRunningAppId_));
     if (steamWatcherStarted)
         Log(L"Steam RunningAppID watcher started appId=" +
             std::to_wstring(steamRunningAppId_));
@@ -229,7 +252,7 @@ int App::Run()
             if (debugLoggingEnabled_)
                 windowsGameIdentitySource_.QueueInspect(window, processId);
             if (mockHudEnabled_ && !DiagnosticRunning())
-                AdoptForegroundProductionTarget(window, processId);
+                HandleProductionForegroundChanged(window, processId);
         }))
     {
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
@@ -246,7 +269,7 @@ int App::Run()
         }
         else
         {
-            AdoptForegroundProductionTarget();
+            ReevaluateProductionGameDetection();
             ReconcileHudVisibility();
         }
     }
@@ -325,13 +348,14 @@ bool App::StartEcDiagnostic()
         return false;
 
     igclStatus_ = L"Idle";
-    pendingProductionTargetPid_ = 0;
     StopProductionPresentMonSampling(L"diagnostic-start", false);
     StopGraphicsApiProbe();
+    if (gameDetectionCoordinator_.Context().state != clawhud::GameDetectionState::Committed)
+        gameDetectionCoordinator_.ClearCandidatePreservingSession();
     if (!ecDiagnostic_->Start())
     {
         if (mockHudEnabled_ && !suspended_)
-            AdoptForegroundProductionTarget();
+            ReevaluateProductionGameDetection();
         ReconcileHudVisibility();
         return false;
     }
@@ -343,13 +367,14 @@ bool App::StartIgclDiagnostic()
     if (!igclDiagnostic_ || DiagnosticRunning())
         return false;
     ecStatus_ = L"Idle";
-    pendingProductionTargetPid_ = 0;
     StopProductionEcSampling(false, L"igcl-diagnostic-start");
     StopProductionPresentMonSampling(L"igcl-diagnostic-start", false);
     StopGraphicsApiProbe();
+    if (gameDetectionCoordinator_.Context().state != clawhud::GameDetectionState::Committed)
+        gameDetectionCoordinator_.ClearCandidatePreservingSession();
     if (!igclDiagnostic_->Start())
     {
-        if (mockHudEnabled_ && !suspended_) AdoptForegroundProductionTarget();
+        if (mockHudEnabled_ && !suspended_) ReevaluateProductionGameDetection();
         ReconcileHudVisibility();
         return false;
     }
@@ -363,7 +388,7 @@ void App::StopIgclDiagnostic()
     if (igclDiagnostic_) igclDiagnostic_->Stop();
     if (wasRunning && clawhud::ShouldReevaluateForegroundAfterDiagnostic(
         mockHudEnabled_, DiagnosticRunning(), suspended_))
-        AdoptForegroundProductionTarget();
+        ReevaluateProductionGameDetection();
     ReconcileHudVisibility();
 }
 bool App::IgclDiagnosticRunning() const { return igclDiagnostic_ && igclDiagnostic_->Running(); }
@@ -372,7 +397,7 @@ void App::FinishIgclDiagnostic(bool success)
     if (igclDiagnostic_) igclDiagnostic_->Stop();
     if (clawhud::ShouldReevaluateForegroundAfterDiagnostic(
         mockHudEnabled_, DiagnosticRunning(), suspended_))
-        AdoptForegroundProductionTarget();
+        ReevaluateProductionGameDetection();
     ReconcileHudVisibility();
     if (!success)
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
@@ -384,7 +409,7 @@ void App::StopEcDiagnostic()
         ecDiagnostic_->Stop();
     if (clawhud::ShouldReevaluateForegroundAfterDiagnostic(
         mockHudEnabled_, DiagnosticRunning(), suspended_))
-        AdoptForegroundProductionTarget();
+        ReevaluateProductionGameDetection();
     ReconcileHudVisibility();
 }
 bool App::EcDiagnosticRunning() const { return ecDiagnostic_ && ecDiagnostic_->Running(); }
@@ -411,12 +436,13 @@ bool App::StartVrrDiagnostic()
     StopProductionEcSampling(false, L"diagnostic-start");
     StopProductionPresentMonSampling(L"diagnostic-start", false);
     StopGraphicsApiProbe();
-    pendingProductionTargetPid_ = 0;
+    if (gameDetectionCoordinator_.Context().state != clawhud::GameDetectionState::Committed)
+        gameDetectionCoordinator_.ClearCandidatePreservingSession();
     if (!vrrDiagnostic_->Start())
     {
         if (clawhud::ShouldReevaluateForegroundAfterDiagnostic(
             mockHudEnabled_, DiagnosticRunning(), suspended_))
-            AdoptForegroundProductionTarget();
+            ReevaluateProductionGameDetection();
         ReconcileHudVisibility();
         if (const DWORD processId = foregroundTracker_.TrackedProcessId();
             processId && ProcessAlive(processId) && mockHudEnabled_)
@@ -433,7 +459,7 @@ void App::StopVrrDiagnostic()
         vrrDiagnostic_->Stop();
     if (clawhud::ShouldReevaluateForegroundAfterDiagnostic(
         mockHudEnabled_, DiagnosticRunning(), suspended_))
-        AdoptForegroundProductionTarget();
+        ReevaluateProductionGameDetection();
     ReconcileHudVisibility();
 }
 bool App::VrrDiagnosticRunning() const { return vrrDiagnostic_ && vrrDiagnostic_->Running(); }
@@ -456,7 +482,8 @@ void App::HandleSystemSuspend()
                 L"HUD suspend hide failed");
     }
     PauseProductionSamplingForSuspend();
-    DiscardPendingPresentMonHudUpdates();
+    DiscardPendingGameRenderVerifierEvents();
+    DiscardPendingMicrosoftGameEvidence();
     Log(L"System suspend detected");
 }
 
@@ -470,7 +497,8 @@ void App::HandleSystemResume()
         if (hudPresentation_ && hudPresentation_->Visible())
             hudPresentation_->Hide();
         PauseProductionSamplingForSuspend();
-        DiscardPendingPresentMonHudUpdates();
+        DiscardPendingGameRenderVerifierEvents();
+        DiscardPendingMicrosoftGameEvidence();
         Log(L"Suspend notification was missed; resume fallback prepared");
     }
     suspended_ = false;
@@ -497,8 +525,7 @@ void App::TryResumeRecovery()
     const DWORD processId = foregroundTracker_.TrackedProcessId();
     const bool processAlive = processId && ProcessAlive(processId);
     const bool retainPresentMon = ResumeRecoveryCanRetainPresentMon(
-        processId, presentMonProcessId_,
-        presentMonHudTelemetry_ && presentMonHudTelemetry_->Running());
+        processId, gameRenderVerifier_.ProcessId(), gameRenderVerifier_.Running());
     const bool expectedVisible = mockHudEnabled_ &&
         (manualHudVisibilityOverride_.has_value()
             ? *manualHudVisibilityOverride_
@@ -507,7 +534,7 @@ void App::TryResumeRecovery()
                 foregroundTracker_.ForegroundIsTrackedProcess()));
     const bool visibilityUsesForeground = !manualHudVisibilityOverride_.has_value() &&
         hudOptions_.visibilityMode == clawhud::HudVisibilityMode::InGameOnly;
-    DiscardPendingPresentMonHudUpdates();
+    DiscardPendingGameRenderVerifierEvents();
     if (ResumeRecoveryShouldWaitForForeground(
         mockHudEnabled_, visibilityUsesForeground, processAlive,
         foregroundTracker_.ForegroundIsTrackedProcess(), resumeRecoveryAttempts_))
@@ -557,17 +584,17 @@ void App::TryResumeRecovery()
     const bool recovered = !expectedVisible || MockHudVisible();
     if (recovered)
     {
-        if (retainPresentMon && presentMonHudTelemetry_ &&
-            presentMonProcessId_ == processId && presentMonHudTelemetry_->Running())
+        if (retainPresentMon && gameRenderVerifier_.ProcessId() == processId &&
+            gameRenderVerifier_.Running())
             Log(L"PresentMon retained after resume pid=" + std::to_wstring(processId));
-        else if (processAlive && presentMonHudTelemetry_ &&
-            presentMonProcessId_ == processId && presentMonHudTelemetry_->Running())
+        else if (processAlive && gameRenderVerifier_.ProcessId() == processId &&
+            gameRenderVerifier_.Running())
             Log(L"PresentMon restarted after resume pid=" + std::to_wstring(processId));
         const unsigned completedAttempt = resumeRecoveryAttempts_;
         CancelResumeRecovery();
         if (clawhud::ShouldReevaluateForegroundAfterResume(
             mockHudEnabled_, recovered))
-            AdoptForegroundProductionTarget();
+            ReevaluateProductionGameDetection();
         Log(L"HUD resume recovery completed attempt=" +
             std::to_wstring(completedAttempt));
         return;
@@ -630,7 +657,9 @@ void App::StopMockHud()
     KillTimer(tray_.Window(), kMockHudTimerId);
     StopProductionEcSampling(true, L"hud-disabled");
     StopGraphicsApiProbe();
-    pendingProductionTargetPid_ = 0;
+    if (gameDetectionCoordinator_.Context().state != clawhud::GameDetectionState::Committed)
+        gameDetectionCoordinator_.ClearCandidatePreservingSession();
+    latestPresentMonDisplayedFps_.reset();
     ReconcileHudVisibility();
     if (hudPresentation_)
     {
@@ -657,7 +686,7 @@ bool App::SetHudEnabled(bool enabled)
     if (!mockHudEnabled_) Log(L"HUD enabled");
     mockHudEnabled_ = true;
     mockFrameIndex_ = 0;
-    AdoptForegroundProductionTarget();
+    ReevaluateProductionGameDetection();
     manualHudVisibilityOverride_.reset();
     ReconcileHudVisibility();
     SaveHudEnabledSetting(true);
@@ -1075,11 +1104,11 @@ void App::PauseProductionSamplingForSuspend()
 
 void App::ReleaseCommittedProductionTarget(const wchar_t* reason)
 {
-    const DWORD processId = foregroundTracker_.TrackedProcessId();
+    const auto& context = gameDetectionCoordinator_.Context();
+    const DWORD processId = context.candidateProcessId;
     if (!processId)
         return;
     const auto release = clawhud::PlanCommittedTargetRelease();
-    pendingProductionTargetPid_ = 0;
     presentMonRestartPid_ = 0;
     presentMonRestartAttempts_ = 0;
     clawhud::CommittedTargetReleaseOps ops;
@@ -1107,8 +1136,9 @@ void App::ReleaseCommittedProductionTarget(const wchar_t* reason)
     {
         ReconcileHudVisibility();
     };
+    gameDetectionCoordinator_.ClearCandidatePreservingSession();
     clawhud::ApplyCommittedTargetReleasePlan(release, ops);
-    Log(L"Production target cleared pid=" + std::to_wstring(processId) +
+    Log(L"[GameDetection] released pid=" + std::to_wstring(processId) +
         L" reason=" + reason);
 }
 
@@ -1148,93 +1178,79 @@ void App::StartProductionPresentMonSampling(bool recoveryStart)
 {
     if (suspended_ || DiagnosticRunning() || !mockHudEnabled_)
         return;
-    const DWORD committedProcessId = foregroundTracker_.TrackedProcessId();
-    const bool committedAlive = committedProcessId && ProcessAlive(committedProcessId);
-    if (committedProcessId && !committedAlive)
+    const auto& context = gameDetectionCoordinator_.Context();
+    const DWORD processId = context.candidateProcessId;
+    const auto generation = context.generation;
+    const bool committed = context.state == clawhud::GameDetectionState::Committed;
+    if (!processId)
+        return;
+    if (!ProcessAlive(processId))
     {
-        ReleaseCommittedProductionTarget(L"game-exited");
+        if (committed)
+            ReleaseCommittedProductionTarget(L"game-exited");
+        else
+            ReleaseProductionGameCandidate(L"game-exited");
         return;
     }
-    if (!clawhud::ShouldSampleProductionPresentMon(
-        committedProcessId, pendingProductionTargetPid_, committedAlive))
-    {
+    if (gameRenderVerifier_.Running() &&
+        gameRenderVerifier_.ProcessId() == processId &&
+        gameRenderVerifier_.Generation() == generation)
         return;
-    }
-    const DWORD processId = clawhud::SelectProductionSamplingProcess(
-        committedProcessId, pendingProductionTargetPid_);
-    if (!processId || !ProcessAlive(processId))
-    {
-        if (pendingProductionTargetPid_ == processId)
-            pendingProductionTargetPid_ = 0;
-        if (!committedProcessId)
-            StopProductionPresentMonSampling(L"explicit-reset", true);
-        return;
-    }
-    if (presentMonHudTelemetry_ && presentMonProcessId_ == processId &&
-        presentMonHudTelemetry_->Running())
-        return;
-    if (committedProcessId == processId && !presentMonHudTelemetry_ &&
+    if (committed && !gameRenderVerifier_.Running() &&
         !clawhud::ShouldAllowProductionPresentMonStart(
-            committedProcessId, processId, presentMonRestartPid_,
+            processId, processId, presentMonRestartPid_,
             presentMonRestartAttempts_, recoveryStart))
         return;
 
     StopProductionPresentMonSampling(L"target-handoff", false);
     const auto executable = std::filesystem::path(executablePath_).parent_path() /
         L"tools" / L"PresentMon.exe";
-    presentMonHudTelemetry_ = std::make_unique<clawhud::PresentMonHudTelemetry>();
-    presentMonProcessId_ = processId;
-    Log(L"PresentMon start requested pid=" + std::to_wstring(processId));
-    const bool started = presentMonHudTelemetry_->Start(executable.wstring(), processId,
-        [this, processId](const clawhud::PresentMonHudEvent& event)
+    Log(L"[GameDetection] verifier.start pid=" + std::to_wstring(processId) +
+        L" generation=" + std::to_wstring(generation));
+    const bool started = gameRenderVerifier_.Start(executable.wstring(), processId,
+        generation, [this](const clawhud::GameRenderVerifierEvent& event)
         {
-            auto* update = new PresentMonHudUpdate{processId, event};
-            if (!PostMessageW(tray_.Window(), kPresentMonHudUpdate,
+            auto* update = new GameRenderVerifierUpdate{event};
+            if (!PostMessageW(tray_.Window(), kGameRenderVerifierUpdate,
                 reinterpret_cast<WPARAM>(update), 0))
                 delete update;
         });
     if (started)
-        Log(L"PresentMon started pid=" + std::to_wstring(processId) +
-            L" session=" + presentMonHudTelemetry_->SessionName());
+        Log(L"[GameDetection] verifier.started pid=" + std::to_wstring(processId) +
+            L" generation=" + std::to_wstring(generation));
     else
     {
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
-            L"PresentMon start failed pid=" + std::to_wstring(processId));
-        presentMonHudTelemetry_.reset();
-        presentMonProcessId_ = 0;
-        if (!committedProcessId)
-            latestPresentMonDisplayedFps_.reset();
+            L"[GameDetection] verifier.start failed pid=" + std::to_wstring(processId));
+        if (!committed)
+            ReleaseProductionGameCandidate(L"verifier-start-failed");
         else
         {
-            if (presentMonRestartPid_ != committedProcessId)
+            if (presentMonRestartPid_ != processId)
             {
-                presentMonRestartPid_ = committedProcessId;
+                presentMonRestartPid_ = processId;
                 presentMonRestartAttempts_ = 0;
             }
             else if (presentMonRestartAttempts_ < 1)
                 ++presentMonRestartAttempts_;
             if (presentMonRestartAttempts_ >= 1)
                 clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
-                    L"PresentMon recovery exhausted pid=" +
-                    std::to_wstring(committedProcessId));
+                    L"PresentMon recovery exhausted pid=" + std::to_wstring(processId));
         }
     }
 }
 
 void App::StopProductionPresentMonSampling(const wchar_t* reason, bool clearLatestFps)
 {
-    if (presentMonHudTelemetry_)
+    if (gameRenderVerifier_.ProcessId())
     {
-        const DWORD processId = presentMonProcessId_;
-        Log(L"PresentMon stop requested pid=" +
+        const DWORD processId = gameRenderVerifier_.ProcessId();
+        Log(L"[GameDetection] verifier.stop pid=" +
             std::to_wstring(processId) + L" reason=" + reason);
-        const DWORD exitCode = presentMonHudTelemetry_->Stop();
-        Log(L"PresentMon stopped pid=" +
-            std::to_wstring(processId) + L" exitCode=" +
-            std::to_wstring(exitCode));
-        presentMonHudTelemetry_.reset();
+        const DWORD exitCode = gameRenderVerifier_.Stop();
+        Log(L"[GameDetection] verifier.stopped pid=" +
+            std::to_wstring(processId) + L" exitCode=" + std::to_wstring(exitCode));
     }
-    presentMonProcessId_ = 0;
     if (clearLatestFps)
         latestPresentMonDisplayedFps_.reset();
 }
@@ -1280,75 +1296,75 @@ void App::TryGraphicsApiProbe()
         kGraphicsApiRetryIntervalMs, nullptr);
 }
 
-void App::HandlePresentMonHudUpdate(DWORD processId,
-    const clawhud::PresentMonHudEvent& event)
+void App::HandleGameRenderVerifierEvent(
+    const clawhud::GameRenderVerifierEvent& event)
 {
+    const auto& context = gameDetectionCoordinator_.Context();
     if (suspended_ || resumeRecoveryActive_ || DiagnosticRunning() ||
-        !presentMonHudTelemetry_ ||
-        presentMonProcessId_ != processId ||
-        (foregroundTracker_.TrackedProcessId() != processId &&
-            pendingProductionTargetPid_ != processId))
+        event.processId != context.candidateProcessId ||
+        event.generation != context.generation)
         return;
-    if (event.type == clawhud::PresentMonHudEventType::FirstDisplayedFrame)
-        return;
-
-    const auto displayedFps = event.type == clawhud::PresentMonHudEventType::FpsUpdate
-        ? event.displayedFps : std::nullopt;
-    if (pendingProductionTargetPid_ == processId && displayedFps)
+    if (event.event.type == clawhud::PresentMonHudEventType::FirstDisplayedFrame)
     {
-        latestPresentMonDisplayedFps_ = displayedFps;
-        ConfirmForegroundProductionTarget(processId);
-        presentMonRestartPid_ = processId;
-        presentMonRestartAttempts_ = 0;
+        if (clawhud::GameRenderVerifier::ApplyRendererEvidence(
+            gameDetectionCoordinator_, event))
+        {
+            Log(L"[GameDetection] renderer.ready pid=" +
+                std::to_wstring(event.processId) + L" generation=" +
+                std::to_wstring(event.generation));
+            HWND foreground = GetForegroundWindow();
+            DWORD foregroundProcessId{};
+            if (foreground)
+                GetWindowThreadProcessId(foreground, &foregroundProcessId);
+            if (!TryCommitReadyCandidateFromForeground(foreground, foregroundProcessId))
+                Log(L"[GameDetection] candidate.ready-waiting-foreground pid=" +
+                    std::to_wstring(event.processId) + L" generation=" +
+                    std::to_wstring(event.generation));
+        }
         return;
     }
-    if (!ProcessAlive(processId))
-        StopGraphicsApiProbe();
-    latestPresentMonDisplayedFps_ = displayedFps;
-    RenderProductionHud();
-    if (!displayedFps)
+    if (event.event.type == clawhud::PresentMonHudEventType::FpsUpdate)
     {
-        if (!ProcessAlive(processId))
+        latestPresentMonDisplayedFps_ = event.event.displayedFps;
+        if (event.event.displayedFps)
         {
-            Log(L"PresentMon target process exited pid=" + std::to_wstring(processId));
-            if (foregroundTracker_.TrackedProcessId() == processId)
-                ReleaseCommittedProductionTarget(L"game-exited");
-            else
-            {
-                pendingProductionTargetPid_ = 0;
-                StopProductionPresentMonSampling(L"game-exited", true);
-                StopGraphicsApiProbe();
-            }
-            return;
-        }
-        else
-        {
-            const DWORD exitCode = presentMonHudTelemetry_->ExitCode();
-            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
-                L"PresentMon exited unexpectedly pid=" + std::to_wstring(processId) +
-                L" exitCode=" + std::to_wstring(exitCode));
-        }
-        StopProductionPresentMonSampling(L"unexpected-exit", false);
-        if (presentMonRestartPid_ != processId)
-        {
-            presentMonRestartPid_ = processId;
+            presentMonRestartPid_ = event.processId;
             presentMonRestartAttempts_ = 0;
         }
-        if (clawhud::ShouldRetryProductionPresentMon(
-            presentMonRestartPid_, presentMonRestartAttempts_, processId))
-        {
-            ++presentMonRestartAttempts_;
-            StartProductionPresentMonSampling(true);
-        }
-        else
-            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
-                L"PresentMon recovery exhausted pid=" + std::to_wstring(processId));
+        RenderProductionHud();
+        return;
     }
-    else if (displayedFps)
+
+    if (event.event.type != clawhud::PresentMonHudEventType::StreamEnded)
+        return;
+    const bool alive = ProcessAlive(event.processId);
+    Log(L"[GameDetection] verifier.ended pid=" + std::to_wstring(event.processId) +
+        L" generation=" + std::to_wstring(event.generation) +
+        L" processAlive=" + std::to_wstring(alive ? 1 : 0));
+    if (!alive)
     {
-        presentMonRestartPid_ = processId;
+        if (context.state == clawhud::GameDetectionState::Committed)
+            ReleaseCommittedProductionTarget(L"game-exited");
+        else
+            ReleaseProductionGameCandidate(L"game-exited");
+        return;
+    }
+
+    StopProductionPresentMonSampling(L"unexpected-exit", false);
+    if (presentMonRestartPid_ != event.processId)
+    {
+        presentMonRestartPid_ = event.processId;
         presentMonRestartAttempts_ = 0;
     }
+    if (clawhud::ShouldRetryProductionPresentMon(
+        presentMonRestartPid_, presentMonRestartAttempts_, event.processId))
+    {
+        ++presentMonRestartAttempts_;
+        StartProductionPresentMonSampling(true);
+    }
+    else
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+            L"PresentMon recovery exhausted pid=" + std::to_wstring(event.processId));
 }
 
 bool App::MockHudVisible() const noexcept
@@ -1384,118 +1400,114 @@ void App::TrackMockGameWindow(HWND window)
     }
 }
 
-bool App::AdoptForegroundProductionTarget()
+void App::ReevaluateProductionGameDetection()
 {
     HWND foreground = GetForegroundWindow();
     DWORD processId{};
     if (foreground)
         GetWindowThreadProcessId(foreground, &processId);
-    return AdoptForegroundProductionTarget(foreground, processId);
+    HandleProductionForegroundChanged(foreground, processId);
 }
 
-bool App::AdoptForegroundProductionTarget(HWND window, DWORD processId)
+void App::HandleProductionForegroundChanged(HWND window, DWORD processId)
 {
     if (!clawhud::ShouldConsiderForegroundProductionTarget(
         mockHudEnabled_, DiagnosticRunning(), suspended_))
-        return false;
-    const DWORD trackedProcessId = foregroundTracker_.TrackedProcessId();
-    if (trackedProcessId &&
-        clawhud::ShouldRetainCommittedProductionTarget(
-            trackedProcessId, ProcessAlive(trackedProcessId)))
+        return;
+    if (TryCommitReadyCandidateFromForeground(window, processId))
+        return;
+    const auto& context = gameDetectionCoordinator_.Context();
+    if (context.state == clawhud::GameDetectionState::Committed)
     {
-        if (graphicsApiProcessId_ != trackedProcessId)
-            StartGraphicsApiProbe(trackedProcessId);
-        StartProductionPresentMonSampling();
-        return true;
-    }
-
-    if (trackedProcessId)
-        ReleaseCommittedProductionTarget(L"game-exited");
-
-    const DWORD committedProcessId = foregroundTracker_.TrackedProcessId();
-
-    std::wstring imageName;
-    if (!IsUsableProductionTarget(window, processId, imageName))
-    {
-        if (pendingProductionTargetPid_ &&
-            ProcessAlive(pendingProductionTargetPid_))
-            return true;
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
-            L"Production target rejected pid=" + std::to_wstring(processId) +
-            L" image=" + (imageName.empty() ? L"<unavailable>" : imageName));
-        if (pendingProductionTargetPid_)
+        if (ProcessAlive(context.candidateProcessId))
         {
-            pendingProductionTargetPid_ = 0;
-            StopProductionPresentMonSampling(L"candidate-replaced", true);
-            StopGraphicsApiProbe();
+            if (graphicsApiProcessId_ != context.candidateProcessId)
+                StartGraphicsApiProbe(context.candidateProcessId);
+            StartProductionPresentMonSampling();
         }
-        return false;
+        return;
     }
-
-    const bool newCandidate =
-        clawhud::ShouldEvaluateForegroundCandidate(committedProcessId, processId) &&
-        clawhud::ShouldReplacePendingCandidate(pendingProductionTargetPid_, processId);
-    if (newCandidate)
-    {
-        const DWORD oldProcessId = pendingProductionTargetPid_
-            ? pendingProductionTargetPid_ : committedProcessId;
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
-            L"Production target foreground changed old=" +
-            std::to_wstring(oldProcessId) + L" new=" +
-            std::to_wstring(processId));
-        pendingProductionTargetPid_ = processId;
-        presentMonRestartPid_ = 0;
-        presentMonRestartAttempts_ = 0;
-        StopProductionPresentMonSampling(L"target-handoff", true);
-        StopGraphicsApiProbe();
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
-            L"Production target candidate pid=" + std::to_wstring(processId) +
-            L" image=" + imageName);
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
-            L"Production target validation started pid=" +
-            std::to_wstring(processId));
-        StartGraphicsApiProbe(processId);
-    }
-    else if (graphicsApiProcessId_ != processId)
-        StartGraphicsApiProbe(processId);
-    StartProductionPresentMonSampling();
-    return true;
+    if (context.state == clawhud::GameDetectionState::Ready)
+        return;
+    const auto evidence = genericForegroundTrigger_.Inspect(window, processId);
+    if (evidence)
+        ApplyProductionEvidence(clawhud::GameDetectionTrigger::GenericForeground,
+            evidence->window, evidence->processId);
 }
 
-void App::ConfirmForegroundProductionTarget(DWORD processId)
+void App::HandleMicrosoftGameEvidence(
+    const clawhud::MicrosoftGameTriggerEvidence& evidence)
 {
-    if (pendingProductionTargetPid_ != processId ||
-        !clawhud::ShouldConsiderForegroundProductionTarget(
-            mockHudEnabled_, DiagnosticRunning(), suspended_) ||
-        !ProcessAlive(processId))
+    if (clawhud::ShouldConsiderForegroundProductionTarget(
+        mockHudEnabled_, DiagnosticRunning(), suspended_))
+        ApplyProductionEvidence(clawhud::GameDetectionTrigger::MicrosoftGameIdentity,
+            evidence.window, evidence.processId);
+}
+
+void App::ApplyProductionEvidence(clawhud::GameDetectionTrigger trigger,
+    HWND window, DWORD processId)
+{
+    const auto disposition = clawhud::DecideCandidateDisposition(
+        gameDetectionCoordinator_.Context(), trigger, processId);
+    if (disposition == clawhud::CandidateDisposition::Ignore)
         return;
-    HWND foreground = GetForegroundWindow();
-    DWORD foregroundProcessId{};
-    if (foreground)
-        GetWindowThreadProcessId(foreground, &foregroundProcessId);
-    if (!clawhud::ShouldConfirmProductionTarget(
-        pendingProductionTargetPid_, processId, foregroundProcessId, true))
+    clawhud::GameDetectionTransitionResult transition;
+    if (disposition == clawhud::CandidateDisposition::Replace)
+        transition = gameDetectionCoordinator_.ReplaceCandidate(processId, window, trigger);
+    else if (trigger == clawhud::GameDetectionTrigger::MicrosoftGameIdentity)
+        transition = microsoftGameTrigger_.ApplyEvidence(
+            gameDetectionCoordinator_, {0, window, processId});
+    else
+        transition = genericForegroundTrigger_.ApplyEvidence(
+            gameDetectionCoordinator_, {window, processId});
+    HandleGameDetectionTransition(transition);
+}
+
+void App::HandleGameDetectionTransition(
+    const clawhud::GameDetectionTransitionResult& transition)
+{
+    if (transition.transition == clawhud::GameDetectionTransition::CandidateStarted)
     {
-        std::wstring foregroundImage;
-        const bool foregroundUsable = foregroundProcessId != 0 &&
-            IsUsableProductionTarget(
-                foreground, foregroundProcessId, foregroundImage);
-        if (clawhud::ShouldDeferPendingProductionValidation(
-            pendingProductionTargetPid_, foregroundProcessId, foregroundUsable,
-            ProcessAlive(processId)))
-            return;
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
-            L"Production target validation discarded pid=" +
-            std::to_wstring(processId) + L" reason=foreground-changed");
-        pendingProductionTargetPid_ = 0;
-        if (presentMonProcessId_ == processId)
-            StopProductionPresentMonSampling(L"candidate-replaced", true);
-        if (graphicsApiProcessId_ == processId)
-            StopGraphicsApiProbe();
-        return;
+        latestPresentMonDisplayedFps_.reset();
+        presentMonRestartPid_ = 0;
+        presentMonRestartAttempts_ = 0;
+        Log(L"[GameDetection] candidate.start pid=" +
+            std::to_wstring(transition.processId) + L" generation=" +
+            std::to_wstring(transition.generation));
+        StartCandidateRenderVerification();
     }
-    const DWORD previousProcessId = foregroundTracker_.TrackedProcessId();
-    pendingProductionTargetPid_ = 0;
+    else if (transition.transition == clawhud::GameDetectionTransition::CandidateReplaced)
+    {
+        StopProductionPresentMonSampling(L"candidate-replaced", true);
+        StopGraphicsApiProbe();
+        presentMonRestartPid_ = 0;
+        presentMonRestartAttempts_ = 0;
+        Log(L"[GameDetection] candidate.replace pid=" +
+            std::to_wstring(transition.processId) + L" generation=" +
+            std::to_wstring(transition.generation));
+        StartCandidateRenderVerification();
+    }
+}
+
+void App::StartCandidateRenderVerification()
+{
+    StartProductionPresentMonSampling();
+}
+
+bool App::TryCommitReadyCandidateFromForeground(HWND,
+    DWORD foregroundProcessId)
+{
+    const auto& context = gameDetectionCoordinator_.Context();
+    if (context.state != clawhud::GameDetectionState::Ready ||
+        context.candidateProcessId == 0 ||
+        context.candidateProcessId != foregroundProcessId ||
+        !ProcessAlive(context.candidateProcessId) ||
+        !mockHudEnabled_ || DiagnosticRunning() || suspended_)
+        return false;
+    const DWORD processId = context.candidateProcessId;
+    const auto generation = context.generation;
+    if (!gameDetectionCoordinator_.CommitCandidate(processId, generation))
+        return false;
     foregroundTracker_.SetTrackedProcessId(processId);
     presentMonRestartPid_ = processId;
     presentMonRestartAttempts_ = 0;
@@ -1506,40 +1518,25 @@ void App::ConfirmForegroundProductionTarget(DWORD processId)
     igclTelemetryAvailable_ = false;
     igclTelemetryFailureCount_ = 0;
     StartGraphicsApiProbe(processId);
-    Log(L"Production target confirmed pid=" + std::to_wstring(processId));
-    if (previousProcessId && previousProcessId != processId)
-        Log(L"Production target handoff old=" + std::to_wstring(previousProcessId) +
-            L" new=" + std::to_wstring(processId));
+    StartProductionEcSampling();
+    Log(L"[GameDetection] committed pid=" + std::to_wstring(processId) +
+        L" generation=" + std::to_wstring(generation));
     ReconcileHudVisibility();
+    return true;
 }
 
-bool App::IsUsableProductionTarget(HWND window, DWORD processId,
-    std::wstring& imageName) const
+void App::ReleaseProductionGameCandidate(const wchar_t* reason)
 {
-    imageName.clear();
-    if (!window || !processId || processId == GetCurrentProcessId() ||
-        !IsWindowVisible(window) || GetShellWindow() == window ||
-        GetDesktopWindow() == window)
-        return false;
-
-    wchar_t imagePath[MAX_PATH]{};
-    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
-    if (!process)
-        return false;
-    DWORD length = ARRAYSIZE(imagePath);
-    const bool queried = QueryFullProcessImageNameW(process, 0, imagePath, &length) != FALSE;
-    CloseHandle(process);
-    if (!queried)
-        return false;
-
-    std::wstring image(imagePath, length);
-    const auto separator = image.find_last_of(L"\\/");
-    if (separator != std::wstring::npos)
-        image.erase(0, separator + 1);
-    std::transform(image.begin(), image.end(), image.begin(),
-        [](wchar_t value) { return static_cast<wchar_t>(std::towlower(value)); });
-    imageName = image;
-    return !clawhud::IsRejectedProductionTargetImage(image);
+    const auto& context = gameDetectionCoordinator_.Context();
+    if (!context.candidateProcessId)
+        return;
+    StopProductionPresentMonSampling(reason, true);
+    if (graphicsApiProcessId_ == context.candidateProcessId)
+        StopGraphicsApiProbe();
+    presentMonRestartPid_ = 0;
+    presentMonRestartAttempts_ = 0;
+    gameDetectionCoordinator_.ClearCandidatePreservingSession();
+    Log(L"[GameDetection] candidate.cleared reason=" + std::wstring(reason));
 }
 
 void App::SetHudVisibilityMode(clawhud::HudVisibilityMode mode)
@@ -1580,7 +1577,7 @@ void App::HandleHudToggleHotkey()
         }
         mockHudEnabled_ = true;
         mockFrameIndex_ = 0;
-        AdoptForegroundProductionTarget();
+        ReevaluateProductionGameDetection();
         if (const DWORD processId = foregroundTracker_.TrackedProcessId())
             StartGraphicsApiProbe(processId);
     }
@@ -1598,6 +1595,8 @@ bool App::ApplyDiagnosticHudVisibility(bool visible)
 {
     diagnosticHudMode_.reset();
     StopProductionEcSampling(true, L"diagnostic-start");
+    if (gameDetectionCoordinator_.Context().state != clawhud::GameDetectionState::Committed)
+        gameDetectionCoordinator_.ClearCandidatePreservingSession();
     manualHudVisibilityOverride_ = visible;
     if (visible && !mockHudEnabled_)
     {
@@ -1613,7 +1612,8 @@ bool App::ApplyDiagnosticHudMode(DiagnosticHudMode mode)
 {
     StopProductionPresentMonSampling(L"diagnostic-start", false);
     StopProductionEcSampling(false, L"diagnostic-start");
-    pendingProductionTargetPid_ = 0;
+    if (gameDetectionCoordinator_.Context().state != clawhud::GameDetectionState::Committed)
+        gameDetectionCoordinator_.ClearCandidatePreservingSession();
     diagnosticHudMode_ = mode;
     manualHudVisibilityOverride_ = mode == DiagnosticHudMode::Off
         ? std::optional<bool>(false)
@@ -1749,12 +1749,20 @@ void App::DiscardPendingHudVisibilityRequests()
     }
 }
 
-void App::DiscardPendingPresentMonHudUpdates()
+void App::DiscardPendingGameRenderVerifierEvents()
 {
     MSG message{};
-    while (PeekMessageW(&message, tray_.Window(), kPresentMonHudUpdate,
-        kPresentMonHudUpdate, PM_REMOVE))
-        delete reinterpret_cast<PresentMonHudUpdate*>(message.wParam);
+    while (PeekMessageW(&message, tray_.Window(), kGameRenderVerifierUpdate,
+        kGameRenderVerifierUpdate, PM_REMOVE))
+        delete reinterpret_cast<GameRenderVerifierUpdate*>(message.wParam);
+}
+
+void App::DiscardPendingMicrosoftGameEvidence()
+{
+    MSG message{};
+    while (PeekMessageW(&message, tray_.Window(), kMicrosoftGameEvidence,
+        kMicrosoftGameEvidence, PM_REMOVE))
+        delete reinterpret_cast<MicrosoftGameEvidenceUpdate*>(message.wParam);
 }
 
 void App::ReconcileHudVisibility()
@@ -1767,9 +1775,10 @@ void App::ReconcileHudVisibility()
         hudPresentation_->Hide();
         return;
     }
-    if (mockHudEnabled_ && foregroundTracker_.TrackedProcessId() &&
-        !ProcessAlive(foregroundTracker_.TrackedProcessId()))
-        AdoptForegroundProductionTarget();
+    if (gameDetectionCoordinator_.Context().state == clawhud::GameDetectionState::Committed &&
+        gameDetectionCoordinator_.Context().candidateProcessId &&
+        !ProcessAlive(gameDetectionCoordinator_.Context().candidateProcessId))
+        ReleaseCommittedProductionTarget(L"game-exited");
     if (graphicsApiProcessId_ && !ProcessAlive(graphicsApiProcessId_))
         StopGraphicsApiProbe();
     const bool resolvedShow = mockHudEnabled_ && (manualHudVisibilityOverride_.has_value()
@@ -2012,8 +2021,9 @@ void App::Exit()
     exiting_ = true;
     CancelResumeRecovery();
     KillTimer(tray_.Window(), kMockHudTimerId);
-    StopProductionEcSampling(true, L"app-shutdown");
+    StopProductionEcSampling(false, L"app-shutdown");
     StopGraphicsApiProbe();
+    productionGameWindowSource_.Stop();
     foregroundTracker_.Stop();
     windowLifecycleSource_.Stop();
     presentActivitySource_.Stop();
@@ -2021,7 +2031,10 @@ void App::Exit()
     if (vrrDiagnostic_) vrrDiagnostic_->Stop();
     if (ecDiagnostic_) ecDiagnostic_->Stop();
     if (igclDiagnostic_) igclDiagnostic_->Stop();
+    StopProductionPresentMonSampling(L"app-shutdown", true);
     DiscardPendingHudVisibilityRequests();
+    DiscardPendingMicrosoftGameEvidence();
+    DiscardPendingGameRenderVerifierEvents();
     if (hudHotkeyRegistered_ && tray_.Window())
     {
         UnregisterHotKey(tray_.Window(), kHudToggleHotkeyId);
@@ -2068,12 +2081,22 @@ int App::ProcessMessages()
             foregroundTracker_.Reconcile();
             continue;
         }
-        if (message.message == kPresentMonHudUpdate)
+        if (message.message == kGameRenderVerifierUpdate)
         {
-            auto* update = reinterpret_cast<PresentMonHudUpdate*>(message.wParam);
+            auto* update = reinterpret_cast<GameRenderVerifierUpdate*>(message.wParam);
             if (update)
             {
-                HandlePresentMonHudUpdate(update->processId, update->event);
+                HandleGameRenderVerifierEvent(update->event);
+                delete update;
+            }
+            continue;
+        }
+        if (message.message == kMicrosoftGameEvidence)
+        {
+            auto* update = reinterpret_cast<MicrosoftGameEvidenceUpdate*>(message.wParam);
+            if (update)
+            {
+                HandleMicrosoftGameEvidence(update->evidence);
                 delete update;
             }
             continue;
@@ -2088,7 +2111,8 @@ int App::ProcessMessages()
                 Log(L"Steam RunningAppID changed old=" +
                     std::to_wstring(previous) + L" new=" +
                     std::to_wstring(current));
-                steamRunningAppTrigger_.ObserveChange(previous, current);
+                HandleGameDetectionTransition(
+                    steamRunningAppTrigger_.ObserveChange(previous, current));
             }
             continue;
         }
@@ -2122,7 +2146,7 @@ int App::ProcessMessages()
                     clawhud::ShouldReevaluateForegroundAfterDiagnostic(
                         mockHudEnabled_, DiagnosticRunning(), suspended_))
                 {
-                    AdoptForegroundProductionTarget();
+                    ReevaluateProductionGameDetection();
                     ReconcileHudVisibility();
                 }
             }
@@ -2134,7 +2158,7 @@ int App::ProcessMessages()
             if (clawhud::ShouldReevaluateForegroundAfterDiagnostic(
                 mockHudEnabled_, DiagnosticRunning(), suspended_))
             {
-                AdoptForegroundProductionTarget();
+                ReevaluateProductionGameDetection();
                 ReconcileHudVisibility();
             }
             continue;

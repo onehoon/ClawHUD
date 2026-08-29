@@ -209,9 +209,11 @@ if(BUILD_TESTING)
     add_executable(ClawHUD.ProductionTargetPolicyTests
         tests/ProductionTargetPolicyTests.cpp
         src/ClawHUD/ProductionTargetPolicy.cpp
-        src/ClawHUD/HudModel.cpp)
+        src/ClawHUD/HudModel.cpp
+        src/ClawHUD/GameDetection/GameDetectionCoordinator.cpp)
     target_compile_features(ClawHUD.ProductionTargetPolicyTests PRIVATE cxx_std_20)
     target_include_directories(ClawHUD.ProductionTargetPolicyTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.ProductionTargetPolicyTests PRIVATE user32)
     set_target_properties(ClawHUD.ProductionTargetPolicyTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.ProductionTargetPolicyTests COMMAND ClawHUD.ProductionTargetPolicyTests)
 

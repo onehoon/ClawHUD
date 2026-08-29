@@ -17,10 +17,13 @@
 #include "GameDetection/PresentActivitySource.h"
 #include "GameDetection/WindowLifecycleSource.h"
 #include "GameDetection/GameDetectionCoordinator.h"
+#include "GameDetection/GameRenderVerifier.h"
+#include "GameDetection/GenericForegroundTrigger.h"
+#include "GameDetection/MicrosoftGameTrigger.h"
+#include "GameDetection/ProductionGameWindowSource.h"
 #include "GameDetection/SteamRunningAppTrigger.h"
 #include "EcHelperClient.h"
 #include "MsiEcHudTelemetry.h"
-#include "PresentMonHudTelemetry.h"
 #include "WindowsPowerTelemetry.h"
 #include "WindowsUsageTelemetry.h"
 #include "SteamRunningAppIdSource.h"
@@ -167,11 +170,20 @@ private:
     bool EnsureMockHud();
     void ReconcileHudVisibility();
     void ReleaseCommittedProductionTarget(const wchar_t* reason);
-    bool AdoptForegroundProductionTarget();
-    bool AdoptForegroundProductionTarget(HWND window, DWORD processId);
-    void ConfirmForegroundProductionTarget(DWORD processId);
-    bool IsUsableProductionTarget(HWND window, DWORD processId,
-        std::wstring& imageName) const;
+    void ReevaluateProductionGameDetection();
+    void HandleProductionForegroundChanged(HWND window, DWORD processId);
+    void HandleMicrosoftGameEvidence(
+        const clawhud::MicrosoftGameTriggerEvidence& evidence);
+    void HandleGameDetectionTransition(
+        const clawhud::GameDetectionTransitionResult& transition);
+    void StartCandidateRenderVerification();
+    void HandleGameRenderVerifierEvent(
+        const clawhud::GameRenderVerifierEvent& event);
+    bool TryCommitReadyCandidateFromForeground(
+        HWND foreground, DWORD foregroundProcessId);
+    void ReleaseProductionGameCandidate(const wchar_t* reason);
+    void ApplyProductionEvidence(clawhud::GameDetectionTrigger trigger,
+        HWND window, DWORD processId);
     bool ApplyDiagnosticHudVisibility(bool visible);
     bool ApplyDiagnosticHudMode(DiagnosticHudMode mode);
     clawhud::MsiEcHudTelemetry ReadHudEcTelemetry();
@@ -183,13 +195,12 @@ private:
     void StartProductionPresentMonSampling(bool recoveryStart = false);
     void StopProductionPresentMonSampling(const wchar_t* reason = L"explicit-reset",
         bool clearLatestFps = false);
-    void HandlePresentMonHudUpdate(DWORD processId,
-        const clawhud::PresentMonHudEvent& event);
     void StartGraphicsApiProbe(DWORD processId);
     void StopGraphicsApiProbe();
     bool RequestHudOnUiThread(bool visible, const HudVisibilityState* restore, DWORD timeoutMs);
     void DiscardPendingHudVisibilityRequests();
-    void DiscardPendingPresentMonHudUpdates();
+    void DiscardPendingMicrosoftGameEvidence();
+    void DiscardPendingGameRenderVerifierEvents();
 
     HINSTANCE instance_{};
     HANDLE instanceMutex_{};
@@ -200,12 +211,9 @@ private:
     std::unique_ptr<clawhud::HudPresentation> hudPresentation_;
     std::unique_ptr<EcHelperClient> ecHudClient_;
     clawhud::MsiEcHudTelemetry ecHudTelemetry_{};
-    std::unique_ptr<clawhud::PresentMonHudTelemetry> presentMonHudTelemetry_;
     std::optional<double> latestPresentMonDisplayedFps_;
-    DWORD presentMonProcessId_{};
     DWORD presentMonRestartPid_{};
     unsigned presentMonRestartAttempts_{};
-    DWORD pendingProductionTargetPid_{};
     std::optional<clawhud::WindowsPowerTelemetry> latestPowerTelemetry_;
     clawhud::WindowsUsageSampler usageSampler_;
     std::optional<clawhud::WindowsUsageTelemetry> latestUsageTelemetry_;
@@ -251,6 +259,10 @@ private:
     clawhud::WindowLifecycleSource windowLifecycleSource_;
     clawhud::GameDetectionCoordinator gameDetectionCoordinator_;
     clawhud::SteamRunningAppTrigger steamRunningAppTrigger_;
+    clawhud::GenericForegroundTrigger genericForegroundTrigger_;
+    clawhud::MicrosoftGameTrigger microsoftGameTrigger_;
+    clawhud::ProductionGameWindowSource productionGameWindowSource_;
+    clawhud::GameRenderVerifier gameRenderVerifier_;
     SteamRunningAppIdSource steamRunningAppIdSource_;
     std::uint32_t steamRunningAppId_{};
 };

@@ -101,6 +101,54 @@ int main()
         !coordinator.MarkRendererReady(18812, generation),
         "stale events cannot affect replacement");
 
+    GameDetectionCoordinator clearWithoutSteam;
+    clearWithoutSteam.ObserveCandidate(300, nullptr,
+        GameDetectionTrigger::GenericForeground);
+    const auto clearGeneration = clearWithoutSteam.Context().generation;
+    clearWithoutSteam.ClearCandidatePreservingSession();
+    check(clearWithoutSteam.Context().state == GameDetectionState::Idle &&
+        clearWithoutSteam.Context().candidateProcessId == 0 &&
+        clearWithoutSteam.Context().generation != clearGeneration,
+        "clear candidate without Steam returns to Idle");
+
+    GameDetectionCoordinator clearWithSteam;
+    clearWithSteam.ObserveWake({GameDetectionTrigger::SteamRunningAppId, 0,
+        nullptr, 5010190, false});
+    clearWithSteam.ObserveCandidate(301, nullptr,
+        GameDetectionTrigger::GenericForeground);
+    const auto steamGeneration = clearWithSteam.Context().generation;
+    clearWithSteam.ClearCandidatePreservingSession();
+    check(clearWithSteam.Context().state == GameDetectionState::Armed &&
+        clearWithSteam.Context().candidateProcessId == 0 &&
+        clearWithSteam.Context().steamAppId == 5010190 &&
+        clearWithSteam.Context().evidence.steamSession &&
+        clearWithSteam.Context().generation != steamGeneration,
+        "clear candidate preserves Steam session");
+
+    GameDetectionCoordinator clearReady;
+    clearReady.ObserveCandidate(302, nullptr,
+        GameDetectionTrigger::GenericForeground);
+    const auto readyGeneration = clearReady.Context().generation;
+    clearReady.MarkRendererReady(302, readyGeneration);
+    clearReady.ClearCandidatePreservingSession();
+    check(clearReady.Context().state == GameDetectionState::Idle &&
+        clearReady.Context().candidateProcessId == 0 &&
+        clearReady.Context().generation != readyGeneration,
+        "clear Ready candidate invalidates generation");
+
+    GameDetectionCoordinator clearCommitted;
+    clearCommitted.ObserveCandidate(303, nullptr,
+        GameDetectionTrigger::GenericForeground);
+    const auto committedGeneration = clearCommitted.Context().generation;
+    clearCommitted.MarkRendererReady(303, committedGeneration);
+    clearCommitted.CommitCandidate(303, committedGeneration);
+    clearCommitted.ClearCandidatePreservingSession();
+    check(clearCommitted.Context().state == GameDetectionState::Idle &&
+        clearCommitted.Context().candidateProcessId == 0,
+        "clear Committed candidate releases ownership");
+    check(!clearCommitted.MarkRendererReady(303, committedGeneration),
+        "old verifier event is rejected after clear");
+
     GameDetectionCoordinator invalidWake;
     const auto invalidBefore = invalidWake.Context();
     const auto sameContext = [](const auto& left, const auto& right)
