@@ -229,6 +229,33 @@ bool MergeScenario()
         "same PID Generic and Microsoft evidence merges");
 }
 
+bool SamePidUpdatePreservesStateScenario()
+{
+    GameDetectionCoordinator coordinator;
+    coordinator.ObserveCandidate(6008, nullptr,
+        GameDetectionTrigger::MicrosoftGameIdentity);
+    const auto generation = coordinator.Context().generation;
+    coordinator.MarkRendererReady(6008, generation);
+
+    const auto readyUpdate = coordinator.ObserveCandidate(
+        6008, reinterpret_cast<HWND>(0x100),
+        GameDetectionTrigger::MicrosoftGameIdentity);
+    const bool readyPreserved = readyUpdate.transition ==
+            GameDetectionTransition::CandidateUpdated &&
+        coordinator.Context().state == GameDetectionState::Ready &&
+        coordinator.Context().generation == generation;
+
+    coordinator.CommitCandidate(6008, generation);
+    const auto committedUpdate = coordinator.ObserveCandidate(
+        6008, reinterpret_cast<HWND>(0x200),
+        GameDetectionTrigger::MicrosoftGameIdentity);
+    return Check(readyPreserved && committedUpdate.transition ==
+            GameDetectionTransition::CandidateUpdated &&
+        coordinator.Context().state == GameDetectionState::Committed &&
+        coordinator.Context().generation == generation,
+        "same-PID evidence updates preserve Ready and Committed state");
+}
+
 bool RendererSignalScenario()
 {
     GameDetectionCoordinator coordinator;
@@ -292,6 +319,7 @@ int main()
     ok &= ClearScenario();
     ok &= SteamCandidateExitScenario();
     ok &= MergeScenario();
+    ok &= SamePidUpdatePreservesStateScenario();
     ok &= RendererSignalScenario();
     ok &= ReadyCommitScenario();
     ok &= StaleGenerationScenario();

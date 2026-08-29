@@ -1552,19 +1552,24 @@ void App::HandleGameDetectionTransition(
         StartCandidateRenderVerification();
         break;
     case clawhud::GameDetectionTransition::CandidateUpdated:
+    {
+        const auto& context = gameDetectionCoordinator_.Context();
+        const std::wstring state(clawhud::GameDetectionStateName(context.state));
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
             L"[GameDetection] candidate.merge trigger=" +
             std::wstring(clawhud::GameDetectionTriggerName(trigger)) +
             L" pid=" + std::to_wstring(transition.processId) + L" gen=" +
             std::to_wstring(transition.generation) + L" generic=" +
-            std::to_wstring(gameDetectionCoordinator_.Context().evidence.genericForeground ? 1 : 0) +
+            std::to_wstring(context.evidence.genericForeground ? 1 : 0) +
             L" microsoft=" + std::to_wstring(
-                gameDetectionCoordinator_.Context().evidence.microsoftGameIdentity ? 1 : 0));
-        Log(L"[GameDetection] transition old=Verifying new=Verifying "
+                context.evidence.microsoftGameIdentity ? 1 : 0));
+        Log(L"[GameDetection] transition old=" + state + L" new=" + state +
+            L" "
             L"transition=CandidateUpdated pid=" +
             std::to_wstring(transition.processId) + L" gen=" +
             std::to_wstring(transition.generation));
         break;
+    }
     case clawhud::GameDetectionTransition::CandidateReplaced:
         StopProductionPresentMonSampling(L"candidate-replaced", true);
         StopGraphicsApiProbe();
