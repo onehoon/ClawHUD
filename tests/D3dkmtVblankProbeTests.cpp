@@ -1,4 +1,4 @@
-#include "D3dkmtVblankPoc.h"
+#include "D3dkmtVblankProbe.h"
 
 #include <cmath>
 #include <iostream>
@@ -74,5 +74,21 @@ int main()
     ok &= Check(CalculateD3dkmtVblankWindows({}, 10'000'000).empty() &&
         CalculateD3dkmtVblankWindows({123}, 10'000'000).empty(),
         "empty and short data have no complete windows");
+    ok &= Check(CalculateD3dkmtVblankStatistics(
+        {0, 10}, 0, 0).measuredHzMedian == std::nullopt,
+        "invalid QPC frequency is unavailable");
+    const auto nonMonotonic = CalculateD3dkmtVblankStatistics(
+        {0, 10, 5, 20}, 0, 10);
+    ok &= Check(nonMonotonic.minimumDeltaMs == 1000.0 &&
+        nonMonotonic.maximumDeltaMs == 1500.0,
+        "non-monotonic samples ignore invalid deltas");
+    const auto boundaryWindows = CalculateD3dkmtVblankWindows(
+        {0, 10'000'000, 20'000'000}, 10'000'000);
+    ok &= Check(boundaryWindows.size() == 2 && boundaryWindows[0].eventCount == 1 &&
+        boundaryWindows[1].eventCount == 1,
+        "window boundaries use a half-open interval");
+    ok &= Check(CalculateD3dkmtVblankWindows(
+        {0, 10'000'000}, 10'000'000, 0.0).empty(),
+        "invalid window size is unavailable");
     return ok ? 0 : 1;
 }

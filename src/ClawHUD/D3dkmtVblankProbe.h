@@ -1,6 +1,8 @@
 #pragma once
 
 #include <windows.h>
+#include <bcrypt.h>
+#include <d3dkmthk.h>
 
 #include <atomic>
 #include <cstddef>
@@ -37,6 +39,14 @@ struct D3dkmtVblankWindow
     double measuredHz{};
 };
 
+struct D3dkmtVblankResult
+{
+    bool available{};
+    D3dkmtVblankStatistics statistics;
+    std::vector<D3dkmtVblankWindow> windows;
+    std::optional<NTSTATUS> failureStatus;
+};
+
 D3dkmtVblankStatistics CalculateD3dkmtVblankStatistics(
     const std::vector<std::uint64_t>& timestamps,
     std::size_t failedWaits,
@@ -47,27 +57,27 @@ std::vector<D3dkmtVblankWindow> CalculateD3dkmtVblankWindows(
     std::int64_t qpcFrequency,
     double windowSeconds = 1.0);
 
-class D3dkmtVblankPoc
+class D3dkmtVblankProbe
 {
 public:
-    D3dkmtVblankPoc() = default;
-    ~D3dkmtVblankPoc();
+    D3dkmtVblankProbe() = default;
+    ~D3dkmtVblankProbe();
 
     bool Initialize(std::wofstream& log, HMONITOR monitor);
     void Start();
-    D3dkmtVblankStatistics Stop(std::wofstream& log, const wchar_t* phase);
+    D3dkmtVblankResult Stop();
     void Shutdown() noexcept;
 
 private:
     void SampleLoop();
 
-    using WaitForVerticalBlankEvent = long(__stdcall*)(void*);
-    using OpenAdapterFromHdc = long(__stdcall*)(void*);
-    using CloseAdapter = long(__stdcall*)(void*);
+    using WaitForVerticalBlankEvent = PFND3DKMT_WAITFORVERTICALBLANKEVENT;
+    using OpenAdapterFromHdc = PFND3DKMT_OPENADAPTERFROMHDC;
+    using CloseAdapter = PFND3DKMT_CLOSEADAPTER;
 
-    void* adapterHandle_{};
-    unsigned int vidPnSourceId_{};
-    std::uint64_t adapterLuid_{ };
+    D3DKMT_HANDLE adapterHandle_{};
+    UINT vidPnSourceId_{};
+    LUID adapterLuid_{};
     std::wstring displayName_;
     std::wstring monitorName_;
     WaitForVerticalBlankEvent waitForVerticalBlankEvent_{};
@@ -79,6 +89,12 @@ private:
     std::mutex samplesMutex_;
     std::vector<std::uint64_t> timestamps_;
     std::size_t failedWaits_{};
-    long lastFailureStatus_{};
+    std::optional<NTSTATUS> lastFailureStatus_;
     std::int64_t qpcFrequency_{};
+    bool available_{};
 };
+
+void WriteD3dkmtVblankDiagnostic(
+    std::wofstream& log,
+    const wchar_t* phase,
+    const D3dkmtVblankResult& result);

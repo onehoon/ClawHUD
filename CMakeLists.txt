@@ -69,7 +69,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/IntelGraphicsApiProbe.cpp
     src/ClawHUD/SupportedHardware.cpp
     src/ClawHUD/VrrDiagnostic.cpp
-    src/ClawHUD/D3dkmtVblankPoc.cpp
+    src/ClawHUD/D3dkmtVblankProbe.cpp
     src/ClawHUD/VrrDiagnosticAnalysis.cpp
     src/ClawHUD/IntelVrrDiagnosticProbe.cpp
     src/ClawHUD/Tweaks/TweakStartupCoordinator.cpp
@@ -362,16 +362,16 @@ if(BUILD_TESTING)
     set_target_properties(ClawHUD.VrrDiagnosticAnalysisTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.VrrDiagnosticAnalysisTests COMMAND ClawHUD.VrrDiagnosticAnalysisTests)
 
-    add_executable(ClawHUD.D3dkmtVblankPocTests
-        tests/D3dkmtVblankPocTests.cpp
-        src/ClawHUD/D3dkmtVblankPoc.cpp)
-    target_compile_features(ClawHUD.D3dkmtVblankPocTests PRIVATE cxx_std_20)
-    target_compile_definitions(ClawHUD.D3dkmtVblankPocTests PRIVATE
+    add_executable(ClawHUD.D3dkmtVblankProbeTests
+        tests/D3dkmtVblankProbeTests.cpp
+        src/ClawHUD/D3dkmtVblankProbe.cpp)
+    target_compile_features(ClawHUD.D3dkmtVblankProbeTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.D3dkmtVblankProbeTests PRIVATE
         UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-    target_include_directories(ClawHUD.D3dkmtVblankPocTests PRIVATE src/ClawHUD)
-    target_link_libraries(ClawHUD.D3dkmtVblankPocTests PRIVATE gdi32 user32)
-    set_target_properties(ClawHUD.D3dkmtVblankPocTests PROPERTIES CXX_EXTENSIONS OFF)
-    add_test(NAME ClawHUD.D3dkmtVblankPocTests COMMAND ClawHUD.D3dkmtVblankPocTests)
+    target_include_directories(ClawHUD.D3dkmtVblankProbeTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.D3dkmtVblankProbeTests PRIVATE gdi32 user32)
+    set_target_properties(ClawHUD.D3dkmtVblankProbeTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.D3dkmtVblankProbeTests COMMAND ClawHUD.D3dkmtVblankProbeTests)
 
     add_executable(ClawHUD.HudPresentationContractTests
         tests/HudPresentationContractTests.cpp

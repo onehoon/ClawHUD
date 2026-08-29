@@ -13,7 +13,7 @@ The primary project requirement is that the production ClawHUD HUD must not brea
 The following signals are intentionally kept separate:
 
 - **PresentMon / PresentMode**: verifies the game's presentation path and whether ClawHUD causes an Independent Flip regression.
-- **D3DKMT VBlank PoC**: experimental external cadence evidence from `D3DKMTWaitForVerticalBlankEvent`.
+- **D3DKMT VBlank Cadence**: diagnostic supporting cadence evidence from `D3DKMTWaitForVerticalBlankEvent`.
 - **Special K Variable Rate / LFC display**: manual independent runtime observation used during hardware testing.
 - **Intel IGCL Arc Sync data**: capability/profile evidence only. The tested `ctlGetVblankTimestamp` path is not currently usable and remains disabled.
 
@@ -186,7 +186,7 @@ For the D3DKMT PoC, event count over elapsed time is the more useful research me
 
 PR #106 added non-overlapping approximately 1-second cadence windows calculated from successful D3DKMT wait events divided by elapsed time. The window calculation does not add another sampling thread or timer; it post-processes the already captured QPC timestamps.
 
-PR #106 remains **POC ONLY — DO NOT MERGE**.
+PR #106 now promotes this signal from a hardware-validation POC to a mergeable diagnostic-only supporting signal. It remains non-authoritative for physical scanout timing.
 
 ## Death Stranding Director's Cut — 30 FPS — no FG — windowed run
 
@@ -221,7 +221,7 @@ Representative DYNAMIC windows included values such as 101, 103, 105, 109, 111, 
 
 The 1-second D3DKMT result was clearly **variable**, not fixed at nominal 120 Hz, in both ClawHUD-only phases.
 
-This strengthens the D3DKMT PoC as a promising external cadence indicator under the intended ClawHUD-only validation condition. It is still experimental and is not connected to the automatic Main VRR Diagnostic verdict.
+This strengthens D3DKMT as an external cadence indicator under the intended ClawHUD-only validation condition. It is not connected to the automatic Main VRR Diagnostic verdict.
 
 ---
 
@@ -387,7 +387,48 @@ It remains experimental and is not yet an authoritative physical scanout API or 
 
 ---
 
-# 7. Current conclusions as of 2026-08-29
+# 7. Final promotion validation matrix
+
+The following MSI Claw cases justify promoting D3DKMT cadence to a diagnostic supporting signal. Values are retained as observed hardware evidence; they are not universal thresholds or proof of physical panel timing.
+
+## A. VRR OFF negative control
+
+Death Stranding Director's Cut, 30 FPS, no Frame Generation, VSync OFF, device VRR OFF.
+
+- IGCL: Current Profile `OFF`, Active Range `120-120 Hz`.
+- Special K: Constant Rate 120, Hardware Composed: Independent Flip.
+- D3DKMT elapsed cadence: HUD OFF ~119.83 Hz; DYNAMIC ~119.86 Hz; 1-second windows effectively fixed near 120 Hz.
+- PresentMon: 100% Hardware Composed: Independent Flip, same swapchain, `AllowsTearing=1`.
+
+This control confirms that Independent Flip is not proof of active VRR.
+
+## B. VRR ON, no FG, in-range, LFC 1x
+
+Trails in the Sky 2nd Chapter Demo, approximately 75 FPS target, no Frame Generation, VRR ON.
+
+- PresentMon cadence: approximately 73-74 FPS.
+- Special K: Hardware Composed: Independent Flip, Variable Rate, LFC 1x.
+- D3DKMT elapsed cadence: HUD OFF ~78.6 Hz; DYNAMIC ~80.9 Hz; 1-second windows approximately 75-86 Hz.
+
+D3DKMT remained variable below 120 Hz without LFC multiplication.
+
+## C. VRR ON, XeFG 2x, approximately 90 FPS output
+
+Mafia: The Old Country, XeFG 2x, post-Frame-Generation output approximately 90 FPS, VRR ON.
+
+- Special K: Hardware Composed: Independent Flip and Variable Rate above 90 Hz observed.
+- D3DKMT: HUD OFF elapsed ~101.6 Hz; 1-second range approximately 93-108 Hz.
+- PresentMon: approximately 90 FPS output cadence with Independent Flip retained.
+
+D3DKMT cadence is not equal to FPS. It appears useful as a VBlank/refresh-cadence indicator that correlates directionally with Special K Variable Rate, without claiming exact physical panel Hz.
+
+## Promotion conclusion
+
+Hardware validation on MSI Claw shows that D3DKMT VBlank event cadence is useful as an external supporting signal for distinguishing fixed-refresh and variable-refresh behavior. It is not treated as an authoritative physical scanout timestamp source and is not connected to the automatic VRR verdict.
+
+Current production-representative ClawHUD HUD behavior has not shown a reproducible VRR regression in the tested no-FG, LFC, VRR-OFF control, and XeFG scenarios. The earlier fixed-120 behavior was reproducible only with the obsolete 100 ms synthetic diagnostic stress pattern.
+
+# 8. Current conclusions as of 2026-08-29
 
 ## Production ClawHUD presentation
 
@@ -399,9 +440,9 @@ Current hardware evidence supports the following:
 - The old 100 ms synthetic diagnostic was not production representative and could itself force a fixed 120 Hz state.
 - VRR OFF control testing also retained 100% Independent Flip, demonstrating that Independent Flip is a presentation-path requirement rather than proof of active VRR.
 
-## D3DKMT PoC
+## D3DKMT VBlank Cadence
 
-Current status: **PROMISING, NOT PRODUCTION-READY**.
+Current status: **Validated diagnostic supporting signal**.
 
 Evidence in favor:
 
@@ -413,7 +454,7 @@ Evidence in favor:
 Remaining limitations:
 
 - `D3DKMTWaitForVerticalBlankEvent` has not yet been proven to be an authoritative physical scanout timestamp source under all Intel VRR conditions.
-- D3DKMT is still manual supporting evidence only.
+- D3DKMT remains supporting evidence only and is not an authoritative physical scanout source.
 - It must not affect automatic VRR PASS/FAIL logic yet.
 - XeFG/LFC inference remains separate and requires care because generated/output frames may not be fully observable through PresentMon.
 
@@ -427,7 +468,7 @@ It must not be interpreted as a standalone proof that the physical panel was act
 
 ---
 
-# 8. Next validation work
+# 9. Next validation work
 
 Continue appending hardware results here.
 
@@ -447,7 +488,7 @@ Do not add compensation factors or heuristics merely to force D3DKMT to match Sp
 
 ---
 
-# 9. Append template for future runs
+# 10. Append template for future runs
 
 ```markdown
 ## YYYY-MM-DD — Game — FPS / FG condition
