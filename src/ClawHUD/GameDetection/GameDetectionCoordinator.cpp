@@ -152,8 +152,17 @@ bool GameDetectionCoordinator::CommitCandidate(
 
 void GameDetectionCoordinator::ClearSteamSession(std::uint32_t appId) noexcept
 {
-    if (appId == 0 || context_.steamAppId == appId)
-        context_.steamAppId = 0;
+    if (appId != 0 && context_.steamAppId != appId)
+        return;
+    context_.steamAppId = 0;
+    context_.evidence.steamSession = false;
+    if (context_.state == GameDetectionState::Armed && !HasCandidate(context_) &&
+        !context_.evidence.genericForeground &&
+        !context_.evidence.microsoftGameIdentity)
+    {
+        context_.state = GameDetectionState::Idle;
+        context_.primaryTrigger = GameDetectionTrigger::GenericForeground;
+    }
 }
 
 GameDetectionTransitionResult GameDetectionCoordinator::Reset() noexcept

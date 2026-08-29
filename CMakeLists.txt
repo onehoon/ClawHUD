@@ -100,6 +100,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/GameDetection/WindowsGameIdentitySource.cpp
     src/ClawHUD/GameDetection/WindowsGameIdentityProbe.cpp
     src/ClawHUD/GameDetection/GameDetectionCoordinator.cpp
+    src/ClawHUD/GameDetection/SteamRunningAppTrigger.cpp
     src/ClawHUD/ProductionTargetPolicy.cpp
     src/ClawHUD/SteamRunningAppIdSource.cpp)
 target_compile_features(ClawHUD PRIVATE cxx_std_20)
@@ -445,6 +446,19 @@ if(BUILD_TESTING)
     set_target_properties(ClawHUD.GameDetectionCoordinatorTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.GameDetectionCoordinatorTests
         COMMAND ClawHUD.GameDetectionCoordinatorTests)
+
+    add_executable(ClawHUD.SteamRunningAppTriggerTests
+        tests/SteamRunningAppTriggerTests.cpp
+        src/ClawHUD/GameDetection/GameDetectionCoordinator.cpp
+        src/ClawHUD/GameDetection/SteamRunningAppTrigger.cpp)
+    target_compile_features(ClawHUD.SteamRunningAppTriggerTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.SteamRunningAppTriggerTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.SteamRunningAppTriggerTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.SteamRunningAppTriggerTests PRIVATE user32)
+    set_target_properties(ClawHUD.SteamRunningAppTriggerTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.SteamRunningAppTriggerTests
+        COMMAND ClawHUD.SteamRunningAppTriggerTests)
 
     add_executable(ClawHUD.PresentActivitySourceTests
         tests/PresentActivitySourceTests.cpp
