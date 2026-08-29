@@ -73,12 +73,16 @@ private:
 
     HRESULT StartSubscription(ProcessLifecycleEventType type, EventSink* sink,
         Microsoft::WRL::ComPtr<IWbemObjectSink>& retainedSink) noexcept;
+    HRESULT StartWmiSubscriptions(const wchar_t*& failureStage) noexcept;
     void HandleEvent(ProcessLifecycleEventType type, IWbemClassObject* object) noexcept;
     void Enqueue(ProcessLifecycleEvent event) noexcept;
     void WorkerMain(std::stop_token stop) noexcept;
+    void SubscriptionMain(std::stop_token stop) noexcept;
+    void PublishStartResult(bool success, HRESULT hr) noexcept;
     void LogEvent(const ProcessLifecycleEvent& event) noexcept;
     void LogFailure(const wchar_t* operation, const wchar_t* stage, HRESULT hr) noexcept;
-    void CleanupWmi() noexcept;
+    void CleanupWmiOnSubscriptionThread() noexcept;
+    void StopWorker() noexcept;
 
     Microsoft::WRL::ComPtr<IWbemLocator> locator_;
     Microsoft::WRL::ComPtr<IWbemServices> services_;
@@ -88,8 +92,12 @@ private:
     std::condition_variable_any queueWake_;
     std::deque<ProcessLifecycleEvent> pendingEvents_;
     std::jthread worker_;
+    std::mutex stateMutex_;
+    std::condition_variable_any stateWake_;
+    std::jthread subscriptionThread_;
+    bool startCompleted_{};
+    HRESULT startResult_{E_UNEXPECTED};
     std::atomic_bool running_{};
     std::atomic_uint64_t nextSequence_{1};
-    bool comOwned_{};
 };
 }

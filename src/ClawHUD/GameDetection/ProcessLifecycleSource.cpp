@@ -302,27 +302,16 @@ HRESULT ProcessLifecycleSource::StartSubscription(ProcessLifecycleEventType type
     return S_OK;
 }
 
-bool ProcessLifecycleSource::Start() noexcept
+HRESULT ProcessLifecycleSource::StartWmiSubscriptions(const wchar_t*& failureStage) noexcept
 {
-    if (Running()) return true;
-
     try
     {
-        const HRESULT comHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-        if (FAILED(comHr) && comHr != RPC_E_CHANGED_MODE)
-        {
-            LogFailure(L"start", L"CoInitialize", comHr);
-            return false;
-        }
-        comOwned_ = comHr == S_OK || comHr == S_FALSE;
-
         HRESULT hr = CoCreateInstance(CLSID_WbemLocator, nullptr, CLSCTX_INPROC_SERVER,
             IID_PPV_ARGS(&locator_));
         if (FAILED(hr))
         {
-            LogFailure(L"start", L"CoCreateInstance", hr);
-            CleanupWmi();
-            return false;
+            failureStage = L"CoCreateInstance";
+            return hr;
         }
 
         ScopedBstr namespaceName(L"ROOT\\CIMV2");
@@ -330,49 +319,129 @@ bool ProcessLifecycleSource::Start() noexcept
             0, nullptr, nullptr, &services_);
         if (FAILED(hr))
         {
-            LogFailure(L"start", L"ConnectServer", hr);
-            CleanupWmi();
-            return false;
+            failureStage = L"ConnectServer";
+            return hr;
         }
         hr = CoSetProxyBlanket(services_.Get(), RPC_C_AUTHN_WINNT, RPC_C_AUTHZ_NONE,
             nullptr, RPC_C_AUTHN_LEVEL_CALL, RPC_C_IMP_LEVEL_IMPERSONATE, nullptr,
             EOAC_NONE);
         if (FAILED(hr))
         {
-            LogFailure(L"start", L"SetProxyBlanket", hr);
-            CleanupWmi();
-            return false;
+            failureStage = L"SetProxyBlanket";
+            return hr;
         }
 
-        worker_ = std::jthread([this](std::stop_token stop) { WorkerMain(stop); });
         auto* startSink = new EventSink(*this, ProcessLifecycleEventType::Start);
         const HRESULT startSubscriptionHr = StartSubscription(
             ProcessLifecycleEventType::Start, startSink, startSink_);
         startSink->Release();
         if (FAILED(startSubscriptionHr))
         {
-            LogFailure(L"start", L"StartSubscription", startSubscriptionHr);
-            CleanupWmi();
-            return false;
+            failureStage = L"StartSubscription";
+            return startSubscriptionHr;
         }
+
         auto* stopSink = new EventSink(*this, ProcessLifecycleEventType::Stop);
         const HRESULT stopSubscriptionHr = StartSubscription(
             ProcessLifecycleEventType::Stop, stopSink, stopSink_);
         stopSink->Release();
         if (FAILED(stopSubscriptionHr))
         {
-            LogFailure(L"start", L"StopSubscription", stopSubscriptionHr);
-            CleanupWmi();
+            failureStage = L"StopSubscription";
+            return stopSubscriptionHr;
+        }
+        return S_OK;
+    }
+    catch (...)
+    {
+        failureStage = L"UnexpectedException";
+        return E_FAIL;
+    }
+}
+
+void ProcessLifecycleSource::PublishStartResult(bool success, HRESULT hr) noexcept
+{
+    {
+        std::lock_guard lock(stateMutex_);
+        startResult_ = success ? S_OK : hr;
+        startCompleted_ = true;
+    }
+    stateWake_.notify_all();
+}
+
+void ProcessLifecycleSource::SubscriptionMain(std::stop_token stop) noexcept
+{
+    bool comOwned = false;
+    const HRESULT comHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    if (FAILED(comHr))
+    {
+        LogFailure(L"start", L"CoInitialize", comHr);
+        PublishStartResult(false, comHr);
+        return;
+    }
+    comOwned = comHr == S_OK || comHr == S_FALSE;
+
+    const wchar_t* failureStage = L"WmiSubscription";
+    const HRESULT subscriptionHr = StartWmiSubscriptions(failureStage);
+    if (FAILED(subscriptionHr))
+    {
+        LogFailure(L"start", failureStage, subscriptionHr);
+        CleanupWmiOnSubscriptionThread();
+        if (comOwned) CoUninitialize();
+        PublishStartResult(false, subscriptionHr);
+        return;
+    }
+
+    running_.store(true, std::memory_order_release);
+    PublishStartResult(true, S_OK);
+    {
+        std::unique_lock lock(stateMutex_);
+        stateWake_.wait(lock, stop, [] { return false; });
+    }
+    CleanupWmiOnSubscriptionThread();
+    running_.store(false, std::memory_order_release);
+    if (comOwned) CoUninitialize();
+}
+
+bool ProcessLifecycleSource::Start() noexcept
+{
+    if (Running()) return true;
+
+    try
+    {
+        if (subscriptionThread_.joinable())
+            subscriptionThread_ = std::jthread{};
+        {
+            std::lock_guard lock(stateMutex_);
+            startCompleted_ = false;
+            startResult_ = E_PENDING;
+        }
+        worker_ = std::jthread([this](std::stop_token stop) { WorkerMain(stop); });
+        subscriptionThread_ = std::jthread(
+            [this](std::stop_token stop) { SubscriptionMain(stop); });
+        std::unique_lock lock(stateMutex_);
+        stateWake_.wait(lock, [this] { return startCompleted_; });
+        const HRESULT result = startResult_;
+        lock.unlock();
+        if (FAILED(result))
+        {
+            subscriptionThread_ = std::jthread{};
+            StopWorker();
             return false;
         }
-        running_.store(true, std::memory_order_release);
         LogDebug(L"start.result=SUCCESS");
         return true;
     }
     catch (...)
     {
+        if (subscriptionThread_.joinable())
+        {
+            subscriptionThread_.request_stop();
+            stateWake_.notify_all();
+            subscriptionThread_ = std::jthread{};
+        }
+        StopWorker();
         LogFailure(L"start", L"UnexpectedException", E_FAIL);
-        CleanupWmi();
         return false;
     }
 }
@@ -456,7 +525,7 @@ void ProcessLifecycleSource::LogEvent(const ProcessLifecycleEvent& event) noexce
     catch (...) {}
 }
 
-void ProcessLifecycleSource::CleanupWmi() noexcept
+void ProcessLifecycleSource::CleanupWmiOnSubscriptionThread() noexcept
 {
     running_.store(false, std::memory_order_release);
     if (services_)
@@ -468,6 +537,10 @@ void ProcessLifecycleSource::CleanupWmi() noexcept
     stopSink_.Reset();
     services_.Reset();
     locator_.Reset();
+}
+
+void ProcessLifecycleSource::StopWorker() noexcept
+{
     if (worker_.joinable())
     {
         worker_.request_stop();
@@ -478,18 +551,19 @@ void ProcessLifecycleSource::CleanupWmi() noexcept
         std::lock_guard lock(queueMutex_);
         pendingEvents_.clear();
     }
-    if (comOwned_)
-    {
-        CoUninitialize();
-        comOwned_ = false;
-    }
 }
 
 void ProcessLifecycleSource::Stop() noexcept
 {
-    const bool wasRunning = running_.exchange(false, std::memory_order_acq_rel);
-    const bool hadResources = wasRunning || locator_ || services_ || worker_.joinable();
-    CleanupWmi();
+    const bool hadResources = running_.load(std::memory_order_acquire) ||
+        subscriptionThread_.joinable() || worker_.joinable();
+    if (subscriptionThread_.joinable())
+    {
+        subscriptionThread_.request_stop();
+        stateWake_.notify_all();
+        subscriptionThread_ = std::jthread{};
+    }
+    StopWorker();
     if (hadResources)
         LogDebug(L"stop.result=SUCCESS");
 }

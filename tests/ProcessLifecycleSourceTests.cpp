@@ -72,9 +72,17 @@ int main()
     ProcessLifecycleSource source;
     source.Stop();
     source.Stop();
+    const HRESULT sta = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     source.Start();
+    const HRESULT staAfterSource = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    ok &= Check(staAfterSource != RPC_E_CHANGED_MODE,
+        "source does not change caller COM apartment");
+    if (staAfterSource == S_OK || staAfterSource == S_FALSE)
+        CoUninitialize();
     source.Stop();
     source.Stop();
+    if (sta == S_OK || sta == S_FALSE)
+        CoUninitialize();
 
     return ok ? 0 : 1;
 }
