@@ -173,18 +173,22 @@ void D3dkmtVblankPoc::SampleLoop()
         args.hAdapter = static_cast<D3DKMT_HANDLE>(reinterpret_cast<std::uintptr_t>(adapterHandle_));
         args.VidPnSourceId = vidPnSourceId_;
         const long status = waitForVerticalBlankEvent_(&args);
-        std::uint64_t qpc{};
-        std::lock_guard lock(samplesMutex_);
-        if (status == 0)
+        if (status != 0)
         {
-            if (QueryQpc(qpc) && timestamps_.size() < 100000)
-                timestamps_.push_back(qpc);
-        }
-        else
-        {
+            // Stop on an immediate error so an unavailable path cannot perturb
+            // the game or VRR diagnostic with a tight retry loop.
+            std::lock_guard lock(samplesMutex_);
             ++failedWaits_;
             lastFailureStatus_ = status;
+            break;
         }
+
+        std::uint64_t qpc{};
+        if (!QueryQpc(qpc))
+            continue;
+        std::lock_guard lock(samplesMutex_);
+        if (timestamps_.size() < 100000)
+            timestamps_.push_back(qpc);
     }
 }
 
