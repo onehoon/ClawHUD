@@ -41,6 +41,12 @@ int main()
     Check(!IsGenericForegroundImageEligible(L"steam.exe"), "Steam is rejected");
     Check(!IsGenericForegroundImageEligible(L"steamwebhelper.exe"),
         "Steam helper is rejected");
+    Check(!IsGenericForegroundImageEligible(L"gamingservicesui.exe"),
+        "Gaming Services UI helper is rejected");
+    Check(!IsGenericForegroundImageEligible(L"PickerHost.exe"),
+        "PickerHost helper is rejected case-insensitively");
+    Check(!IsGenericForegroundImageEligible(L"mongmode.exe"),
+        "mongmode helper is rejected");
     Check(!IsGenericForegroundImageEligible(L"Chrome.EXE"),
         "browser rejection is case insensitive");
     Check(IsGenericForegroundImageEligible(L"C:\\Games\\sora_2nd.exe"),
