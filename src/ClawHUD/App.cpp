@@ -131,6 +131,7 @@ App::~App()
     StopProductionEcSampling(false, L"app-shutdown");
     StopGraphicsApiProbe();
     foregroundTracker_.Stop();
+    windowLifecycleSource_.Stop();
     presentActivitySource_.Stop();
     processLifecycleSource_.Stop();
     if (vrrDiagnostic_) vrrDiagnostic_->Stop();
@@ -194,6 +195,9 @@ int App::Run()
             L"Process lifecycle diagnostic source failed to start; continuing");
     if (debugLoggingEnabled_)
     {
+        if (!windowLifecycleSource_.Start())
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+                L"Window lifecycle diagnostic source failed to start; continuing");
         const auto executable = std::filesystem::path(executablePath_).parent_path() /
             L"tools" / L"PresentMon.exe";
         if (!presentActivitySource_.Start(executable.wstring()))
@@ -272,6 +276,9 @@ void App::SetDebugLoggingEnabled(bool enabled)
         if (!processLifecycleSource_.Start())
             clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
                 L"Process lifecycle diagnostic source failed to start; continuing");
+        if (!windowLifecycleSource_.Start())
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+                L"Window lifecycle diagnostic source failed to start; continuing");
         const auto executable = std::filesystem::path(executablePath_).parent_path() /
             L"tools" / L"PresentMon.exe";
         if (!presentActivitySource_.Start(executable.wstring()))
@@ -280,6 +287,7 @@ void App::SetDebugLoggingEnabled(bool enabled)
     }
     else
     {
+        windowLifecycleSource_.Stop();
         presentActivitySource_.Stop();
         processLifecycleSource_.Stop();
     }
@@ -2000,6 +2008,7 @@ void App::Exit()
     StopProductionEcSampling(true, L"app-shutdown");
     StopGraphicsApiProbe();
     foregroundTracker_.Stop();
+    windowLifecycleSource_.Stop();
     presentActivitySource_.Stop();
     processLifecycleSource_.Stop();
     if (vrrDiagnostic_) vrrDiagnostic_->Stop();
