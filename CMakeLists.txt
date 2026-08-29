@@ -102,6 +102,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/GameDetection/GameDetectionCoordinator.cpp
     src/ClawHUD/GameDetection/SteamRunningAppTrigger.cpp
     src/ClawHUD/GameDetection/MicrosoftGameTrigger.cpp
+    src/ClawHUD/GameDetection/GameRenderVerifier.cpp
     src/ClawHUD/ProductionTargetPolicy.cpp
     src/ClawHUD/SteamRunningAppIdSource.cpp)
 target_compile_features(ClawHUD PRIVATE cxx_std_20)
@@ -475,6 +476,22 @@ if(BUILD_TESTING)
     set_target_properties(ClawHUD.MicrosoftGameTriggerTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.MicrosoftGameTriggerTests
         COMMAND ClawHUD.MicrosoftGameTriggerTests)
+
+    add_executable(ClawHUD.GameRenderVerifierTests
+        tests/GameRenderVerifierTests.cpp
+        src/ClawHUD/GameDetection/GameRenderVerifier.cpp
+        src/ClawHUD/GameDetection/GameDetectionCoordinator.cpp
+        src/ClawHUD/PresentMonHudTelemetry.cpp
+        src/ClawHUD/RuntimeLogger.cpp)
+    target_compile_features(ClawHUD.GameRenderVerifierTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.GameRenderVerifierTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.GameRenderVerifierTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.GameRenderVerifierTests PRIVATE
+        advapi32 shell32 user32 ole32)
+    set_target_properties(ClawHUD.GameRenderVerifierTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.GameRenderVerifierTests
+        COMMAND ClawHUD.GameRenderVerifierTests)
 
     add_executable(ClawHUD.PresentActivitySourceTests
         tests/PresentActivitySourceTests.cpp
