@@ -17,6 +17,16 @@ bool Near(double actual, double expected)
 {
     return std::abs(actual - expected) < 0.5;
 }
+
+std::size_t CountEvents(const std::vector<PresentMonHudEvent>& events,
+    PresentMonHudEventType type)
+{
+    std::size_t count{};
+    for (const auto& event : events)
+        if (event.type == type)
+            ++count;
+    return count;
+}
 }
 
 int main()
@@ -66,12 +76,50 @@ int main()
         "frame type remains optional");
     ok &= Check(!ParseDisplayedFrame(headers, row("NA", "Application")),
         "not-displayed row ignored");
+    ok &= Check(!ParseDisplayedFrame(headers, row("", "Application")),
+        "empty display interval ignored");
     ok &= Check(!ParseDisplayedFrame(headers, row("0", "Application")),
         "zero display interval ignored");
     ok &= Check(!ParseDisplayedFrame(headers, row("-1", "Application")),
         "negative display interval ignored");
     ok &= Check(!ParseDisplayedFrame(headers, row("bad", "Application")),
         "malformed row ignored");
+
+    PresentMonFrameAccumulator accumulator;
+    const auto invalidEvents = accumulator.Observe({0.0, "Application"});
+    ok &= Check(invalidEvents.empty(), "invalid frame produces no event");
+    const auto firstEvents = accumulator.Observe({8.33, "Application"});
+    ok &= Check(CountEvents(firstEvents, PresentMonHudEventType::FirstDisplayedFrame) == 1 &&
+        CountEvents(firstEvents, PresentMonHudEventType::FpsUpdate) == 0,
+        "first valid frame emits renderer evidence immediately");
+
+    auto events = firstEvents;
+    for (std::size_t i = 1; i <= 59; ++i)
+    {
+        const auto rowEvents = accumulator.Observe({8.33, "Application"});
+        events.insert(events.end(), rowEvents.begin(), rowEvents.end());
+    }
+    ok &= Check(CountEvents(events, PresentMonHudEventType::FirstDisplayedFrame) == 1,
+        "first displayed frame emits only once");
+    ok &= Check(CountEvents(events, PresentMonHudEventType::FpsUpdate) == 0,
+        "FPS waits for the aggregation window");
+
+    const auto fpsEvents = accumulator.Observe({8.33, "Application"});
+    ok &= Check(CountEvents(fpsEvents, PresentMonHudEventType::FpsUpdate) == 1 &&
+        fpsEvents.back().displayedFps && Near(*fpsEvents.back().displayedFps, 120.0),
+        "FPS update preserves calculated value");
+
+    accumulator.Reset();
+    const auto resetEvents = accumulator.Observe({8.33, "Application"});
+    ok &= Check(CountEvents(resetEvents, PresentMonHudEventType::FirstDisplayedFrame) == 1,
+        "new session resets first displayed frame state");
+    ok &= Check(events.size() >= 1 &&
+        events.front().type == PresentMonHudEventType::FirstDisplayedFrame,
+        "first displayed frame precedes FPS updates");
+    const PresentMonHudEvent streamEnded{
+        PresentMonHudEventType::StreamEnded, std::nullopt};
+    ok &= Check(streamEnded.type == PresentMonHudEventType::StreamEnded &&
+        !streamEnded.displayedFps, "stream end has an explicit event type");
 
     std::vector<std::vector<std::string>> rows;
     rows.reserve(61);

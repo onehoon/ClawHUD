@@ -53,7 +53,7 @@ struct HudVisibilityRequest
 struct PresentMonHudUpdate
 {
     DWORD processId{};
-    std::optional<double> displayedFps;
+    clawhud::PresentMonHudEvent event;
 };
 
 std::wstring HudSettingsPath()
@@ -1184,9 +1184,9 @@ void App::StartProductionPresentMonSampling(bool recoveryStart)
     presentMonProcessId_ = processId;
     Log(L"PresentMon start requested pid=" + std::to_wstring(processId));
     const bool started = presentMonHudTelemetry_->Start(executable.wstring(), processId,
-        [this, processId](std::optional<double> displayedFps)
+        [this, processId](const clawhud::PresentMonHudEvent& event)
         {
-            auto* update = new PresentMonHudUpdate{processId, displayedFps};
+            auto* update = new PresentMonHudUpdate{processId, event};
             if (!PostMessageW(tray_.Window(), kPresentMonHudUpdate,
                 reinterpret_cast<WPARAM>(update), 0))
                 delete update;
@@ -1279,7 +1279,7 @@ void App::TryGraphicsApiProbe()
 }
 
 void App::HandlePresentMonHudUpdate(DWORD processId,
-    std::optional<double> displayedFps)
+    const clawhud::PresentMonHudEvent& event)
 {
     if (suspended_ || resumeRecoveryActive_ || DiagnosticRunning() ||
         !presentMonHudTelemetry_ ||
@@ -1287,6 +1287,11 @@ void App::HandlePresentMonHudUpdate(DWORD processId,
         (foregroundTracker_.TrackedProcessId() != processId &&
             pendingProductionTargetPid_ != processId))
         return;
+    if (event.type == clawhud::PresentMonHudEventType::FirstDisplayedFrame)
+        return;
+
+    const auto displayedFps = event.type == clawhud::PresentMonHudEventType::FpsUpdate
+        ? event.displayedFps : std::nullopt;
     if (pendingProductionTargetPid_ == processId && displayedFps)
     {
         latestPresentMonDisplayedFps_ = displayedFps;
@@ -2066,7 +2071,7 @@ int App::ProcessMessages()
             auto* update = reinterpret_cast<PresentMonHudUpdate*>(message.wParam);
             if (update)
             {
-                HandlePresentMonHudUpdate(update->processId, update->displayedFps);
+                HandlePresentMonHudUpdate(update->processId, update->event);
                 delete update;
             }
             continue;

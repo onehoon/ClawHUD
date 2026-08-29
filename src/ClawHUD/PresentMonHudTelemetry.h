@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include <atomic>
+#include <cstddef>
 #include <functional>
 #include <optional>
 #include <string>
@@ -15,6 +16,31 @@ struct PresentMonFrameSample
 {
     double msBetweenDisplayChange{};
     std::string frameType;
+};
+
+enum class PresentMonHudEventType
+{
+    FirstDisplayedFrame,
+    FpsUpdate,
+    StreamEnded
+};
+
+struct PresentMonHudEvent
+{
+    PresentMonHudEventType type{};
+    std::optional<double> displayedFps;
+};
+
+class PresentMonFrameAccumulator
+{
+public:
+    std::vector<PresentMonHudEvent> Observe(const PresentMonFrameSample& frame);
+    void Reset() noexcept;
+
+private:
+    bool firstDisplayedFrameEmitted_{};
+    std::size_t displayedFrameCount_{};
+    double displayedElapsedMs_{};
 };
 
 std::optional<PresentMonFrameSample> ParseDisplayedFrame(
@@ -30,7 +56,7 @@ std::wstring BuildPresentMonCommandLine(const std::wstring& executable,
 class PresentMonHudTelemetry
 {
 public:
-    using UpdateCallback = std::function<void(std::optional<double>)>;
+    using UpdateCallback = std::function<void(const PresentMonHudEvent&)>;
 
     ~PresentMonHudTelemetry();
     bool Start(const std::wstring& executable, DWORD processId, UpdateCallback callback);
