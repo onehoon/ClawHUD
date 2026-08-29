@@ -76,6 +76,8 @@ public:
     GameDetectionTransitionResult ObserveWake(const GameDetectionWake& wake) noexcept;
     GameDetectionTransitionResult ObserveCandidate(
         DWORD processId, HWND window, GameDetectionTrigger trigger) noexcept;
+    GameDetectionTransitionResult ReplaceCandidate(
+        DWORD processId, HWND window, GameDetectionTrigger trigger) noexcept;
     bool MarkRendererReady(DWORD processId, std::uint64_t generation) noexcept;
     bool CommitCandidate(DWORD processId, std::uint64_t generation) noexcept;
     void ClearSteamSession(std::uint32_t appId = 0) noexcept;

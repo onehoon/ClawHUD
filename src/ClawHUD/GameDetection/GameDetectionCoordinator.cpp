@@ -45,6 +45,10 @@ void GameDetectionCoordinator::StartCandidate(
     context_.candidateProcessId = processId;
     context_.candidateWindow = window;
     context_.rendererObserved = false;
+    context_.microsoftGameIdentity = false;
+    const bool steamSession = context_.steamAppId != 0;
+    context_.evidence = {};
+    context_.evidence.steamSession = steamSession;
     context_.state = GameDetectionState::Verifying;
     context_.primaryTrigger = trigger;
 }
@@ -52,14 +56,16 @@ void GameDetectionCoordinator::StartCandidate(
 GameDetectionTransitionResult GameDetectionCoordinator::ObserveWake(
     const GameDetectionWake& wake) noexcept
 {
-    if (wake.steamAppId != 0)
-        context_.steamAppId = wake.steamAppId;
-    MergeEvidence(wake.trigger, wake.microsoftGameIdentity);
-
     if (wake.processId == 0)
     {
-        if (wake.trigger == GameDetectionTrigger::SteamRunningAppId &&
-            context_.state == GameDetectionState::Idle)
+        if (wake.trigger != GameDetectionTrigger::SteamRunningAppId ||
+            wake.steamAppId == 0 ||
+            (context_.state != GameDetectionState::Idle &&
+                context_.state != GameDetectionState::Armed))
+            return Result(GameDetectionTransition::None);
+        context_.steamAppId = wake.steamAppId;
+        context_.evidence.steamSession = true;
+        if (context_.state == GameDetectionState::Idle)
         {
             context_.state = GameDetectionState::Armed;
             context_.primaryTrigger = wake.trigger;
@@ -67,7 +73,19 @@ GameDetectionTransitionResult GameDetectionCoordinator::ObserveWake(
         }
         return Result(GameDetectionTransition::None);
     }
-    return ObserveCandidate(wake.processId, wake.window, wake.trigger);
+
+    if (wake.steamAppId != 0)
+    {
+        context_.steamAppId = wake.steamAppId;
+        context_.evidence.steamSession = true;
+    }
+    const auto result = ObserveCandidate(wake.processId, wake.window, wake.trigger);
+    if (result.transition != GameDetectionTransition::None && wake.microsoftGameIdentity)
+    {
+        context_.microsoftGameIdentity = true;
+        context_.evidence.microsoftGameIdentity = true;
+    }
+    return result;
 }
 
 GameDetectionTransitionResult GameDetectionCoordinator::ObserveCandidate(
@@ -75,25 +93,37 @@ GameDetectionTransitionResult GameDetectionCoordinator::ObserveCandidate(
 {
     if (processId == 0)
         return Result(GameDetectionTransition::None);
-    MergeEvidence(trigger, trigger == GameDetectionTrigger::MicrosoftGameIdentity);
-
     if (!HasCandidate(context_))
     {
         StartCandidate(processId, window, trigger);
+        MergeEvidence(trigger, trigger == GameDetectionTrigger::MicrosoftGameIdentity);
         return Result(GameDetectionTransition::CandidateStarted);
     }
 
     if (context_.candidateProcessId != processId)
-    {
-        StartCandidate(processId, window, trigger);
-        return Result(GameDetectionTransition::CandidateReplaced);
-    }
+        return Result(GameDetectionTransition::None);
 
+    MergeEvidence(trigger, trigger == GameDetectionTrigger::MicrosoftGameIdentity);
     if (window != nullptr)
         context_.candidateWindow = window;
     if (context_.state == GameDetectionState::Armed)
         context_.state = GameDetectionState::Verifying;
     return Result(GameDetectionTransition::CandidateUpdated);
+}
+
+GameDetectionTransitionResult GameDetectionCoordinator::ReplaceCandidate(
+    DWORD processId, HWND window, GameDetectionTrigger trigger) noexcept
+{
+    if (processId == 0)
+        return Result(GameDetectionTransition::None);
+    if (HasCandidate(context_) && context_.candidateProcessId == processId)
+        return ObserveCandidate(processId, window, trigger);
+
+    const bool hadCandidate = HasCandidate(context_);
+    StartCandidate(processId, window, trigger);
+    MergeEvidence(trigger, trigger == GameDetectionTrigger::MicrosoftGameIdentity);
+    return Result(hadCandidate ? GameDetectionTransition::CandidateReplaced
+                               : GameDetectionTransition::CandidateStarted);
 }
 
 bool GameDetectionCoordinator::MarkRendererReady(

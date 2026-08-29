@@ -76,7 +76,15 @@ int main()
         coordinator.Context().steamAppId == 0,
         "Steam session clears without releasing committed target");
 
-    const auto replacement = coordinator.ObserveCandidate(
+    const auto ignored = coordinator.ObserveCandidate(
+        200, nullptr, GameDetectionTrigger::GenericForeground);
+    check(ignored.transition == GameDetectionTransition::None &&
+        coordinator.Context().candidateProcessId == 18812 &&
+        coordinator.Context().generation == generation &&
+        coordinator.Context().state == GameDetectionState::Committed,
+        "different PID observation does not replace active candidate");
+
+    const auto replacement = coordinator.ReplaceCandidate(
         200, nullptr, GameDetectionTrigger::GenericForeground);
     const auto replacementGeneration = coordinator.Context().generation;
     check(replacement.transition == GameDetectionTransition::CandidateReplaced &&
@@ -84,10 +92,38 @@ int main()
         coordinator.Context().candidateProcessId == 200 &&
         coordinator.Context().state == GameDetectionState::Verifying &&
         !coordinator.Context().rendererObserved,
-        "candidate replacement increments generation");
+        "explicit candidate replacement increments generation");
+    check(!coordinator.Context().microsoftGameIdentity &&
+        !coordinator.Context().evidence.microsoftGameIdentity &&
+        coordinator.Context().evidence.genericForeground,
+        "replacement clears prior candidate evidence");
     check(!coordinator.CommitCandidate(18812, generation) &&
         !coordinator.MarkRendererReady(18812, generation),
         "stale events cannot affect replacement");
+
+    GameDetectionCoordinator invalidWake;
+    const auto invalidBefore = invalidWake.Context();
+    const auto sameContext = [](const auto& left, const auto& right)
+    {
+        return left.state == right.state && left.generation == right.generation &&
+            left.candidateProcessId == right.candidateProcessId &&
+            left.candidateWindow == right.candidateWindow &&
+            left.steamAppId == right.steamAppId &&
+            left.microsoftGameIdentity == right.microsoftGameIdentity &&
+            left.rendererObserved == right.rendererObserved &&
+            left.primaryTrigger == right.primaryTrigger &&
+            left.evidence.genericForeground == right.evidence.genericForeground &&
+            left.evidence.steamSession == right.evidence.steamSession &&
+            left.evidence.microsoftGameIdentity == right.evidence.microsoftGameIdentity;
+    };
+    check(invalidWake.ObserveWake({GameDetectionTrigger::GenericForeground, 0,
+        nullptr, 5010190, false}).transition == GameDetectionTransition::None &&
+        sameContext(invalidWake.Context(), invalidBefore),
+        "zero-PID generic wake leaves context unchanged");
+    check(invalidWake.ObserveWake({GameDetectionTrigger::MicrosoftGameIdentity, 0,
+        nullptr, 0, true}).transition == GameDetectionTransition::None &&
+        sameContext(invalidWake.Context(), invalidBefore),
+        "zero-PID MicrosoftGame wake leaves context unchanged");
 
     const auto reset = coordinator.Reset();
     check(reset.transition == GameDetectionTransition::Reset &&
