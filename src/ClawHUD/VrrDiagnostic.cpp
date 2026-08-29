@@ -367,7 +367,12 @@ bool VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
         LogMpoCapability(log);
         igcl.Initialize(log);
         igcl.LogState(log);
-        d3dkmt.Initialize(log);
+        HMONITOR targetMonitor{};
+        if (foregroundWindow && IsWindow(foregroundWindow))
+            targetMonitor = MonitorFromWindow(foregroundWindow, MONITOR_DEFAULTTOPRIMARY);
+        if (!targetMonitor)
+            targetMonitor = MonitorFromPoint(POINT{ 0, 0 }, MONITOR_DEFAULTTOPRIMARY);
+        d3dkmt.Initialize(log, targetMonitor);
         const auto pm = std::filesystem::path(app_.ExecutablePath()).parent_path() / L"tools" / L"PresentMon.exe";
         if (!std::filesystem::exists(pm)) { log << L"PresentMon: FAILED\nReason: tools\\PresentMon.exe not found\n"; Status(L"Failed"); return false; }
         log << L"=== VRR DIAGNOSTIC TRIGGER ===\nTrigger: F8\nForeground HWND: "

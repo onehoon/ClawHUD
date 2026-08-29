@@ -1,5 +1,7 @@
 #pragma once
 
+#include <windows.h>
+
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -37,7 +39,7 @@ public:
     D3dkmtVblankPoc() = default;
     ~D3dkmtVblankPoc();
 
-    bool Initialize(std::wofstream& log);
+    bool Initialize(std::wofstream& log, HMONITOR monitor);
     void Start();
     D3dkmtVblankStatistics Stop(std::wofstream& log, const wchar_t* phase);
     void Shutdown() noexcept;

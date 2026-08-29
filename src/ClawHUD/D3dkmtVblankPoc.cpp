@@ -86,7 +86,7 @@ D3dkmtVblankPoc::~D3dkmtVblankPoc()
     Shutdown();
 }
 
-bool D3dkmtVblankPoc::Initialize(std::wofstream& log)
+bool D3dkmtVblankPoc::Initialize(std::wofstream& log, HMONITOR monitor)
 {
     Shutdown();
     waitForVerticalBlankEvent_ = ResolveGdi32<WaitForVerticalBlankEvent>(
@@ -108,11 +108,10 @@ bool D3dkmtVblankPoc::Initialize(std::wofstream& log)
     }
     qpcFrequency_ = frequency.QuadPart;
 
-    const HMONITOR monitor = MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY);
     MONITORINFOEXW monitorInfo{ sizeof(monitorInfo) };
     if (!monitor || !GetMonitorInfoW(monitor, &monitorInfo))
     {
-        log << L"D3DKMT VBlank: Unavailable\nReason: Active monitor mapping failed\n\n";
+        log << L"D3DKMT VBlank: Unavailable\nReason: Target monitor mapping failed\n\n";
         return false;
     }
     monitorName_ = monitorInfo.szDevice;
