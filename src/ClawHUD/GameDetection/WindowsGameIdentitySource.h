@@ -55,7 +55,9 @@ public:
         UINT32 packageInfoFlags{};
         MicrosoftGameConfigSnapshot config;
         std::wstring configPath;
+        bool configProbeAttempted{};
         bool configExists{};
+        bool configReadAttempted{};
         bool configReadable{};
         int configProbeError{};
         DWORD configReadError{};

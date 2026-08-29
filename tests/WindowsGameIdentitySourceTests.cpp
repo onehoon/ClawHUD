@@ -41,7 +41,8 @@ int main()
     check(optional.recognizedGameRoot && optional.titleId.empty() && optional.executables.empty(),
         "optional config fields may be absent");
     check(WindowsExecutableNamesMatch(L"C:\\Games\\GAME.EXE", L"game.exe") &&
-        !WindowsExecutableNamesMatch(L"game.exe", L"launcher.exe"),
+        !WindowsExecutableNamesMatch(L"game.exe", L"launcher.exe") &&
+        !WindowsExecutableNamesMatch(L"", L"game.exe"),
         "executable matching is case insensitive and basename based");
     check(PackageMetadataCacheKey(L"Game_1.0_x64") !=
         PackageMetadataCacheKey(L"Game_1.1_x64"),

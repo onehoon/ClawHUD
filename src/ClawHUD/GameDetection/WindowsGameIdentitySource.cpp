@@ -57,6 +57,29 @@ struct UniquePackageInfo
     ~UniquePackageInfo() { if (value) ClosePackageInfo(value); }
 };
 
+struct ScopedComApartment
+{
+    HRESULT hr{CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE)};
+    ~ScopedComApartment()
+    {
+        if (hr == S_OK || hr == S_FALSE) CoUninitialize();
+    }
+    bool usable() const noexcept { return SUCCEEDED(hr) || hr == RPC_E_CHANGED_MODE; }
+};
+
+struct UniquePropertyStore
+{
+    IPropertyStore* value{};
+    ~UniquePropertyStore() { if (value) value->Release(); }
+};
+
+struct ScopedPropVariant
+{
+    PROPVARIANT value{};
+    ScopedPropVariant() { PropVariantInit(&value); }
+    ~ScopedPropVariant() { PropVariantClear(&value); }
+};
+
 std::wstring Escape(std::wstring value)
 {
     std::wstring result;
@@ -136,28 +159,31 @@ std::wstring QueryProcessString(HANDLE process,
 
 std::wstring ReadWindowAumid(HWND window)
 {
-    IPropertyStore* store{};
+    ScopedComApartment com;
+    if (!com.usable())
+    {
+        Debug(L"windowAumid.result=API_FAILED hr=" + std::to_wstring(com.hr));
+        return {};
+    }
+    UniquePropertyStore store;
     const HRESULT storeResult = SHGetPropertyStoreForWindow(window,
-        IID_PPV_ARGS(&store));
+        IID_PPV_ARGS(&store.value));
     if (FAILED(storeResult))
     {
         Debug(L"windowAumid.result=API_FAILED hr=" + std::to_wstring(storeResult));
         return {};
     }
-    PROPVARIANT value{};
-    PropVariantInit(&value);
-    const HRESULT result = store->GetValue(PKEY_AppUserModel_ID, &value);
+    ScopedPropVariant value;
+    const HRESULT result = store.value->GetValue(PKEY_AppUserModel_ID, &value.value);
     std::wstring text;
-    if (SUCCEEDED(result) && value.vt == VT_LPWSTR && value.pwszVal)
-        text = value.pwszVal;
+    if (SUCCEEDED(result) && value.value.vt == VT_LPWSTR && value.value.pwszVal)
+        text = value.value.pwszVal;
     if (SUCCEEDED(result) && !text.empty())
         Debug(L"windowAumid.result=SUCCESS value=\"" + Escape(text) + L"\"");
     else if (result == S_OK)
         Debug(L"windowAumid.result=NOT_PRESENT");
     else
         Debug(L"windowAumid.result=API_FAILED hr=" + std::to_wstring(result));
-    PropVariantClear(&value);
-    store->Release();
     return text;
 }
 
@@ -227,6 +253,7 @@ void LogPackagePath(const wchar_t* name,
 void QueryPackageInfo(const std::wstring& fullName,
     WindowsGameIdentitySource::PackageStaticMetadata& metadata)
 {
+    constexpr UINT32 kPackageInfoFlags = PACKAGE_INFORMATION_FULL | PACKAGE_FILTER_HEAD;
     UniquePackageInfo reference;
     metadata.packageInfoResult = OpenPackageInfoByFullName(fullName.c_str(), 0, &reference.value);
     Debug(L"packageInfo.open.result=" + ResultName(metadata.packageInfoResult) +
@@ -243,16 +270,16 @@ void QueryPackageInfo(const std::wstring& fullName,
     }
     UINT32 length{};
     UINT32 count{};
-    LONG result = query(reference.value, 0, PackagePathType_Effective,
+    LONG result = query(reference.value, kPackageInfoFlags, PackagePathType_Effective,
         &length, nullptr, &count);
     metadata.packageInfo2Result = result;
     if (result == ERROR_INSUFFICIENT_BUFFER)
     {
         std::vector<BYTE> buffer(length);
-        result = query(reference.value, 0, PackagePathType_Effective,
+        result = query(reference.value, kPackageInfoFlags, PackagePathType_Effective,
             &length, buffer.data(), &count);
         metadata.packageInfo2Result = result;
-        if (result == ERROR_SUCCESS && count != 0)
+        if (result == ERROR_SUCCESS && count == 1)
         {
             const auto* info = reinterpret_cast<const PACKAGE_INFO*>(buffer.data());
             metadata.packageInfoFlags = info->flags;
@@ -389,6 +416,7 @@ bool WindowsExecutableNamesMatch(std::wstring_view left, std::wstring_view right
     };
     const auto leftBase = base(left);
     const auto rightBase = base(right);
+    if (leftBase.empty() || rightBase.empty()) return false;
     return leftBase.size() == rightBase.size() &&
         std::equal(leftBase.begin(), leftBase.end(), rightBase.begin(),
             [](wchar_t a, wchar_t b) { return towlower(a) == towlower(b); });
@@ -521,12 +549,14 @@ void WindowsGameIdentitySource::InspectPackage(const std::wstring& packageFullNa
         if (!path.empty())
         {
             metadata.configPath = (std::filesystem::path(path) / L"MicrosoftGame.config").wstring();
+            metadata.configProbeAttempted = true;
             std::error_code error;
             metadata.configExists = std::filesystem::exists(metadata.configPath, error);
             metadata.configProbeError = error.value();
         }
-    if (metadata.configExists)
+        if (metadata.configExists)
         {
+            metadata.configReadAttempted = true;
             const auto read = ReadFileText(metadata.configPath);
             metadata.configReadable = read.readable;
             metadata.configReadError = read.error;
@@ -541,34 +571,40 @@ void WindowsGameIdentitySource::InspectPackage(const std::wstring& packageFullNa
     LogPackagePath(PackagePathTypeName(PackagePathType_MachineExternal), metadata.machineExternalPath);
     LogPackagePath(PackagePathTypeName(PackagePathType_UserExternal), metadata.userExternalPath);
     LogPackagePath(PackagePathTypeName(PackagePathType_EffectiveExternal), metadata.effectiveExternalPath);
-    const auto configProbeResult = metadata.configPath.empty()
-        ? (metadata.effectivePath.path.empty() && metadata.installPath.path.empty() &&
-            metadata.mutablePath.path.empty() && metadata.effectiveExternalPath.path.empty() &&
-            metadata.userExternalPath.path.empty() && metadata.machineExternalPath.path.empty()
-            ? L"NO_PACKAGE" : L"NOT_PRESENT")
+    const auto configProbeResult = !metadata.configProbeAttempted
+        ? L"NOT_ATTEMPTED"
         : (metadata.configProbeError != 0 ? L"API_FAILED"
             : (metadata.configExists ? L"SUCCESS" : L"NOT_PRESENT"));
     Debug(L"microsoftGameConfig.path=\"" + Escape(metadata.configPath) +
         L"\" probe.result=" + configProbeResult + L" error=" +
         std::to_wstring(metadata.configProbeError));
+    const auto configReadResult = !metadata.configReadAttempted
+        ? L"NOT_ATTEMPTED" : (metadata.configReadable ? L"SUCCESS" : L"API_FAILED");
     Debug(L"microsoftGameConfig.exists=" + std::to_wstring(metadata.configExists ? 1 : 0) +
         L" readable=" + std::to_wstring(metadata.configReadable ? 1 : 0) +
-        L" read.result=" + std::wstring(metadata.configReadable ? L"SUCCESS" : L"API_FAILED") +
+        L" read.result=" + std::wstring(configReadResult) +
         L" read.error=" + std::to_wstring(metadata.configReadError));
     if (!metadata.configReadable) return;
     Debug(L"storeId=\"" + Escape(metadata.config.storeId) + L"\" titleId=\"" +
         Escape(metadata.config.titleId) + L"\" msaAppId=\"" +
         Escape(metadata.config.msaAppId) + L"\"");
     Debug(L"configExecutableCount=" + std::to_wstring(metadata.config.executables.size()));
-    bool match = false;
     for (const auto& executable : metadata.config.executables)
     {
         Debug(L"configExecutable name=\"" + Escape(executable.name) + L"\" id=\"" +
             Escape(executable.id) + L"\" targetDeviceFamily=\"" +
             Escape(executable.targetDeviceFamily) + L"\" architecture=\"" +
             Escape(executable.architecture) + L"\"");
-        match = match || WindowsExecutableNamesMatch(executableName, executable.name);
     }
-    Debug(L"currentExecutableMatch=" + std::to_wstring(match ? 1 : 0));
+    if (executableName.empty())
+    {
+        Debug(L"currentExecutableMatch.result=NOT_PRESENT reason=image-name-unavailable");
+        return;
+    }
+    bool match = false;
+    for (const auto& executable : metadata.config.executables)
+        match = match || WindowsExecutableNamesMatch(executableName, executable.name);
+    Debug(L"currentExecutableMatch.result=SUCCESS value=" +
+        std::to_wstring(match ? 1 : 0));
 }
 }
