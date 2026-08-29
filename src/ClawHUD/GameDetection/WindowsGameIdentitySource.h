@@ -47,6 +47,9 @@ public:
         PackagePathProbe installPath;
         PackagePathProbe effectivePath;
         PackagePathProbe mutablePath;
+        PackagePathProbe machineExternalPath;
+        PackagePathProbe userExternalPath;
+        PackagePathProbe effectiveExternalPath;
         LONG packageInfoResult{ERROR_SUCCESS};
         LONG packageInfo2Result{ERROR_SUCCESS};
         UINT32 packageInfoFlags{};
@@ -55,6 +58,7 @@ public:
         bool configExists{};
         bool configReadable{};
         int configProbeError{};
+        DWORD configReadError{};
     };
 
 private:
