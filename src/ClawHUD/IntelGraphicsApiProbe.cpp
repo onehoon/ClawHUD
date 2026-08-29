@@ -196,9 +196,10 @@ std::optional<std::wstring> IntelGraphicsApiProbe::Query(DWORD processId)
     const auto appName = ProcessApplicationName(processId);
     if (!appName || !Initialize())
         return std::nullopt;
+    const std::wstring appNameWide(appName->begin(), appName->end());
 
     Debug(L"IGCL API probe: PID=" + std::to_wstring(processId) +
-        L" app=" + std::wstring(appName->begin(), appName->end()));
+        L" app=" + appNameWide);
 
     const auto enumerate = Resolve<EnumerateDevicesFn>(library_, "ctlEnumerateDevices");
     const auto getSet = Resolve<GetSet3DFn>(library_, "ctlGetSet3DFeature");
@@ -226,6 +227,13 @@ std::optional<std::wstring> IntelGraphicsApiProbe::Query(DWORD processId)
         if (result != kSuccess)
             continue;
 
+        RuntimeLogger::Log(RuntimeLogLevel::Debug,
+            L"IGCL Graphics API live state pid=" + std::to_wstring(processId) +
+            L" app=" + appNameWide +
+            L" adapter=" + std::to_wstring(index) +
+            L" gfxApi=" + HexMask(liveState.gfxApi) +
+            L" targetFps=" + std::to_wstring(liveState.targetFps) +
+            L" framePacingStatus=" + std::to_wstring(liveState.framePacingStatus));
         const auto state = DecodeGraphicsApiMask(liveState.gfxApi);
         Debug(L"IGCL Adapter[" + std::to_wstring(index) + L"] GfxApi=" +
             HexMask(liveState.gfxApi));
@@ -233,12 +241,20 @@ std::optional<std::wstring> IntelGraphicsApiProbe::Query(DWORD processId)
         if (!api)
         {
             Debug(L"IGCL Graphics API unresolved: zero or mixed mask");
+            RuntimeLogger::Log(RuntimeLogLevel::Debug,
+                L"IGCL Graphics API unresolved pid=" + std::to_wstring(processId) +
+                L" app=" + appNameWide + L" adapter=" + std::to_wstring(index) +
+                L" reason=zero-or-mixed-mask raw=" + HexMask(liveState.gfxApi));
             invalidState = true;
             continue;
         }
         if (resolved && *resolved != *api)
         {
             Debug(L"IGCL Graphics API unresolved: adapter disagreement");
+            RuntimeLogger::Log(RuntimeLogLevel::Debug,
+                L"IGCL Graphics API unresolved pid=" + std::to_wstring(processId) +
+                L" app=" + appNameWide + L" reason=adapter-disagreement raw=" +
+                HexMask(liveState.gfxApi));
             return std::nullopt;
         }
         resolved = api;
