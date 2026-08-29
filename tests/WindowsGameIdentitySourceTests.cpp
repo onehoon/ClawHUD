@@ -61,5 +61,34 @@ int main()
     check(PackageMetadataCacheKey(L"Game_1.0_x64") !=
         PackageMetadataCacheKey(L"Game_1.1_x64"),
         "package cache key preserves package full name version");
+
+    WindowsGameIdentityProbeResult identity;
+    identity.microsoftGameConfigs = {
+        {1, L"A", L"A\\MicrosoftGame.config", true, true, 0,
+            true, false, ERROR_ACCESS_DENIED, {}, true, false},
+        {2, L"B", L"B\\MicrosoftGame.config", true, true, 0,
+            true, true, ERROR_SUCCESS, {}, true, false},
+        {3, L"C", L"C\\MicrosoftGame.config", true, true, 0,
+            true, true, ERROR_SUCCESS, {}, true, true}};
+    check(HasReadableMicrosoftGameExecutableMatch(identity),
+        "readable MicrosoftGame executable match is aggregated");
+    identity.microsoftGameConfigs[2].currentExecutableMatched = false;
+    check(!HasReadableMicrosoftGameExecutableMatch(identity),
+        "unmatched readable configs do not produce identity evidence");
+    identity.microsoftGameConfigs[2].currentExecutableMatched = true;
+    identity.microsoftGameConfigs[2].executableMatchEvaluated = false;
+    check(!HasReadableMicrosoftGameExecutableMatch(identity),
+        "unevaluated executable match cannot become MicrosoftGame evidence");
+    WindowsPackageStaticMetadata failedPackage;
+    failedPackage.packageInfoResult = ERROR_NOT_FOUND;
+    check(!failedPackage.packageInfo2Attempted &&
+        !failedPackage.packageApplicationIdsAttempted &&
+        !failedPackage.packageOriginAttempted,
+        "package API results remain not attempted after open failure");
+    identity.packageFullNameResult = APPMODEL_ERROR_NO_PACKAGE;
+    check(identity.packageFullNameResult != ERROR_SUCCESS &&
+        identity.packageFullNameResult != ERROR_PROC_NOT_FOUND,
+        "no-package result remains distinguishable");
+
     return ok ? 0 : 1;
 }
