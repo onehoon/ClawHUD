@@ -108,7 +108,8 @@ bool ProcessAlive(DWORD processId)
 
 }
 
-App::App(HINSTANCE instance) : instance_(instance), tray_(*this)
+App::App(HINSTANCE instance) : instance_(instance), tray_(*this),
+    steamRunningAppTrigger_(gameDetectionCoordinator_)
 {
     clawhud::RuntimeLogger::Initialize();
     wchar_t path[MAX_PATH]{}; const DWORD length = GetModuleFileNameW(instance_, path, ARRAYSIZE(path));
@@ -187,6 +188,7 @@ int App::Run()
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
             L"Steam RunningAppID watcher initialization failed");
     steamRunningAppId_ = steamRunningAppIdSource_.GetRunningAppId();
+    steamRunningAppTrigger_.Initialize(steamRunningAppId_);
     if (steamWatcherStarted)
         Log(L"Steam RunningAppID watcher started appId=" +
             std::to_wstring(steamRunningAppId_));
@@ -2086,6 +2088,7 @@ int App::ProcessMessages()
                 Log(L"Steam RunningAppID changed old=" +
                     std::to_wstring(previous) + L" new=" +
                     std::to_wstring(current));
+                steamRunningAppTrigger_.ObserveChange(previous, current);
             }
             continue;
         }

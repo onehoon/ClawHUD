@@ -16,6 +16,8 @@
 #include "GameDetection/ProcessLifecycleSource.h"
 #include "GameDetection/PresentActivitySource.h"
 #include "GameDetection/WindowLifecycleSource.h"
+#include "GameDetection/GameDetectionCoordinator.h"
+#include "GameDetection/SteamRunningAppTrigger.h"
 #include "EcHelperClient.h"
 #include "MsiEcHudTelemetry.h"
 #include "PresentMonHudTelemetry.h"
@@ -247,6 +249,8 @@ private:
     clawhud::ProcessLifecycleSource processLifecycleSource_;
     clawhud::PresentActivitySource presentActivitySource_;
     clawhud::WindowLifecycleSource windowLifecycleSource_;
+    clawhud::GameDetectionCoordinator gameDetectionCoordinator_;
+    clawhud::SteamRunningAppTrigger steamRunningAppTrigger_;
     SteamRunningAppIdSource steamRunningAppIdSource_;
     std::uint32_t steamRunningAppId_{};
 };
