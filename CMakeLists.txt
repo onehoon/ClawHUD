@@ -86,7 +86,8 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/HudPresentationContract.cpp
     src/ClawHUD/HudPresentationLifecycle.cpp
     src/ClawHUD/ForegroundTracker.cpp
-    src/ClawHUD/ProductionTargetPolicy.cpp)
+    src/ClawHUD/ProductionTargetPolicy.cpp
+    src/ClawHUD/SteamRunningAppIdSource.cpp)
 target_compile_features(ClawHUD PRIVATE cxx_std_20)
 target_compile_definitions(ClawHUD PRIVATE
     UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX
@@ -374,4 +375,15 @@ if(BUILD_TESTING)
     target_include_directories(ClawHUD.HudPresentationLifecycleTests PRIVATE src/ClawHUD)
     set_target_properties(ClawHUD.HudPresentationLifecycleTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.HudPresentationLifecycleTests COMMAND ClawHUD.HudPresentationLifecycleTests)
+
+    add_executable(ClawHUD.SteamRunningAppIdSourceTests
+        tests/SteamRunningAppIdSourceTests.cpp
+        src/ClawHUD/SteamRunningAppIdSource.cpp)
+    target_compile_features(ClawHUD.SteamRunningAppIdSourceTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.SteamRunningAppIdSourceTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.SteamRunningAppIdSourceTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.SteamRunningAppIdSourceTests PRIVATE advapi32 user32)
+    set_target_properties(ClawHUD.SteamRunningAppIdSourceTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.SteamRunningAppIdSourceTests COMMAND ClawHUD.SteamRunningAppIdSourceTests)
 endif()

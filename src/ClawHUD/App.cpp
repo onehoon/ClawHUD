@@ -30,6 +30,7 @@ constexpr UINT kSettingsDestroyed = WM_APP + 1;
 constexpr UINT kForegroundChanged = WM_APP + 2;
 constexpr UINT kHudVisibilityRequest = WM_APP + 3;
 constexpr UINT kPresentMonHudUpdate = WM_APP + 4;
+constexpr UINT kSteamRunningAppIdChanged = WM_APP + 5;
 constexpr UINT kMockHudTimerIntervalMs = 100;
 constexpr UINT kUsageSamplingIntervalMs = 1000;
 constexpr UINT kBatteryHudTimerIntervalMs = 5000;
@@ -134,6 +135,7 @@ App::~App()
     if (vrrDiagnostic_) vrrDiagnostic_->Stop();
     DiscardPendingHudVisibilityRequests();
     StopProductionPresentMonSampling(L"app-shutdown", true);
+    steamRunningAppIdSource_.Stop();
     DiscardPendingPresentMonHudUpdates();
     vrrDiagnostic_.reset();
     if (hudHotkeyRegistered_ && tray_.Window())
@@ -177,6 +179,12 @@ int App::Run()
             L"Tray initialization failed");
         return 1;
     }
+    if (!steamRunningAppIdSource_.Start(tray_.Window(), kSteamRunningAppIdChanged))
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+            L"Steam RunningAppID watcher initialization failed");
+    steamRunningAppId_ = steamRunningAppIdSource_.GetRunningAppId();
+    Log(L"Steam RunningAppID watcher started appId=" +
+        std::to_wstring(steamRunningAppId_));
     hudHotkeyRegistered_ = RegisterHotKey(tray_.Window(), kHudToggleHotkeyId,
         MOD_NOREPEAT, VK_F8) != FALSE;
     if (!hudHotkeyRegistered_)
@@ -2015,6 +2023,19 @@ int App::ProcessMessages()
             {
                 HandlePresentMonHudUpdate(update->processId, update->displayedFps);
                 delete update;
+            }
+            continue;
+        }
+        if (message.message == kSteamRunningAppIdChanged)
+        {
+            const auto current = steamRunningAppIdSource_.GetRunningAppId();
+            if (RunningAppIdChanged(steamRunningAppId_, current))
+            {
+                const auto previous = steamRunningAppId_;
+                steamRunningAppId_ = current;
+                Log(L"Steam RunningAppID changed old=" +
+                    std::to_wstring(previous) + L" new=" +
+                    std::to_wstring(current));
             }
             continue;
         }
