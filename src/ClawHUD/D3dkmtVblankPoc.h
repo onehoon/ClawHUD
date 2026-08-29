@@ -28,10 +28,24 @@ struct D3dkmtVblankStatistics
     std::optional<double> measuredHzMedian;
 };
 
+struct D3dkmtVblankWindow
+{
+    double startSeconds{};
+    double endSeconds{};
+    std::size_t eventCount{};
+    double elapsedSeconds{};
+    double measuredHz{};
+};
+
 D3dkmtVblankStatistics CalculateD3dkmtVblankStatistics(
     const std::vector<std::uint64_t>& timestamps,
     std::size_t failedWaits,
     std::int64_t qpcFrequency) noexcept;
+
+std::vector<D3dkmtVblankWindow> CalculateD3dkmtVblankWindows(
+    const std::vector<std::uint64_t>& timestamps,
+    std::int64_t qpcFrequency,
+    double windowSeconds = 1.0);
 
 class D3dkmtVblankPoc
 {

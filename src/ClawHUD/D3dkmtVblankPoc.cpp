@@ -81,6 +81,38 @@ D3dkmtVblankStatistics CalculateD3dkmtVblankStatistics(
     return result;
 }
 
+std::vector<D3dkmtVblankWindow> CalculateD3dkmtVblankWindows(
+    const std::vector<std::uint64_t>& timestamps,
+    std::int64_t qpcFrequency,
+    double windowSeconds)
+{
+    std::vector<D3dkmtVblankWindow> result;
+    if (timestamps.empty() || qpcFrequency <= 0 || !std::isfinite(windowSeconds) ||
+        windowSeconds <= 0.0 || timestamps.back() < timestamps.front())
+        return result;
+
+    const double durationSeconds = static_cast<double>(timestamps.back() - timestamps.front()) /
+        static_cast<double>(qpcFrequency);
+    const auto windowCount = static_cast<std::size_t>(
+        std::floor(durationSeconds / windowSeconds));
+    result.reserve(windowCount);
+    for (std::size_t index = 0; index < windowCount; ++index)
+    {
+        const double start = static_cast<double>(index) * windowSeconds;
+        const double end = start + windowSeconds;
+        const auto count = static_cast<std::size_t>(std::count_if(
+            timestamps.begin(), timestamps.end(), [&](std::uint64_t timestamp)
+            {
+                const double relative = static_cast<double>(timestamp - timestamps.front()) /
+                    static_cast<double>(qpcFrequency);
+                return relative >= start && relative < end;
+            }));
+        result.push_back({ start, end, count, windowSeconds,
+            static_cast<double>(count) / windowSeconds });
+    }
+    return result;
+}
+
 D3dkmtVblankPoc::~D3dkmtVblankPoc()
 {
     Shutdown();
@@ -207,6 +239,7 @@ D3dkmtVblankStatistics D3dkmtVblankPoc::Stop(
         lastFailure = lastFailureStatus_;
     }
     const auto result = CalculateD3dkmtVblankStatistics(timestamps, failures, qpcFrequency_);
+    const auto windows = CalculateD3dkmtVblankWindows(timestamps, qpcFrequency_);
     log << L"=== D3DKMT VBLANK POC - " << phase << L" ===\n"
         << L"API: D3DKMTWaitForVerticalBlankEvent\n"
         << L"Sample Count: " << result.sampleCount << L"\n"
@@ -227,6 +260,30 @@ D3dkmtVblankStatistics D3dkmtVblankPoc::Stop(
             << L"Measured Hz (median): " << (result.measuredHzMedian ? std::to_wstring(*result.measuredHzMedian) : L"Unavailable") << L"\n";
     else
         log << L"Measured Hz: Unavailable\n";
+    log << L"Windowed cadence (1.000 s):\n";
+    if (windows.empty())
+        log << L"  No complete windows\n";
+    else
+    {
+        double minimumHz = windows.front().measuredHz;
+        double maximumHz = minimumHz;
+        double totalHz{};
+        for (const auto& window : windows)
+        {
+            log << L"  " << std::fixed << std::setprecision(3)
+                << std::setw(7) << window.startSeconds << L"-"
+                << std::setw(7) << window.endSeconds << L" s: events="
+                << window.eventCount << L", Hz=" << std::setprecision(1)
+                << window.measuredHz << L"\n";
+            minimumHz = std::min(minimumHz, window.measuredHz);
+            maximumHz = std::max(maximumHz, window.measuredHz);
+            totalHz += window.measuredHz;
+        }
+        log << std::setprecision(1)
+            << L"Windowed Hz Min: " << minimumHz << L"\n"
+            << L"Windowed Hz Max: " << maximumHz << L"\n"
+            << L"Windowed Hz Avg: " << totalHz / static_cast<double>(windows.size()) << L"\n";
+    }
     if (lastFailure)
         log << L"Last failure status: 0x" << std::hex
             << static_cast<unsigned long>(lastFailure) << std::dec << L"\n";
