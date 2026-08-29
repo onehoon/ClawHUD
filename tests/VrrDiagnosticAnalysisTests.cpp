@@ -28,11 +28,11 @@ bool Expect(bool condition, const char* name)
     return condition;
 }
 
-bool ExpectVerdict(clawhud::VrrDiagnosticVerdict expected, double off, double stat, double dyn,
+bool ExpectVerdict(clawhud::VrrDiagnosticVerdict expected, double off, double dyn,
     const char* name, std::size_t rows = 100)
 {
     const auto actual = clawhud::EvaluateVrrComparison(
-        Summary(off, rows), Summary(stat, rows), Summary(dyn, rows)).verdict;
+        Summary(off, rows), Summary(dyn, rows)).verdict;
     return Expect(actual == expected, name);
 }
 }
@@ -40,17 +40,16 @@ bool ExpectVerdict(clawhud::VrrDiagnosticVerdict expected, double off, double st
 int main()
 {
     bool ok = true;
-    ok &= ExpectVerdict(clawhud::VrrDiagnosticVerdict::Pass, 95, 94, 92, "normal");
-    ok &= ExpectVerdict(clawhud::VrrDiagnosticVerdict::Fail, 95, 20, 18, "static regression");
-    ok &= ExpectVerdict(clawhud::VrrDiagnosticVerdict::Fail, 95, 94, 25, "dynamic regression");
-    ok &= ExpectVerdict(clawhud::VrrDiagnosticVerdict::Inconclusive, 10, 10, 10, "invalid baseline");
-    ok &= ExpectVerdict(clawhud::VrrDiagnosticVerdict::Fail, 95, 5, 5, "same modes reversed");
-    ok &= ExpectVerdict(clawhud::VrrDiagnosticVerdict::Pass, 95, 91, 89, "minor variation");
-    ok &= ExpectVerdict(clawhud::VrrDiagnosticVerdict::Inconclusive, 95, 94, 92, "insufficient samples", 5);
+    ok &= ExpectVerdict(clawhud::VrrDiagnosticVerdict::Pass, 95, 92, "normal");
+    ok &= ExpectVerdict(clawhud::VrrDiagnosticVerdict::Fail, 95, 25, "dynamic regression");
+    ok &= ExpectVerdict(clawhud::VrrDiagnosticVerdict::Inconclusive, 10, 10, "invalid baseline");
+    ok &= ExpectVerdict(clawhud::VrrDiagnosticVerdict::Fail, 95, 5, "dynamic regression with same modes");
+    ok &= ExpectVerdict(clawhud::VrrDiagnosticVerdict::Pass, 95, 89, "minor variation");
+    ok &= ExpectVerdict(clawhud::VrrDiagnosticVerdict::Inconclusive, 95, 92, "insufficient samples", 5);
 
     VrrCsvSummary malformed;
     malformed.reason = "PresentMode data is missing";
-    ok &= Expect(clawhud::EvaluateVrrComparison(malformed, Summary(95), Summary(95)).verdict ==
+    ok &= Expect(clawhud::EvaluateVrrComparison(malformed, Summary(95)).verdict ==
         clawhud::VrrDiagnosticVerdict::Inconclusive, "malformed data");
 
     const std::string csv =
@@ -84,7 +83,7 @@ int main()
     const auto sparse = clawhud::ParseVrrCsvText(sparseCsv);
     ok &= Expect(sparse.valid && sparse.rows == 20 && sparse.presentModeSamples == 1,
         "usable PresentMode sample count");
-    ok &= Expect(clawhud::EvaluateVrrComparison(sparse, Summary(95), Summary(95)).verdict ==
+    ok &= Expect(clawhud::EvaluateVrrComparison(sparse, Summary(95)).verdict ==
         clawhud::VrrDiagnosticVerdict::Inconclusive, "insufficient usable PresentMode samples");
 
     std::string recreatedCsv =
@@ -96,7 +95,7 @@ int main()
     const auto recreated = clawhud::ParseVrrCsvText(recreatedCsv, "baseline");
     ok &= Expect(recreated.valid && recreated.dominantSwapChain == "replacement" &&
         !recreated.preferredSwapChainUsed, "stale preferred swapchain is not selected");
-    ok &= Expect(clawhud::EvaluateVrrComparison(Summary(95), Summary(95), recreated).verdict ==
+    ok &= Expect(clawhud::EvaluateVrrComparison(Summary(95), recreated).verdict ==
         clawhud::VrrDiagnosticVerdict::Fail, "recreated swapchain regression fails");
     return ok ? 0 : 1;
 }

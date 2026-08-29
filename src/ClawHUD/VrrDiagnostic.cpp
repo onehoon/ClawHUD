@@ -1,6 +1,7 @@
 #include "VrrDiagnostic.h"
 
 #include "App.h"
+#include "D3dkmtVblankProbe.h"
 #include "IntelVrrDiagnosticProbe.h"
 #include "ProductionTargetPolicy.h"
 #include "RuntimeLogger.h"
@@ -350,11 +351,11 @@ bool VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
 {
     std::wofstream log;
     clawhud::IntelVrrDiagnosticProbe igcl;
+    D3dkmtVblankProbe d3dkmt;
     try
     {
         const auto folder = clawhud::LogDirectory(); const auto stamp = Now(true); const auto txt = folder / (L"vrr-" + stamp + L".txt");
         const auto offCsv = folder / (L"vrr-" + stamp + L"-off.csv");
-        const auto staticCsv = folder / (L"vrr-" + stamp + L"-static.csv");
         const auto dynamicCsv = folder / (L"vrr-" + stamp + L"-dynamic.csv"); log.open(txt);
         if (!log.is_open()) { Status(L"Failed"); return false; }
         log << L"=== CLAWHUD VRR DIAGNOSTIC ===\nTimestamp: " << Now() << L"\nPresentMon: 2.5.1\n"
@@ -365,13 +366,19 @@ bool VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
         LogMpoCapability(log);
         igcl.Initialize(log);
         igcl.LogState(log);
+        HMONITOR targetMonitor{};
+        if (foregroundWindow && IsWindow(foregroundWindow))
+            targetMonitor = MonitorFromWindow(foregroundWindow, MONITOR_DEFAULTTONULL);
+        if (!targetMonitor)
+            targetMonitor = MonitorFromPoint(POINT{ 0, 0 }, MONITOR_DEFAULTTOPRIMARY);
+        d3dkmt.Initialize(log, targetMonitor);
         const auto pm = std::filesystem::path(app_.ExecutablePath()).parent_path() / L"tools" / L"PresentMon.exe";
         if (!std::filesystem::exists(pm)) { log << L"PresentMon: FAILED\nReason: tools\\PresentMon.exe not found\n"; Status(L"Failed"); return false; }
         log << L"=== VRR DIAGNOSTIC TRIGGER ===\nTrigger: F8\nForeground HWND: "
             << reinterpret_cast<const void*>(foregroundWindow) << L"\nTarget PID: " << targetPid
             << L"\nTarget Process: " << targetPath << L"\n\n";
         const std::string sessionStamp = Narrow(stamp);
-        struct PhaseResult { clawhud::VrrCsvSummary csv; std::vector<clawhud::VblankSummary> vblank; bool captureOk{}; bool targetAlive{}; bool hudVisible{}; };
+        struct PhaseResult { clawhud::VrrCsvSummary csv; std::vector<clawhud::VblankSummary> vblank; D3dkmtVblankResult d3dkmt; bool captureOk{}; bool targetAlive{}; bool hudVisible{}; };
         auto runPhase = [&](const wchar_t* title, const wchar_t* status, DiagnosticHudMode mode,
             const std::filesystem::path& csvPath, const char* sessionMode,
             std::string_view preferredSwapChain, PhaseResult& result) -> bool
@@ -394,8 +401,11 @@ bool VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
             if (stop_) return false;
             std::this_thread::sleep_for(std::chrono::seconds(1));
             igcl.StartSampling();
+            d3dkmt.Start();
             result.captureOk = Capture(pm, targetPid, csvPath,
                 "ClawHUD-VRR-" + std::to_string(targetPid) + "-" + sessionMode + "-" + sessionStamp, log);
+            result.d3dkmt = d3dkmt.Stop();
+            WriteD3dkmtVblankDiagnostic(log, title, result.d3dkmt);
             result.vblank = igcl.StopSampling(log, title);
             result.targetAlive = Alive(targetPid);
             result.hudVisible = app_.RequestDiagnosticHudVisibilityMatches(expectedVisible);
@@ -407,14 +417,12 @@ bool VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
             return !stop_ && result.captureOk && result.targetAlive && result.hudVisible;
         };
 
-        PhaseResult off, staticHud, dynamicHud;
+        PhaseResult off, dynamicHud;
         const bool offOk = runPhase(L"PHASE A - HUD OFF", L"HUD OFF", DiagnosticHudMode::Off, offCsv, "OFF", {}, off);
         if (stop_) { log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); return false; }
         if (!offOk) { log << L"RESULT: Failed\nReason: HUD-OFF phase failed\n"; Status(L"Failed"); return false; }
-        const bool staticOk = runPhase(L"PHASE B - STATIC HUD", L"STATIC HUD", DiagnosticHudMode::Static, staticCsv, "STATIC", off.csv.dominantSwapChain, staticHud);
-        if (stop_) { log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); return false; }
-        if (!staticOk) { log << L"RESULT: Failed\nReason: STATIC HUD phase failed\n"; Status(L"Failed"); return false; }
-        const bool dynamicOk = runPhase(L"PHASE C - DYNAMIC HUD", L"DYNAMIC HUD", DiagnosticHudMode::Dynamic, dynamicCsv, "DYNAMIC", off.csv.dominantSwapChain, dynamicHud);
+        log << L"Dynamic update interval: " << kDiagnosticMockHudTimerIntervalMs << L" ms\n";
+        const bool dynamicOk = runPhase(L"PHASE B - DYNAMIC HUD", L"DYNAMIC HUD", DiagnosticHudMode::Dynamic, dynamicCsv, "DYNAMIC", off.csv.dominantSwapChain, dynamicHud);
         if (stop_) { log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); return false; }
         auto writeComparison = [&](const wchar_t* name, const PhaseResult& left, const PhaseResult& right)
         {
@@ -439,11 +447,9 @@ bool VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
                 << L" us vs " << (rightMedian ? std::to_wstring(*rightMedian) : L"Unavailable") << L" us\n\n";
         };
         log << L"=== COMPARISON ===\n";
-        writeComparison(L"OFF vs STATIC", off, staticHud);
-        writeComparison(L"STATIC vs DYNAMIC", staticHud, dynamicHud);
         writeComparison(L"OFF vs DYNAMIC", off, dynamicHud);
-        const auto evaluation = clawhud::EvaluateVrrComparison(off.csv, staticHud.csv, dynamicHud.csv);
-        const bool phaseOk = !stop_ && offOk && staticOk && dynamicOk;
+        const auto evaluation = clawhud::EvaluateVrrComparison(off.csv, dynamicHud.csv);
+        const bool phaseOk = !stop_ && offOk && dynamicOk;
         const auto finalVerdict = phaseOk ? evaluation.verdict : clawhud::VrrDiagnosticVerdict::Fail;
         const std::string finalReason = phaseOk ? evaluation.reason :
             "A diagnostic phase failed before the VRR result was authoritative.";
@@ -458,9 +464,6 @@ bool VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
         };
         log << L"=== VRR VERDICT ===\n";
         writeVerdictPhase(L"HUD OFF", off.csv);
-        writeVerdictPhase(L"STATIC HUD", staticHud.csv);
-        log << L"Delta vs OFF: " << std::fixed << std::setprecision(1)
-            << clawhud::IndependentFlipPercentage(staticHud.csv) - clawhud::IndependentFlipPercentage(off.csv) << L" pp\n";
         writeVerdictPhase(L"DYNAMIC HUD", dynamicHud.csv);
         log << L"Delta vs OFF: " << std::fixed << std::setprecision(1)
             << clawhud::IndependentFlipPercentage(dynamicHud.csv) - clawhud::IndependentFlipPercentage(off.csv) << L" pp\n"

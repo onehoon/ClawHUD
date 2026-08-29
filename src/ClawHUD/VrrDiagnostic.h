@@ -101,4 +101,5 @@ private:
 
 constexpr UINT kVrrDiagnosticStatus = WM_APP + 21;
 constexpr UINT kVrrDiagnosticCompleted = WM_APP + 22;
+inline constexpr UINT kDiagnosticMockHudTimerIntervalMs = 500;
 void PlayDiagnosticCompletionSound() noexcept;

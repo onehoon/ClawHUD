@@ -507,7 +507,7 @@ void SettingsWindow::CreateDiagnosticsControls()
     if (diagnosticsPanel_) SetWindowSubclass(diagnosticsPanel_, ForwardPanelNotifications, 2, 0);
     CreateWindowW(L"STATIC", L"VRR / Presentation Test", WS_CHILD | WS_VISIBLE,
         0, 0, 0, 0, diagnosticsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kDiagnosticsVrrHeading)), instance_, nullptr);
-    CreateWindowW(L"STATIC", L"Start closes Settings. Return to the game and press F8.\r\nA ding confirms the target, then OFF -> STATIC -> DYNAMIC (~28 sec each).\r\nA second ding confirms successful completion.",
+    CreateWindowW(L"STATIC", L"Start closes Settings. Return to the game and press F8.\r\nA ding confirms the target, then OFF -> DYNAMIC @ 500 ms (~28 sec each).\r\nA second ding confirms successful completion.",
         WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, diagnosticsPanel_,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kDiagnosticsVrrDescription)), instance_, nullptr);
     startVrrButton_ = CreateWindowW(L"BUTTON", L"Start VRR Test",

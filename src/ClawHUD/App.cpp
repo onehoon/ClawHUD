@@ -31,7 +31,6 @@ constexpr UINT kForegroundChanged = WM_APP + 2;
 constexpr UINT kHudVisibilityRequest = WM_APP + 3;
 constexpr UINT kPresentMonHudUpdate = WM_APP + 4;
 constexpr UINT kSteamRunningAppIdChanged = WM_APP + 5;
-constexpr UINT kMockHudTimerIntervalMs = 100;
 constexpr UINT kUsageSamplingIntervalMs = 1000;
 constexpr UINT kBatteryHudTimerIntervalMs = 5000;
 constexpr UINT kGraphicsApiRetryIntervalMs = 500;
@@ -1762,7 +1761,8 @@ void App::ReconcileHudVisibility()
                 StartProductionEcSampling();
             }
             else if (DiagnosticHudModeUsesPeriodicUpdates(*diagnosticHudMode_))
-                SetTimer(tray_.Window(), kMockHudTimerId, kMockHudTimerIntervalMs, nullptr);
+                SetTimer(tray_.Window(), kMockHudTimerId,
+                    kDiagnosticMockHudTimerIntervalMs, nullptr);
             else
                 KillTimer(tray_.Window(), kMockHudTimerId);
         }
