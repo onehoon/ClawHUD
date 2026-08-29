@@ -132,6 +132,7 @@ App::~App()
     StopProductionEcSampling(false, L"app-shutdown");
     StopGraphicsApiProbe();
     foregroundTracker_.Stop();
+    presentActivitySource_.Stop();
     processLifecycleSource_.Stop();
     if (vrrDiagnostic_) vrrDiagnostic_->Stop();
     DiscardPendingHudVisibilityRequests();
@@ -192,6 +193,14 @@ int App::Run()
     if (debugLoggingEnabled_ && !processLifecycleSource_.Start())
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
             L"Process lifecycle diagnostic source failed to start; continuing");
+    if (debugLoggingEnabled_)
+    {
+        const auto executable = std::filesystem::path(executablePath_).parent_path() /
+            L"tools" / L"PresentMon.exe";
+        if (!presentActivitySource_.Start(executable.wstring()))
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+                L"Present activity diagnostic source failed to start; continuing");
+    }
     hudHotkeyRegistered_ = RegisterHotKey(tray_.Window(), kHudToggleHotkeyId,
         MOD_NOREPEAT, VK_F8) != FALSE;
     if (!hudHotkeyRegistered_)
@@ -264,9 +273,15 @@ void App::SetDebugLoggingEnabled(bool enabled)
         if (!processLifecycleSource_.Start())
             clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
                 L"Process lifecycle diagnostic source failed to start; continuing");
+        const auto executable = std::filesystem::path(executablePath_).parent_path() /
+            L"tools" / L"PresentMon.exe";
+        if (!presentActivitySource_.Start(executable.wstring()))
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+                L"Present activity diagnostic source failed to start; continuing");
     }
     else
     {
+        presentActivitySource_.Stop();
         processLifecycleSource_.Stop();
     }
     SaveHudSettings();
@@ -1985,6 +2000,7 @@ void App::Exit()
     StopProductionEcSampling(true, L"app-shutdown");
     StopGraphicsApiProbe();
     foregroundTracker_.Stop();
+    presentActivitySource_.Stop();
     processLifecycleSource_.Stop();
     if (vrrDiagnostic_) vrrDiagnostic_->Stop();
     if (ecDiagnostic_) ecDiagnostic_->Stop();
