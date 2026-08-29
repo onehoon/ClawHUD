@@ -1,0 +1,88 @@
+#include "GameDetection/ProcessLifecycleSource.h"
+
+#include <iostream>
+
+namespace
+{
+bool Check(bool condition, const char* name)
+{
+    if (!condition) std::cerr << "FAIL: " << name << '\n';
+    return condition;
+}
+}
+
+int main()
+{
+    using namespace clawhud;
+    bool ok = true;
+
+    ProcessLifecycleTraceFields startFields;
+    startFields.processId = 1200;
+    startFields.parentProcessId = 800;
+    startFields.sessionId = 1;
+    startFields.processName = L"Game\\bootstrap\n.exe";
+    startFields.sourceTimestamp = 123456;
+    const auto start = MapProcessLifecycleTraceEvent(
+        ProcessLifecycleEventType::Start, startFields, 1, 77);
+    ok &= Check(start.has_value(), "start event mapping");
+    ok &= Check(start && start->processId == 1200 && start->parentProcessId == 800 &&
+        start->sessionId == 1 && start->sourceTimestamp == 123456 &&
+        start->receivedTickMs == 77 && !start->exitStatus,
+        "start fields and absent exit status");
+
+    auto stopFields = startFields;
+    stopFields.exitStatus = 5;
+    const auto stop = MapProcessLifecycleTraceEvent(
+        ProcessLifecycleEventType::Stop, stopFields, 2, 99);
+    ok &= Check(stop.has_value() && stop->type == ProcessLifecycleEventType::Stop &&
+        stop->exitStatus && *stop->exitStatus == 5 && stop->sequence == 2,
+        "stop fields and exit status");
+
+    ProcessLifecycleTraceFields incomplete = startFields;
+    incomplete.processName.reset();
+    ok &= Check(!MapProcessLifecycleTraceEvent(
+        ProcessLifecycleEventType::Start, incomplete, 3, 100),
+        "incomplete event rejected");
+    stopFields.exitStatus.reset();
+    ok &= Check(!MapProcessLifecycleTraceEvent(
+        ProcessLifecycleEventType::Stop, stopFields, 4, 101),
+        "stop without exit status rejected");
+
+    ok &= Check(EscapeProcessLifecycleValue(L"a\\b\"c\r\n\t") ==
+        L"a\\\\b\\\"c\\r\\n\\t", "event value escaping");
+
+    VARIANT time{};
+    VariantInit(&time);
+    time.vt = VT_BSTR;
+    time.bstrVal = SysAllocString(L"133801234567890000");
+    std::optional<std::uint64_t> timestamp;
+    ok &= Check(ParseWmiUint64Variant(time, timestamp) && timestamp &&
+        *timestamp == 133801234567890000ULL,
+        "WMI uint64 BSTR timestamp");
+    VariantClear(&time);
+
+    VARIANT exitStatus{};
+    VariantInit(&exitStatus);
+    exitStatus.vt = VT_I4;
+    exitStatus.lVal = static_cast<LONG>(0xC0000005u);
+    std::optional<DWORD> status;
+    ok &= Check(ParseWmiUint32Variant(exitStatus, status) && status &&
+        *status == 0xC0000005u, "WMI uint32 high-bit exit status");
+
+    ProcessLifecycleSource source;
+    source.Stop();
+    source.Stop();
+    const HRESULT sta = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    source.Start();
+    const HRESULT staAfterSource = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    ok &= Check(staAfterSource != RPC_E_CHANGED_MODE,
+        "source does not change caller COM apartment");
+    if (staAfterSource == S_OK || staAfterSource == S_FALSE)
+        CoUninitialize();
+    source.Stop();
+    source.Stop();
+    if (sta == S_OK || sta == S_FALSE)
+        CoUninitialize();
+
+    return ok ? 0 : 1;
+}

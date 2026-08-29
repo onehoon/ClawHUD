@@ -132,6 +132,7 @@ App::~App()
     StopProductionEcSampling(false, L"app-shutdown");
     StopGraphicsApiProbe();
     foregroundTracker_.Stop();
+    processLifecycleSource_.Stop();
     if (vrrDiagnostic_) vrrDiagnostic_->Stop();
     DiscardPendingHudVisibilityRequests();
     StopProductionPresentMonSampling(L"app-shutdown", true);
@@ -188,6 +189,9 @@ int App::Run()
     if (steamWatcherStarted)
         Log(L"Steam RunningAppID watcher started appId=" +
             std::to_wstring(steamRunningAppId_));
+    if (debugLoggingEnabled_ && !processLifecycleSource_.Start())
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+            L"Process lifecycle diagnostic source failed to start; continuing");
     hudHotkeyRegistered_ = RegisterHotKey(tray_.Window(), kHudToggleHotkeyId,
         MOD_NOREPEAT, VK_F8) != FALSE;
     if (!hudHotkeyRegistered_)
@@ -255,6 +259,16 @@ void App::SetDebugLoggingEnabled(bool enabled)
         return;
     debugLoggingEnabled_ = enabled;
     clawhud::RuntimeLogger::SetDebugLogging(enabled);
+    if (enabled)
+    {
+        if (!processLifecycleSource_.Start())
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+                L"Process lifecycle diagnostic source failed to start; continuing");
+    }
+    else
+    {
+        processLifecycleSource_.Stop();
+    }
     SaveHudSettings();
     clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info,
         enabled ? L"Debug logging enabled" : L"Debug logging disabled");
@@ -1971,6 +1985,7 @@ void App::Exit()
     StopProductionEcSampling(true, L"app-shutdown");
     StopGraphicsApiProbe();
     foregroundTracker_.Stop();
+    processLifecycleSource_.Stop();
     if (vrrDiagnostic_) vrrDiagnostic_->Stop();
     if (ecDiagnostic_) ecDiagnostic_->Stop();
     if (igclDiagnostic_) igclDiagnostic_->Stop();

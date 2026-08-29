@@ -13,6 +13,7 @@
 #include "HudModel.h"
 #include "ForegroundTracker.h"
 #include "GameDetection/WindowsGameIdentitySource.h"
+#include "GameDetection/ProcessLifecycleSource.h"
 #include "EcHelperClient.h"
 #include "MsiEcHudTelemetry.h"
 #include "PresentMonHudTelemetry.h"
@@ -240,6 +241,7 @@ private:
     bool startWithWindows_{true};
     bool diagnosticsTabEnabled_{};
     bool debugLoggingEnabled_{};
+    clawhud::ProcessLifecycleSource processLifecycleSource_;
     SteamRunningAppIdSource steamRunningAppIdSource_;
     std::uint32_t steamRunningAppId_{};
 };
