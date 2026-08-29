@@ -18,6 +18,8 @@ int main()
     ok &= Check(!DiagnosticHudModeUsesPeriodicUpdates(DiagnosticHudMode::Off), "OFF stops periodic updates");
     ok &= Check(!DiagnosticHudModeUsesPeriodicUpdates(DiagnosticHudMode::Static), "STATIC stops periodic updates");
     ok &= Check(DiagnosticHudModeUsesPeriodicUpdates(DiagnosticHudMode::Dynamic), "DYNAMIC enables periodic updates");
+    ok &= Check(kDiagnosticMockHudTimerIntervalMs == 500,
+        "DYNAMIC diagnostic updates use a 500 ms interval");
     ok &= Check(VrrDiagnosticStopReportsCancellation(VrrDiagnosticState::WaitingForTrigger),
         "waiting-for-trigger stop reports cancellation");
     ok &= Check(!VrrDiagnosticStopReportsCancellation(VrrDiagnosticState::Running),

@@ -57,7 +57,6 @@ double IndependentFlipPercentage(const VrrCsvSummary& summary) noexcept;
 std::string DominantPresentMode(const VrrCsvSummary& summary);
 VrrDiagnosticEvaluation EvaluateVrrComparison(
     const VrrCsvSummary& off,
-    const VrrCsvSummary& staticHud,
     const VrrCsvSummary& dynamicHud);
 const char* VrrDiagnosticVerdictName(VrrDiagnosticVerdict verdict) noexcept;
 }

@@ -356,7 +356,6 @@ bool VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
     {
         const auto folder = clawhud::LogDirectory(); const auto stamp = Now(true); const auto txt = folder / (L"vrr-" + stamp + L".txt");
         const auto offCsv = folder / (L"vrr-" + stamp + L"-off.csv");
-        const auto staticCsv = folder / (L"vrr-" + stamp + L"-static.csv");
         const auto dynamicCsv = folder / (L"vrr-" + stamp + L"-dynamic.csv"); log.open(txt);
         if (!log.is_open()) { Status(L"Failed"); return false; }
         log << L"=== CLAWHUD VRR DIAGNOSTIC ===\nTimestamp: " << Now() << L"\nPresentMon: 2.5.1\n"
@@ -417,14 +416,12 @@ bool VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
             return !stop_ && result.captureOk && result.targetAlive && result.hudVisible;
         };
 
-        PhaseResult off, staticHud, dynamicHud;
+        PhaseResult off, dynamicHud;
         const bool offOk = runPhase(L"PHASE A - HUD OFF", L"HUD OFF", DiagnosticHudMode::Off, offCsv, "OFF", {}, off);
         if (stop_) { log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); return false; }
         if (!offOk) { log << L"RESULT: Failed\nReason: HUD-OFF phase failed\n"; Status(L"Failed"); return false; }
-        const bool staticOk = runPhase(L"PHASE B - STATIC HUD", L"STATIC HUD", DiagnosticHudMode::Static, staticCsv, "STATIC", off.csv.dominantSwapChain, staticHud);
-        if (stop_) { log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); return false; }
-        if (!staticOk) { log << L"RESULT: Failed\nReason: STATIC HUD phase failed\n"; Status(L"Failed"); return false; }
-        const bool dynamicOk = runPhase(L"PHASE C - DYNAMIC HUD", L"DYNAMIC HUD", DiagnosticHudMode::Dynamic, dynamicCsv, "DYNAMIC", off.csv.dominantSwapChain, dynamicHud);
+        log << L"Dynamic update interval: " << kDiagnosticMockHudTimerIntervalMs << L" ms\n";
+        const bool dynamicOk = runPhase(L"PHASE B - DYNAMIC HUD", L"DYNAMIC HUD", DiagnosticHudMode::Dynamic, dynamicCsv, "DYNAMIC", off.csv.dominantSwapChain, dynamicHud);
         if (stop_) { log << L"RESULT: Cancelled\n"; Status(L"Cancelled"); return false; }
         auto writeComparison = [&](const wchar_t* name, const PhaseResult& left, const PhaseResult& right)
         {
@@ -449,11 +446,9 @@ bool VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
                 << L" us vs " << (rightMedian ? std::to_wstring(*rightMedian) : L"Unavailable") << L" us\n\n";
         };
         log << L"=== COMPARISON ===\n";
-        writeComparison(L"OFF vs STATIC", off, staticHud);
-        writeComparison(L"STATIC vs DYNAMIC", staticHud, dynamicHud);
         writeComparison(L"OFF vs DYNAMIC", off, dynamicHud);
-        const auto evaluation = clawhud::EvaluateVrrComparison(off.csv, staticHud.csv, dynamicHud.csv);
-        const bool phaseOk = !stop_ && offOk && staticOk && dynamicOk;
+        const auto evaluation = clawhud::EvaluateVrrComparison(off.csv, dynamicHud.csv);
+        const bool phaseOk = !stop_ && offOk && dynamicOk;
         const auto finalVerdict = phaseOk ? evaluation.verdict : clawhud::VrrDiagnosticVerdict::Fail;
         const std::string finalReason = phaseOk ? evaluation.reason :
             "A diagnostic phase failed before the VRR result was authoritative.";
@@ -468,9 +463,6 @@ bool VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
         };
         log << L"=== VRR VERDICT ===\n";
         writeVerdictPhase(L"HUD OFF", off.csv);
-        writeVerdictPhase(L"STATIC HUD", staticHud.csv);
-        log << L"Delta vs OFF: " << std::fixed << std::setprecision(1)
-            << clawhud::IndependentFlipPercentage(staticHud.csv) - clawhud::IndependentFlipPercentage(off.csv) << L" pp\n";
         writeVerdictPhase(L"DYNAMIC HUD", dynamicHud.csv);
         log << L"Delta vs OFF: " << std::fixed << std::setprecision(1)
             << clawhud::IndependentFlipPercentage(dynamicHud.csv) - clawhud::IndependentFlipPercentage(off.csv) << L" pp\n"

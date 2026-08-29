@@ -238,13 +238,11 @@ std::string DominantPresentMode(const VrrCsvSummary& summary)
 
 VrrDiagnosticEvaluation EvaluateVrrComparison(
     const VrrCsvSummary& off,
-    const VrrCsvSummary& staticHud,
     const VrrCsvSummary& dynamicHud)
 {
-    if (!off.valid || !staticHud.valid || !dynamicHud.valid)
+    if (!off.valid || !dynamicHud.valid)
         return { VrrDiagnosticVerdict::Inconclusive, "One or more phase CSV summaries are invalid." };
     if (off.presentModeSamples < kMinimumVrrComparisonSamples ||
-        staticHud.presentModeSamples < kMinimumVrrComparisonSamples ||
         dynamicHud.presentModeSamples < kMinimumVrrComparisonSamples)
         return { VrrDiagnosticVerdict::Inconclusive, "Comparison phases did not provide enough PresentMode samples." };
 
@@ -267,7 +265,6 @@ VrrDiagnosticEvaluation EvaluateVrrComparison(
         }
         return std::nullopt;
     };
-    if (const auto failure = evaluatePhase(staticHud, "STATIC")) return *failure;
     if (const auto failure = evaluatePhase(dynamicHud, "DYNAMIC")) return *failure;
     return { VrrDiagnosticVerdict::Pass, "HUD phases retained the dominant Independent Flip presentation path." };
 }
