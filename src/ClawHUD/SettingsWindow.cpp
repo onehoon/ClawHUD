@@ -1,4 +1,5 @@
 #include "SettingsWindow.h"
+#include "SettingsWindowInternal.h"
 #include "SettingsWindowGeometry.h"
 
 #include "App.h"
@@ -14,136 +15,66 @@
 
 namespace
 {
-constexpr wchar_t kSettingsClassName[] = L"ClawHUD.SettingsWindow";
-constexpr int kTabSettings = 0;
-constexpr int kTabTweaks = 1;
-constexpr int kTabAbout = 2;
-constexpr int kTabDiagnostics = 3;
-constexpr int kTabCount = 4;
-constexpr int kStartWithWindows = 1001;
-constexpr int kStartEc = 1101;
-constexpr int kStartIgcl = 1105;
-constexpr int kOpenLogs = 1102;
-constexpr int kStartVrr = 1103;
-constexpr int kStopVrr = 1104;
-constexpr int kAlignmentLeft = 1201;
-constexpr int kAlignmentCenter = 1202;
-constexpr int kAlignmentRight = 1203;
-constexpr int kBackgroundFull = 1204;
-constexpr int kBackgroundContent = 1205;
-constexpr int kOpacitySlider = 1206;
-constexpr int kIntelVrrToggle = 1301;
-constexpr int kDebugLoggingToggle = 1302;
-constexpr int kEnableHud = 1207;
-constexpr int kVisibilityAlways = 1208;
-constexpr int kVisibilityInGameOnly = 1209;
-constexpr int kHudSizeMinus = 1210;
-constexpr int kHudSizePlus = 1211;
-constexpr int kFontUnispace = 1212;
-constexpr int kFontSegoeUiVariable = 1213;
-constexpr int kGeneralHeading = 2001;
-constexpr int kHudHeading = 2002;
-constexpr int kVisibilityLabel = 2003;
-constexpr int kHudSizeLabel = 2004;
-constexpr int kFontLabel = 2005;
-constexpr int kAlignmentLabel = 2006;
-constexpr int kBackgroundWidthLabel = 2007;
-constexpr int kOpacityLabel = 2008;
-constexpr int kTweaksHeading = 2101;
-constexpr int kTweaksDescription = 2102;
-constexpr int kDiagnosticsVrrHeading = 2201;
-constexpr int kDiagnosticsVrrDescription = 2202;
-constexpr int kDiagnosticsEcHeading = 2203;
-constexpr int kDiagnosticsEcDescription = 2204;
-constexpr int kDiagnosticsIgclHeading = 2205;
-constexpr int kDiagnosticsIgclDescription = 2206;
-constexpr int kAboutTitle = 2301;
-constexpr int kAboutDescription = 2302;
-constexpr int kAboutVersion = 2303;
-constexpr int kAboutHowToUse = 2304;
-constexpr int kAboutInstructions = 2305;
-constexpr int kWheelStep = 48;
-constexpr int kDefaultWindowWidthDip = 680;
-constexpr int kDefaultWindowHeightDip = 600;
-constexpr int kMinimumWindowWidthDip = 600;
-constexpr int kMinimumWindowHeightDip = 420;
-
-LRESULT CALLBACK ForwardPanelNotifications(HWND window, UINT message, WPARAM wParam,
-    LPARAM lParam, UINT_PTR subclassId, DWORD_PTR)
-{
-    if (message == WM_COMMAND || message == WM_HSCROLL)
-        return SendMessageW(GetParent(window), message, wParam, lParam);
-    if (message == WM_MOUSEWHEEL)
-        return SendMessageW(GetParent(window), message, wParam, lParam);
-    if (message == WM_NCDESTROY)
-        RemoveWindowSubclass(window, ForwardPanelNotifications, subclassId);
-    return DefSubclassProc(window, message, wParam, lParam);
-}
-
-LRESULT CALLBACK ForwardPanGesture(HWND window, UINT message, WPARAM wParam,
-    LPARAM lParam, UINT_PTR subclassId, DWORD_PTR)
-{
-    if (message == WM_GESTURE)
-    {
-        GESTUREINFO info{};
-        info.cbSize = sizeof(info);
-        const HGESTUREINFO gesture = reinterpret_cast<HGESTUREINFO>(lParam);
-        if (!GetGestureInfo(gesture, &info) || info.dwID != GID_PAN)
-            return DefSubclassProc(window, message, wParam, lParam);
-
-        if (HWND root = GetAncestor(window, GA_ROOT))
-            return SendMessageW(root, message, wParam, lParam);
-    }
-    if (message == WM_NCDESTROY)
-        RemoveWindowSubclass(window, ForwardPanGesture, subclassId);
-    return DefSubclassProc(window, message, wParam, lParam);
-}
-
-void ConfigureVerticalPan(HWND window)
-{
-    if (!window)
-        return;
-
-    GESTURECONFIG config{};
-    config.dwID = GID_PAN;
-    config.dwWant = GC_PAN |
-        GC_PAN_WITH_SINGLE_FINGER_VERTICALLY |
-        GC_PAN_WITH_INERTIA;
-    config.dwBlock = GC_PAN_WITH_SINGLE_FINGER_HORIZONTALLY;
-    SetGestureConfig(window, 0, 1, &config, sizeof(config));
-}
-
-void MoveControl(HWND parent, int id, int x, int y, int width, int height)
-{
-    if (HWND control = GetDlgItem(parent, id))
-        MoveWindow(control, x, y, width, height, TRUE);
-}
-
-void EnableMouseWheelForwarding(HWND control)
-{
-    if (control)
-        SetWindowSubclass(control, ForwardPanelNotifications, 4, 0);
-}
-
-void EnableStaticPanForwarding(HWND panel)
-{
-    if (!panel)
-        return;
-
-    ConfigureVerticalPan(panel);
-    SetWindowSubclass(panel, ForwardPanGesture, 5, 0);
-    EnumChildWindows(panel, [](HWND child, LPARAM) -> BOOL
-    {
-        wchar_t className[32]{};
-        GetClassNameW(child, className, _countof(className));
-        if (_wcsicmp(className, L"Static") == 0)
-        {
-            ConfigureVerticalPan(child);
-            SetWindowSubclass(child, ForwardPanGesture, 5, 0);
-        }
-        return TRUE;
-    }, 0);
-}
+namespace settings_internal = clawhud::settings::internal;
+using settings_internal::ConfigureVerticalPan;
+using settings_internal::EnableMouseWheelForwarding;
+using settings_internal::EnableStaticPanForwarding;
+using settings_internal::ForwardPanelNotifications;
+using settings_internal::ForwardPanGesture;
+using settings_internal::MoveControl;
+using settings_internal::kAboutDescription;
+using settings_internal::kAboutHowToUse;
+using settings_internal::kAboutInstructions;
+using settings_internal::kAboutTitle;
+using settings_internal::kAboutVersion;
+using settings_internal::kAlignmentCenter;
+using settings_internal::kAlignmentLabel;
+using settings_internal::kAlignmentLeft;
+using settings_internal::kAlignmentRight;
+using settings_internal::kBackgroundContent;
+using settings_internal::kBackgroundFull;
+using settings_internal::kBackgroundWidthLabel;
+using settings_internal::kDebugLoggingToggle;
+using settings_internal::kDefaultWindowHeightDip;
+using settings_internal::kDefaultWindowWidthDip;
+using settings_internal::kDiagnosticsEcDescription;
+using settings_internal::kDiagnosticsEcHeading;
+using settings_internal::kDiagnosticsIgclDescription;
+using settings_internal::kDiagnosticsIgclHeading;
+using settings_internal::kDiagnosticsVrrDescription;
+using settings_internal::kDiagnosticsVrrHeading;
+using settings_internal::kEnableHud;
+using settings_internal::kFontLabel;
+using settings_internal::kFontSegoeUiVariable;
+using settings_internal::kFontUnispace;
+using settings_internal::kGeneralHeading;
+using settings_internal::kHudHeading;
+using settings_internal::kHudSizeLabel;
+using settings_internal::kHudSizeMinus;
+using settings_internal::kHudSizePlus;
+using settings_internal::kIntelVrrToggle;
+using settings_internal::kMinimumWindowHeightDip;
+using settings_internal::kMinimumWindowWidthDip;
+using settings_internal::kOpenLogs;
+using settings_internal::kOpacityLabel;
+using settings_internal::kOpacitySlider;
+using settings_internal::kSettingsClassName;
+using settings_internal::kStartEc;
+using settings_internal::kStartIgcl;
+using settings_internal::kStartVrr;
+using settings_internal::kStartWithWindows;
+using settings_internal::kStopVrr;
+using settings_internal::kTabAbout;
+using settings_internal::kTabCount;
+using settings_internal::kTabDiagnostics;
+using settings_internal::kTabSettings;
+using settings_internal::kTabTweaks;
+using settings_internal::kTweaksDescription;
+using settings_internal::kTweaksHeading;
+using settings_internal::kVisibilityAlways;
+using settings_internal::kVisibilityInGameOnly;
+using settings_internal::kVisibilityLabel;
+using settings_internal::kWheelStep;
 }
 
 SettingsWindow::SettingsWindow(App& app) : app_(app)
