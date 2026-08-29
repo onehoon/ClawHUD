@@ -1,6 +1,7 @@
 #include "VrrDiagnostic.h"
 
 #include "App.h"
+#include "D3dkmtVblankPoc.h"
 #include "IntelVrrDiagnosticProbe.h"
 #include "ProductionTargetPolicy.h"
 #include "RuntimeLogger.h"
@@ -350,6 +351,7 @@ bool VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
 {
     std::wofstream log;
     clawhud::IntelVrrDiagnosticProbe igcl;
+    D3dkmtVblankPoc d3dkmt;
     try
     {
         const auto folder = clawhud::LogDirectory(); const auto stamp = Now(true); const auto txt = folder / (L"vrr-" + stamp + L".txt");
@@ -365,13 +367,14 @@ bool VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
         LogMpoCapability(log);
         igcl.Initialize(log);
         igcl.LogState(log);
+        d3dkmt.Initialize(log);
         const auto pm = std::filesystem::path(app_.ExecutablePath()).parent_path() / L"tools" / L"PresentMon.exe";
         if (!std::filesystem::exists(pm)) { log << L"PresentMon: FAILED\nReason: tools\\PresentMon.exe not found\n"; Status(L"Failed"); return false; }
         log << L"=== VRR DIAGNOSTIC TRIGGER ===\nTrigger: F8\nForeground HWND: "
             << reinterpret_cast<const void*>(foregroundWindow) << L"\nTarget PID: " << targetPid
             << L"\nTarget Process: " << targetPath << L"\n\n";
         const std::string sessionStamp = Narrow(stamp);
-        struct PhaseResult { clawhud::VrrCsvSummary csv; std::vector<clawhud::VblankSummary> vblank; bool captureOk{}; bool targetAlive{}; bool hudVisible{}; };
+        struct PhaseResult { clawhud::VrrCsvSummary csv; std::vector<clawhud::VblankSummary> vblank; D3dkmtVblankStatistics d3dkmt; bool captureOk{}; bool targetAlive{}; bool hudVisible{}; };
         auto runPhase = [&](const wchar_t* title, const wchar_t* status, DiagnosticHudMode mode,
             const std::filesystem::path& csvPath, const char* sessionMode,
             std::string_view preferredSwapChain, PhaseResult& result) -> bool
@@ -394,8 +397,10 @@ bool VrrDiagnostic::RunImpl(DWORD targetPid, HWND foregroundWindow,
             if (stop_) return false;
             std::this_thread::sleep_for(std::chrono::seconds(1));
             igcl.StartSampling();
+            d3dkmt.Start();
             result.captureOk = Capture(pm, targetPid, csvPath,
                 "ClawHUD-VRR-" + std::to_string(targetPid) + "-" + sessionMode + "-" + sessionStamp, log);
+            result.d3dkmt = d3dkmt.Stop(log, title);
             result.vblank = igcl.StopSampling(log, title);
             result.targetAlive = Alive(targetPid);
             result.hudVisible = app_.RequestDiagnosticHudVisibilityMatches(expectedVisible);
