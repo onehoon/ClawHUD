@@ -12,6 +12,7 @@
 #include "VrrDiagnostic.h"
 #include "HudModel.h"
 #include "ForegroundTracker.h"
+#include "GameDetection/WindowsGameIdentitySource.h"
 #include "EcHelperClient.h"
 #include "MsiEcHudTelemetry.h"
 #include "PresentMonHudTelemetry.h"
@@ -209,6 +210,7 @@ private:
     DWORD graphicsApiProcessId_{};
     unsigned graphicsApiAttempts_{};
     ForegroundTracker foregroundTracker_;
+    clawhud::WindowsGameIdentitySource windowsGameIdentitySource_;
     clawhud::HudLayoutOptions hudOptions_{};
     clawhud::HudFont hudFont_{clawhud::HudFont::Unispace};
     std::optional<bool> manualHudVisibilityOverride_;

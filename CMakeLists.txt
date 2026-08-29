@@ -86,6 +86,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/HudPresentationContract.cpp
     src/ClawHUD/HudPresentationLifecycle.cpp
     src/ClawHUD/ForegroundTracker.cpp
+    src/ClawHUD/GameDetection/WindowsGameIdentitySource.cpp
     src/ClawHUD/ProductionTargetPolicy.cpp
     src/ClawHUD/SteamRunningAppIdSource.cpp)
 target_compile_features(ClawHUD PRIVATE cxx_std_20)
@@ -93,7 +94,7 @@ target_compile_definitions(ClawHUD PRIVATE
     UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX
     CLAWHUD_UPDATE_REPOSITORY=\"https://github.com/onehoon/ClawHUD\")
 target_include_directories(ClawHUD PRIVATE src/ClawHUD src/resources "${CMAKE_BINARY_DIR}/generated")
-target_link_libraries(ClawHUD PRIVATE ClawHUD.Velopack comctl32 shell32 user32 winmm dwmapi delayimp d3d11 dxgi dcomp d2d1 dwrite pdh advapi32 wbemuuid ole32 oleaut32)
+target_link_libraries(ClawHUD PRIVATE ClawHUD.Velopack comctl32 shell32 user32 winmm dwmapi delayimp d3d11 dxgi dcomp d2d1 dwrite pdh advapi32 wbemuuid ole32 oleaut32 propsys)
 target_link_options(ClawHUD PRIVATE "/DELAYLOAD:velopack_libc.dll")
 set_target_properties(ClawHUD PROPERTIES CXX_EXTENSIONS OFF)
 
@@ -386,4 +387,16 @@ if(BUILD_TESTING)
     target_link_libraries(ClawHUD.SteamRunningAppIdSourceTests PRIVATE advapi32 user32)
     set_target_properties(ClawHUD.SteamRunningAppIdSourceTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.SteamRunningAppIdSourceTests COMMAND ClawHUD.SteamRunningAppIdSourceTests)
+
+    add_executable(ClawHUD.WindowsGameIdentitySourceTests
+        tests/WindowsGameIdentitySourceTests.cpp
+        src/ClawHUD/GameDetection/WindowsGameIdentitySource.cpp
+        src/ClawHUD/RuntimeLogger.cpp)
+    target_compile_features(ClawHUD.WindowsGameIdentitySourceTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.WindowsGameIdentitySourceTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.WindowsGameIdentitySourceTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.WindowsGameIdentitySourceTests PRIVATE shell32 propsys ole32)
+    set_target_properties(ClawHUD.WindowsGameIdentitySourceTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.WindowsGameIdentitySourceTests COMMAND ClawHUD.WindowsGameIdentitySourceTests)
 endif()
