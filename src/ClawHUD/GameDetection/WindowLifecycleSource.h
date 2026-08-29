@@ -28,6 +28,8 @@ enum class WindowLifecycleEventType
 
 std::optional<WindowLifecycleEventType> MapWinEvent(DWORD event) noexcept;
 bool IsWindowLifecycleObject(LONG objectId, LONG childId) noexcept;
+bool ShouldKeepWindowEvent(bool liveTopLevel, bool immediateTopLevel,
+    bool cachedTopLevel) noexcept;
 std::wstring WindowLifecycleEventName(WindowLifecycleEventType type);
 std::wstring EscapeWindowLifecycleValue(std::wstring_view value);
 
@@ -43,6 +45,8 @@ struct RawWindowLifecycleEvent
     ULONGLONG receivedTickMs{};
     DWORD immediateProcessId{};
     DWORD immediateWindowThreadId{};
+    HWND immediateRoot{};
+    bool immediateTopLevel{};
 };
 
 struct WindowSnapshot

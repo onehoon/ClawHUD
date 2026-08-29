@@ -92,6 +92,12 @@ bool IsWindowLifecycleObject(LONG objectId, LONG childId) noexcept
     return objectId == OBJID_WINDOW && childId == CHILDID_SELF;
 }
 
+bool ShouldKeepWindowEvent(bool liveTopLevel, bool immediateTopLevel,
+    bool cachedTopLevel) noexcept
+{
+    return liveTopLevel || immediateTopLevel || cachedTopLevel;
+}
+
 std::wstring WindowLifecycleEventName(WindowLifecycleEventType type)
 {
     switch (type)
@@ -311,6 +317,8 @@ void WindowLifecycleSource::AcceptCallback(DWORD event, HWND hwnd, LONG objectId
         raw.receivedTickMs = GetTickCount64();
         raw.immediateWindowThreadId = GetWindowThreadProcessId(hwnd,
             &raw.immediateProcessId);
+        raw.immediateRoot = GetAncestor(hwnd, GA_ROOT);
+        raw.immediateTopLevel = raw.immediateRoot == hwnd;
         {
             std::lock_guard lock(queueMutex_);
             if (pendingEvents_.TryPush(std::move(raw)))
@@ -396,13 +404,15 @@ void WindowLifecycleSource::ProcessEvent(const RawWindowLifecycleEvent& event) n
         const auto type = MapWinEvent(event.event);
         if (!type) return;
 
-        if (*type != WindowLifecycleEventType::Destroy &&
-            !IsLiveTopLevelWindow(event.hwnd))
+        const bool liveTopLevel = IsLiveTopLevelWindow(event.hwnd);
+        const auto cached = cache_.Find(event.hwnd);
+        if (!ShouldKeepWindowEvent(liveTopLevel, event.immediateTopLevel,
+            cached.has_value()))
             return;
 
         if (*type == WindowLifecycleEventType::Destroy)
         {
-            if (IsLiveTopLevelWindow(event.hwnd))
+            if (liveTopLevel)
             {
                 const auto live = CaptureSnapshot(event.hwnd, event.immediateProcessId,
                     event.immediateWindowThreadId);
@@ -413,7 +423,7 @@ void WindowLifecycleSource::ProcessEvent(const RawWindowLifecycleEvent& event) n
                     return;
                 }
             }
-            if (const auto cached = cache_.Find(event.hwnd))
+            if (cached)
             {
                 LogEvent(event, *cached, L"CACHED");
                 cache_.Remove(event.hwnd);
@@ -423,22 +433,50 @@ void WindowLifecycleSource::ProcessEvent(const RawWindowLifecycleEvent& event) n
             partial.hwnd = event.hwnd;
             partial.processId = event.immediateProcessId;
             partial.windowThreadId = event.immediateWindowThreadId;
-            partial.root = event.hwnd;
+            partial.root = event.immediateRoot ? event.immediateRoot : event.hwnd;
             LogEvent(event, partial, L"PARTIAL");
             return;
         }
 
-        const auto snapshot = CaptureSnapshot(event.hwnd, event.immediateProcessId,
-            event.immediateWindowThreadId);
-        if (!snapshot) return;
-        if (*type == WindowLifecycleEventType::Create)
-            cache_.ReplaceOnCreate(*snapshot);
-        else
-            cache_.Update(*snapshot);
-        if (const auto evicted = cache_.EvictIfOverCapacity())
-            LogWarning(L"cache.result=EVICTED hwnd=" + HexHandle(evicted->hwnd) +
-                L" pid=" + std::to_wstring(evicted->processId));
-        LogEvent(event, *snapshot, L"LIVE");
+        if (liveTopLevel)
+        {
+            if (const auto snapshot = CaptureSnapshot(event.hwnd,
+                event.immediateProcessId, event.immediateWindowThreadId))
+            {
+                if (*type == WindowLifecycleEventType::Create)
+                    cache_.ReplaceOnCreate(*snapshot);
+                else
+                    cache_.Update(*snapshot);
+                if (const auto evicted = cache_.EvictIfOverCapacity())
+                    LogWarning(L"cache.result=EVICTED hwnd=" + HexHandle(evicted->hwnd) +
+                        L" pid=" + std::to_wstring(evicted->processId));
+                LogEvent(event, *snapshot, L"LIVE");
+                return;
+            }
+        }
+
+        if (cached)
+        {
+            LogEvent(event, *cached, L"CACHED");
+            return;
+        }
+
+        if (event.immediateTopLevel)
+        {
+            WindowSnapshot partial;
+            partial.hwnd = event.hwnd;
+            partial.processId = event.immediateProcessId;
+            partial.windowThreadId = event.immediateWindowThreadId;
+            partial.root = event.immediateRoot ? event.immediateRoot : event.hwnd;
+            if (*type == WindowLifecycleEventType::Create)
+                cache_.ReplaceOnCreate(partial);
+            else
+                cache_.Update(partial);
+            if (const auto evicted = cache_.EvictIfOverCapacity())
+                LogWarning(L"cache.result=EVICTED hwnd=" + HexHandle(evicted->hwnd) +
+                    L" pid=" + std::to_wstring(evicted->processId));
+            LogEvent(event, partial, L"PARTIAL");
+        }
     }
     catch (...)
     {

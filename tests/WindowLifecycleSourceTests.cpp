@@ -33,6 +33,12 @@ int main()
     Check(IsWindowLifecycleObject(OBJID_WINDOW, CHILDID_SELF), "window object accepted");
     Check(!IsWindowLifecycleObject(OBJID_CLIENT, CHILDID_SELF), "client object rejected");
     Check(!IsWindowLifecycleObject(OBJID_WINDOW, 1), "child object rejected");
+    Check(ShouldKeepWindowEvent(false, true, false),
+        "callback-observed top-level event is preserved");
+    Check(!ShouldKeepWindowEvent(false, false, false),
+        "unknown child destroy is not promoted");
+    Check(ShouldKeepWindowEvent(false, false, true),
+        "cached top-level event is preserved");
 
     const std::vector<DWORD> eventOrder{
         EVENT_OBJECT_CREATE, EVENT_OBJECT_SHOW, EVENT_OBJECT_NAMECHANGE,
