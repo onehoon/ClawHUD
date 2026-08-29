@@ -61,6 +61,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/GameDetection/ProductionGameWindowSource.cpp
     src/ClawHUD/TrayIcon.cpp
     src/ClawHUD/SettingsWindow.cpp
+    src/ClawHUD/SettingsWindow.Settings.cpp
     src/ClawHUD/SettingsWindowInternal.cpp
     src/ClawHUD/SettingsWindowGeometry.cpp
     src/ClawHUD/EcDiagnostic.cpp
