@@ -50,6 +50,13 @@ int main()
     ok &= Check(SelectSteamRunningAppIdWatchTarget(false, false, false) ==
         SteamRunningAppIdWatchTarget::None,
         "missing registry hierarchy has no key target");
+    ok &= Check(IsMoreSpecificSteamRunningAppIdWatchTarget(
+        SteamRunningAppIdWatchTarget::Software, SteamRunningAppIdWatchTarget::Valve) &&
+        IsMoreSpecificSteamRunningAppIdWatchTarget(
+            SteamRunningAppIdWatchTarget::Valve, SteamRunningAppIdWatchTarget::Steam) &&
+        !IsMoreSpecificSteamRunningAppIdWatchTarget(
+            SteamRunningAppIdWatchTarget::Valve, SteamRunningAppIdWatchTarget::Software),
+        "parent watch rechecks newly available child keys");
 
     SteamRunningAppIdSource source;
     const bool started = source.Start(

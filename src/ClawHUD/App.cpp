@@ -179,12 +179,15 @@ int App::Run()
             L"Tray initialization failed");
         return 1;
     }
-    if (!steamRunningAppIdSource_.Start(tray_.Window(), kSteamRunningAppIdChanged))
+    const bool steamWatcherStarted = steamRunningAppIdSource_.Start(
+        tray_.Window(), kSteamRunningAppIdChanged);
+    if (!steamWatcherStarted)
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
             L"Steam RunningAppID watcher initialization failed");
     steamRunningAppId_ = steamRunningAppIdSource_.GetRunningAppId();
-    Log(L"Steam RunningAppID watcher started appId=" +
-        std::to_wstring(steamRunningAppId_));
+    if (steamWatcherStarted)
+        Log(L"Steam RunningAppID watcher started appId=" +
+            std::to_wstring(steamRunningAppId_));
     hudHotkeyRegistered_ = RegisterHotKey(tray_.Window(), kHudToggleHotkeyId,
         MOD_NOREPEAT, VK_F8) != FALSE;
     if (!hudHotkeyRegistered_)

@@ -129,6 +129,19 @@ void SteamRunningAppIdSource::WatchLoop()
             RegCloseKey(key);
             break;
         }
+        if (target != SteamRunningAppIdWatchTarget::Steam)
+        {
+            SteamRunningAppIdWatchTarget latestTarget{};
+            if (HKEY latestKey = OpenWatchKey(latestTarget))
+            {
+                RegCloseKey(latestKey);
+                if (IsMoreSpecificSteamRunningAppIdWatchTarget(target, latestTarget))
+                {
+                    RegCloseKey(key);
+                    continue;
+                }
+            }
+        }
         if (!watchArmed_.exchange(true) && readyEvent_)
             SetEvent(readyEvent_);
         const HANDLE waits[] = { stopEvent_, changeEvent };

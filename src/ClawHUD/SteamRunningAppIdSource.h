@@ -30,6 +30,16 @@ constexpr DWORD SteamRunningAppIdWatchFilter(SteamRunningAppIdWatchTarget target
         : target == SteamRunningAppIdWatchTarget::None ? 0 : REG_NOTIFY_CHANGE_NAME;
 }
 
+constexpr bool IsMoreSpecificSteamRunningAppIdWatchTarget(
+    SteamRunningAppIdWatchTarget current, SteamRunningAppIdWatchTarget latest) noexcept
+{
+    return (current == SteamRunningAppIdWatchTarget::Software &&
+        (latest == SteamRunningAppIdWatchTarget::Valve ||
+            latest == SteamRunningAppIdWatchTarget::Steam)) ||
+        (current == SteamRunningAppIdWatchTarget::Valve &&
+            latest == SteamRunningAppIdWatchTarget::Steam);
+}
+
 constexpr std::uint32_t RunningAppIdFromRegistryValue(
     DWORD type, const BYTE* data, DWORD size) noexcept
 {
