@@ -99,6 +99,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/ForegroundTracker.cpp
     src/ClawHUD/GameDetection/WindowsGameIdentitySource.cpp
     src/ClawHUD/GameDetection/WindowsGameIdentityProbe.cpp
+    src/ClawHUD/GameDetection/GameDetectionCoordinator.cpp
     src/ClawHUD/ProductionTargetPolicy.cpp
     src/ClawHUD/SteamRunningAppIdSource.cpp)
 target_compile_features(ClawHUD PRIVATE cxx_std_20)
@@ -432,6 +433,18 @@ if(BUILD_TESTING)
     target_link_libraries(ClawHUD.WindowsGameIdentitySourceTests PRIVATE shell32 propsys ole32)
     set_target_properties(ClawHUD.WindowsGameIdentitySourceTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.WindowsGameIdentitySourceTests COMMAND ClawHUD.WindowsGameIdentitySourceTests)
+
+    add_executable(ClawHUD.GameDetectionCoordinatorTests
+        tests/GameDetectionCoordinatorTests.cpp
+        src/ClawHUD/GameDetection/GameDetectionCoordinator.cpp)
+    target_compile_features(ClawHUD.GameDetectionCoordinatorTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.GameDetectionCoordinatorTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.GameDetectionCoordinatorTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.GameDetectionCoordinatorTests PRIVATE user32)
+    set_target_properties(ClawHUD.GameDetectionCoordinatorTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.GameDetectionCoordinatorTests
+        COMMAND ClawHUD.GameDetectionCoordinatorTests)
 
     add_executable(ClawHUD.PresentActivitySourceTests
         tests/PresentActivitySourceTests.cpp
