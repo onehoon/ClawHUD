@@ -39,6 +39,8 @@ private:
     void RecreateFont();
     void ApplyFont();
     void ApplyHeadingFont();
+    void NormalizeWindowToWorkArea();
+    void RefreshDpiAndLayout();
     int Scale(int value) const noexcept;
     void ScrollActivePanel(int delta);
     void ApplyScrollPosition();

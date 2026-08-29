@@ -1,4 +1,5 @@
 #include "SettingsWindow.h"
+#include "SettingsWindowGeometry.h"
 
 #include "App.h"
 #include "HudSize.h"
@@ -62,6 +63,10 @@ constexpr int kAboutVersion = 2303;
 constexpr int kAboutHowToUse = 2304;
 constexpr int kAboutInstructions = 2305;
 constexpr int kWheelStep = 48;
+constexpr int kDefaultWindowWidthDip = 680;
+constexpr int kDefaultWindowHeightDip = 600;
+constexpr int kMinimumWindowWidthDip = 600;
+constexpr int kMinimumWindowHeightDip = 420;
 
 LRESULT CALLBACK ForwardPanelNotifications(HWND window, UINT message, WPARAM wParam,
     LPARAM lParam, UINT_PTR subclassId, DWORD_PTR)
@@ -171,17 +176,23 @@ bool SettingsWindow::Show(HINSTANCE instance)
         dpi_ = GetDpiForSystem();
         if (dpi_ == 0) dpi_ = 96;
         window_ = CreateWindowExW(0, kSettingsClassName, L"ClawHUD Settings",
-            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-            CW_USEDEFAULT, CW_USEDEFAULT, Scale(680), Scale(600), nullptr, nullptr, instance_, this);
+            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX |
+                WS_MAXIMIZEBOX | WS_THICKFRAME,
+            CW_USEDEFAULT, CW_USEDEFAULT, Scale(kDefaultWindowWidthDip),
+            Scale(kDefaultWindowHeightDip), nullptr, nullptr, instance_, this);
         if (!window_) return false;
         dpi_ = GetDpiForWindow(window_);
         if (dpi_ == 0) dpi_ = 96;
+        SetWindowPos(window_, nullptr, 0, 0, Scale(kDefaultWindowWidthDip),
+            Scale(kDefaultWindowHeightDip),
+            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
         ApplyWindowStyle();
         ConfigureVerticalPan(window_);
         CreateTabs();
         RecreateFont();
         ApplyFont();
         Layout();
+        NormalizeWindowToWorkArea();
     }
     ShowWindow(window_, SW_SHOWNORMAL);
     UpdateWindow(window_);
@@ -271,6 +282,44 @@ void SettingsWindow::ApplyHeadingFont()
 int SettingsWindow::Scale(int value) const noexcept
 {
     return MulDiv(value, static_cast<int>(dpi_), 96);
+}
+
+void SettingsWindow::RefreshDpiAndLayout()
+{
+    if (!window_)
+        return;
+    UINT newDpi = GetDpiForWindow(window_);
+    if (newDpi == 0) newDpi = 96;
+    if (newDpi == dpi_)
+        return;
+    dpi_ = newDpi;
+    RecreateFont();
+    ApplyFont();
+    Layout();
+}
+
+void SettingsWindow::NormalizeWindowToWorkArea()
+{
+    if (!window_ || !ShouldNormalizeSettingsWindow(IsIconic(window_) != FALSE,
+        IsZoomed(window_) != FALSE))
+        return;
+
+    RECT windowRect{};
+    if (!GetWindowRect(window_, &windowRect))
+        return;
+    const HMONITOR monitor = MonitorFromWindow(window_, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO info{ sizeof(info) };
+    if (!monitor || !GetMonitorInfoW(monitor, &info))
+        return;
+
+    const RECT repaired = ClampSettingsWindowRectToWorkArea(
+        windowRect, info.rcWork, Scale(kMinimumWindowWidthDip),
+        Scale(kMinimumWindowHeightDip));
+    if (EqualRect(&windowRect, &repaired))
+        return;
+    SetWindowPos(window_, nullptr, repaired.left, repaired.top,
+        repaired.right - repaired.left, repaired.bottom - repaired.top,
+        SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 int SettingsWindow::ActiveTab() const noexcept
@@ -791,6 +840,20 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
         SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
     }
     if (!self) return DefWindowProcW(window, message, wParam, lParam);
+    if (message == WM_GETMINMAXINFO)
+    {
+        auto* info = reinterpret_cast<MINMAXINFO*>(lParam);
+        const HMONITOR monitor = MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST);
+        MONITORINFO monitorInfo{ sizeof(monitorInfo) };
+        if (info && monitor && GetMonitorInfoW(monitor, &monitorInfo))
+        {
+            const int workWidth = monitorInfo.rcWork.right - monitorInfo.rcWork.left;
+            const int workHeight = monitorInfo.rcWork.bottom - monitorInfo.rcWork.top;
+            info->ptMinTrackSize.x = std::min(self->Scale(kMinimumWindowWidthDip), workWidth);
+            info->ptMinTrackSize.y = std::min(self->Scale(kMinimumWindowHeightDip), workHeight);
+        }
+        return 0;
+    }
     if (message == WM_ERASEBKGND)
     {
         RECT rect{};
@@ -949,6 +1012,13 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
         self->RecreateFont();
         self->ApplyFont();
         self->Layout();
+        self->NormalizeWindowToWorkArea();
+        return 0;
+    }
+    if (message == WM_DISPLAYCHANGE)
+    {
+        self->RefreshDpiAndLayout();
+        self->NormalizeWindowToWorkArea();
         return 0;
     }
     if (message == WM_SIZE)
