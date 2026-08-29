@@ -51,6 +51,24 @@ int main()
     ok &= Check(EscapeProcessLifecycleValue(L"a\\b\"c\r\n\t") ==
         L"a\\\\b\\\"c\\r\\n\\t", "event value escaping");
 
+    VARIANT time{};
+    VariantInit(&time);
+    time.vt = VT_BSTR;
+    time.bstrVal = SysAllocString(L"133801234567890000");
+    std::optional<std::uint64_t> timestamp;
+    ok &= Check(ParseWmiUint64Variant(time, timestamp) && timestamp &&
+        *timestamp == 133801234567890000ULL,
+        "WMI uint64 BSTR timestamp");
+    VariantClear(&time);
+
+    VARIANT exitStatus{};
+    VariantInit(&exitStatus);
+    exitStatus.vt = VT_I4;
+    exitStatus.lVal = static_cast<LONG>(0xC0000005u);
+    std::optional<DWORD> status;
+    ok &= Check(ParseWmiUint32Variant(exitStatus, status) && status &&
+        *status == 0xC0000005u, "WMI uint32 high-bit exit status");
+
     ProcessLifecycleSource source;
     source.Stop();
     source.Stop();

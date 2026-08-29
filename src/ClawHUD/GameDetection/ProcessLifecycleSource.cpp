@@ -3,6 +3,8 @@
 #include "RuntimeLogger.h"
 
 #include <algorithm>
+#include <cerrno>
+#include <cwchar>
 #include <limits>
 #include <sstream>
 
@@ -29,6 +31,71 @@ void LogDebug(const std::wstring& message) noexcept
     RuntimeLogger::Log(RuntimeLogLevel::Debug, L"[ProcessLifecycle] " + message);
 }
 
+}
+
+bool ParseWmiUint32Variant(const VARIANT& variant,
+    std::optional<DWORD>& value) noexcept
+{
+    if (variant.vt == VT_I4)
+    {
+        value = static_cast<DWORD>(variant.lVal);
+        return true;
+    }
+    if (variant.vt == VT_UI4)
+    {
+        value = variant.ulVal;
+        return true;
+    }
+    if (variant.vt == VT_UI8 && variant.ullVal <= std::numeric_limits<DWORD>::max())
+    {
+        value = static_cast<DWORD>(variant.ullVal);
+        return true;
+    }
+    return false;
+}
+
+bool ParseWmiUint64Variant(const VARIANT& variant,
+    std::optional<std::uint64_t>& value) noexcept
+{
+    if (variant.vt == VT_BSTR && variant.bstrVal)
+    {
+        const wchar_t* text = variant.bstrVal;
+        if (!text[0]) return false;
+        const bool hexadecimal = text[0] == L'0' &&
+            (text[1] == L'x' || text[1] == L'X');
+        const wchar_t* number = hexadecimal ? text + 2 : text;
+        if (!number[0]) return false;
+        errno = 0;
+        wchar_t* end{};
+        const auto parsed = std::wcstoull(number, &end, hexadecimal ? 16 : 10);
+        if (errno == 0 && end && end != number && *end == L'\0')
+        {
+            value = static_cast<std::uint64_t>(parsed);
+            return true;
+        }
+        return false;
+    }
+    if (variant.vt == VT_UI8)
+    {
+        value = variant.ullVal;
+        return true;
+    }
+    if (variant.vt == VT_UI4)
+    {
+        value = variant.ulVal;
+        return true;
+    }
+    if (variant.vt == VT_I8 && variant.llVal >= 0)
+    {
+        value = static_cast<std::uint64_t>(variant.llVal);
+        return true;
+    }
+    return false;
+}
+
+namespace
+{
+
 bool ReadUInt32(IWbemClassObject* object, const wchar_t* name, std::optional<DWORD>& value)
 {
     VARIANT variant{};
@@ -39,19 +106,9 @@ bool ReadUInt32(IWbemClassObject* object, const wchar_t* name, std::optional<DWO
         VariantClear(&variant);
         return false;
     }
-    if (variant.vt == VT_UI4)
-        value = variant.ulVal;
-    else if (variant.vt == VT_UI8 && variant.ullVal <= std::numeric_limits<DWORD>::max())
-        value = static_cast<DWORD>(variant.ullVal);
-    else if (variant.vt == VT_I4 && variant.lVal >= 0)
-        value = static_cast<DWORD>(variant.lVal);
-    else
-    {
-        VariantClear(&variant);
-        return false;
-    }
+    const bool ok = ParseWmiUint32Variant(variant, value);
     VariantClear(&variant);
-    return true;
+    return ok;
 }
 
 bool ReadUInt64(IWbemClassObject* object, const wchar_t* name,
@@ -65,19 +122,9 @@ bool ReadUInt64(IWbemClassObject* object, const wchar_t* name,
         VariantClear(&variant);
         return false;
     }
-    if (variant.vt == VT_UI8)
-        value = variant.ullVal;
-    else if (variant.vt == VT_UI4)
-        value = variant.ulVal;
-    else if (variant.vt == VT_I8 && variant.llVal >= 0)
-        value = static_cast<std::uint64_t>(variant.llVal);
-    else
-    {
-        VariantClear(&variant);
-        return false;
-    }
+    const bool ok = ParseWmiUint64Variant(variant, value);
     VariantClear(&variant);
-    return true;
+    return ok;
 }
 
 bool ReadString(IWbemClassObject* object, const wchar_t* name,

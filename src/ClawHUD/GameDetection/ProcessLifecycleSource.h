@@ -46,6 +46,10 @@ struct ProcessLifecycleTraceFields
     std::optional<DWORD> exitStatus;
 };
 
+bool ParseWmiUint32Variant(const VARIANT& variant,
+    std::optional<DWORD>& value) noexcept;
+bool ParseWmiUint64Variant(const VARIANT& variant,
+    std::optional<std::uint64_t>& value) noexcept;
 std::optional<ProcessLifecycleEvent> MapProcessLifecycleTraceEvent(
     ProcessLifecycleEventType type, const ProcessLifecycleTraceFields& fields,
     std::uint64_t sequence, ULONGLONG receivedTickMs);
