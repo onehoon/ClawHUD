@@ -134,9 +134,9 @@ int main()
         "PresentMon FPS without API uses unit-formatted value");
     displayed.graphicsApi = L"DX12";
     displayedRuns = FormatHud(displayed);
-    ok &= Check(displayedRuns.size() == 1 && displayedRuns[0].label == L"DX12" &&
+    ok &= Check(displayedRuns.size() == 1 && displayedRuns[0].label.empty() &&
         displayedRuns[0].value == L"120FPS",
-        "graphics API and displayed FPS formatting");
+        "DX12 is hidden from displayed FPS formatting");
     displayed.graphicsApi = L"DX11";
     displayedRuns = FormatHud(displayed);
     ok &= Check(displayedRuns.size() == 1 && displayedRuns[0].label.empty() &&
@@ -157,9 +157,9 @@ int main()
     rendered.graphicsApi = L"DX12";
     rendered.renderFps = 120.0;
     auto renderedRuns = FormatHud(rendered);
-    ok &= Check(renderedRuns.size() == 1 && renderedRuns[0].label == L"DX12" &&
+    ok &= Check(renderedRuns.size() == 1 && renderedRuns[0].label.empty() &&
         renderedRuns[0].value == L"120FPS",
-        "render FPS uses the confirmed DX12 label");
+        "render FPS hides the graphics API label");
     rendered.graphicsApi = L"DX11";
     renderedRuns = FormatHud(rendered);
     ok &= Check(renderedRuns.size() == 1 && renderedRuns[0].label.empty() &&
@@ -213,7 +213,7 @@ int main()
     all.batteryPercent = 80;
     const auto allRuns = FormatHud(all);
     ok &= Check(JoinHudRuns(allRuns) ==
-        L"DX12 999FPS | CPU 21% 42\u00B0C | GPU 24% | TDP 7W | RAM 15.2GB | VRAM 3.4GB | FAN 4050RPM | BAT 80%",
+        L"999FPS | CPU 21% 42\u00B0C | GPU 24% | TDP 7W | RAM 15.2GB | VRAM 3.4GB | FAN 4050RPM | BAT 80%",
         "RAM formatting and final HUD order");
     ok &= Check(allRuns.size() == 8 && allRuns[4].kind == HudSegmentKind::Ram &&
         allRuns[5].kind == HudSegmentKind::Vram, "RAM precedes VRAM");

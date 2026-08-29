@@ -39,12 +39,6 @@ void Add(std::vector<HudTextRun>& runs, HudSegmentKind kind,
     runs.push_back({kind, std::move(label), std::move(value)});
 }
 
-std::wstring VisibleGraphicsApiLabel(
-    const std::optional<std::wstring>& graphicsApi)
-{
-    return graphicsApi && *graphicsApi == L"DX12" ? L"DX12" : L"";
-}
-
 std::wstring CpuValue(const HudTelemetrySnapshot& snapshot)
 {
     std::wstring value;
@@ -149,7 +143,7 @@ std::vector<HudTextRun> FormatHud(const HudTelemetrySnapshot& snapshot)
 
     if (fps)
         Add(runs, HudSegmentKind::Graphics,
-            VisibleGraphicsApiLabel(snapshot.graphicsApi),
+            L"",
             Integer(*fps) + L"FPS");
 
     const auto cpu = CpuValue(snapshot);
