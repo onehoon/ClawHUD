@@ -593,20 +593,44 @@ void WindowsGameIdentitySource::QueueInspect(HWND foregroundWindow, DWORD proces
     }
 }
 
-void WindowsGameIdentitySource::WorkerMain(std::stop_token stop)
+void WindowsGameIdentitySource::WorkerMain(std::stop_token stop) noexcept
 {
-    while (!stop.stop_requested())
+    try
     {
-        Request request;
+        while (!stop.stop_requested())
         {
-            std::unique_lock lock(queueMutex_);
-            queueWake_.wait(lock, stop, [this] { return !pendingRequests_.empty(); });
-            if (stop.stop_requested()) return;
-            request = pendingRequests_.front();
-            pendingRequests_.pop_front();
+            Request request;
+            {
+                std::unique_lock lock(queueMutex_);
+                queueWake_.wait(lock, stop, [this] { return !pendingRequests_.empty(); });
+                if (stop.stop_requested()) return;
+                request = pendingRequests_.front();
+                pendingRequests_.pop_front();
+            }
+            try
+            {
+                InspectImpl(request.window, request.processId,
+                    request.sequence, request.eventTickMs);
+            }
+            catch (...)
+            {
+                try
+                {
+                    Debug(L"inspection.result=API_FAILED reason=unexpected-exception seq=" +
+                        std::to_wstring(request.sequence));
+                }
+                catch (...)
+                {
+                    OutputDebugStringW(L"[GameIdentity] inspection.result=API_FAILED "
+                        L"reason=unexpected-exception\n");
+                }
+            }
         }
-        InspectImpl(request.window, request.processId,
-            request.sequence, request.eventTickMs);
+    }
+    catch (...)
+    {
+        OutputDebugStringW(L"[GameIdentity] worker.result=API_FAILED "
+            L"reason=unexpected-exception\n");
     }
 }
 

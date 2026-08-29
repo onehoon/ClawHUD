@@ -101,7 +101,7 @@ private:
         DWORD processId{};
     };
 
-    void WorkerMain(std::stop_token stop);
+    void WorkerMain(std::stop_token stop) noexcept;
     void InspectImpl(HWND foregroundWindow, DWORD processId,
         std::uint64_t sequence, ULONGLONG eventTickMs);
     void InspectPackage(const std::wstring& packageFullName,
