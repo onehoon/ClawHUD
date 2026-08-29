@@ -563,6 +563,42 @@ std::wstring PackageMetadataCacheKey(std::wstring_view packageFullName)
     return std::wstring(packageFullName);
 }
 
+WindowsGameIdentitySource::WindowsGameIdentitySource()
+    : worker_([this](std::stop_token stop) { WorkerMain(stop); })
+{
+}
+
+WindowsGameIdentitySource::~WindowsGameIdentitySource()
+{
+    worker_.request_stop();
+    queueWake_.notify_one();
+}
+
+void WindowsGameIdentitySource::QueueInspect(HWND foregroundWindow, DWORD processId) noexcept
+{
+    {
+        std::lock_guard lock(queueMutex_);
+        pendingRequest_ = Request{foregroundWindow, processId};
+    }
+    queueWake_.notify_one();
+}
+
+void WindowsGameIdentitySource::WorkerMain(std::stop_token stop)
+{
+    while (!stop.stop_requested())
+    {
+        Request request;
+        {
+            std::unique_lock lock(queueMutex_);
+            queueWake_.wait(lock, stop, [this] { return pendingRequest_.has_value(); });
+            if (stop.stop_requested()) return;
+            request = *pendingRequest_;
+            pendingRequest_.reset();
+        }
+        Inspect(request.window, request.processId);
+    }
+}
+
 void WindowsGameIdentitySource::Inspect(HWND foregroundWindow, DWORD processId) noexcept
 {
     try

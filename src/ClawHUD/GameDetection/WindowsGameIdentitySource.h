@@ -5,6 +5,10 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <condition_variable>
+#include <mutex>
+#include <optional>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -35,6 +39,10 @@ std::wstring PackageMetadataCacheKey(std::wstring_view packageFullName);
 class WindowsGameIdentitySource
 {
 public:
+    WindowsGameIdentitySource();
+    ~WindowsGameIdentitySource();
+
+    void QueueInspect(HWND foregroundWindow, DWORD processId) noexcept;
     void Inspect(HWND foregroundWindow, DWORD processId) noexcept;
 
 public:
@@ -82,11 +90,22 @@ public:
     };
 
 private:
+    struct Request
+    {
+        HWND window{};
+        DWORD processId{};
+    };
+
+    void WorkerMain(std::stop_token stop);
     void InspectImpl(HWND foregroundWindow, DWORD processId);
     void InspectPackage(const std::wstring& packageFullName,
         const std::wstring& executableName);
     std::unordered_map<std::wstring, PackageStaticMetadata> packageCache_;
     HWND lastWindow_{};
     DWORD lastProcessId_{};
+    std::mutex queueMutex_;
+    std::condition_variable_any queueWake_;
+    std::optional<Request> pendingRequest_;
+    std::jthread worker_;
 };
 }
