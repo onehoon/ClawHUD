@@ -40,6 +40,18 @@ int main()
     const auto optional = ParseMicrosoftGameConfig(L"<MicrosoftGame><StoreId>x</StoreId></MicrosoftGame>");
     check(optional.recognizedGameRoot && optional.titleId.empty() && optional.executables.empty(),
         "optional config fields may be absent");
+    const auto comments = ParseMicrosoftGameConfig(LR"xml(
+        <Game>
+          <!-- <TitleId>OLD_ID</TitleId> -->
+          <TitleId>REAL_ID</TitleId>
+          <ExecutableList>
+            <!-- <Executable Name="Old.exe" TargetDeviceFamily="PC" /> -->
+            <Executable Name="Game.exe" TargetDeviceFamily="PC" />
+          </ExecutableList>
+        </Game>)xml");
+    check(comments.titleId == L"REAL_ID" && comments.executables.size() == 1 &&
+        comments.executables[0].name == L"Game.exe",
+        "XML comments are ignored");
     check(WindowsExecutableNamesMatch(L"C:\\Games\\GAME.EXE", L"game.exe") &&
         !WindowsExecutableNamesMatch(L"game.exe", L"launcher.exe") &&
         !WindowsExecutableNamesMatch(L"", L"game.exe"),

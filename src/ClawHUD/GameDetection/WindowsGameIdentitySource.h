@@ -4,6 +4,7 @@
 
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <unordered_map>
 #include <vector>
 
@@ -61,6 +62,22 @@ public:
         bool configReadable{};
         int configProbeError{};
         DWORD configReadError{};
+        struct GameConfigLocationProbe
+        {
+            int pathType{};
+            std::wstring rootPath;
+            std::wstring configPath;
+            bool probeAttempted{};
+            bool exists{};
+            int probeError{};
+            bool readAttempted{};
+            bool readable{};
+            DWORD readError{};
+            MicrosoftGameConfigSnapshot config;
+        };
+        std::vector<GameConfigLocationProbe> configLocations;
+        LONG packageOriginResult{ERROR_SUCCESS};
+        UINT32 packageOrigin{};
     };
 
 private:
