@@ -56,6 +56,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/App.cpp
     src/ClawHUD/RuntimeLogger.cpp
     src/ClawHUD/GameDetection/ProcessLifecycleSource.cpp
+    src/ClawHUD/GameDetection/PresentActivitySource.cpp
     src/ClawHUD/TrayIcon.cpp
     src/ClawHUD/SettingsWindow.cpp
     src/ClawHUD/EcDiagnostic.cpp
@@ -412,6 +413,18 @@ if(BUILD_TESTING)
     target_link_libraries(ClawHUD.WindowsGameIdentitySourceTests PRIVATE shell32 propsys ole32)
     set_target_properties(ClawHUD.WindowsGameIdentitySourceTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.WindowsGameIdentitySourceTests COMMAND ClawHUD.WindowsGameIdentitySourceTests)
+
+    add_executable(ClawHUD.PresentActivitySourceTests
+        tests/PresentActivitySourceTests.cpp
+        src/ClawHUD/GameDetection/PresentActivitySource.cpp
+        src/ClawHUD/RuntimeLogger.cpp)
+    target_compile_features(ClawHUD.PresentActivitySourceTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.PresentActivitySourceTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.PresentActivitySourceTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.PresentActivitySourceTests PRIVATE advapi32 shell32 ole32)
+    set_target_properties(ClawHUD.PresentActivitySourceTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.PresentActivitySourceTests COMMAND ClawHUD.PresentActivitySourceTests)
 
     add_executable(ClawHUD.ProcessLifecycleSourceTests
         tests/ProcessLifecycleSourceTests.cpp
