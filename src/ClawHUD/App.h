@@ -175,13 +175,18 @@ private:
     void HandleMicrosoftGameEvidence(
         const clawhud::MicrosoftGameTriggerEvidence& evidence);
     void HandleGameDetectionTransition(
-        const clawhud::GameDetectionTransitionResult& transition);
+        const clawhud::GameDetectionTransitionResult& transition,
+        clawhud::GameDetectionTrigger trigger =
+            clawhud::GameDetectionTrigger::GenericForeground,
+        DWORD previousProcessId = 0,
+        std::uint64_t previousGeneration = 0);
     void StartCandidateRenderVerification();
     void HandleGameRenderVerifierEvent(
         const clawhud::GameRenderVerifierEvent& event);
     bool TryCommitReadyCandidateFromForeground(
         HWND foreground, DWORD foregroundProcessId);
     void ReleaseProductionGameCandidate(const wchar_t* reason);
+    void ClearProductionCandidate(const wchar_t* reason);
     void ApplyProductionEvidence(clawhud::GameDetectionTrigger trigger,
         HWND window, DWORD processId);
     bool ApplyDiagnosticHudVisibility(bool visible);

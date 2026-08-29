@@ -78,6 +78,9 @@ bool IsRejectedProductionTargetImage(std::wstring_view image) noexcept;
 CandidateDisposition DecideCandidateDisposition(
     const GameDetectionContext& context,
     GameDetectionTrigger incomingTrigger, DWORD incomingProcessId) noexcept;
+bool ShouldCommitReadyCandidate(
+    const GameDetectionContext& context,
+    DWORD foregroundProcessId, bool candidateProcessAlive) noexcept;
 bool ShouldRetainCommittedProductionTarget(DWORD committedProcessId,
     bool processAlive) noexcept;
 bool ShouldRetryProductionPresentMon(DWORD retryProcessId,

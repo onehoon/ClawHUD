@@ -27,6 +27,16 @@ CandidateDisposition DecideCandidateDisposition(
     return CandidateDisposition::Ignore;
 }
 
+bool ShouldCommitReadyCandidate(
+    const GameDetectionContext& context,
+    DWORD foregroundProcessId, bool candidateProcessAlive) noexcept
+{
+    return context.state == GameDetectionState::Ready &&
+        context.candidateProcessId != 0 &&
+        context.candidateProcessId == foregroundProcessId &&
+        candidateProcessAlive;
+}
+
 bool IsRejectedProductionTargetImage(std::wstring_view image) noexcept
 {
     constexpr std::array<std::wstring_view, 21> rejected{
