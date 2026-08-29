@@ -17,6 +17,7 @@
 #include "PresentMonHudTelemetry.h"
 #include "WindowsPowerTelemetry.h"
 #include "WindowsUsageTelemetry.h"
+#include "SteamRunningAppIdSource.h"
 #include "IgclGpuTelemetry.h"
 #include "IntelGraphicsApiProbe.h"
 #include "IgclTelemetryDiagnostic.h"
@@ -237,4 +238,6 @@ private:
     bool startWithWindows_{true};
     bool diagnosticsTabEnabled_{};
     bool debugLoggingEnabled_{};
+    SteamRunningAppIdSource steamRunningAppIdSource_;
+    std::uint32_t steamRunningAppId_{};
 };
