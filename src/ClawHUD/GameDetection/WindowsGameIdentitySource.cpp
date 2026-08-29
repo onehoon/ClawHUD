@@ -31,6 +31,8 @@ std::wstring ResultName(LONG result)
 {
     if (result == ERROR_SUCCESS) return L"SUCCESS";
     if (result == APPMODEL_ERROR_NO_PACKAGE) return L"NO_PACKAGE";
+    if (result == APPMODEL_ERROR_NO_APPLICATION) return L"NOT_PRESENT";
+    if (result == ERROR_PROC_NOT_FOUND) return L"SYMBOL_MISSING";
     if (result == ERROR_ACCESS_DENIED) return L"ACCESS_DENIED";
     if (result == ERROR_INSUFFICIENT_BUFFER) return L"BUFFER_REQUIRED";
     return L"API_FAILED";
@@ -71,11 +73,13 @@ std::wstring ReadAttribute(std::wstring_view tag, const wchar_t* name)
 {
     const std::wstring input(tag);
     const std::wstring expression = std::wstring(name) +
-        L"\\s*=\\s*\"([^\"]*)\"";
+        L"\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)')";
     std::wregex pattern(expression, std::regex_constants::icase);
     std::match_results<std::wstring::const_iterator> match;
-    if (std::regex_search(input.begin(), input.end(), match, pattern))
-        return std::wstring(match[1].first, match[1].second);
+    if (!std::regex_search(input.begin(), input.end(), match, pattern))
+        return {};
+    if (match[1].matched) return std::wstring(match[1].first, match[1].second);
+    if (match[2].matched) return std::wstring(match[2].first, match[2].second);
     return {};
 }
 
@@ -143,17 +147,112 @@ std::wstring ReadWindowAumid(HWND window)
     return text;
 }
 
-std::wstring QueryPackagePath(const std::wstring& fullName)
+using GetPackagePathByFullName2Fn = LONG (WINAPI*)(PCWSTR, PackagePathType, UINT32*, PWSTR);
+using GetPackageInfo2Fn = LONG (WINAPI*)(PACKAGE_INFO_REFERENCE, UINT32, PackagePathType,
+    UINT32*, BYTE*, UINT32*);
+
+template <typename Function>
+Function ResolveKernelApi(const char* name)
 {
+    HMODULE module = GetModuleHandleW(L"kernelbase.dll");
+    if (!module) module = GetModuleHandleW(L"kernel32.dll");
+    return module ? reinterpret_cast<Function>(GetProcAddress(module, name)) : nullptr;
+}
+
+WindowsGameIdentitySource::PackageStaticMetadata::PackagePathProbe QueryPackagePath(
+    const std::wstring& fullName, PackagePathType pathType)
+{
+    WindowsGameIdentitySource::PackageStaticMetadata::PackagePathProbe probe;
+    const auto query = ResolveKernelApi<GetPackagePathByFullName2Fn>(
+        "GetPackagePathByFullName2");
+    if (!query)
+    {
+        probe.result = ERROR_PROC_NOT_FOUND;
+        return probe;
+    }
     UINT32 length{};
-    LONG result = GetPackagePathByFullName(fullName.c_str(), &length, nullptr);
-    if (result != ERROR_INSUFFICIENT_BUFFER)
-        return {};
+    probe.result = query(fullName.c_str(), pathType, &length, nullptr);
+    if (probe.result != ERROR_INSUFFICIENT_BUFFER) return probe;
     std::wstring path(length, L'\0');
-    result = GetPackagePathByFullName(fullName.c_str(), &length, path.data());
-    if (result != ERROR_SUCCESS) return {};
+    probe.result = query(fullName.c_str(), pathType, &length, path.data());
+    if (probe.result != ERROR_SUCCESS) return probe;
     if (!path.empty() && path.back() == L'\0') path.pop_back();
-    return path;
+    probe.path = std::move(path);
+    return probe;
+}
+
+const wchar_t* PackagePathTypeName(PackagePathType type)
+{
+    switch (type)
+    {
+    case PackagePathType_Install: return L"install";
+    case PackagePathType_Effective: return L"effective";
+    case PackagePathType_Mutable: return L"mutable";
+    default: return L"unknown";
+    }
+}
+
+void LogPackagePath(const wchar_t* name,
+    const WindowsGameIdentitySource::PackageStaticMetadata::PackagePathProbe& probe)
+{
+    Debug(std::wstring(L"packagePath.") + name + L".result=" + ResultName(probe.result) +
+        L" error=" + ErrorCode(probe.result) + L" value=\"" + Escape(probe.path) + L"\"");
+}
+
+void QueryPackageInfo(const std::wstring& fullName,
+    WindowsGameIdentitySource::PackageStaticMetadata& metadata)
+{
+    PACKAGE_INFO_REFERENCE reference{};
+    metadata.packageInfoResult = OpenPackageInfoByFullName(fullName.c_str(), 0, &reference);
+    Debug(L"packageInfo.open.result=" + ResultName(metadata.packageInfoResult) +
+        L" error=" + ErrorCode(metadata.packageInfoResult));
+    if (metadata.packageInfoResult != ERROR_SUCCESS) return;
+
+    const auto query = ResolveKernelApi<GetPackageInfo2Fn>("GetPackageInfo2");
+    if (!query)
+    {
+        metadata.packageInfo2Result = ERROR_PROC_NOT_FOUND;
+        Debug(L"packageInfo.result=SYMBOL_MISSING error=" +
+            ErrorCode(ERROR_PROC_NOT_FOUND));
+        ClosePackageInfo(reference);
+        return;
+    }
+    UINT32 length{};
+    UINT32 count{};
+    LONG result = query(reference, 0, PackagePathType_Effective,
+        &length, nullptr, &count);
+    metadata.packageInfo2Result = result;
+    if (result == ERROR_INSUFFICIENT_BUFFER)
+    {
+        std::vector<BYTE> buffer(length);
+        result = query(reference, 0, PackagePathType_Effective,
+            &length, buffer.data(), &count);
+        metadata.packageInfo2Result = result;
+        if (result == ERROR_SUCCESS && count != 0)
+        {
+            const auto* info = reinterpret_cast<const PACKAGE_INFO*>(buffer.data());
+            metadata.packageInfoFlags = info->flags;
+            Debug(L"packageInfo.result=SUCCESS count=" + std::to_wstring(count) +
+                L" flags=" + std::to_wstring(info->flags) + L" path=\"" +
+                Escape(info->path ? info->path : L"") + L"\" packageFullName=\"" +
+                Escape(info->packageFullName ? info->packageFullName : L"") +
+                L"\" packageFamilyName=\"" +
+                Escape(info->packageFamilyName ? info->packageFamilyName : L"") +
+                L"\" architecture=" + std::to_wstring(info->packageId.processorArchitecture) +
+                L" version=" + std::to_wstring(info->packageId.version.Major) + L"." +
+                std::to_wstring(info->packageId.version.Minor) + L"." +
+                std::to_wstring(info->packageId.version.Build) + L"." +
+                std::to_wstring(info->packageId.version.Revision) +
+                L" publisher=\"" + Escape(info->packageId.publisher ? info->packageId.publisher : L"") +
+                L"\" publisherId=\"" +
+                Escape(info->packageId.publisherId ? info->packageId.publisherId : L"") +
+                L"\" resourceId=\"" +
+                Escape(info->packageId.resourceId ? info->packageId.resourceId : L"") + L"\"");
+        }
+    }
+    if (result != ERROR_SUCCESS)
+        Debug(L"packageInfo.result=" + ResultName(result) + L" error=" + ErrorCode(result));
+    ClosePackageInfo(reference);
 }
 
 std::wstring ReadFileText(const std::filesystem::path& path, bool& readable)
@@ -186,7 +285,6 @@ MicrosoftGameConfigSnapshot ParseMicrosoftGameConfig(std::wstring_view xml)
     result.titleId = ReadElement(xml, L"TitleId");
     result.msaAppId = ReadElement(xml, L"MsaAppId");
     if (result.msaAppId.empty()) result.msaAppId = ReadElement(xml, L"MSAAppId");
-    result.targetDeviceFamily = ReadElement(xml, L"TargetDeviceFamily");
     std::wregex executablePattern(L"<\\s*(?:[A-Za-z0-9_.-]+:)?Executable\\b[^>]*>([^<]*)<\\s*/\\s*(?:[A-Za-z0-9_.-]+:)?Executable\\s*>",
         std::regex_constants::icase);
     for (std::wsregex_iterator iterator(input.begin(), input.end(), executablePattern), end;
@@ -199,7 +297,9 @@ MicrosoftGameConfigSnapshot ParseMicrosoftGameConfig(std::wstring_view xml)
             ReadAttribute(tag, L"Name").empty()
                 ? std::wstring((*iterator)[1].first, (*iterator)[1].second)
                 : ReadAttribute(tag, L"Name"),
-            ReadAttribute(tag, L"Id")});
+            ReadAttribute(tag, L"Id"),
+            ReadAttribute(tag, L"TargetDeviceFamily"),
+            ReadAttribute(tag, L"Architecture")});
     }
     std::wregex selfClosingExecutablePattern(
         L"<\\s*(?:[A-Za-z0-9_.-]+:)?Executable\\b[^>]*/\\s*>",
@@ -209,12 +309,12 @@ MicrosoftGameConfigSnapshot ParseMicrosoftGameConfig(std::wstring_view xml)
     {
         const std::wstring tag = iterator->str();
         result.executables.push_back({ReadAttribute(tag, L"Name"),
-            ReadAttribute(tag, L"Id")});
+            ReadAttribute(tag, L"Id"), ReadAttribute(tag, L"TargetDeviceFamily"),
+            ReadAttribute(tag, L"Architecture")});
     }
-    result.wellFormed = input.find(L'>') != std::wstring::npos &&
-        xml.find(L"</") != std::wstring_view::npos &&
-        (xml.find(L"<MicrosoftGame") != std::wstring_view::npos ||
-            xml.find(L"<Game") != std::wstring_view::npos);
+    std::wregex rootPattern(L"<\\s*(?:[A-Za-z0-9_.-]+:)?(?:MicrosoftGame|Game)\\b",
+        std::regex_constants::icase);
+    result.recognizedGameRoot = std::regex_search(input, rootPattern);
     return result;
 }
 
@@ -237,7 +337,19 @@ std::wstring PackageMetadataCacheKey(std::wstring_view packageFullName)
     return std::wstring(packageFullName);
 }
 
-void WindowsGameIdentitySource::Inspect(HWND foregroundWindow, DWORD processId)
+void WindowsGameIdentitySource::Inspect(HWND foregroundWindow, DWORD processId) noexcept
+{
+    try
+    {
+        InspectImpl(foregroundWindow, processId);
+    }
+    catch (...)
+    {
+        Debug(L"inspection.result=API_FAILED reason=unexpected-exception");
+    }
+}
+
+void WindowsGameIdentitySource::InspectImpl(HWND foregroundWindow, DWORD processId)
 {
     if (foregroundWindow == lastWindow_ && processId == lastProcessId_)
         return;
@@ -324,35 +436,56 @@ void WindowsGameIdentitySource::InspectPackage(const std::wstring& packageFullNa
     if (found == packageCache_.end())
     {
         PackageStaticMetadata metadata;
-        metadata.packagePath = QueryPackagePath(packageFullName);
-        const auto configPath = std::filesystem::path(metadata.packagePath) /
-            L"MicrosoftGame.config";
-        metadata.configExists = std::filesystem::exists(configPath);
-        if (metadata.configExists)
+        metadata.installPath = QueryPackagePath(packageFullName, PackagePathType_Install);
+        metadata.effectivePath = QueryPackagePath(packageFullName, PackagePathType_Effective);
+        metadata.mutablePath = QueryPackagePath(packageFullName, PackagePathType_Mutable);
+        QueryPackageInfo(packageFullName, metadata);
+        const auto path = !metadata.effectivePath.path.empty()
+            ? metadata.effectivePath.path
+            : (!metadata.installPath.path.empty() ? metadata.installPath.path
+                : metadata.mutablePath.path);
+        if (!path.empty())
+        {
+            metadata.configPath = (std::filesystem::path(path) / L"MicrosoftGame.config").wstring();
+            std::error_code error;
+            metadata.configExists = std::filesystem::exists(metadata.configPath, error);
+            metadata.configProbeError = error.value();
+        }
+    if (metadata.configExists)
         {
             bool readable{};
-            const auto text = ReadFileText(configPath, readable);
+            const auto text = ReadFileText(metadata.configPath, readable);
             metadata.configReadable = readable;
             if (readable) metadata.config = ParseMicrosoftGameConfig(text);
         }
         found = packageCache_.emplace(cacheKey, std::move(metadata)).first;
     }
     const auto& metadata = found->second;
-    Debug(L"packagePath.result=" + std::wstring(metadata.packagePath.empty()
-        ? L"API_FAILED" : L"SUCCESS") + L" value=\"" + Escape(metadata.packagePath) + L"\"");
+    LogPackagePath(PackagePathTypeName(PackagePathType_Install), metadata.installPath);
+    LogPackagePath(PackagePathTypeName(PackagePathType_Effective), metadata.effectivePath);
+    LogPackagePath(PackagePathTypeName(PackagePathType_Mutable), metadata.mutablePath);
+    const auto configProbeResult = metadata.configPath.empty()
+        ? (metadata.effectivePath.path.empty() && metadata.installPath.path.empty() &&
+            metadata.mutablePath.path.empty() ? L"NO_PACKAGE" : L"NOT_PRESENT")
+        : (metadata.configProbeError != 0 ? L"API_FAILED"
+            : (metadata.configExists ? L"SUCCESS" : L"NOT_PRESENT"));
+    Debug(L"microsoftGameConfig.path=\"" + Escape(metadata.configPath) +
+        L"\" probe.result=" + configProbeResult + L" error=" +
+        std::to_wstring(metadata.configProbeError));
     Debug(L"microsoftGameConfig.exists=" + std::to_wstring(metadata.configExists ? 1 : 0) +
         L" readable=" + std::to_wstring(metadata.configReadable ? 1 : 0));
     if (!metadata.configReadable) return;
     Debug(L"storeId=\"" + Escape(metadata.config.storeId) + L"\" titleId=\"" +
         Escape(metadata.config.titleId) + L"\" msaAppId=\"" +
-        Escape(metadata.config.msaAppId) + L"\" targetDeviceFamily=\"" +
-        Escape(metadata.config.targetDeviceFamily) + L"\"");
+        Escape(metadata.config.msaAppId) + L"\"");
     Debug(L"configExecutableCount=" + std::to_wstring(metadata.config.executables.size()));
     bool match = false;
     for (const auto& executable : metadata.config.executables)
     {
         Debug(L"configExecutable name=\"" + Escape(executable.name) + L"\" id=\"" +
-            Escape(executable.id) + L"\"");
+            Escape(executable.id) + L"\" targetDeviceFamily=\"" +
+            Escape(executable.targetDeviceFamily) + L"\" architecture=\"" +
+            Escape(executable.architecture) + L"\"");
         match = match || WindowsExecutableNamesMatch(executableName, executable.name);
     }
     Debug(L"currentExecutableMatch=" + std::to_wstring(match ? 1 : 0));

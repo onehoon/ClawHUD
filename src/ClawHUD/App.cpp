@@ -208,7 +208,8 @@ int App::Run()
         },
         [this](HWND window, DWORD processId)
         {
-            windowsGameIdentitySource_.Inspect(window, processId);
+            if (debugLoggingEnabled_)
+                windowsGameIdentitySource_.Inspect(window, processId);
             if (mockHudEnabled_ && !DiagnosticRunning())
                 AdoptForegroundProductionTarget(window, processId);
         }))

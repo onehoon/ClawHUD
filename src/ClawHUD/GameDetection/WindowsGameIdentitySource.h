@@ -13,16 +13,17 @@ struct MicrosoftGameExecutable
 {
     std::wstring name;
     std::wstring id;
+    std::wstring targetDeviceFamily;
+    std::wstring architecture;
 };
 
 struct MicrosoftGameConfigSnapshot
 {
-    bool wellFormed{};
+    bool recognizedGameRoot{};
     std::wstring storeId;
     std::wstring titleId;
     std::wstring msaAppId;
     std::vector<MicrosoftGameExecutable> executables;
-    std::wstring targetDeviceFamily;
 };
 
 MicrosoftGameConfigSnapshot ParseMicrosoftGameConfig(std::wstring_view xml);
@@ -32,17 +33,32 @@ std::wstring PackageMetadataCacheKey(std::wstring_view packageFullName);
 class WindowsGameIdentitySource
 {
 public:
-    void Inspect(HWND foregroundWindow, DWORD processId);
+    void Inspect(HWND foregroundWindow, DWORD processId) noexcept;
 
-private:
+public:
     struct PackageStaticMetadata
     {
-        std::wstring packagePath;
+        struct PackagePathProbe
+        {
+            LONG result{ERROR_SUCCESS};
+            std::wstring path;
+        };
+
+        PackagePathProbe installPath;
+        PackagePathProbe effectivePath;
+        PackagePathProbe mutablePath;
+        LONG packageInfoResult{ERROR_SUCCESS};
+        LONG packageInfo2Result{ERROR_SUCCESS};
+        UINT32 packageInfoFlags{};
         MicrosoftGameConfigSnapshot config;
+        std::wstring configPath;
         bool configExists{};
         bool configReadable{};
+        int configProbeError{};
     };
 
+private:
+    void InspectImpl(HWND foregroundWindow, DWORD processId);
     void InspectPackage(const std::wstring& packageFullName,
         const std::wstring& executableName);
     std::unordered_map<std::wstring, PackageStaticMetadata> packageCache_;
