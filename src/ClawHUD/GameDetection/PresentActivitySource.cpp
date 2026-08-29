@@ -175,7 +175,8 @@ std::wstring BuildPresentActivityCommandLine(const std::wstring& executable,
     const std::wstring& sessionName)
 {
     return L"\"" + executable + L"\" --output_stdout --no_console_stats --qpc_time_ms"
-        L" --track_frame_type --session_name \"" + sessionName + L"\"";
+        L" --no_track_gpu --no_track_input --track_frame_type"
+        L" --session_name \"" + sessionName + L"\"";
 }
 
 std::wstring EscapePresentActivityValue(std::string_view value)
@@ -204,22 +205,21 @@ std::vector<PresentActivitySummary> PresentActivityAggregator::Consume(
 
     for (auto it = accumulators_.begin(); it != accumulators_.end();)
     {
-        if (sample.qpcTimeMs >= it->second.summary.lastQpcMs &&
-            sample.qpcTimeMs - it->second.summary.lastQpcMs > kStaleActivityMs)
+        const auto& summary = it->second.summary;
+        const bool windowDue = sample.qpcTimeMs >= summary.firstQpcMs &&
+            sample.qpcTimeMs - summary.firstQpcMs >= kActivityWindowMs;
+        const bool stale = sample.qpcTimeMs >= summary.lastQpcMs &&
+            sample.qpcTimeMs - summary.lastQpcMs > kStaleActivityMs;
+        if (windowDue || stale)
+        {
+            summaries.push_back(summary);
             it = accumulators_.erase(it);
+        }
         else
             ++it;
     }
 
     auto found = accumulators_.find(sample.processId);
-    if (found != accumulators_.end() &&
-        sample.qpcTimeMs >= found->second.summary.firstQpcMs &&
-        sample.qpcTimeMs - found->second.summary.firstQpcMs >= kActivityWindowMs)
-    {
-        summaries.push_back(found->second.summary);
-        found = accumulators_.erase(found);
-    }
-
     if (found == accumulators_.end())
     {
         Accumulator accumulator;
@@ -257,6 +257,16 @@ std::vector<PresentActivitySummary> PresentActivityAggregator::Consume(
             });
         if (oldest != accumulators_.end()) accumulators_.erase(oldest);
     }
+    return summaries;
+}
+
+std::vector<PresentActivitySummary> PresentActivityAggregator::Drain()
+{
+    std::vector<PresentActivitySummary> summaries;
+    summaries.reserve(accumulators_.size());
+    for (const auto& [processId, accumulator] : accumulators_)
+        summaries.push_back(accumulator.summary);
+    accumulators_.clear();
     return summaries;
 }
 
@@ -454,5 +464,8 @@ void PresentActivitySource::ReadLoop() noexcept
             if (stop_) break;
         }
     }
+
+    for (const auto& summary : aggregator.Drain())
+        LogSummary(summary);
 }
 }

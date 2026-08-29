@@ -67,6 +67,7 @@ class PresentActivityAggregator
 {
 public:
     std::vector<PresentActivitySummary> Consume(const PresentActivitySample& sample);
+    std::vector<PresentActivitySummary> Drain();
     std::size_t Size() const noexcept { return accumulators_.size(); }
 
 private:

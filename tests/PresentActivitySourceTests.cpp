@@ -65,12 +65,15 @@ int main()
         "diagnostic command is global");
     Check(command.find(L"--stop_existing_session") == std::wstring::npos,
         "diagnostic command does not stop another session");
+    Check(command.find(L"--no_track_gpu") != std::wstring::npos,
+        "diagnostic capture disables unused GPU tracking");
+    Check(command.find(L"--no_track_input") != std::wstring::npos,
+        "diagnostic capture disables unused input tracking");
     Check(clawhud::EscapePresentActivityValue("a\\b\"c\n") == L"a\\\\b\\\"c\\n",
         "log field escaping is bounded");
 
     clawhud::PresentActivityAggregator aggregator;
     aggregator.Consume(Sample(100, 1000.0, true));
-    aggregator.Consume(Sample(200, 1000.0));
     aggregator.Consume(Sample(100, 1100.0, false));
     aggregator.Consume(Sample(100, 1200.0, true));
     auto summaries = aggregator.Consume(Sample(100, 1500.0, false));
@@ -81,9 +84,19 @@ int main()
         "displayed count includes only positive intervals");
     Check(summaries[0].displayCountAvailable,
         "displayed count availability is retained");
-    summaries = aggregator.Consume(Sample(200, 1600.0));
-    Check(summaries.size() == 1 && summaries[0].processId == 200,
-        "PID streams remain independent");
+    clawhud::PresentActivityAggregator shortLived;
+    shortLived.Consume(Sample(300, 1000.0));
+    summaries = shortLived.Consume(Sample(100, 1600.0));
+    Check(summaries.size() == 1 && summaries[0].processId == 300 &&
+        summaries[0].presentCount == 1,
+        "short-lived PID activity is preserved by global QPC progress");
+
+    clawhud::PresentActivityAggregator finalWindow;
+    finalWindow.Consume(Sample(400, 3000.0));
+    summaries = finalWindow.Drain();
+    Check(summaries.size() == 1 && summaries[0].processId == 400 &&
+        summaries[0].presentCount == 1,
+        "final partial activity window is drained");
 
     auto noDisplay = clawhud::PresentActivityAggregator{};
     noDisplay.Consume(Sample(300, 2000.0));
