@@ -58,6 +58,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/GameDetection/ProcessLifecycleSource.cpp
     src/ClawHUD/GameDetection/PresentActivitySource.cpp
     src/ClawHUD/GameDetection/WindowLifecycleSource.cpp
+    src/ClawHUD/GameDetection/ProductionGameWindowSource.cpp
     src/ClawHUD/TrayIcon.cpp
     src/ClawHUD/SettingsWindow.cpp
     src/ClawHUD/SettingsWindowInternal.cpp
@@ -450,6 +451,18 @@ if(BUILD_TESTING)
         dwmapi shell32 user32 ole32)
     set_target_properties(ClawHUD.WindowLifecycleSourceTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.WindowLifecycleSourceTests COMMAND ClawHUD.WindowLifecycleSourceTests)
+
+    add_executable(ClawHUD.ProductionGameWindowSourceTests
+        tests/ProductionGameWindowSourceTests.cpp
+        src/ClawHUD/GameDetection/ProductionGameWindowSource.cpp)
+    target_compile_features(ClawHUD.ProductionGameWindowSourceTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.ProductionGameWindowSourceTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.ProductionGameWindowSourceTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.ProductionGameWindowSourceTests PRIVATE user32)
+    set_target_properties(ClawHUD.ProductionGameWindowSourceTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.ProductionGameWindowSourceTests
+        COMMAND ClawHUD.ProductionGameWindowSourceTests)
 
     add_executable(ClawHUD.ProcessLifecycleSourceTests
         tests/ProcessLifecycleSourceTests.cpp
