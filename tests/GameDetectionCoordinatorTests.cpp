@@ -84,6 +84,15 @@ int main()
         coordinator.Context().state == GameDetectionState::Committed,
         "different PID observation does not replace active candidate");
 
+    const auto returned = coordinator.ObserveCandidate(
+        18812, reinterpret_cast<HWND>(0x1234),
+        GameDetectionTrigger::GenericForeground);
+    check(returned.transition == GameDetectionTransition::CandidateUpdated &&
+        coordinator.Context().candidateProcessId == 18812 &&
+        coordinator.Context().generation == generation &&
+        coordinator.Context().state == GameDetectionState::Committed,
+        "committed target survives foreground return without a new generation");
+
     const auto replacement = coordinator.ReplaceCandidate(
         200, nullptr, GameDetectionTrigger::GenericForeground);
     const auto replacementGeneration = coordinator.Context().generation;
@@ -130,11 +139,17 @@ int main()
         GameDetectionTrigger::GenericForeground);
     const auto readyGeneration = clearReady.Context().generation;
     clearReady.MarkRendererReady(302, readyGeneration);
+    clearReady.ObserveCandidate(302, reinterpret_cast<HWND>(0x6789),
+        GameDetectionTrigger::MicrosoftGameIdentity);
     clearReady.ClearCandidatePreservingSession();
     check(clearReady.Context().state == GameDetectionState::Idle &&
         clearReady.Context().candidateProcessId == 0 &&
+        clearReady.Context().candidateWindow == nullptr &&
+        !clearReady.Context().microsoftGameIdentity &&
+        !clearReady.Context().evidence.genericForeground &&
+        !clearReady.Context().evidence.microsoftGameIdentity &&
         clearReady.Context().generation != readyGeneration,
-        "clear Ready candidate invalidates generation");
+        "clear Ready candidate invalidates generation and evidence");
 
     GameDetectionCoordinator clearCommitted;
     clearCommitted.ObserveCandidate(303, nullptr,
