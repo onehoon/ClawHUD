@@ -75,6 +75,16 @@ int main()
     identity.microsoftGameConfigs[2].currentExecutableMatched = false;
     check(!HasReadableMicrosoftGameExecutableMatch(identity),
         "unmatched readable configs do not produce identity evidence");
+    identity.microsoftGameConfigs[2].currentExecutableMatched = true;
+    identity.microsoftGameConfigs[2].executableMatchEvaluated = false;
+    check(!HasReadableMicrosoftGameExecutableMatch(identity),
+        "unevaluated executable match cannot become MicrosoftGame evidence");
+    WindowsPackageStaticMetadata failedPackage;
+    failedPackage.packageInfoResult = ERROR_NOT_FOUND;
+    check(!failedPackage.packageInfo2Attempted &&
+        !failedPackage.packageApplicationIdsAttempted &&
+        !failedPackage.packageOriginAttempted,
+        "package API results remain not attempted after open failure");
     identity.packageFullNameResult = APPMODEL_ERROR_NO_PACKAGE;
     check(identity.packageFullNameResult != ERROR_SUCCESS &&
         identity.packageFullNameResult != ERROR_PROC_NOT_FOUND,

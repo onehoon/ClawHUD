@@ -173,9 +173,10 @@ void LogProbePackage(const WindowsGameIdentityProbeResult& result)
     LogPackagePath(PackagePathTypeName(PackagePathType_EffectiveExternal), metadata.effectiveExternalPath);
     Debug(L"packageInfo.open.result=" + ResultName(metadata.packageInfoResult) +
         L" error=" + ErrorCode(metadata.packageInfoResult));
-    if (metadata.packageInfo2Result == ERROR_SUCCESS)
+    if (metadata.packageInfo2Attempted && metadata.packageInfo2Result == ERROR_SUCCESS &&
+        metadata.packageInfoCount == 1)
         Debug(L"packageInfo.result=SUCCESS flags=" + std::to_wstring(metadata.packageInfoFlags) +
-            L" path=\"" + Escape(metadata.packageInfoPath) + L"\" packageFullName=\"" +
+            L" count=1 path=\"" + Escape(metadata.packageInfoPath) + L"\" packageFullName=\"" +
             Escape(metadata.packageInfoFullName) + L"\" packageFamilyName=\"" +
             Escape(metadata.packageInfoFamilyName) + L"\" architecture=" +
             std::to_wstring(metadata.packageInfoArchitecture) + L" version=" +
@@ -187,17 +188,21 @@ void LogProbePackage(const WindowsGameIdentityProbeResult& result)
             Escape(metadata.packageInfoPublisher) + L"\" publisherId=\"" +
             Escape(metadata.packageInfoPublisherId) + L"\" resourceId=\"" +
             Escape(metadata.packageInfoResourceId) + L"\"");
-    else
+    else if (metadata.packageInfo2Attempted)
         Debug(L"packageInfo.result=" + ResultName(metadata.packageInfo2Result) +
-            L" error=" + ErrorCode(metadata.packageInfo2Result));
+            (metadata.packageInfo2Result == ERROR_SUCCESS
+                ? L" count=" + std::to_wstring(metadata.packageInfoCount)
+                : L" error=" + ErrorCode(metadata.packageInfo2Result)));
     for (const auto& id : metadata.packageApplicationIds)
         Debug(L"packageApplicationId value=\"" + Escape(id) + L"\"");
-    Debug(L"packageApplicationIds.result=" + ResultName(metadata.packageApplicationIdsResult) +
-        L" error=" + ErrorCode(metadata.packageApplicationIdsResult) + L" count=" +
-        std::to_wstring(metadata.packageApplicationIdCount));
-    Debug(L"packageOrigin.result=" + ResultName(metadata.packageOriginResult) +
-        L" error=" + ErrorCode(metadata.packageOriginResult) + L" value=" +
-        std::to_wstring(metadata.packageOrigin));
+    if (metadata.packageApplicationIdsAttempted)
+        Debug(L"packageApplicationIds.result=" + ResultName(metadata.packageApplicationIdsResult) +
+            L" error=" + ErrorCode(metadata.packageApplicationIdsResult) + L" count=" +
+            std::to_wstring(metadata.packageApplicationIdCount));
+    if (metadata.packageOriginAttempted)
+        Debug(L"packageOrigin.result=" + ResultName(metadata.packageOriginResult) +
+            L" error=" + ErrorCode(metadata.packageOriginResult) + L" value=" +
+            std::to_wstring(metadata.packageOrigin));
     if (result.microsoftGameConfigs.empty())
     {
         Debug(L"microsoftGameConfig.probe.result=NOT_ATTEMPTED reason=no-successful-package-path");

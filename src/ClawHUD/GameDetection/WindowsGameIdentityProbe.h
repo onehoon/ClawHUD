@@ -62,6 +62,7 @@ struct WindowsPackageStaticMetadata
     WindowsPackagePathProbe userExternalPath;
     WindowsPackagePathProbe effectiveExternalPath;
     LONG packageInfoResult{ERROR_SUCCESS};
+    bool packageInfo2Attempted{};
     LONG packageInfo2Result{ERROR_SUCCESS};
     UINT32 packageInfoCount{};
     UINT32 packageInfoFlags{};
@@ -75,9 +76,11 @@ struct WindowsPackageStaticMetadata
     UINT32 packageInfoArchitecture{};
     PACKAGE_VERSION packageInfoVersion{};
     std::vector<std::wstring> packageApplicationIds;
+    bool packageApplicationIdsAttempted{};
     LONG packageApplicationIdsResult{ERROR_SUCCESS};
     UINT32 packageApplicationIdCount{};
     std::vector<MicrosoftGameConfigProbeResult> configLocations;
+    bool packageOriginAttempted{};
     LONG packageOriginResult{ERROR_SUCCESS};
     UINT32 packageOrigin{};
 };

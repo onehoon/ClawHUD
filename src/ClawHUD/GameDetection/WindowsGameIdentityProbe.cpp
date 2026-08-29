@@ -196,6 +196,7 @@ void QueryPackageInfo(const std::wstring& fullName, WindowsPackageStaticMetadata
         &reference.value);
     if (metadata.packageInfoResult != ERROR_SUCCESS) return;
 
+    metadata.packageOriginAttempted = true;
     const auto originQuery = ResolveKernelApi<GetStagedPackageOriginFn>(
         "GetStagedPackageOrigin");
     if (!originQuery)
@@ -207,6 +208,7 @@ void QueryPackageInfo(const std::wstring& fullName, WindowsPackageStaticMetadata
         metadata.packageOrigin = static_cast<UINT32>(origin);
     }
 
+    metadata.packageInfo2Attempted = true;
     const auto query = ResolveKernelApi<GetPackageInfo2Fn>("GetPackageInfo2");
     if (!query)
         metadata.packageInfo2Result = ERROR_PROC_NOT_FOUND;
@@ -246,6 +248,7 @@ void QueryPackageInfo(const std::wstring& fullName, WindowsPackageStaticMetadata
         }
     }
 
+    metadata.packageApplicationIdsAttempted = true;
     UINT32 length{};
     UINT32 count{};
     LONG result = GetPackageApplicationIds(reference.value, &length, nullptr, &count);
@@ -397,7 +400,8 @@ bool HasReadableMicrosoftGameExecutableMatch(
 {
     return std::any_of(result.microsoftGameConfigs.begin(),
         result.microsoftGameConfigs.end(), [](const auto& location)
-        { return location.readable && location.currentExecutableMatched; });
+        { return location.readable && location.executableMatchEvaluated &&
+            location.currentExecutableMatched; });
 }
 
 WindowsGameIdentityProbeResult WindowsGameIdentityProbe::Inspect(DWORD processId)
