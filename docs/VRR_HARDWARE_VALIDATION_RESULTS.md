@@ -396,9 +396,9 @@ The following MSI Claw cases justify promoting D3DKMT cadence to a diagnostic su
 Death Stranding Director's Cut, 30 FPS, no Frame Generation, VSync OFF, device VRR OFF.
 
 - IGCL: Current Profile `OFF`, Active Range `120-120 Hz`.
-- Special K: Constant Rate 120, Hardware Composed: Independent Flip.
+- Special K manual observation: Constant Rate 120 Hz; LFC display remained approximately x4.
 - D3DKMT elapsed cadence: HUD OFF ~119.83 Hz; DYNAMIC ~119.86 Hz; 1-second windows effectively fixed near 120 Hz.
-- PresentMon: 100% Hardware Composed: Independent Flip, same swapchain, `AllowsTearing=1`.
+- PresentMon: 100% `Hardware Composed: Independent Flip`, same swapchain, `AllowsTearing=1`.
 
 This control confirms that Independent Flip is not proof of active VRR.
 
@@ -416,9 +416,9 @@ D3DKMT remained variable below 120 Hz without LFC multiplication.
 
 Mafia: The Old Country, XeFG 2x, post-Frame-Generation output approximately 90 FPS, VRR ON.
 
-- Special K: Hardware Composed: Independent Flip and Variable Rate above 90 Hz observed.
-- D3DKMT: HUD OFF elapsed ~101.6 Hz; 1-second range approximately 93-108 Hz.
-- PresentMon: approximately 90 FPS output cadence with Independent Flip retained.
+- Special K manual observation: Variable Rate was observed above 90 Hz.
+- D3DKMT: HUD OFF elapsed ~101.6 Hz; DYNAMIC elapsed ~103.7 Hz; HUD OFF 1-second range approximately 93-108 Hz.
+- PresentMon: approximately 90 FPS output cadence with `Hardware Composed: Independent Flip` retained.
 
 D3DKMT cadence is not equal to FPS. It appears useful as a VBlank/refresh-cadence indicator that correlates directionally with Special K Variable Rate, without claiming exact physical panel Hz.
 
