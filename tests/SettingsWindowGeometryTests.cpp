@@ -16,6 +16,13 @@ int main()
 {
     const RECT work{ 0, 0, 1920, 1080 };
     bool ok = true;
+    static_assert(ShouldNormalizeSettingsWindow(false, false));
+    static_assert(!ShouldNormalizeSettingsWindow(true, false));
+    static_assert(!ShouldNormalizeSettingsWindow(false, true));
+    ok &= Check(ShouldNormalizeSettingsWindow(false, false) &&
+        !ShouldNormalizeSettingsWindow(true, false) &&
+        !ShouldNormalizeSettingsWindow(false, true),
+        "normalization skips minimized and maximized windows");
     const auto same = [](RECT actual, RECT expected)
     {
         return EqualRect(&actual, &expected) != FALSE;

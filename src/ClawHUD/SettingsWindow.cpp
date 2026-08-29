@@ -300,7 +300,8 @@ void SettingsWindow::RefreshDpiAndLayout()
 
 void SettingsWindow::NormalizeWindowToWorkArea()
 {
-    if (!window_)
+    if (!window_ || !ShouldNormalizeSettingsWindow(IsIconic(window_) != FALSE,
+        IsZoomed(window_) != FALSE))
         return;
 
     RECT windowRect{};
