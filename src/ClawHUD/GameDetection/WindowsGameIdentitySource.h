@@ -2,6 +2,9 @@
 
 #include <windows.h>
 
+#include <atomic>
+#include <cstdint>
+#include <deque>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -92,12 +95,15 @@ public:
 private:
     struct Request
     {
+        std::uint64_t sequence{};
+        ULONGLONG eventTickMs{};
         HWND window{};
         DWORD processId{};
     };
 
     void WorkerMain(std::stop_token stop);
-    void InspectImpl(HWND foregroundWindow, DWORD processId);
+    void InspectImpl(HWND foregroundWindow, DWORD processId,
+        std::uint64_t sequence, ULONGLONG eventTickMs);
     void InspectPackage(const std::wstring& packageFullName,
         const std::wstring& executableName);
     std::unordered_map<std::wstring, PackageStaticMetadata> packageCache_;
@@ -105,7 +111,8 @@ private:
     DWORD lastProcessId_{};
     std::mutex queueMutex_;
     std::condition_variable_any queueWake_;
-    std::optional<Request> pendingRequest_;
+    std::deque<Request> pendingRequests_;
+    std::atomic_uint64_t nextSequence_{1};
     std::jthread worker_;
 };
 }

@@ -576,11 +576,21 @@ WindowsGameIdentitySource::~WindowsGameIdentitySource()
 
 void WindowsGameIdentitySource::QueueInspect(HWND foregroundWindow, DWORD processId) noexcept
 {
+    const Request request{
+        nextSequence_.fetch_add(1, std::memory_order_relaxed),
+        GetTickCount64(), foregroundWindow, processId};
+    try
     {
-        std::lock_guard lock(queueMutex_);
-        pendingRequest_ = Request{foregroundWindow, processId};
+        {
+            std::lock_guard lock(queueMutex_);
+            pendingRequests_.push_back(request);
+        }
+        queueWake_.notify_one();
     }
-    queueWake_.notify_one();
+    catch (...)
+    {
+        OutputDebugStringW(L"[GameIdentity] queue.result=API_FAILED reason=allocation\n");
+    }
 }
 
 void WindowsGameIdentitySource::WorkerMain(std::stop_token stop)
@@ -590,12 +600,13 @@ void WindowsGameIdentitySource::WorkerMain(std::stop_token stop)
         Request request;
         {
             std::unique_lock lock(queueMutex_);
-            queueWake_.wait(lock, stop, [this] { return pendingRequest_.has_value(); });
+            queueWake_.wait(lock, stop, [this] { return !pendingRequests_.empty(); });
             if (stop.stop_requested()) return;
-            request = *pendingRequest_;
-            pendingRequest_.reset();
+            request = pendingRequests_.front();
+            pendingRequests_.pop_front();
         }
-        Inspect(request.window, request.processId);
+        InspectImpl(request.window, request.processId,
+            request.sequence, request.eventTickMs);
     }
 }
 
@@ -603,7 +614,7 @@ void WindowsGameIdentitySource::Inspect(HWND foregroundWindow, DWORD processId) 
 {
     try
     {
-        InspectImpl(foregroundWindow, processId);
+        InspectImpl(foregroundWindow, processId, 0, GetTickCount64());
     }
     catch (...)
     {
@@ -611,7 +622,8 @@ void WindowsGameIdentitySource::Inspect(HWND foregroundWindow, DWORD processId) 
     }
 }
 
-void WindowsGameIdentitySource::InspectImpl(HWND foregroundWindow, DWORD processId)
+void WindowsGameIdentitySource::InspectImpl(HWND foregroundWindow, DWORD processId,
+    std::uint64_t sequence, ULONGLONG eventTickMs)
 {
     if (foregroundWindow == lastWindow_ && processId == lastProcessId_)
         return;
@@ -620,8 +632,13 @@ void WindowsGameIdentitySource::InspectImpl(HWND foregroundWindow, DWORD process
     std::wstringstream hwnd;
     hwnd << L"0x" << std::hex << std::uppercase
         << reinterpret_cast<ULONG_PTR>(foregroundWindow);
-    Debug(L"trigger=foreground-change hwnd=" + hwnd.str() +
-        L" pid=" + std::to_wstring(processId));
+    const ULONGLONG processingTickMs = GetTickCount64();
+    Debug(L"trigger=foreground-change seq=" + std::to_wstring(sequence) +
+        L" eventTickMs=" + std::to_wstring(eventTickMs) +
+        L" processingTickMs=" + std::to_wstring(processingTickMs) +
+        L" processingDelayMs=" + std::to_wstring(
+            processingTickMs >= eventTickMs ? processingTickMs - eventTickMs : 0) +
+        L" hwnd=" + hwnd.str() + L" pid=" + std::to_wstring(processId));
     if (foregroundWindow)
     {
         wchar_t title[1024]{};
