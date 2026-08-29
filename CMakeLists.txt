@@ -59,6 +59,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/GameDetection/PresentActivitySource.cpp
     src/ClawHUD/TrayIcon.cpp
     src/ClawHUD/SettingsWindow.cpp
+    src/ClawHUD/SettingsWindowGeometry.cpp
     src/ClawHUD/EcDiagnostic.cpp
     src/ClawHUD/IgclTelemetryDiagnostic.cpp
     src/ClawHUD/EcHelperClient.cpp
@@ -344,6 +345,15 @@ if(BUILD_TESTING)
     target_include_directories(ClawHUD.HudSizeTests PRIVATE src/ClawHUD)
     set_target_properties(ClawHUD.HudSizeTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.HudSizeTests COMMAND ClawHUD.HudSizeTests)
+
+    add_executable(ClawHUD.SettingsWindowGeometryTests
+        tests/SettingsWindowGeometryTests.cpp
+        src/ClawHUD/SettingsWindowGeometry.cpp)
+    target_compile_features(ClawHUD.SettingsWindowGeometryTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.SettingsWindowGeometryTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.SettingsWindowGeometryTests PRIVATE src/ClawHUD)
+    set_target_properties(ClawHUD.SettingsWindowGeometryTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.SettingsWindowGeometryTests COMMAND ClawHUD.SettingsWindowGeometryTests)
 
     add_executable(ClawHUD.UninstallCleanupTests
         tests/UninstallCleanupTests.cpp
