@@ -181,7 +181,8 @@ private:
     void StartProductionPresentMonSampling(bool recoveryStart = false);
     void StopProductionPresentMonSampling(const wchar_t* reason = L"explicit-reset",
         bool clearLatestFps = false);
-    void HandlePresentMonHudUpdate(DWORD processId, std::optional<double> displayedFps);
+    void HandlePresentMonHudUpdate(DWORD processId,
+        const clawhud::PresentMonHudEvent& event);
     void StartGraphicsApiProbe(DWORD processId);
     void StopGraphicsApiProbe();
     bool RequestHudOnUiThread(bool visible, const HudVisibilityState* restore, DWORD timeoutMs);

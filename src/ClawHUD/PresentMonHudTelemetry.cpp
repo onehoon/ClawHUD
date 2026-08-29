@@ -114,6 +114,40 @@ std::optional<double> CalculateDisplayedFpsFromIntervals(
         displayIntervalsMs.size(), elapsedMs / 1000.0);
 }
 
+std::vector<PresentMonHudEvent> PresentMonFrameAccumulator::Observe(
+    const PresentMonFrameSample& frame)
+{
+    std::vector<PresentMonHudEvent> events;
+    if (!std::isfinite(frame.msBetweenDisplayChange) ||
+        frame.msBetweenDisplayChange <= 0.0)
+        return events;
+
+    if (!firstDisplayedFrameEmitted_)
+    {
+        firstDisplayedFrameEmitted_ = true;
+        events.push_back({PresentMonHudEventType::FirstDisplayedFrame,
+            std::nullopt});
+    }
+
+    ++displayedFrameCount_;
+    displayedElapsedMs_ += frame.msBetweenDisplayChange;
+    if (displayedElapsedMs_ < 500.0)
+        return events;
+
+    events.push_back({PresentMonHudEventType::FpsUpdate,
+        CalculateDisplayedFps(displayedFrameCount_, displayedElapsedMs_ / 1000.0)});
+    displayedFrameCount_ = 0;
+    displayedElapsedMs_ = 0.0;
+    return events;
+}
+
+void PresentMonFrameAccumulator::Reset() noexcept
+{
+    firstDisplayedFrameEmitted_ = false;
+    displayedFrameCount_ = 0;
+    displayedElapsedMs_ = 0.0;
+}
+
 PresentMonHudTelemetry::~PresentMonHudTelemetry()
 {
     Stop();
@@ -243,8 +277,7 @@ void PresentMonHudTelemetry::ReadLoop()
 {
     const HANDLE output = output_;
     std::vector<std::string> headers;
-    std::size_t displayedFrameCount{};
-    double displayedElapsedMs{};
+    PresentMonFrameAccumulator accumulator;
     std::string pending;
     auto consumeLine = [&](std::string line)
     {
@@ -273,14 +306,10 @@ void PresentMonHudTelemetry::ReadLoop()
         const auto frame = ParseDisplayedFrame(headers, CsvLine(line));
         if (!frame)
             return;
-        ++displayedFrameCount;
-        displayedElapsedMs += frame->msBetweenDisplayChange;
-        if (displayedElapsedMs < 500.0 || !callback_)
+        if (!callback_)
             return;
-        callback_(CalculateDisplayedFps(
-            displayedFrameCount, displayedElapsedMs / 1000.0));
-        displayedFrameCount = 0;
-        displayedElapsedMs = 0.0;
+        for (const auto& event : accumulator.Observe(*frame))
+            callback_(event);
     };
 
     std::array<char, 8192> buffer{};
@@ -305,6 +334,10 @@ void PresentMonHudTelemetry::ReadLoop()
         }
     }
     if (!stop_ && callback_)
-        callback_(std::nullopt);
+    {
+        const PresentMonHudEvent event{
+            PresentMonHudEventType::StreamEnded, std::nullopt};
+        callback_(event);
+    }
 }
 }
