@@ -21,6 +21,22 @@
 
 namespace clawhud
 {
+std::wstring EscapeWindowsIdentityDiagnosticValue(std::wstring_view value)
+{
+    std::wstring result;
+    result.reserve(value.size());
+    for (const wchar_t character : value)
+    {
+        if (character == L'\\') result += L"\\\\";
+        else if (character == L'\"') result += L"\\\"";
+        else if (character == L'\r') result += L"\\r";
+        else if (character == L'\n') result += L"\\n";
+        else if (character == L'\t') result += L"\\t";
+        else result += character;
+    }
+    return result;
+}
+
 namespace
 {
 std::wstring ErrorCode(DWORD error)
@@ -84,17 +100,9 @@ struct ScopedPropVariant
     ~ScopedPropVariant() { PropVariantClear(&value); }
 };
 
-std::wstring Escape(std::wstring value)
+std::wstring Escape(std::wstring_view value)
 {
-    std::wstring result;
-    for (const wchar_t character : value)
-    {
-        if (character == L'\r') result += L"\\r";
-        else if (character == L'\n') result += L"\\n";
-        else if (character == L'\t') result += L"\\t";
-        else result += character;
-    }
-    return result;
+    return EscapeWindowsIdentityDiagnosticValue(value);
 }
 
 std::wstring RemoveXmlComments(std::wstring_view xml)
@@ -644,7 +652,7 @@ void WindowsGameIdentitySource::InspectImpl(HWND foregroundWindow, DWORD process
                     std::to_wstring(packageId->version.Revision) +
                     L" architecture=" + std::to_wstring(packageId->processorArchitecture) +
                     L" name=\"" + Escape(packageId->name ? packageId->name : L"") +
-                    L" publisher=\"" + Escape(packageId->publisher ? packageId->publisher : L"") +
+                    L"\" publisher=\"" + Escape(packageId->publisher ? packageId->publisher : L"") +
                     L"\" publisherId=\"" + Escape(packageId->publisherId ? packageId->publisherId : L"") +
                     L"\" resourceId=\"" + Escape(packageId->resourceId ? packageId->resourceId : L"") +
                     L"\"");

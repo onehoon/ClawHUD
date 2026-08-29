@@ -28,6 +28,7 @@ struct MicrosoftGameConfigSnapshot
 };
 
 MicrosoftGameConfigSnapshot ParseMicrosoftGameConfig(std::wstring_view xml);
+std::wstring EscapeWindowsIdentityDiagnosticValue(std::wstring_view value);
 bool WindowsExecutableNamesMatch(std::wstring_view left, std::wstring_view right) noexcept;
 std::wstring PackageMetadataCacheKey(std::wstring_view packageFullName);
 

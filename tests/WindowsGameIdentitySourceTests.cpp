@@ -56,6 +56,8 @@ int main()
         !WindowsExecutableNamesMatch(L"game.exe", L"launcher.exe") &&
         !WindowsExecutableNamesMatch(L"", L"game.exe"),
         "executable matching is case insensitive and basename based");
+    check(EscapeWindowsIdentityDiagnosticValue(L"a\\b\"c\r\n\t") ==
+        L"a\\\\b\\\"c\\r\\n\\t", "diagnostic values escape quoted fields");
     check(PackageMetadataCacheKey(L"Game_1.0_x64") !=
         PackageMetadataCacheKey(L"Game_1.1_x64"),
         "package cache key preserves package full name version");
