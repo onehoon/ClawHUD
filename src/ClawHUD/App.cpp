@@ -1352,6 +1352,8 @@ void App::HandleGameRenderVerifierEvent(
             ReleaseCommittedProductionTarget(L"game-exited");
         else
             ReleaseProductionGameCandidate(L"game-exited");
+        if (mockHudEnabled_ && !DiagnosticRunning() && !suspended_)
+            ReevaluateProductionGameDetection();
         return;
     }
 
@@ -1429,8 +1431,9 @@ void App::HandleProductionForegroundChanged(HWND window, DWORD processId)
             if (graphicsApiProcessId_ != context.candidateProcessId)
                 StartGraphicsApiProbe(context.candidateProcessId);
             StartProductionPresentMonSampling();
+            return;
         }
-        return;
+        ReleaseCommittedProductionTarget(L"game-exited");
     }
     if (context.state == clawhud::GameDetectionState::Ready)
         return;
@@ -1443,10 +1446,18 @@ void App::HandleProductionForegroundChanged(HWND window, DWORD processId)
 void App::HandleMicrosoftGameEvidence(
     const clawhud::MicrosoftGameTriggerEvidence& evidence)
 {
-    if (clawhud::ShouldConsiderForegroundProductionTarget(
+    if (!clawhud::ShouldConsiderForegroundProductionTarget(
         mockHudEnabled_, DiagnosticRunning(), suspended_))
-        ApplyProductionEvidence(clawhud::GameDetectionTrigger::MicrosoftGameIdentity,
-            evidence.window, evidence.processId);
+        return;
+    if (!ProcessAlive(evidence.processId))
+    {
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
+            L"[GameDetection] stale MicrosoftGame evidence ignored pid=" +
+            std::to_wstring(evidence.processId));
+        return;
+    }
+    ApplyProductionEvidence(clawhud::GameDetectionTrigger::MicrosoftGameIdentity,
+        evidence.window, evidence.processId);
 }
 
 void App::ApplyProductionEvidence(clawhud::GameDetectionTrigger trigger,

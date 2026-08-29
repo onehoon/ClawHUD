@@ -96,6 +96,10 @@ int main()
         clawhud::GameDetectionTrigger::GenericForeground, 200) ==
         clawhud::CandidateDisposition::Ignore,
         "MicrosoftGame candidate rejects a different generic PID");
+    ok &= Check(clawhud::DecideCandidateDisposition(microsoftA.Context(),
+        clawhud::GameDetectionTrigger::MicrosoftGameIdentity, 200) ==
+        clawhud::CandidateDisposition::Ignore,
+        "MicrosoftGame candidate rejects a different MicrosoftGame PID");
     ok &= Check(clawhud::DecideCandidateDisposition(genericA.Context(),
         clawhud::GameDetectionTrigger::MicrosoftGameIdentity, 200) ==
         clawhud::CandidateDisposition::Replace,

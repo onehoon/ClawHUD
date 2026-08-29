@@ -18,13 +18,11 @@ CandidateDisposition DecideCandidateDisposition(
         return CandidateDisposition::Ignore;
     if (context.candidateProcessId == 0)
         return CandidateDisposition::Replace;
-    if (context.evidence.microsoftGameIdentity &&
-        incomingTrigger == GameDetectionTrigger::GenericForeground)
+    if (context.evidence.microsoftGameIdentity)
         return CandidateDisposition::Ignore;
     if (context.state == GameDetectionState::Verifying &&
         (incomingTrigger == GameDetectionTrigger::MicrosoftGameIdentity ||
-            (incomingTrigger == GameDetectionTrigger::GenericForeground &&
-                !context.evidence.microsoftGameIdentity)))
+            incomingTrigger == GameDetectionTrigger::GenericForeground))
         return CandidateDisposition::Replace;
     return CandidateDisposition::Ignore;
 }
