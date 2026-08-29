@@ -4,9 +4,7 @@
 
 #include "App.h"
 #include "HudSize.h"
-#include "Version.h"
 #include "resource.h"
-
 #include <commctrl.h>
 #include <dwmapi.h>
 #include <windowsx.h>
@@ -17,47 +15,30 @@ namespace
 {
 namespace settings_internal = clawhud::settings::internal;
 using settings_internal::ConfigureVerticalPan;
-using settings_internal::EnableMouseWheelForwarding;
-using settings_internal::EnableStaticPanForwarding;
-using settings_internal::ForwardPanelNotifications;
-using settings_internal::ForwardPanGesture;
-using settings_internal::MoveControl;
-using settings_internal::kAboutDescription;
-using settings_internal::kAboutHowToUse;
-using settings_internal::kAboutInstructions;
 using settings_internal::kAboutTitle;
-using settings_internal::kAboutVersion;
+using settings_internal::kAboutHowToUse;
 using settings_internal::kAlignmentCenter;
-using settings_internal::kAlignmentLabel;
 using settings_internal::kAlignmentLeft;
 using settings_internal::kAlignmentRight;
 using settings_internal::kBackgroundContent;
 using settings_internal::kBackgroundFull;
-using settings_internal::kBackgroundWidthLabel;
 using settings_internal::kDebugLoggingToggle;
 using settings_internal::kDefaultWindowHeightDip;
 using settings_internal::kDefaultWindowWidthDip;
-using settings_internal::kDiagnosticsEcDescription;
 using settings_internal::kDiagnosticsEcHeading;
-using settings_internal::kDiagnosticsIgclDescription;
 using settings_internal::kDiagnosticsIgclHeading;
-using settings_internal::kDiagnosticsVrrDescription;
 using settings_internal::kDiagnosticsVrrHeading;
 using settings_internal::kEnableHud;
-using settings_internal::kFontLabel;
 using settings_internal::kFontSegoeUiVariable;
 using settings_internal::kFontUnispace;
 using settings_internal::kGeneralHeading;
 using settings_internal::kHudHeading;
-using settings_internal::kHudSizeLabel;
 using settings_internal::kHudSizeMinus;
 using settings_internal::kHudSizePlus;
 using settings_internal::kIntelVrrToggle;
 using settings_internal::kMinimumWindowHeightDip;
 using settings_internal::kMinimumWindowWidthDip;
 using settings_internal::kOpenLogs;
-using settings_internal::kOpacityLabel;
-using settings_internal::kOpacitySlider;
 using settings_internal::kSettingsClassName;
 using settings_internal::kStartEc;
 using settings_internal::kStartIgcl;
@@ -69,11 +50,9 @@ using settings_internal::kTabCount;
 using settings_internal::kTabDiagnostics;
 using settings_internal::kTabSettings;
 using settings_internal::kTabTweaks;
-using settings_internal::kTweaksDescription;
 using settings_internal::kTweaksHeading;
 using settings_internal::kVisibilityAlways;
 using settings_internal::kVisibilityInGameOnly;
-using settings_internal::kVisibilityLabel;
 using settings_internal::kWheelStep;
 }
 
@@ -345,29 +324,6 @@ void SettingsWindow::CreateTabs()
     UpdateHudControls();
 }
 
-void SettingsWindow::CreateAboutControls()
-{
-    aboutPanel_ = CreateWindowExW(WS_EX_CONTROLPARENT, L"STATIC", L"",
-        WS_CHILD | WS_CLIPCHILDREN, 0, 0, 0, 0,
-        window_, nullptr, instance_, nullptr);
-    aboutIcon_ = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_ICON,
-        0, 0, 0, 0, aboutPanel_, nullptr, instance_, nullptr);
-    SendMessageW(aboutIcon_, STM_SETIMAGE, IMAGE_ICON,
-        reinterpret_cast<LPARAM>(LoadIconW(instance_, MAKEINTRESOURCEW(IDI_CLAWHUD))));
-    CreateWindowW(L"STATIC", L"ClawHUD", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
-        aboutPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAboutTitle)), instance_, nullptr);
-    CreateWindowW(L"STATIC", L"Lightweight performance HUD for MSI Claw", WS_CHILD | WS_VISIBLE,
-        0, 0, 0, 0, aboutPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAboutDescription)), instance_, nullptr);
-    CreateWindowW(L"STATIC", L"Version: " CLAWHUD_VERSION, WS_CHILD | WS_VISIBLE,
-        0, 0, 0, 0, aboutPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAboutVersion)), instance_, nullptr);
-    CreateWindowW(L"STATIC", L"How to use", WS_CHILD | WS_VISIBLE,
-        0, 0, 0, 0, aboutPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAboutHowToUse)), instance_, nullptr);
-    CreateWindowW(L"STATIC", L"ClawHUD runs from the system tray.\r\nConfigure HUD behavior from the Settings tab.\r\nF8 toggles HUD visibility.",
-        WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, aboutPanel_,
-        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAboutInstructions)), instance_, nullptr);
-    EnableStaticPanForwarding(aboutPanel_);
-}
-
 void SettingsWindow::Layout()
 {
     if (!window_) return;
@@ -392,26 +348,6 @@ void SettingsWindow::Layout()
         MoveWindow(diagnosticsPanel_, panelX, panelY, panelWidth, panelHeight, TRUE);
     ClampScrollOffsets();
     ApplyScrollPosition();
-}
-
-void SettingsWindow::LayoutAbout()
-{
-    if (!aboutPanel_) return;
-    const int x = Scale(24);
-    const int scrollY = Scale(aboutScrollY_);
-    MoveWindow(aboutIcon_, x, Scale(12) - scrollY, Scale(48), Scale(48), TRUE);
-    RECT panelRect{};
-    GetClientRect(aboutPanel_, &panelRect);
-    const int titleX = Scale(88);
-    const int textWidthFromTitle = std::max(0,
-        static_cast<int>(panelRect.right) - titleX - Scale(24));
-    const int contentWidth = std::max(0,
-        static_cast<int>(panelRect.right) - x - Scale(24));
-    MoveControl(aboutPanel_, kAboutTitle, titleX, Scale(8) - scrollY, textWidthFromTitle, Scale(28));
-    MoveControl(aboutPanel_, kAboutDescription, titleX, Scale(40) - scrollY, textWidthFromTitle, Scale(24));
-    MoveControl(aboutPanel_, kAboutVersion, Scale(88), Scale(68) - scrollY, Scale(300), Scale(24));
-    MoveControl(aboutPanel_, kAboutHowToUse, x, Scale(122) - scrollY, Scale(400), Scale(28));
-    MoveControl(aboutPanel_, kAboutInstructions, x, Scale(156) - scrollY, contentWidth, Scale(84));
 }
 
 void SettingsWindow::ShowTab(int index)
