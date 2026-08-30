@@ -3,6 +3,7 @@
 #include "GameDetection/GenericForegroundTrigger.h"
 #include "GameDetection/MicrosoftGameTrigger.h"
 #include "GameDetection/SteamRunningAppTrigger.h"
+#include "GameDetection/ProductionGameWindowSource.h"
 #include "ProductionTargetPolicy.h"
 
 #include <iostream>
@@ -216,6 +217,96 @@ bool SteamCandidateExitScenario()
         "candidate exit preserves Steam session");
 }
 
+bool SteamWindowCandidateScenario(ProductionWindowEventType eventType)
+{
+    GameDetectionCoordinator coordinator;
+    coordinator.ObserveWake({GameDetectionTrigger::SteamRunningAppId, 0,
+        nullptr, 1868140, false});
+    const ProductionWindowEvent event{
+        1, eventType, reinterpret_cast<HWND>(0x1234), 8856, 0,
+        reinterpret_cast<HWND>(0x1234), true, 0, 0};
+    const auto transition = coordinator.ObserveWake({
+        GameDetectionTrigger::SteamRunningAppId, event.processId,
+        event.window, coordinator.Context().steamAppId, false});
+    return Check(transition.transition == GameDetectionTransition::CandidateStarted &&
+        coordinator.Context().state == GameDetectionState::Verifying &&
+        coordinator.Context().candidateProcessId == event.processId &&
+        coordinator.Context().steamAppId == 1868140 &&
+        coordinator.Context().evidence.steamSession &&
+        !coordinator.Context().evidence.genericForeground &&
+        coordinator.Context().generation != 0,
+        eventType == ProductionWindowEventType::Create
+            ? "Steam Armed CREATE seeds a Steam candidate"
+            : "Steam Armed SHOW seeds a Steam candidate");
+}
+
+bool SteamWindowCandidateProtectionScenario()
+{
+    GameDetectionCoordinator coordinator;
+    coordinator.ObserveWake({GameDetectionTrigger::SteamRunningAppId, 0,
+        nullptr, 1868140, false});
+    coordinator.ObserveWake({GameDetectionTrigger::SteamRunningAppId, 100,
+        reinterpret_cast<HWND>(0x100), 1868140, false});
+    const auto generation = coordinator.Context().generation;
+    coordinator.ObserveWake({GameDetectionTrigger::SteamRunningAppId, 200,
+        reinterpret_cast<HWND>(0x200), 1868140, false});
+    const bool verifyingProtected = coordinator.Context().candidateProcessId == 100 &&
+        coordinator.Context().generation == generation;
+    coordinator.MarkRendererReady(100, generation);
+    coordinator.ObserveWake({GameDetectionTrigger::SteamRunningAppId, 200,
+        reinterpret_cast<HWND>(0x200), 1868140, false});
+    const bool readyProtected = coordinator.Context().candidateProcessId == 100;
+    coordinator.CommitCandidate(100, generation);
+    coordinator.ObserveWake({GameDetectionTrigger::SteamRunningAppId, 200,
+        reinterpret_cast<HWND>(0x200), 1868140, false});
+    return Check(verifyingProtected && readyProtected &&
+        coordinator.Context().candidateProcessId == 100 &&
+        coordinator.Context().state == GameDetectionState::Committed,
+        "Steam window discovery never replaces an active candidate");
+}
+
+bool SteamWindowGenericMergeScenario()
+{
+    GameDetectionCoordinator coordinator;
+    coordinator.ObserveWake({GameDetectionTrigger::SteamRunningAppId, 0,
+        nullptr, 1868140, false});
+    coordinator.ObserveWake({GameDetectionTrigger::SteamRunningAppId, 8856,
+        reinterpret_cast<HWND>(0x1234), 1868140, false});
+    const auto generation = coordinator.Context().generation;
+    GenericForegroundTrigger::ApplyEvidence(coordinator,
+        {reinterpret_cast<HWND>(0x1234), 8856});
+    return Check(coordinator.Context().generation == generation &&
+        coordinator.Context().evidence.steamSession &&
+        coordinator.Context().evidence.genericForeground,
+        "same-PID Generic evidence merges with Steam candidate");
+}
+
+bool SteamSessionArmRequiresAppIdScenario()
+{
+    GameDetectionCoordinator coordinator;
+    const auto transition = coordinator.ObserveWake({
+        GameDetectionTrigger::SteamRunningAppId, 0, nullptr, 0, false});
+    return Check(transition.transition == GameDetectionTransition::None &&
+        coordinator.Context().state == GameDetectionState::Idle &&
+        coordinator.Context().candidateProcessId == 0,
+        "Steam session arming requires a nonzero AppID");
+}
+
+bool SteamWindowAdmissionRegressionScenario()
+{
+    return Check(IsRejectedProductionTargetImage(L"steam.exe") &&
+        IsRejectedProductionTargetImage(L"steamwebhelper.exe") &&
+        IsRejectedProductionTargetImage(L"steamservice.exe") &&
+        IsRejectedProductionTargetImage(L"gameoverlayui.exe") &&
+        IsRejectedProductionTargetImage(L"steaminputaddonforclaw.ui.exe") &&
+        IsRejectedProductionTargetImage(L"msi center m.exe") &&
+        IsRejectedProductionTargetImage(L"mcmosdinfo.exe") &&
+        IsRejectedProductionTargetImage(L"xboxpcapp.exe") &&
+        IsRejectedProductionTargetImage(L"chrome.exe") &&
+        IsRejectedProductionTargetImage(L"msedge.exe"),
+        "central admission rejects representative infrastructure targets");
+}
+
 bool MergeScenario()
 {
     GameDetectionCoordinator coordinator;
@@ -318,6 +409,12 @@ int main()
     ok &= ReadyProtectionScenario();
     ok &= ClearScenario();
     ok &= SteamCandidateExitScenario();
+    ok &= SteamWindowCandidateScenario(ProductionWindowEventType::Create);
+    ok &= SteamWindowCandidateScenario(ProductionWindowEventType::Show);
+    ok &= SteamWindowCandidateProtectionScenario();
+    ok &= SteamWindowGenericMergeScenario();
+    ok &= SteamSessionArmRequiresAppIdScenario();
+    ok &= SteamWindowAdmissionRegressionScenario();
     ok &= MergeScenario();
     ok &= SamePidUpdatePreservesStateScenario();
     ok &= RendererSignalScenario();
