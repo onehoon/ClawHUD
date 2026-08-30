@@ -345,11 +345,12 @@ int App::Run()
                 hudOptions_.visibilityMode == clawhud::HudVisibilityMode::Always)
             {
                 // Foreground PID changed: the previous PID's FPS is invalid
-                // immediately, never leaking across the target change. Always
-                // mode keeps the FPS segment as "0FPS" until the new PID has a
-                // result, so no extra render is needed here; the normal
-                // visibility/sampling path performs the HUD update.
+                // immediately, never leaking across the target change, and the
+                // same-PID stale hold must not carry it either. No extra render
+                // here; the normal visibility/sampling path performs the HUD
+                // update.
                 latestProcessFps_.reset();
+                fpsStaleHold_.Reset();
                 Log(L"[PresentMonFPS] mode=Always foregroundPid=" +
                     std::to_wstring(processId) + L" fps-invalidated");
             }
@@ -1130,8 +1131,6 @@ void App::RenderProductionHud(bool allowHidden)
     snapshot.fan2Rpm = ecHudTelemetry_.fan2Rpm;
     snapshot.graphicsApi = latestGraphicsApi_;
     snapshot.presentMonDisplayedFps = latestProcessFps_;
-    snapshot.showUnavailableFpsAsZero =
-        hudOptions_.visibilityMode == clawhud::HudVisibilityMode::Always;
     snapshot.cpuUsagePercent = latestCpuUsagePercent_;
     snapshot.systemMemoryUsedBytes = latestSystemMemoryUsedBytes_;
     snapshot.gpuMemoryUsedBytes = latestGpuMemoryUsedBytes_;
@@ -1251,28 +1250,39 @@ void App::SampleProductionFpsTelemetry()
     const DWORD processId = clawhud::ResolveProductionFpsTargetPid(
         hudOptions_.visibilityMode, alwaysFpsTarget_.TargetProcessId(),
         committed ? context.candidateProcessId : 0);
+    const auto now = GetTickCount64();
     if (!processId)
     {
         if (latestProcessFps_)
             Log(L"[PresentMonFPS] target-cleared");
         latestProcessFps_.reset();
+        fpsStaleHold_.Reset();
         presentMonTelemetryProvider_.ReadProcess(0);
         return;
     }
     const auto snapshot = presentMonTelemetryProvider_.ReadProcess(processId);
+    const std::optional<double> freshFps =
+        snapshot ? snapshot->displayedFps : std::nullopt;
+    std::optional<double> targetFps;
     if (alwaysMode)
     {
         // Reject a result that no longer belongs to the current foreground PID
         // and never fall back to a background/committed PID.
-        alwaysFpsTarget_.AcceptSample(
-            processId, snapshot ? snapshot->displayedFps : std::nullopt);
-        latestProcessFps_ = alwaysFpsTarget_.DisplayedFps();
+        alwaysFpsTarget_.AcceptSample(processId, freshFps);
+        targetFps = alwaysFpsTarget_.DisplayedFps();
     }
     else
     {
-        latestProcessFps_ = snapshot ? snapshot->displayedFps : std::nullopt;
+        targetFps = freshFps;
     }
-    const auto now = GetTickCount64();
+    // Retain the last valid FPS across brief same-PID misses; PID changes and
+    // holds older than 2 s are discarded inside the stale hold.
+    const bool wasHeld = latestProcessFps_ && !targetFps;
+    latestProcessFps_ = fpsStaleHold_.Observe(processId, targetFps, now);
+    if (wasHeld && !latestProcessFps_)
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
+            L"[PresentMonFPS] pid=" + std::to_wstring(processId) +
+            L" stale-expired");
     if (now - lastFpsCompareLogTick_ >= 1000)
     {
         lastFpsCompareLogTick_ = now;
@@ -1331,6 +1341,7 @@ void App::StopProductionFpsSampling(bool clearTarget)
     {
         (void)presentMonTelemetryProvider_.ReadProcess(0);
         latestProcessFps_.reset();
+        fpsStaleHold_.Reset();
     }
 }
 
@@ -2045,6 +2056,7 @@ void App::SetHudVisibilityMode(clawhud::HudVisibilityMode mode)
         // destroys the shared PresentMon API2 provider path.
         alwaysFpsTarget_.Release();
         latestProcessFps_.reset();
+        fpsStaleHold_.Reset();
         if (mode == clawhud::HudVisibilityMode::Always)
         {
             // Adopt the currently known foreground PID immediately instead of

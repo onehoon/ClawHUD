@@ -64,11 +64,7 @@ int main()
     ok &= Check(JoinHudRuns(FormatHud(MakeGameAcSample())) ==
         L"60FPS | CPU 36% 67\u00B0C | GPU 98% | TDP 18W | FAN 3540RPM | BAT 72%", "game AC formatting");
     ok &= Check(JoinHudRuns(FormatHud(MakeNoGameAlwaysSample())) ==
-        L"0FPS | CPU 36% 67\u00B0C | GPU 98% | TDP 18W | FAN 3540RPM | BAT 72% 2.5h",
-        "Always no-game formatting keeps a 0FPS segment");
-    ok &= Check(JoinHudRuns(FormatHud(MakeNoGameInGameOnlySample())) ==
-        L"CPU 36% 67\u00B0C | GPU 98% | TDP 18W | FAN 3540RPM | BAT 72% 2.5h",
-        "In-Game Only no-game formatting omits the FPS segment");
+        L"CPU 36% 67\u00B0C | GPU 98% | TDP 18W | FAN 3540RPM | BAT 72% 2.5h", "no-game formatting");
     HudTelemetrySnapshot globalTelemetry{};
     globalTelemetry.cpuUsagePercent = 13.0;
     globalTelemetry.gpuUsagePercent = 15.0;
@@ -146,43 +142,23 @@ int main()
         "GPU metrics omitted when unavailable");
     ok &= Check(FormatHud(HudTelemetrySnapshot{}).empty(), "empty snapshot omitted");
 
-    // Always-mode unavailable-FPS presentation policy.
-    HudTelemetrySnapshot alwaysUnavailable{};
-    alwaysUnavailable.showUnavailableFpsAsZero = true;
-    alwaysUnavailable.presentMonDisplayedFps = std::nullopt;
-    auto alwaysUnavailableRuns = FormatHud(alwaysUnavailable);
-    ok &= Check(alwaysUnavailableRuns.size() == 1 &&
-        alwaysUnavailableRuns[0].kind == HudSegmentKind::Graphics &&
-        alwaysUnavailableRuns[0].value == L"0FPS",
-        "Always mode renders 0FPS when PresentMon FPS is unavailable");
+    // FPS presentation: a value shows an FPS segment, no value shows none.
+    // There is no synthetic "0FPS" fallback.
+    HudTelemetrySnapshot fpsAvailable{};
+    fpsAvailable.presentMonDisplayedFps = 98.7;
+    auto fpsAvailableRuns = FormatHud(fpsAvailable);
+    ok &= Check(fpsAvailableRuns.size() == 1 &&
+        fpsAvailableRuns[0].kind == HudSegmentKind::Graphics &&
+        fpsAvailableRuns[0].value == L"99FPS",
+        "available FPS renders a single Graphics segment");
 
-    HudTelemetrySnapshot alwaysValid{};
-    alwaysValid.showUnavailableFpsAsZero = true;
-    alwaysValid.presentMonDisplayedFps = 98.7;
-    auto alwaysValidRuns = FormatHud(alwaysValid);
-    ok &= Check(alwaysValidRuns.size() == 1 &&
-        alwaysValidRuns[0].value == L"99FPS",
-        "Always mode still shows the measured FPS when available");
-
-    HudTelemetrySnapshot nonAlwaysUnavailable{};
-    nonAlwaysUnavailable.showUnavailableFpsAsZero = false;
-    nonAlwaysUnavailable.presentMonDisplayedFps = std::nullopt;
-    ok &= Check(FormatHud(nonAlwaysUnavailable).empty(),
-        "non-Always mode still omits the FPS segment when unavailable");
-
-    // The FPS slot width is reserved from the "999FPS" exemplar, so the glyph
-    // count of the value must not vary the segment kind/label across 0/99/144.
-    for (const double value : {0.0, 99.0, 144.0})
-    {
-        HudTelemetrySnapshot slot{};
-        slot.showUnavailableFpsAsZero = true;
-        slot.presentMonDisplayedFps = value == 0.0 ? std::nullopt
-            : std::optional<double>(value);
-        const auto runs = FormatHud(slot);
-        ok &= Check(runs.size() == 1 && runs[0].kind == HudSegmentKind::Graphics &&
-            runs[0].label.empty(),
-            "FPS segment stays a single unlabeled Graphics run regardless of value");
-    }
+    HudTelemetrySnapshot fpsUnavailable{};
+    fpsUnavailable.presentMonDisplayedFps = std::nullopt;
+    fpsUnavailable.cpuUsagePercent = 20.0;
+    const auto fpsUnavailableText = JoinHudRuns(FormatHud(fpsUnavailable));
+    ok &= Check(fpsUnavailableText == L"CPU 20%" &&
+        fpsUnavailableText.find(L"FPS") == std::wstring::npos,
+        "unavailable FPS omits the segment entirely (no 0FPS fallback)");
 
     HudTelemetrySnapshot displayed{};
     displayed.presentMonDisplayedFps = 120.0;

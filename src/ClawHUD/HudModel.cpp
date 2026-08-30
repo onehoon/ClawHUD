@@ -145,10 +145,6 @@ std::vector<HudTextRun> FormatHud(const HudTelemetrySnapshot& snapshot)
         Add(runs, HudSegmentKind::Graphics,
             L"",
             Integer(*fps) + L"FPS");
-    else if (snapshot.showUnavailableFpsAsZero)
-        Add(runs, HudSegmentKind::Graphics,
-            L"",
-            L"0FPS");
 
     const auto cpu = CpuValue(snapshot);
     if (!cpu.empty())
@@ -237,14 +233,12 @@ HudTelemetrySnapshot MakeNoGameAlwaysSample()
     sample.graphicsApi.reset();
     sample.renderFps.reset();
     sample.foregroundGameActive = false;
-    sample.showUnavailableFpsAsZero = true;
     return sample;
 }
 
 HudTelemetrySnapshot MakeNoGameInGameOnlySample()
 {
     auto sample = MakeNoGameAlwaysSample();
-    sample.showUnavailableFpsAsZero = false;
     return sample;
 }
 }
