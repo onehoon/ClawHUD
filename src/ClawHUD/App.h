@@ -30,6 +30,7 @@
 #include "EcHelperClient.h"
 #include "MsiEcHudTelemetry.h"
 #include "WindowsPowerTelemetry.h"
+#include "BatteryRuntimeEstimator.h"
 #include "WindowsUsageTelemetry.h"
 #include "SteamRunningAppIdSource.h"
 #include "IgclGpuTelemetry.h"
@@ -241,6 +242,7 @@ private:
     DWORD presentMonRestartPid_{};
     unsigned presentMonRestartAttempts_{};
     std::optional<clawhud::WindowsPowerTelemetry> latestPowerTelemetry_;
+    clawhud::BatteryRuntimeEstimator batteryRuntimeEstimator_;
     clawhud::WindowsUsageSampler usageSampler_;
     std::optional<clawhud::WindowsUsageTelemetry> latestUsageTelemetry_;
     clawhud::IgclGpuTelemetrySampler igclGpuSampler_;

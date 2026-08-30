@@ -97,6 +97,19 @@ std::optional<WindowsPowerTelemetry> ReadWindowsPowerTelemetry()
 
     if (!gpsCallOk)
         return std::nullopt;
-    return DecodeWindowsPowerStatus(status);
+    auto result = DecodeWindowsPowerStatus(status);
+    if (result && sbsStatus >= 0 && batteryState.BatteryPresent &&
+        batteryState.RemainingCapacity != ULONG(-1))
+    {
+        result->remainingCapacityMWh = batteryState.RemainingCapacity;
+    }
+    return result;
+}
+
+std::optional<int> SelectRemainingMinutes(
+    const WindowsPowerTelemetry& telemetry,
+    std::optional<int> estimatedMinutes)
+{
+    return telemetry.remainingMinutes ? telemetry.remainingMinutes : estimatedMinutes;
 }
 }
