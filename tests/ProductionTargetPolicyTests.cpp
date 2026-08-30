@@ -63,6 +63,14 @@ int main()
         clawhud::IsRejectedProductionTargetImage(L"steamerrorreporter.exe") &&
         clawhud::IsRejectedProductionTargetImage(L"steamerrorreporter64.exe"),
         "Steam service, overlay, and error reporters are not production targets");
+    ok &= Check(clawhud::IsRejectedProductionTargetImage(L"xboxpcapp.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"xboxpctray.exe") &&
+        clawhud::IsRejectedProductionTargetImage(
+            L"xboxgamebarwidgets.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"gamingservicesnet.exe"),
+        "Xbox and Gaming Services infrastructure are not production targets");
+    ok &= Check(!clawhud::IsRejectedProductionTargetImage(L"msedgewebview2.exe"),
+        "shared WebView2 runtime is not globally rejected");
     ok &= Check(clawhud::IsEligibleProductionTargetImage(L"game.exe") &&
         clawhud::IsEligibleProductionTargetImage(L"C:\\Games\\DaveTheDiver.EXE") &&
         clawhud::IsEligibleProductionTargetImage(
