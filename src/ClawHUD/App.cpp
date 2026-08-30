@@ -1110,27 +1110,30 @@ void App::SampleProductionTelemetry()
         }
     }
 
-    if (!igclGpuSampler_.Initialized() && !igclGpuSampler_.InitializationAttempted())
+    if (!igclGpuSampler_.Initialized() &&
+        !igclGpuSampler_.InitializationAttempted())
     {
         if (!igclGpuSampler_.Initialize())
         {
             latestIgclGpuTelemetry_.reset();
             igclGpuUsageMissingCount_ = 0;
             igclGpuClockMissingCount_ = 0;
-            if (++igclInitializationFailureCount_ >=
-                kIgclUnavailableFailureThreshold)
-            {
-                igclGpuSampler_.Reset();
-                igclInitializationFailureCount_ = 0;
-                clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info,
-                    L"IGCL initialization retry re-armed");
-            }
+            igclInitializationFailureCount_ = 0;
         }
         else
         {
             igclInitializationFailureCount_ = 0;
             igclTelemetryAvailable_ = true;
         }
+    }
+    else if (!igclGpuSampler_.Initialized() &&
+        igclGpuSampler_.InitializationAttempted() &&
+        ++igclInitializationFailureCount_ >= kIgclUnavailableFailureThreshold)
+    {
+        igclGpuSampler_.Reset();
+        igclInitializationFailureCount_ = 0;
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info,
+            L"IGCL initialization retry re-armed");
     }
     if (igclGpuSampler_.Initialized())
     {
