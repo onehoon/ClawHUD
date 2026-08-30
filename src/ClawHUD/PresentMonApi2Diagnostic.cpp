@@ -1,5 +1,5 @@
 #include "PresentMonApi2Diagnostic.h"
-#include "PresentMonApi2Api.h"
+#include "PresentMonApi2Client.h"
 
 #include "RuntimeLogger.h"
 
@@ -19,29 +19,8 @@ namespace clawhud
 {
 namespace
 {
-using Session = PM_SESSION_HANDLE;
 using DynamicQuery = PM_DYNAMIC_QUERY_HANDLE;
 using FrameQuery = PM_FRAME_QUERY_HANDLE;
-
-using GetVersion = PM_STATUS(__cdecl*)(PM_VERSION*);
-using OpenSession = PM_STATUS(__cdecl*)(Session*);
-using CloseSession = PM_STATUS(__cdecl*)(Session);
-using StartTracking = PM_STATUS(__cdecl*)(Session, std::uint32_t);
-using StopTracking = PM_STATUS(__cdecl*)(Session, std::uint32_t);
-using GetRoot = PM_STATUS(__cdecl*)(Session, const PM_INTROSPECTION_ROOT**);
-using FreeRoot = PM_STATUS(__cdecl*)(const PM_INTROSPECTION_ROOT*);
-using SetPeriod = PM_STATUS(__cdecl*)(Session, std::uint32_t, std::uint32_t);
-using SetFlush = PM_STATUS(__cdecl*)(Session, std::uint32_t);
-using FlushFrames = PM_STATUS(__cdecl*)(Session, std::uint32_t);
-using RegisterDynamic = PM_STATUS(__cdecl*)(Session, DynamicQuery*, PM_QUERY_ELEMENT*,
-    std::uint64_t, double, double);
-using FreeDynamic = PM_STATUS(__cdecl*)(DynamicQuery);
-using PollDynamic = PM_STATUS(__cdecl*)(DynamicQuery, std::uint32_t, std::uint8_t*, std::uint32_t*);
-using PollStatic = PM_STATUS(__cdecl*)(Session, const PM_QUERY_ELEMENT*, std::uint32_t, std::uint8_t*);
-using RegisterFrame = PM_STATUS(__cdecl*)(Session, FrameQuery*, PM_QUERY_ELEMENT*,
-    std::uint64_t, std::uint32_t*);
-using ConsumeFrames = PM_STATUS(__cdecl*)(FrameQuery, std::uint32_t, std::uint8_t*, std::uint32_t*);
-using FreeFrame = PM_STATUS(__cdecl*)(FrameQuery);
 
 const char* StatusName(PM_STATUS status) noexcept
 {
@@ -128,14 +107,6 @@ std::wstring Stamp()
     return text;
 }
 
-std::filesystem::path FindPresentMonApi2Loader()
-{
-    wchar_t modulePath[MAX_PATH]{};
-    const DWORD moduleChars = GetModuleFileNameW(nullptr, modulePath, MAX_PATH);
-    if (moduleChars != 0 && moduleChars < MAX_PATH)
-        return Api2AppLocalLoaderPath(modulePath);
-    return {};
-}
 std::string Narrow(const std::wstring& value)
 {
     if (value.empty()) return {};
@@ -193,11 +164,6 @@ const wchar_t* ServiceState()
     if (!queried) return L"QUERY_FAILED";
     return status.dwCurrentState == SERVICE_RUNNING ? L"RUNNING" : L"NOT_RUNNING";
 }
-template<class F> auto Proc(HMODULE module, const char* name)
-{
-    return reinterpret_cast<F>(GetProcAddress(module, name));
-}
-
 struct QueryRecord
 {
     PM_QUERY_ELEMENT element{};
@@ -382,14 +348,6 @@ std::filesystem::path Api2DiagnosticOutputPath(const std::filesystem::path& dire
     const std::wstring& timestamp, const wchar_t* suffix)
 { return Output(directory, timestamp, suffix); }
 
-std::filesystem::path Api2AppLocalLoaderPath(
-    const std::filesystem::path& modulePath)
-{
-    if (modulePath.empty()) return {};
-    const auto loader = modulePath.parent_path() / L"PresentMonAPI2Loader.dll";
-    return std::filesystem::exists(loader) ? loader : std::filesystem::path{};
-}
-
 PresentMonApi2Diagnostic::~PresentMonApi2Diagnostic()
 {
     Stop();
@@ -448,49 +406,33 @@ void PresentMonApi2Diagnostic::Run()
     for (int i = 0; i < 50 && !stop_; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(100));
     if (stop_) { log << "cancelled=true\n"; running_ = false; complete(false); return; }
 
-    const auto loaderPath = FindPresentMonApi2Loader();
-    SetLastError(ERROR_SUCCESS);
-    HMODULE loader = loaderPath.empty() ? nullptr : LoadLibraryExW(
-        loaderPath.c_str(), nullptr,
-        LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
-    log << "loader_path=" << Narrow(loaderPath.wstring())
-        << " loader=" << (loader ? "LOADED" : "MISSING")
-        << " error=" << GetLastError() << "\n";
-    if (!loader)
-    { log << "PresentMon API2 runtime not available beside ClawHUD.exe.\nInstall the ClawHUD PresentMon runtime and retry.\n"; Status(L"Runtime unavailable"); running_ = false; complete(false); return; }
-    const auto getVersion = Proc<GetVersion>(loader, "pmGetApiVersion");
-    const auto openSession = Proc<OpenSession>(loader, "pmOpenSession");
-    const auto closeSession = Proc<CloseSession>(loader, "pmCloseSession");
-    const auto startTracking = Proc<StartTracking>(loader, "pmStartTrackingProcess");
-    const auto stopTracking = Proc<StopTracking>(loader, "pmStopTrackingProcess");
-    const auto getRoot = Proc<GetRoot>(loader, "pmGetIntrospectionRoot");
-    const auto freeRoot = Proc<FreeRoot>(loader, "pmFreeIntrospectionRoot");
-    const auto setPeriod = Proc<SetPeriod>(loader, "pmSetTelemetryPollingPeriod");
-    const auto setFlush = Proc<SetFlush>(loader, "pmSetEtwFlushPeriod");
-    const auto flushFrames = Proc<FlushFrames>(loader, "pmFlushFrames");
-    const auto registerDynamic = Proc<RegisterDynamic>(loader, "pmRegisterDynamicQuery");
-    const auto freeDynamic = Proc<FreeDynamic>(loader, "pmFreeDynamicQuery");
-    const auto pollDynamic = Proc<PollDynamic>(loader, "pmPollDynamicQuery");
-    const auto pollStatic = Proc<PollStatic>(loader, "pmPollStaticQuery");
-    const auto registerFrame = Proc<RegisterFrame>(loader, "pmRegisterFrameQuery");
-    const auto consumeFrames = Proc<ConsumeFrames>(loader, "pmConsumeFrames");
-    const auto freeFrame = Proc<FreeFrame>(loader, "pmFreeFrameQuery");
-    log << "symbols pmGetApiVersion=" << (getVersion ? "PRESENT" : "MISSING")
-        << " pmOpenSession=" << (openSession ? "PRESENT" : "MISSING")
-        << " pmGetIntrospectionRoot=" << (getRoot ? "PRESENT" : "MISSING")
-        << " pmFlushFrames=" << (flushFrames ? "PRESENT" : "MISSING") << "\n";
-    PM_VERSION version{}; PM_STATUS status = getVersion ? getVersion(&version) : PM_STATUS_FAILURE;
-    log << "pmGetApiVersion status=" << StatusName(status) << " raw=" << status
-        << " version=" << version.major << '.' << version.minor << '.' << version.patch << "\n";
-    Session session{}; status = openSession ? openSession(&session) : PM_STATUS_FAILURE;
+    PresentMonApi2Client client;
+    if (!client.Initialize())
+    {
+        const auto& init = client.InitStatus();
+        log << "loader_path=" << Narrow(client.LoaderPath().wstring())
+            << " loader_error=" << client.LoaderError()
+            << " init_failure=" << PresentMonApi2InitFailureName(init.failure)
+            << " api_status=" << StatusName(init.apiStatus)
+            << " api_status_raw=" << init.apiStatus;
+        if (init.missingEndpoint) log << " missing_endpoint=" << init.missingEndpoint;
+        log << "\nPresentMon API2 runtime initialization failed.\n";
+        Status(L"Runtime unavailable"); running_ = false; complete(false); return;
+    }
+    log << "loader_path=" << Narrow(client.LoaderPath().wstring())
+        << " loader=LOADED error=" << client.LoaderError() << "\n";
+    log << "symbols=RESOLVED\n";
+    log << "pmGetApiVersion status=SUCCESS raw=0 version="
+        << client.ApiVersion().major << '.' << client.ApiVersion().minor << '.'
+        << client.ApiVersion().patch << "\n";
+    PM_STATUS status = client.OpenSession();
     log << "pmOpenSession status=" << StatusName(status) << " raw=" << status << "\n";
-    if (status != PM_STATUS_SUCCESS || !session || !getRoot || !freeRoot)
-    { log << "Session/introspection unavailable; no metric capture performed.\n"; FreeLibrary(loader); running_ = false; complete(false); return; }
-    const auto close = [&] { if (closeSession) closeSession(session); };
-    const PM_INTROSPECTION_ROOT* root{}; status = getRoot(session, &root);
+    if (status != PM_STATUS_SUCCESS || !client.SessionOpen())
+    { log << "Session/introspection unavailable; no metric capture performed.\n"; client.Shutdown(); running_ = false; complete(false); return; }
+    const PM_INTROSPECTION_ROOT* root{}; status = client.GetIntrospectionRoot(&root);
     log << "pmGetIntrospectionRoot status=" << StatusName(status) << " raw=" << status << "\n";
     if (status != PM_STATUS_SUCCESS || !root)
-    { close(); FreeLibrary(loader); running_ = false; complete(false); return; }
+    { client.Shutdown(); running_ = false; complete(false); return; }
     std::ofstream introspection(jsonPath); WriteIntrospection(root, introspection);
     log << "introspection_file=" << jsonPath.string() << " devices="
         << (root->pDevices ? root->pDevices->size : 0) << " metrics="
@@ -556,19 +498,19 @@ void PresentMonApi2Diagnostic::Run()
         }
     }
     log << "available_dynamic_queries=" << dynamic.size() << "\n";
-    if (pid && startTracking)
-    { status = startTracking(session, pid); log << "pmStartTrackingProcess pid=" << pid << " status=" << StatusName(status) << " raw=" << status << "\n"; }
+    if (pid)
+    { status = client.StartTrackingProcess(pid); log << "pmStartTrackingProcess pid=" << pid << " status=" << StatusName(status) << " raw=" << status << "\n"; }
     else log << "frame_fps_pid_bound_tests=SKIPPED_NO_TARGET_PID\n";
-    if (setPeriod) { status = setPeriod(session, 0, 250); log << "pmSetTelemetryPollingPeriod status=" << StatusName(status) << " raw=" << status << " period_ms=250\n"; }
-    if (setFlush) { status = setFlush(session, 100); log << "pmSetEtwFlushPeriod status=" << StatusName(status) << " raw=" << status << " period_ms=100\n"; }
+    { status = client.SetTelemetryPollingPeriod(0, 250); log << "pmSetTelemetryPollingPeriod status=" << StatusName(status) << " raw=" << status << " period_ms=250\n"; }
+    { status = client.SetEtwFlushPeriod(100); log << "pmSetEtwFlushPeriod status=" << StatusName(status) << " raw=" << status << " period_ms=100\n"; }
 
     std::vector<DynamicSlot> dynamicSlots;
-    if (registerDynamic && !dynamic.empty())
+    if (!dynamic.empty())
     {
         for (auto query : dynamic)
         {
             DynamicQuery handle{};
-            status = registerDynamic(session, &handle, &query.element, 1, 1000, 1020);
+            status = client.RegisterDynamicQuery(&handle, &query.element, 1, 1000, 1020);
             log << "dynamic_query metric=" << query.name << " device=" << query.element.deviceId
                 << " array=" << query.element.arrayIndex << " status=" << StatusName(status)
                 << " raw=" << status << "\n";
@@ -583,9 +525,8 @@ void PresentMonApi2Diagnostic::Run()
     for (const auto& query : staticQueries)
     {
         std::vector<std::uint8_t> staticBlob(4096);
-        const PM_STATUS polled = pollStatic
-            ? pollStatic(session, &query.element, pid, staticBlob.data())
-            : PM_STATUS_FAILURE;
+        const PM_STATUS polled = client.PollStaticQuery(
+            &query.element, pid, staticBlob.data());
         const auto value = polled == PM_STATUS_SUCCESS
             ? DecodeStaticValue(staticBlob.data(), query.type) : std::string{};
         metrics << 0 << ',' << query.element.metric << ',' << Csv(query.name) << ',' << query.element.deviceId << ',' << query.element.arrayIndex << ',' << query.element.stat << ',' << Csv(value) << ',' << query.unit << ',' << StatusName(polled) << "\n";
@@ -616,9 +557,10 @@ void PresentMonApi2Diagnostic::Run()
     std::vector<PM_QUERY_ELEMENT> frameElements;
     for (const auto& query : frameQueries) frameElements.push_back(query.element);
     FrameQuery frameQuery{}; std::uint32_t frameBlobSize{};
-    if (registerFrame && !frameElements.empty())
+    if (!frameElements.empty())
     {
-        status = registerFrame(session, &frameQuery, frameElements.data(), frameElements.size(), &frameBlobSize);
+        status = client.RegisterFrameQuery(&frameQuery, frameElements.data(),
+            frameElements.size(), &frameBlobSize);
         log << "pmRegisterFrameQuery elements=" << frameElements.size() << " status=" << StatusName(status) << " raw=" << status << " blob_size=" << frameBlobSize << "\n";
         if (status == PM_STATUS_SUCCESS)
             for (size_t i = 0; i < frameQueries.size(); ++i)
@@ -635,15 +577,16 @@ void PresentMonApi2Diagnostic::Run()
         if (pid && !ProcessAlive(pid))
         {
             log << "target_process_exited timestamp_ms=" << timestamp << " pid=" << pid << "\n";
-            if (stopTracking && !trackingStopped) { stopTracking(session, pid); trackingStopped = true; }
+            if (!trackingStopped) { client.StopTrackingProcess(pid); trackingStopped = true; }
             pid = 0;
         }
-        if (pollDynamic && pid && now >= nextTelemetry)
+        if (pid && now >= nextTelemetry)
         {
             for (auto& slot : dynamicSlots)
             {
                 std::uint32_t swapChains = 1;
-                const PM_STATUS poll = pollDynamic(slot.handle, pid, slot.blob.data(), &swapChains);
+                const PM_STATUS poll = client.PollDynamicQuery(
+                    slot.handle, pid, slot.blob.data(), &swapChains);
                 const auto value = Value(slot.blob.data(), slot.query.element, slot.query.type);
                 metrics << timestamp << ',' << slot.query.element.metric << ',' << Csv(slot.query.name) << ',' << slot.query.element.deviceId << ',' << slot.query.element.arrayIndex << ',' << slot.query.element.stat << ',' << Csv(value) << ',' << slot.query.unit << ',' << StatusName(poll) << "\n";
                 if (poll == PM_STATUS_SUCCESS)
@@ -658,11 +601,12 @@ void PresentMonApi2Diagnostic::Run()
             }
             nextTelemetry += std::chrono::milliseconds(250);
         }
-        if (frameQuery && consumeFrames && pid)
+        if (frameQuery && pid)
         {
             std::vector<std::uint8_t> frameBlob(std::max<std::uint32_t>(frameBlobSize, 1) * 64);
             std::uint32_t count = 64;
-            const PM_STATUS consumed = consumeFrames(frameQuery, pid, frameBlob.data(), &count);
+            const PM_STATUS consumed = client.ConsumeFrames(
+                frameQuery, pid, frameBlob.data(), &count);
             log << "frame_consume timestamp_ms=" << timestamp << " status=" << StatusName(consumed) << " raw=" << consumed << " count=" << count << "\n";
             if (consumed == PM_STATUS_SUCCESS && count)
                 for (std::uint32_t i = 0; i < count; ++i)
@@ -680,15 +624,15 @@ void PresentMonApi2Diagnostic::Run()
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
-    for (auto& slot : dynamicSlots) if (freeDynamic) freeDynamic(slot.handle);
+    for (auto& slot : dynamicSlots) client.FreeDynamicQuery(slot.handle);
     for (const auto& slot : dynamicSlots)
         log << "metric_classification name=" << slot.query.name << " device="
             << slot.query.element.deviceId << " array=" << slot.query.element.arrayIndex
             << " result=" << Api2MetricResultName(ClassifyApi2Metric(true, !slot.queryFailed,
                 slot.hasSample, slot.hasNonZeroSample, true)) << "\n";
-    if (frameQuery && freeFrame) freeFrame(frameQuery);
-    if (pid && stopTracking && !trackingStopped) { status = stopTracking(session, pid); log << "pmStopTrackingProcess pid=" << pid << " status=" << StatusName(status) << " raw=" << status << "\n"; }
-    freeRoot(root); close(); FreeLibrary(loader); success = !stop_;
+    if (frameQuery) client.FreeFrameQuery(frameQuery);
+    if (pid && !trackingStopped) { status = client.StopTrackingProcess(pid); log << "pmStopTrackingProcess pid=" << pid << " status=" << StatusName(status) << " raw=" << status << "\n"; }
+    client.FreeIntrospectionRoot(root); client.Shutdown(); success = !stop_;
     log << "capture_complete=" << (success ? "true" : "false") << "\n";
     if (success) { Status(L"Completed"); MessageBeep(MB_OK); }
     else Status(L"Cancelled");
