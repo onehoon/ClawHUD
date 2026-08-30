@@ -3,7 +3,9 @@
 #include <windows.h>
 
 #include <memory>
+#include <atomic>
 #include <cstddef>
+#include <mutex>
 #include <optional>
 #include <string>
 
@@ -23,6 +25,8 @@
 #include "GameDetection/ProductionGameWindowSource.h"
 #include "GameDetection/ProductionProcessLifetime.h"
 #include "GameDetection/SteamRunningAppTrigger.h"
+#include "GlobalPresentMonTelemetry.h"
+#include "RendererTargetSelector.h"
 #include "EcHelperClient.h"
 #include "MsiEcHudTelemetry.h"
 #include "WindowsPowerTelemetry.h"
@@ -43,6 +47,7 @@ constexpr UINT_PTR kEcHudTimerId = 2;
 constexpr UINT_PTR kBatteryHudTimerId = 3;
 constexpr UINT_PTR kGraphicsApiRetryTimerId = 4;
 constexpr UINT_PTR kResumeRecoveryTimerId = 5;
+constexpr UINT kGlobalRendererTelemetryUpdate = WM_APP + 10;
 constexpr UINT kResumeRecoveryIntervalMs = 500;
 constexpr unsigned kResumeRecoveryMaxAttempts = 6;
 
@@ -190,6 +195,11 @@ private:
         std::uint64_t generation);
     void HandleGameRenderVerifierEvent(
         const clawhud::GameRenderVerifierEvent& event);
+    void HandleGlobalRendererTelemetry();
+    void StartGlobalRendererTelemetry();
+    void StopGlobalRendererTelemetry();
+    void QueueGlobalRendererTelemetryUpdate(bool force);
+    void RefreshRendererHints();
     bool TryCommitReadyCandidateFromForeground(
         HWND foreground, DWORD foregroundProcessId);
     void ReleaseProductionGameCandidate(const wchar_t* reason);
@@ -215,6 +225,7 @@ private:
     void DiscardPendingProductionWindowEvents();
     void DiscardPendingProductionProcessExitEvents();
     void DiscardPendingGameRenderVerifierEvents();
+    void DiscardPendingGlobalRendererTelemetry();
 
     HINSTANCE instance_{};
     HANDLE instanceMutex_{};
@@ -226,6 +237,7 @@ private:
     std::unique_ptr<EcHelperClient> ecHudClient_;
     clawhud::MsiEcHudTelemetry ecHudTelemetry_{};
     std::optional<double> latestPresentMonDisplayedFps_;
+    std::optional<double> selectedRendererFps_;
     DWORD presentMonRestartPid_{};
     unsigned presentMonRestartAttempts_{};
     std::optional<clawhud::WindowsPowerTelemetry> latestPowerTelemetry_;
@@ -289,6 +301,14 @@ private:
     clawhud::ProductionGameWindowSource productionGameWindowSource_;
     clawhud::ProductionProcessLifetimeWatcher productionProcessLifetimeWatcher_;
     clawhud::GameRenderVerifier gameRenderVerifier_;
+    clawhud::GlobalPresentMonTelemetry globalPresentMonTelemetry_;
+    std::mutex rendererTargetMutex_;
+    clawhud::RendererTargetSelector rendererTargetSelector_;
+    std::atomic_bool globalRendererUiUpdatePending_{};
+    std::atomic_bool globalRendererStreamEnded_{};
+    std::atomic<std::uint64_t> lastGlobalRendererUiUpdateTick_{};
+    bool globalRendererTelemetryUnavailable_{};
+    std::optional<clawhud::RendererTargetSelection> lastReportedRendererSelection_;
     SteamRunningAppIdSource steamRunningAppIdSource_;
     std::uint32_t steamRunningAppId_{};
 };
