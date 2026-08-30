@@ -82,7 +82,6 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/MsiEcHudTelemetry.cpp
     src/ClawHUD/PresentMonHudTelemetry.cpp
     src/ClawHUD/WindowsPowerTelemetry.cpp
-    src/ClawHUD/BatteryRuntimeEstimator.cpp
     src/ClawHUD/BatteryPowerEstimator.cpp
     src/ClawHUD/WindowsMemoryTelemetry.cpp
     src/ClawHUD/IntelGraphicsApiProbe.cpp
@@ -329,7 +328,6 @@ if(BUILD_TESTING)
     add_executable(ClawHUD.WindowsPowerTelemetryTests
         tests/WindowsPowerTelemetryTests.cpp
         src/ClawHUD/WindowsPowerTelemetry.cpp
-        src/ClawHUD/BatteryRuntimeEstimator.cpp
         src/ClawHUD/BatteryPowerEstimator.cpp
         src/ClawHUD/MsiEcHudTelemetry.cpp
         src/ClawHUD/RuntimeLogger.cpp)
