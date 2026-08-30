@@ -1,4 +1,5 @@
 #include "WindowsUsageTelemetry.h"
+#include "TelemetryRetention.h"
 
 #include <cmath>
 #include <cstdint>
@@ -112,6 +113,16 @@ int main()
         recovered->systemMemoryUsedBytes == 11 &&
         recovered->intelGpuMemoryUsedBytes == 21,
         "valid usage sample updates retained telemetry");
+    std::optional<std::uint64_t> vram = 20;
+    unsigned vramMisses = 0;
+    const std::optional<std::uint64_t> missingVram;
+    clawhud::UpdateRetainedTelemetryField(vram, missingVram, vramMisses, 3);
+    clawhud::UpdateRetainedTelemetryField(vram, missingVram, vramMisses, 3);
+    ok &= Check(vram && *vram == 20 && vramMisses == 2,
+        "one or two missing VRAM samples retain the last value");
+    clawhud::UpdateRetainedTelemetryField(vram, missingVram, vramMisses, 3);
+    ok &= Check(!vram && vramMisses == 0,
+        "repeated missing VRAM samples invalidate the field");
     ok &= Check(!ShouldInvalidateWindowsUsageTelemetry(2, 3) &&
         ShouldInvalidateWindowsUsageTelemetry(3, 3) &&
         !ShouldInvalidateWindowsUsageTelemetry(3, 0),

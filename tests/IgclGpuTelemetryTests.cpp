@@ -1,4 +1,5 @@
 #include "IgclGpuTelemetry.h"
+#include "TelemetryRetention.h"
 
 #include <cmath>
 #include <iostream>
@@ -90,6 +91,16 @@ int main()
     check(updated && updated->gpuUsagePercent == 45.0 &&
         updated->gpuClockMHz == 1900.0,
         "partial IGCL sample preserves missing metric");
+    std::optional<double> usage = 45.0;
+    unsigned usageMisses = 0;
+    const std::optional<double> missingUsage;
+    clawhud::UpdateRetainedTelemetryField(usage, missingUsage, usageMisses, 3);
+    clawhud::UpdateRetainedTelemetryField(usage, missingUsage, usageMisses, 3);
+    check(usage && *usage == 45.0 && usageMisses == 2,
+        "one or two missing IGCL usage samples retain the last value");
+    clawhud::UpdateRetainedTelemetryField(usage, missingUsage, usageMisses, 3);
+    check(!usage && usageMisses == 0,
+        "repeated missing IGCL usage samples invalidate the field");
     const auto almostEqual = [](double actual, double expected)
     {
         return std::abs(actual - expected) < 0.001;
