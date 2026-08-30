@@ -35,7 +35,8 @@ int main()
     const auto command = BuildPresentMonCommandLine(
         L"C:\\tools\\PresentMon.exe", 1234, L"ClawHUD-HUD-1234");
     ok &= Check(command.find(L"--stop_existing_session") != std::wstring::npos &&
-        command.find(L"--session_name \"ClawHUD-HUD-1234\"") != std::wstring::npos,
+        command.find(L"--session_name \"ClawHUD-HUD-1234\"") != std::wstring::npos &&
+        command.find(L"--terminate_on_proc_exit") != std::wstring::npos,
         "PresentMon command enables stale-session recovery");
     ok &= Check(Near(CalculateDisplayedFps(60, 0.500).value(), 120.0), "120 FPS bucket");
     ok &= Check(Near(CalculateDisplayedFps(20, 0.500).value(), 40.0), "40 FPS bucket");

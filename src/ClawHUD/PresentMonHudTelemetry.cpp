@@ -13,6 +13,10 @@ namespace clawhud
 {
 namespace
 {
+constexpr DWORD kPresentMonGracefulStopMs = 150;
+constexpr DWORD kPresentMonForcedStopConfirmMs = 250;
+constexpr UINT kPresentMonForcedExitCode = 2;
+
 std::vector<std::string> CsvLine(const std::string& line)
 {
     std::vector<std::string> fields;
@@ -244,10 +248,26 @@ DWORD PresentMonHudTelemetry::Stop() noexcept
     if (process_ && WaitForSingleObject(process_, 0) == WAIT_TIMEOUT)
     {
         StopTraceSession(sessionName_);
-        if (WaitForSingleObject(process_, 3000) == WAIT_TIMEOUT)
+        if (WaitForSingleObject(process_, kPresentMonGracefulStopMs) == WAIT_TIMEOUT)
         {
-            TerminateProcess(process_, 2);
-            WaitForSingleObject(process_, 2000);
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
+                L"[PresentMon] stop.force");
+            if (!TerminateProcess(process_, kPresentMonForcedExitCode))
+            {
+                const DWORD error = GetLastError();
+                clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+                    L"[PresentMon] stop.force-failed error=" +
+                    std::to_wstring(error));
+            }
+            const DWORD confirmation = WaitForSingleObject(
+                process_, kPresentMonForcedStopConfirmMs);
+            if (confirmation == WAIT_TIMEOUT)
+                clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+                    L"[PresentMon] stop.confirmation-timeout");
+            else if (confirmation == WAIT_FAILED)
+                clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+                    L"[PresentMon] stop.confirmation-failed error=" +
+                    std::to_wstring(GetLastError()));
         }
     }
 
