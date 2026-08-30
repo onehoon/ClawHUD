@@ -114,7 +114,7 @@ target_compile_definitions(ClawHUD PRIVATE
     UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX
     CLAWHUD_UPDATE_REPOSITORY=\"https://github.com/onehoon/ClawHUD\")
 target_include_directories(ClawHUD PRIVATE src/ClawHUD src/resources "${CMAKE_BINARY_DIR}/generated")
-target_link_libraries(ClawHUD PRIVATE ClawHUD.Velopack comctl32 shell32 user32 winmm dwmapi delayimp d3d11 dxgi dcomp d2d1 dwrite pdh advapi32 wbemuuid ole32 oleaut32 propsys)
+target_link_libraries(ClawHUD PRIVATE ClawHUD.Velopack comctl32 shell32 user32 winmm dwmapi delayimp d3d11 dxgi dcomp d2d1 dwrite pdh powrprof advapi32 wbemuuid ole32 oleaut32 propsys)
 target_link_options(ClawHUD PRIVATE "/DELAYLOAD:velopack_libc.dll")
 set_target_properties(ClawHUD PROPERTIES CXX_EXTENSIONS OFF)
 
@@ -308,10 +308,13 @@ if(BUILD_TESTING)
 
     add_executable(ClawHUD.WindowsPowerTelemetryTests
         tests/WindowsPowerTelemetryTests.cpp
-        src/ClawHUD/WindowsPowerTelemetry.cpp)
+        src/ClawHUD/WindowsPowerTelemetry.cpp
+        src/ClawHUD/RuntimeLogger.cpp)
     target_compile_features(ClawHUD.WindowsPowerTelemetryTests PRIVATE cxx_std_20)
     target_compile_definitions(ClawHUD.WindowsPowerTelemetryTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
     target_include_directories(ClawHUD.WindowsPowerTelemetryTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.WindowsPowerTelemetryTests PRIVATE
+        powrprof shell32 ole32)
     set_target_properties(ClawHUD.WindowsPowerTelemetryTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.WindowsPowerTelemetryTests COMMAND ClawHUD.WindowsPowerTelemetryTests)
 
