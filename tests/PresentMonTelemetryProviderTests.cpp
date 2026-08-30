@@ -197,8 +197,9 @@ void CheckQueryPlanning(bool& ok)
         "unavailable displayed metric is rejected");
 
     PresentMonTelemetryProvider provider;
-    ok &= Check(!provider.Ready() && !provider.ProcessReady(),
-        "process readiness is independent on an uninitialized provider");
+    ok &= Check(!provider.Ready() && !provider.ProcessReady() &&
+        !provider.SystemReady(),
+        "process and system readiness are independent on an uninitialized provider");
 }
 
 void CheckDecoding(bool& ok)
@@ -363,6 +364,15 @@ void CheckStaleValueProtection(bool& ok)
 
 void CheckSystemTelemetry(bool& ok)
 {
+    ok &= Check(SupportsPresentMonDynamicQuery(PM_METRIC_TYPE_DYNAMIC),
+        "dynamic metrics are accepted for system queries");
+    ok &= Check(SupportsPresentMonDynamicQuery(PM_METRIC_TYPE_DYNAMIC_FRAME),
+        "dynamic-frame metrics are accepted for system queries");
+    ok &= Check(!SupportsPresentMonDynamicQuery(PM_METRIC_TYPE_STATIC),
+        "static metrics are rejected for system queries");
+    ok &= Check(!SupportsPresentMonDynamicQuery(PM_METRIC_TYPE_FRAME_EVENT),
+        "frame-event metrics are rejected for system queries");
+
     const char name[] = "Intel Graphics";
     PM_INTROSPECTION_STRING deviceName{name};
     PM_INTROSPECTION_DEVICE devices[] = {
@@ -371,22 +381,23 @@ void CheckSystemTelemetry(bool& ok)
     std::array<const void*, 2> deviceEntries{&devices[0], &devices[1]};
     PM_INTROSPECTION_OBJARRAY deviceArray{deviceEntries.data(), deviceEntries.size()};
     PM_INTROSPECTION_DATA_TYPE_INFO doubleType{PM_DATA_TYPE_DOUBLE, PM_DATA_TYPE_VOID, PM_ENUM_METRIC};
-    PM_INTROSPECTION_STAT_INFO stat{PM_STAT_NEWEST_POINT};
-    std::array<const void*, 1> statEntries{&stat};
+    PM_INTROSPECTION_DATA_TYPE_INFO uint64Type{PM_DATA_TYPE_UINT64, PM_DATA_TYPE_VOID, PM_ENUM_METRIC};
+    PM_INTROSPECTION_STAT_INFO stats[] = {{PM_STAT_AVG}, {PM_STAT_NEWEST_POINT}};
+    std::array<const void*, 2> statEntries{&stats[0], &stats[1]};
     PM_INTROSPECTION_OBJARRAY statArray{statEntries.data(), statEntries.size()};
     PM_INTROSPECTION_DEVICE_METRIC_INFO metricDevices[] = {
         {1, PM_METRIC_AVAILABILITY_AVAILABLE, 1}, {2, PM_METRIC_AVAILABILITY_AVAILABLE, 1}};
     std::array<const void*, 2> metricDeviceEntries{&metricDevices[0], &metricDevices[1]};
     PM_INTROSPECTION_OBJARRAY metricDeviceArray{metricDeviceEntries.data(), metricDeviceEntries.size()};
     PM_INTROSPECTION_METRIC metrics[] = {
-        {PM_METRIC_CPU_UTILIZATION, PM_METRIC_TYPE_DYNAMIC, PM_UNIT_PERCENT, PM_UNIT_PERCENT,
+        {PM_METRIC_CPU_UTILIZATION, PM_METRIC_TYPE_DYNAMIC_FRAME, PM_UNIT_PERCENT, PM_UNIT_PERCENT,
             &doubleType, &statArray, &metricDeviceArray},
-        {PM_METRIC_GPU_UTILIZATION, PM_METRIC_TYPE_DYNAMIC, PM_UNIT_PERCENT, PM_UNIT_PERCENT,
+        {PM_METRIC_GPU_UTILIZATION, PM_METRIC_TYPE_DYNAMIC_FRAME, PM_UNIT_PERCENT, PM_UNIT_PERCENT,
             &doubleType, &statArray, &metricDeviceArray},
-        {PM_METRIC_GPU_FREQUENCY, PM_METRIC_TYPE_DYNAMIC, PM_UNIT_HERTZ, PM_UNIT_MEGAHERTZ,
+        {PM_METRIC_GPU_FREQUENCY, PM_METRIC_TYPE_DYNAMIC_FRAME, PM_UNIT_HERTZ, PM_UNIT_MEGAHERTZ,
             &doubleType, &statArray, &metricDeviceArray},
-        {PM_METRIC_GPU_MEM_USED, PM_METRIC_TYPE_DYNAMIC, PM_UNIT_BYTES, PM_UNIT_BYTES,
-            &doubleType, &statArray, &metricDeviceArray}};
+        {PM_METRIC_GPU_MEM_USED, PM_METRIC_TYPE_DYNAMIC_FRAME, PM_UNIT_BYTES, PM_UNIT_BYTES,
+            &uint64Type, &statArray, &metricDeviceArray}};
     std::array<const void*, 4> metricEntries{&metrics[0], &metrics[1], &metrics[2], &metrics[3]};
     PM_INTROSPECTION_OBJARRAY metricArray{metricEntries.data(), metricEntries.size()};
     PM_INTROSPECTION_ROOT root{&metricArray, nullptr, &deviceArray, nullptr};
@@ -394,8 +405,18 @@ void CheckSystemTelemetry(bool& ok)
     const auto plan = BuildPresentMonSystemQueryPlan(capabilities);
     ok &= Check(plan.elements.size() == 4 && plan.bindings.size() == 4,
         "system metrics share one query");
+    ok &= Check(plan.bindings[0].slot == SystemMetricSlot::CpuUsage &&
+        plan.bindings[1].slot == SystemMetricSlot::GpuUsage &&
+        plan.bindings[2].slot == SystemMetricSlot::GpuFrequency &&
+        plan.bindings[3].slot == SystemMetricSlot::GpuMemoryUsed,
+        "all four intended system metric slots are planned");
     ok &= Check(plan.elements[0].deviceId == 2 && plan.elements[1].deviceId == 1,
         "system and Intel device selection is capability driven");
+    ok &= Check(std::all_of(plan.elements.begin(), plan.elements.end(),
+        [](const auto& element) { return element.stat == PM_STAT_AVG; }),
+        "system telemetry follows the official no-target AVG statistic preference");
+    ok &= Check(plan.bindings[3].type == PM_DATA_TYPE_DOUBLE,
+        "AVG telemetry uses the official dynamic-query double output type");
 
     std::array<std::uint8_t, 32> blob{};
     PM_QUERY_ELEMENT element{PM_METRIC_GPU_UTILIZATION, PM_STAT_NEWEST_POINT, 1, 0, 3, sizeof(double)};

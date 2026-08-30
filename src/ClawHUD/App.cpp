@@ -323,11 +323,12 @@ int App::Run()
     igclDiagnostic_ = std::make_unique<clawhud::IgclTelemetryDiagnostic>(tray_.Window());
     vrrDiagnostic_ = std::make_unique<VrrDiagnostic>(*this, tray_.Window());
     presentMonApi2Diagnostic_ = std::make_unique<clawhud::PresentMonApi2Diagnostic>(tray_.Window());
-    if (!presentMonTelemetryProvider_.Initialize())
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
-            L"[PresentMonFPS] API2 provider unavailable; production FPS disabled");
-    else
-        Log(L"[PresentMonFPS] API2 provider ready");
+    const bool providerReady = presentMonTelemetryProvider_.Initialize();
+    Log(L"[PresentMon] providerReady=" + std::to_wstring(providerReady) +
+        L" processReady=" + std::to_wstring(
+            presentMonTelemetryProvider_.ProcessReady()) +
+        L" systemReady=" + std::to_wstring(
+            presentMonTelemetryProvider_.SystemReady()));
     if (!foregroundTracker_.Start(tray_.Window(), kForegroundChanged,
         [this](bool matches)
         {

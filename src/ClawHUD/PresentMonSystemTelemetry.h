@@ -12,6 +12,8 @@ namespace clawhud
 class PresentMonApi2Client;
 constexpr std::uint32_t kSystemTelemetryProcessId = 0;
 
+bool SupportsPresentMonDynamicQuery(PM_METRIC_TYPE type) noexcept;
+
 enum class SystemMetricSlot { CpuUsage, GpuUsage, GpuFrequency, GpuMemoryUsed };
 
 struct SystemMetricBinding
@@ -58,5 +60,9 @@ private:
     std::vector<PM_QUERY_ELEMENT> elements_;
     std::vector<SystemMetricBinding> bindings_;
     std::vector<std::uint8_t> blob_;
+    bool pollDiagnosticsInitialized_{};
+    PM_STATUS lastPollStatus_{};
+    std::uint32_t lastPollResultCount_{};
+    bool firstSampleLogged_{};
 };
 }
