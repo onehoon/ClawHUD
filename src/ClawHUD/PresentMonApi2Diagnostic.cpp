@@ -386,6 +386,12 @@ bool Api2TargetPidIsUsable(DWORD processId, DWORD currentProcessId) noexcept
 PM_DATA_TYPE Api2StaticMetricType(PM_DATA_TYPE polledType,
     PM_DATA_TYPE frameType) noexcept
 { return frameType == PM_DATA_TYPE_VOID ? polledType : frameType; }
+PM_DATA_TYPE Api2FrameMetricType(PM_DATA_TYPE polledType,
+    PM_DATA_TYPE frameType) noexcept
+{
+    (void)polledType;
+    return frameType;
+}
 bool Api2MetricSupportsFrameQuery(PM_METRIC_TYPE type) noexcept
 { return type == PM_METRIC_TYPE_FRAME_EVENT || type == PM_METRIC_TYPE_DYNAMIC_FRAME; }
 std::filesystem::path Api2DiagnosticOutputPath(const std::filesystem::path& directory,
@@ -607,7 +613,9 @@ void PresentMonApi2Diagnostic::Run()
             for (std::uint32_t a = 0; a < std::max(1u, info->arraySize); ++a)
                 frameQueries.push_back({
                     { metric->id, PM_STAT_NONE, info->deviceId, a, 0, 0 },
-                    metric->pTypeInfo ? metric->pTypeInfo->frameType : PM_DATA_TYPE_VOID,
+                    metric->pTypeInfo ? Api2FrameMetricType(
+                        metric->pTypeInfo->polledType, metric->pTypeInfo->frameType)
+                        : PM_DATA_TYPE_VOID,
                     metric->unit, MetricName(metric->id) });
         }
     }

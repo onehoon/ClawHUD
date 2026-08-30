@@ -64,6 +64,8 @@ int main()
         !Api2MetricSupportsFrameQuery(PM_METRIC_TYPE_DYNAMIC) &&
         !Api2MetricSupportsFrameQuery(PM_METRIC_TYPE_STATIC),
         "frame queries include frame-event and dynamic-frame metrics only");
+    ok &= Check(Api2FrameMetricType(PM_DATA_TYPE_DOUBLE, PM_DATA_TYPE_UINT64) ==
+        PM_DATA_TYPE_UINT64, "dynamic-frame metrics decode using frameType");
     const auto path = Api2DiagnosticOutputPath(L"logs", L"20260830-120000",
         L"-frames.csv");
     ok &= Check(path == std::filesystem::path(L"logs/api2-20260830-120000-frames.csv"),
