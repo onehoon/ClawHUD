@@ -8,6 +8,28 @@
 #include <string>
 #include <vector>
 
+namespace clawhud
+{
+constexpr bool ShouldAbortEcTelemetrySample(
+    ec::EcFailureStage stage) noexcept
+{
+    using ec::EcFailureStage;
+    switch (stage)
+    {
+    case EcFailureStage::Pipe:
+    case EcFailureStage::HelperLaunch:
+    case EcFailureStage::HelperMissing:
+    case EcFailureStage::HelperNotElevated:
+    case EcFailureStage::CoInitialize:
+    case EcFailureStage::ConnectWmi:
+    case EcFailureStage::GetClass:
+        return true;
+    default:
+        return false;
+    }
+}
+}
+
 class EcHelperClient
 {
 public:

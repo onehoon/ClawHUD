@@ -228,7 +228,7 @@ bool EcHelperClient::ReadData(std::uint8_t selector, std::vector<std::uint8_t>& 
 void EcHelperClient::Close()
 {
     const bool wasConnected = Connected();
-    if (pipe_ != INVALID_HANDLE_VALUE) { FlushFileBuffers(pipe_); DisconnectNamedPipe(pipe_); CloseHandle(pipe_); pipe_ = INVALID_HANDLE_VALUE; }
+    if (pipe_ != INVALID_HANDLE_VALUE) { DisconnectNamedPipe(pipe_); CloseHandle(pipe_); pipe_ = INVALID_HANDLE_VALUE; }
     if (helperProcess_) { CloseHandle(helperProcess_); helperProcess_ = {}; }
     helperPid_ = 0; pipeName_.clear(); helperElevated_ = false; attempted_ = false;
     if (runtimeLogging_ && wasConnected)
