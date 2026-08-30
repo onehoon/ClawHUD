@@ -2,6 +2,7 @@
 #include "PresentMonTelemetryProvider.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <iostream>
@@ -215,6 +216,56 @@ void CheckProcessLifecycle(bool& ok)
         invalidTelemetry.TrackedProcessId() == 0,
         "invalid process start returns no snapshot without retrying");
 }
+
+void CheckSystemTelemetry(bool& ok)
+{
+    const char name[] = "Intel Graphics";
+    PM_INTROSPECTION_STRING deviceName{name};
+    PM_INTROSPECTION_DEVICE devices[] = {
+        {1, PM_DEVICE_TYPE_GRAPHICS_ADAPTER, PM_DEVICE_VENDOR_INTEL, &deviceName, nullptr},
+        {2, PM_DEVICE_TYPE_SYSTEM, PM_DEVICE_VENDOR_UNKNOWN, nullptr, nullptr}};
+    std::array<const void*, 2> deviceEntries{&devices[0], &devices[1]};
+    PM_INTROSPECTION_OBJARRAY deviceArray{deviceEntries.data(), deviceEntries.size()};
+    PM_INTROSPECTION_DATA_TYPE_INFO doubleType{PM_DATA_TYPE_DOUBLE, PM_DATA_TYPE_VOID, PM_ENUM_METRIC};
+    PM_INTROSPECTION_STAT_INFO stat{PM_STAT_NEWEST_POINT};
+    std::array<const void*, 1> statEntries{&stat};
+    PM_INTROSPECTION_OBJARRAY statArray{statEntries.data(), statEntries.size()};
+    PM_INTROSPECTION_DEVICE_METRIC_INFO metricDevices[] = {
+        {1, PM_METRIC_AVAILABILITY_AVAILABLE, 1}, {2, PM_METRIC_AVAILABILITY_AVAILABLE, 1}};
+    std::array<const void*, 2> metricDeviceEntries{&metricDevices[0], &metricDevices[1]};
+    PM_INTROSPECTION_OBJARRAY metricDeviceArray{metricDeviceEntries.data(), metricDeviceEntries.size()};
+    PM_INTROSPECTION_METRIC metrics[] = {
+        {PM_METRIC_CPU_UTILIZATION, PM_METRIC_TYPE_DYNAMIC, PM_UNIT_PERCENT, PM_UNIT_PERCENT,
+            &doubleType, &statArray, &metricDeviceArray},
+        {PM_METRIC_GPU_UTILIZATION, PM_METRIC_TYPE_DYNAMIC, PM_UNIT_PERCENT, PM_UNIT_PERCENT,
+            &doubleType, &statArray, &metricDeviceArray},
+        {PM_METRIC_GPU_FREQUENCY, PM_METRIC_TYPE_DYNAMIC, PM_UNIT_HERTZ, PM_UNIT_MEGAHERTZ,
+            &doubleType, &statArray, &metricDeviceArray},
+        {PM_METRIC_GPU_MEM_USED, PM_METRIC_TYPE_DYNAMIC, PM_UNIT_BYTES, PM_UNIT_BYTES,
+            &doubleType, &statArray, &metricDeviceArray}};
+    std::array<const void*, 4> metricEntries{&metrics[0], &metrics[1], &metrics[2], &metrics[3]};
+    PM_INTROSPECTION_OBJARRAY metricArray{metricEntries.data(), metricEntries.size()};
+    PM_INTROSPECTION_ROOT root{&metricArray, nullptr, &deviceArray, nullptr};
+    const auto capabilities = BuildPresentMonTelemetryCapabilities(&root);
+    const auto plan = BuildPresentMonSystemQueryPlan(capabilities);
+    ok &= Check(plan.elements.size() == 4 && plan.bindings.size() == 4,
+        "system metrics share one query");
+    ok &= Check(plan.elements[0].deviceId == 2 && plan.elements[1].deviceId == 1,
+        "system and Intel device selection is capability driven");
+
+    std::array<std::uint8_t, 32> blob{};
+    PM_QUERY_ELEMENT element{PM_METRIC_GPU_UTILIZATION, PM_STAT_NEWEST_POINT, 1, 0, 3, sizeof(double)};
+    double usage = 95.0;
+    std::memcpy(blob.data() + 3, &usage, sizeof(usage));
+    std::vector<PM_QUERY_ELEMENT> elements{element};
+    std::vector<SystemMetricBinding> bindings{{SystemMetricSlot::GpuUsage, 0,
+        PM_DATA_TYPE_DOUBLE, PM_UNIT_PERCENT}};
+    ok &= Check(DecodePresentMonSystemSnapshot(PM_STATUS_SUCCESS, 1, blob.data(), elements, bindings)
+            ->gpuUsagePercent == 95.0,
+        "current system result decodes");
+    ok &= Check(!DecodePresentMonSystemSnapshot(PM_STATUS_SUCCESS, 0, blob.data(), elements, bindings),
+        "empty successful system result does not decode stale buffer");
+}
 }
 
 int main()
@@ -223,5 +274,6 @@ int main()
     CheckQueryPlanning(ok);
     CheckDecoding(ok);
     CheckProcessLifecycle(ok);
+    CheckSystemTelemetry(ok);
     return ok ? 0 : 1;
 }

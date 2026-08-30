@@ -6,7 +6,13 @@
 #include <vector>
 namespace clawhud
 {
-struct PresentMonSystemSnapshot {};
+struct PresentMonSystemSnapshot
+{
+    std::optional<double> cpuUsagePercent;
+    std::optional<double> gpuUsagePercent;
+    std::optional<double> gpuClockMHz;
+    std::optional<std::uint64_t> gpuMemoryUsedBytes;
+};
 struct PresentMonProcessSnapshot
 {
     std::uint32_t processId{};
