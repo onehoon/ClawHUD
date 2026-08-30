@@ -10,7 +10,7 @@ namespace clawhud
 namespace
 {
 constexpr std::uint32_t kIndependentDeviceId = 0;
-constexpr double kFpsWindowMs = 1000.0;
+constexpr double kFpsWindowMs = 500.0;
 constexpr double kFpsOffsetMs = 0.0;
 constexpr std::uint32_t kInitialSwapChainCapacity = 4;
 constexpr std::uint32_t kMaximumSwapChainCapacity = 64;
@@ -47,19 +47,13 @@ std::optional<PresentMonProcessQueryPlan> BuildPresentMonProcessQueryPlan(
         !HasAvailableIndependentMetric(*metric))
         return std::nullopt;
 
-    PM_STAT statistic = PM_STAT_NONE;
     if (std::find(metric->statistics.begin(), metric->statistics.end(),
-            PM_STAT_AVG) != metric->statistics.end())
-        statistic = PM_STAT_AVG;
-    else if (std::find(metric->statistics.begin(), metric->statistics.end(),
-            PM_STAT_NEWEST_POINT) != metric->statistics.end())
-        statistic = PM_STAT_NEWEST_POINT;
-    else
+            PM_STAT_AVG) == metric->statistics.end())
         return std::nullopt;
 
     return PresentMonProcessQueryPlan{
         PM_QUERY_ELEMENT{
-            PM_METRIC_DISPLAYED_FPS, statistic, kIndependentDeviceId, 0, 0, 0}};
+            PM_METRIC_DISPLAYED_FPS, PM_STAT_AVG, kIndependentDeviceId, 0, 0, 0}};
 }
 
 std::optional<double> DecodePresentMonDisplayedFps(

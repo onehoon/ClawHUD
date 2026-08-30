@@ -111,9 +111,8 @@ void CheckQueryPlanning(bool& ok)
 
     auto newestOnly = Capabilities();
     newestOnly.metrics[0].statistics = {PM_STAT_NEWEST_POINT};
-    const auto fallback = BuildPresentMonProcessQueryPlan(newestOnly);
-    ok &= Check(fallback && fallback->element.stat == PM_STAT_NEWEST_POINT,
-        "Displayed FPS falls back to newest point");
+    ok &= Check(!BuildPresentMonProcessQueryPlan(newestOnly),
+        "Displayed FPS without AVG is unavailable");
     ok &= Check(!BuildPresentMonProcessQueryPlan(
         Capabilities(PM_METRIC_TYPE_STATIC)), "static metric is rejected");
     ok &= Check(!BuildPresentMonProcessQueryPlan(
