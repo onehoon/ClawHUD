@@ -124,48 +124,6 @@ std::wstring HwndText(HWND window)
     return buffer;
 }
 
-void LogBatteryEstimate(const clawhud::BatteryEstimateResult& result)
-{
-    using State = clawhud::BatteryEstimateState;
-    if (result.state == State::None)
-        return;
-
-    std::wostringstream message;
-    message << L"[BatteryEstimate] state=";
-    switch (result.state)
-    {
-    case State::AnchorCreated:
-        message << L"anchor-created capacity=" << result.currentCapacity;
-        break;
-    case State::Waiting:
-        message << L"waiting capacity=" << result.currentCapacity
-            << L" elapsedSec=" << std::fixed << std::setprecision(0)
-            << result.elapsedSeconds << L" deltaMWh=0";
-        break;
-    case State::Held:
-        message << L"held reason=" << (result.resetReason ? result.resetReason : L"unavailable")
-            << L" windowSec=" << std::fixed << std::setprecision(0)
-            << result.elapsedSeconds << L" capacity=" << result.currentCapacity
-            << L" remainingMinutes=" << result.remainingMinutes.value_or(0);
-        break;
-    case State::Updated:
-        message << L"updated startCapacity=" << result.anchorCapacity
-            << L" currentCapacity=" << result.currentCapacity
-            << L" elapsedSec=" << std::fixed << std::setprecision(0)
-            << result.elapsedSeconds << L" deltaMWh=" << result.deltaMWh
-            << L" avgPowerW=" << std::setprecision(2)
-            << result.averageDischargeWatts << L" remainingMinutes="
-            << result.remainingMinutes.value_or(0);
-        break;
-    case State::Reset:
-        message << L"reset reason=" << (result.resetReason ? result.resetReason : L"unknown");
-        break;
-    case State::None:
-        break;
-    }
-    clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug, message.str());
-}
-
 bool ProcessAlive(DWORD processId)
 {
     if (!processId)
@@ -1226,7 +1184,6 @@ void App::SampleProductionTelemetry()
     if (!onBattery && batteryEcOnDc_)
     {
         batteryEcReadyLogged_ = false;
-        batteryEcFallbackLogged_ = false;
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
             L"[BatteryEC] history reset reason=ac-connected");
     }
@@ -1290,37 +1247,16 @@ void App::SampleProductionBatteryTelemetry()
     latestPowerTelemetry_ = clawhud::ReadWindowsPowerTelemetry();
     if (!latestPowerTelemetry_)
     {
-        batteryRuntimeEstimator_.Reset();
+        batteryPowerEstimator_.Reset();
     }
     else
     {
         const auto ecEstimate = batteryPowerEstimator_.EstimateRemainingMinutes(
             latestPowerTelemetry_->remainingCapacityMWh);
-        const auto estimate = batteryRuntimeEstimator_.Observe(
-            latestPowerTelemetry_->onBattery.value_or(false),
-            latestPowerTelemetry_->remainingCapacityMWh,
-            clawhud::BatteryRuntimeEstimator::Clock::now());
-        LogBatteryEstimate(estimate);
-        std::optional<int> selectedRemainingMinutes = ecEstimate;
-        if (!selectedRemainingMinutes)
-            selectedRemainingMinutes = clawhud::SelectRemainingMinutes(
-                *latestPowerTelemetry_, estimate.remainingMinutes);
-        latestPowerTelemetry_->remainingMinutes = selectedRemainingMinutes;
-        if (!ecEstimate && estimate.remainingMinutes && !batteryEcFallbackLogged_)
-        {
-            batteryEcFallbackLogged_ = true;
-            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
-                L"[BatteryEC] fallback activated reason=estimator-unavailable");
-        }
-        if (ecEstimate && batteryEcFallbackLogged_)
-        {
-            batteryEcFallbackLogged_ = false;
-            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
-                L"[BatteryEC] recovered");
-        }
+        latestPowerTelemetry_->remainingMinutes = ecEstimate;
         std::wostringstream batteryLog;
         batteryLog << L"[BatteryEC] source="
-            << (ecEstimate ? L"EC" : estimate.remainingMinutes ? L"capacity-delta" : L"none")
+            << (ecEstimate ? L"EC" : L"none")
             << L" history=" << batteryPowerEstimator_.SampleCount()
             << L" averageW=";
         if (const auto average = batteryPowerEstimator_.AveragePowerW())
@@ -1478,11 +1414,9 @@ void App::PauseProductionSamplingForSuspend()
     ecFan2MissingCount_ = 0;
     ecTdpMissingCount_ = 0;
     latestPowerTelemetry_.reset();
-    batteryRuntimeEstimator_.Reset();
     batteryPowerEstimator_.Reset();
     batteryEcOnDc_ = false;
     batteryEcReadyLogged_ = false;
-    batteryEcFallbackLogged_ = false;
     latestCpuUsagePercent_.reset();
     latestGpuUsagePercent_.reset();
     latestGpuClockMHz_.reset();
@@ -1565,11 +1499,9 @@ void App::StopProductionEcSampling(bool stopPresentMon, const wchar_t* reason)
     ecFan2MissingCount_ = 0;
     ecTdpMissingCount_ = 0;
     latestPowerTelemetry_.reset();
-    batteryRuntimeEstimator_.Reset();
     batteryPowerEstimator_.Reset();
     batteryEcOnDc_ = false;
     batteryEcReadyLogged_ = false;
-    batteryEcFallbackLogged_ = false;
     latestCpuUsagePercent_.reset();
     latestGpuUsagePercent_.reset();
     latestGpuClockMHz_.reset();

@@ -15,8 +15,6 @@ std::optional<WindowsPowerTelemetry> DecodeWindowsPowerStatus(
         result.batteryPercent = static_cast<int>(status.BatteryLifePercent);
     if (status.ACLineStatus != 255)
         result.onBattery = status.ACLineStatus == 0;
-    if (status.BatteryLifeTime != DWORD(-1))
-        result.remainingMinutes = static_cast<int>(status.BatteryLifeTime / 60);
     return result;
 }
 
@@ -106,10 +104,4 @@ std::optional<WindowsPowerTelemetry> ReadWindowsPowerTelemetry()
     return result;
 }
 
-std::optional<int> SelectRemainingMinutes(
-    const WindowsPowerTelemetry& telemetry,
-    std::optional<int> estimatedMinutes)
-{
-    return telemetry.remainingMinutes ? telemetry.remainingMinutes : estimatedMinutes;
-}
 }

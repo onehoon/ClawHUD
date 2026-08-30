@@ -19,9 +19,6 @@ struct WindowsPowerTelemetry
 
 std::optional<WindowsPowerTelemetry> DecodeWindowsPowerStatus(
     const SYSTEM_POWER_STATUS& status);
-std::optional<int> SelectRemainingMinutes(
-    const WindowsPowerTelemetry& telemetry,
-    std::optional<int> estimatedMinutes);
 std::wstring FormatBatteryDiagnostics(
     BOOL gpsCallOk,
     DWORD gpsError,
