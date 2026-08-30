@@ -1,5 +1,4 @@
 #include "GameDetectionProbe.h"
-#include "ProductionTargetPolicy.h"
 
 #include <dwmapi.h>
 #include <pdh.h>
@@ -9,6 +8,7 @@
 #include <iomanip>
 #include <map>
 #include <sstream>
+#include <fstream>
 #include <unordered_map>
 #include <utility>
 
@@ -139,19 +139,41 @@ std::vector<GameDetectionCandidate> RankGpuCandidates(
     return result;
 }
 std::vector<GameDetectionCandidate> FilterPresentMonAutoTargetCandidates(
-    const std::vector<GameDetectionCandidate>& candidates)
+    const std::vector<GameDetectionCandidate>& candidates,
+    const PresentMonAutoTargetBlocklist& blocklist)
 {
     std::vector<GameDetectionCandidate> result;
     for (const auto& candidate : candidates)
+        if (!blocklist.Contains(candidate.executable))
+            result.push_back(candidate);
+    return result;
+}
+bool PresentMonAutoTargetBlocklist::Load(const std::filesystem::path& path)
+{
+    std::wifstream input(path);
+    if (!input) return false;
+    blocked_.clear();
+    std::wstring line;
+    while (std::getline(input, line))
     {
-        std::wstring image = candidate.executable;
-        for (auto& character : image)
+        const auto first = line.find_first_not_of(L" \t\r\n");
+        if (first == std::wstring::npos) continue;
+        const auto last = line.find_last_not_of(L" \t\r\n");
+        line = line.substr(first, last - first + 1);
+        for (auto& character : line)
             if (character >= L'A' && character <= L'Z')
                 character = static_cast<wchar_t>(character - L'A' + L'a');
-        if (!IsRejectedProductionTargetImage(image))
-            result.push_back(candidate);
+        if (!line.empty() && line.front() != L'#') blocked_.insert(line);
     }
-    return result;
+    return !blocked_.empty();
+}
+bool PresentMonAutoTargetBlocklist::Contains(std::wstring_view executable) const noexcept
+{
+    std::wstring normalized(executable);
+    for (auto& character : normalized)
+        if (character >= L'A' && character <= L'Z')
+            character = static_cast<wchar_t>(character - L'A' + L'a');
+    return blocked_.contains(normalized);
 }
 bool IsFullscreenLike(const RECT& window, const RECT& monitor, LONG tolerance) noexcept
 {
@@ -178,7 +200,21 @@ bool GameDetectionProbe::Start()
     log_.open(path_, std::ios::out | std::ios::trunc);
     started_ = log_.is_open();
     if (started_)
+    {
         log_ << "=== Game Detection Research Probe ===\n";
+        wchar_t modulePath[MAX_PATH * 4]{};
+        const auto length = GetModuleFileNameW(nullptr, modulePath,
+            static_cast<DWORD>(std::size(modulePath)));
+        const auto blocklistPath = length
+            ? std::filesystem::path(modulePath).parent_path() /
+                L"PresentMonAutoTargetBlockList.txt"
+            : std::filesystem::path{};
+        blocklistLoaded_ = !blocklistPath.empty() && blocklist_.Load(blocklistPath);
+        log_ << "[GameDetectProbe][Blocklist] source=" << blocklistPath.string()
+            << " upstream_commit=f57eb474371c635ff2be620c04ca47400ca1b81a"
+            << " loaded=" << (blocklistLoaded_ ? 1 : 0)
+            << " entries=" << blocklist_.Size() << '\n';
+    }
     return started_;
 }
 void GameDetectionProbe::Stop() noexcept
@@ -307,7 +343,9 @@ void GameDetectionProbe::LogPdhCandidates()
             << " exe=" << Quote(ranked[i].executable) << " hwnd=" << HexPointer(ranked[i].window)
             << " title=" << Quote(ranked[i].title) << " gpu3dDelta="
             << std::setprecision(8) << ranked[i].gpu3dDelta << '\n';
-    const auto parity = FilterPresentMonAutoTargetCandidates(ranked);
+    const auto parity = blocklistLoaded_
+        ? FilterPresentMonAutoTargetCandidates(ranked, blocklist_)
+        : std::vector<GameDetectionCandidate>{};
     if (ranked.empty()) log_ << "[GameDetectProbe][TopGPU][Raw] unavailable\n";
     else log_ << "[GameDetectProbe][TopGPU][Raw] pid=" << ranked[0].processId
         << " exe=" << Quote(ranked[0].executable) << " hwnd=" << HexPointer(ranked[0].window)

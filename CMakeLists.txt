@@ -125,6 +125,10 @@ target_include_directories(ClawHUD PRIVATE src/ClawHUD src/resources "${CMAKE_BI
 target_link_libraries(ClawHUD PRIVATE ClawHUD.Velopack comctl32 shell32 user32 winmm dwmapi pdh delayimp d3d11 dxgi dcomp d2d1 dwrite powrprof advapi32 wbemuuid ole32 oleaut32 propsys)
 target_link_options(ClawHUD PRIVATE "/DELAYLOAD:velopack_libc.dll")
 set_target_properties(ClawHUD PROPERTIES CXX_EXTENSIONS OFF)
+add_custom_command(TARGET ClawHUD POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/src/ClawHUD/PresentMonAutoTargetBlockList.txt"
+        "$<TARGET_FILE_DIR:ClawHUD>/PresentMonAutoTargetBlockList.txt")
 
 add_executable(ClawHUD.EcHelper WIN32
     src/ClawHUD.EcHelper/main.cpp
