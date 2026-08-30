@@ -78,11 +78,6 @@ struct GameRenderVerifierUpdate
     clawhud::GameRenderVerifierEvent event;
 };
 
-struct GlobalRendererTelemetryUpdate
-{
-    clawhud::GlobalPresentMonEvent event;
-};
-
 std::wstring HudSettingsPath()
 {
     PWSTR localAppData{};
@@ -296,9 +291,12 @@ int App::Run()
         },
         [this](HWND window, DWORD processId)
         {
-            rendererTargetSelector_.SetForegroundProcess(processId);
-            selectedRendererFps_ = rendererTargetSelector_.Selection()
-                ? rendererTargetSelector_.Selection()->fps : std::nullopt;
+            {
+                std::scoped_lock lock(rendererTargetMutex_);
+                rendererTargetSelector_.SetForegroundProcess(processId);
+                selectedRendererFps_ = rendererTargetSelector_.Selection()
+                    ? rendererTargetSelector_.Selection()->fps : std::nullopt;
+            }
             ReconcileHudVisibility();
             if (debugLoggingEnabled_)
                 windowsGameIdentitySource_.QueueInspect(window, processId);
@@ -586,11 +584,17 @@ void App::TryResumeRecovery()
     const bool processAlive = processId && ProcessAlive(processId);
     const bool retainPresentMon = ResumeRecoveryCanRetainPresentMon(
         processId, gameRenderVerifier_.ProcessId(), gameRenderVerifier_.Running());
+    bool rendererForegroundActive = false;
+    {
+        std::scoped_lock lock(rendererTargetMutex_);
+        rendererForegroundActive = rendererTargetSelector_.
+            ForegroundHasActiveRenderer(GetTickCount64());
+    }
     const bool expectedVisible = mockHudEnabled_ &&
         (manualHudVisibilityOverride_.has_value()
             ? *manualHudVisibilityOverride_
             : hudOptions_.visibilityMode == clawhud::HudVisibilityMode::Always ||
-                rendererTargetSelector_.ForegroundHasActiveRenderer(GetTickCount64()) ||
+                rendererForegroundActive ||
                 foregroundTracker_.ForegroundIsTrackedProcess());
     const bool visibilityUsesForeground = !manualHudVisibilityOverride_.has_value() &&
         hudOptions_.visibilityMode == clawhud::HudVisibilityMode::InGameOnly;
@@ -1451,10 +1455,25 @@ void App::StartGlobalRendererTelemetry()
     if (!globalPresentMonTelemetry_.Start(executable.wstring(),
         [this](const clawhud::GlobalPresentMonEvent& event)
         {
-            auto* update = new GlobalRendererTelemetryUpdate{event};
-            if (!PostMessageW(tray_.Window(), kGlobalRendererTelemetryUpdate,
-                reinterpret_cast<WPARAM>(update), 0))
-                delete update;
+            if (event.type == clawhud::GlobalPresentMonEvent::Type::StreamEnded)
+            {
+                globalRendererStreamEnded_ = true;
+                QueueGlobalRendererTelemetryUpdate(true);
+                return;
+            }
+            bool selectionChanged = false;
+            {
+                std::scoped_lock lock(rendererTargetMutex_);
+                const auto previous = rendererTargetSelector_.Selection();
+                rendererTargetSelector_.ObserveFrame(event.frame);
+                const auto current = rendererTargetSelector_.Selection();
+                selectionChanged = (!previous && current) || (previous && !current) ||
+                    (previous && current &&
+                        (previous->processId != current->processId ||
+                            previous->reason != current->reason ||
+                            previous->fps != current->fps));
+            }
+            QueueGlobalRendererTelemetryUpdate(selectionChanged);
         }))
     {
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
@@ -1473,14 +1492,32 @@ void App::StopGlobalRendererTelemetry()
     const DWORD exitCode = globalPresentMonTelemetry_.Stop();
     Log(L"[RendererTelemetry] global.stopped exitCode=" +
         std::to_wstring(exitCode));
-    rendererTargetSelector_.Clear();
+    {
+        std::scoped_lock lock(rendererTargetMutex_);
+        rendererTargetSelector_.Clear();
+    }
     selectedRendererFps_.reset();
+}
+
+void App::QueueGlobalRendererTelemetryUpdate(bool force)
+{
+    constexpr std::uint64_t kMinimumNotificationIntervalMs = 100;
+    const auto now = GetTickCount64();
+    const auto last = lastGlobalRendererUiUpdateTick_.load();
+    if (!force && now >= last && now - last < kMinimumNotificationIntervalMs)
+        return;
+    if (globalRendererUiUpdatePending_.exchange(true))
+        return;
+    lastGlobalRendererUiUpdateTick_ = now;
+    if (!PostMessageW(tray_.Window(), kGlobalRendererTelemetryUpdate, 0, 0))
+        globalRendererUiUpdatePending_ = false;
 }
 
 void App::RefreshRendererHints()
 {
     const auto& context = gameDetectionCoordinator_.Context();
     const DWORD candidate = context.candidateProcessId;
+    std::scoped_lock lock(rendererTargetMutex_);
     rendererTargetSelector_.SetMicrosoftHint(
         context.evidence.microsoftGameIdentity && candidate
             ? std::optional<DWORD>(candidate) : std::nullopt);
@@ -1491,23 +1528,30 @@ void App::RefreshRendererHints()
         ? rendererTargetSelector_.Selection()->fps : std::nullopt;
 }
 
-void App::HandleGlobalRendererTelemetry(
-    const clawhud::GlobalPresentMonEvent& event)
+void App::HandleGlobalRendererTelemetry()
 {
+    globalRendererUiUpdatePending_ = false;
     if (suspended_ || DiagnosticRunning() || !mockHudEnabled_)
         return;
-    const auto previous = rendererTargetSelector_.Selection();
-    if (event.type == clawhud::GlobalPresentMonEvent::Type::StreamEnded)
+    std::optional<clawhud::RendererTargetSelection> previous;
+    std::optional<clawhud::RendererTargetSelection> current;
+    const bool streamEnded = globalRendererStreamEnded_.exchange(false);
     {
-        rendererTargetSelector_.Clear();
-        selectedRendererFps_.reset();
+        std::scoped_lock lock(rendererTargetMutex_);
+        previous = rendererTargetSelector_.Selection();
+        if (streamEnded)
+            rendererTargetSelector_.Clear();
+        else
+            rendererTargetSelector_.Reevaluate(GetTickCount64());
+        current = rendererTargetSelector_.Selection();
+    }
+    if (!current && !previous && globalPresentMonTelemetry_.SessionName().empty())
+        return;
+    if (streamEnded)
+    {
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
             L"[RendererTelemetry] global.stream-ended; legacy detection remains active");
     }
-    else
-        rendererTargetSelector_.ObserveFrame(event.frame);
-
-    const auto current = rendererTargetSelector_.Selection();
     selectedRendererFps_ = current ? current->fps : std::nullopt;
     if ((!previous && current) || (previous && !current) ||
         (previous && current && (previous->processId != current->processId ||
@@ -1524,7 +1568,6 @@ void App::HandleGlobalRendererTelemetry(
             Log(L"[RendererSelector] cleared");
     }
     ReconcileHudVisibility();
-    RenderProductionHud();
 }
 
 void App::StartGraphicsApiProbe(DWORD processId)
@@ -1724,6 +1767,7 @@ void App::HandleProductionForegroundChanged(HWND window, DWORD processId)
 void App::HandleMicrosoftGameEvidence(
     const clawhud::MicrosoftGameTriggerEvidence& evidence)
 {
+    std::scoped_lock lock(rendererTargetMutex_);
     rendererTargetSelector_.SetMicrosoftHint(evidence.processId);
     if (!clawhud::ShouldConsiderForegroundProductionTarget(
         mockHudEnabled_, DiagnosticRunning(), suspended_))
@@ -2256,7 +2300,9 @@ void App::DiscardPendingGlobalRendererTelemetry()
     MSG message{};
     while (PeekMessageW(&message, tray_.Window(),
         kGlobalRendererTelemetryUpdate, kGlobalRendererTelemetryUpdate, PM_REMOVE))
-        delete reinterpret_cast<GlobalRendererTelemetryUpdate*>(message.wParam);
+        (void)message;
+    globalRendererUiUpdatePending_ = false;
+    globalRendererStreamEnded_ = false;
 }
 
 void App::DiscardPendingMicrosoftGameEvidence()
@@ -2301,11 +2347,15 @@ void App::ReconcileHudVisibility()
         StopGraphicsApiProbe();
     if (mockHudEnabled_ && !DiagnosticRunning())
         StartGlobalRendererTelemetry();
-    rendererTargetSelector_.Reevaluate(GetTickCount64());
-    selectedRendererFps_ = rendererTargetSelector_.Selection()
-        ? rendererTargetSelector_.Selection()->fps : std::nullopt;
-    const bool rendererForegroundActive = rendererTargetSelector_.
-        ForegroundHasActiveRenderer(GetTickCount64());
+    bool rendererForegroundActive = false;
+    {
+        std::scoped_lock lock(rendererTargetMutex_);
+        rendererTargetSelector_.Reevaluate(GetTickCount64());
+        selectedRendererFps_ = rendererTargetSelector_.Selection()
+            ? rendererTargetSelector_.Selection()->fps : std::nullopt;
+        rendererForegroundActive = rendererTargetSelector_.
+            ForegroundHasActiveRenderer(GetTickCount64());
+    }
     const bool legacyForegroundActive = foregroundTracker_.ForegroundIsTrackedProcess();
     const bool resolvedShow = mockHudEnabled_ && (manualHudVisibilityOverride_.has_value()
         ? *manualHudVisibilityOverride_
@@ -2624,12 +2674,7 @@ int App::ProcessMessages()
         }
         if (message.message == kGlobalRendererTelemetryUpdate)
         {
-            auto* update = reinterpret_cast<GlobalRendererTelemetryUpdate*>(message.wParam);
-            if (update)
-            {
-                HandleGlobalRendererTelemetry(update->event);
-                delete update;
-            }
+            HandleGlobalRendererTelemetry();
             continue;
         }
         if (message.message == kProductionWindowEvent)
