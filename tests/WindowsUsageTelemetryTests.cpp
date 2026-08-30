@@ -30,6 +30,8 @@ int main()
         20ull * 1024 * 1024 * 1024, "physical memory usage calculation");
     ok &= Check(!UsedPhysicalMemory(12, 32),
         "invalid physical memory availability is omitted");
+    ok &= Check(ReadSystemMemoryUsedBytes().has_value(),
+        "system memory helper reads current physical memory");
     ok &= Check(NormalizeUsagePercent(33.0).value() == 33.0, "valid CPU usage");
     ok &= Check(NormalizeUsagePercent(0.0).value() == 0.0, "valid zero usage");
     ok &= Check(NormalizeUsagePercent(125.0).value() == 100.0,
@@ -146,6 +148,40 @@ int main()
         ShouldInvalidateWindowsUsageTelemetry(3, 3) &&
         !ShouldInvalidateWindowsUsageTelemetry(3, 0),
         "usage telemetry invalidation is bounded");
+    std::optional<double> systemCpu = 25.0;
+    std::optional<double> systemGpu = 40.0;
+    std::optional<double> systemClock = 1200.0;
+    std::optional<std::uint64_t> systemVram = 200;
+    std::optional<std::uint64_t> systemRam = 300;
+    unsigned cpuMisses = 0;
+    unsigned gpuMisses = 0;
+    unsigned clockMisses = 0;
+    unsigned systemVramMisses = 0;
+    unsigned ramMisses = 0;
+    const std::optional<double> missingDouble;
+    const std::optional<std::uint64_t> missingBytes;
+    UpdateRetainedTelemetryField(systemCpu, missingDouble, cpuMisses, 2);
+    UpdateRetainedTelemetryField(systemGpu, std::optional<double>{55.0}, gpuMisses, 2);
+    UpdateRetainedTelemetryField(systemClock, missingDouble, clockMisses, 2);
+    UpdateRetainedTelemetryField(systemVram, missingBytes, systemVramMisses, 2);
+    UpdateRetainedTelemetryField(systemRam, missingBytes, ramMisses, 2);
+    ok &= Check(systemCpu && *systemCpu == 25.0 && systemGpu && *systemGpu == 55.0 &&
+        systemClock && *systemClock == 1200.0 && systemVram && *systemVram == 200 &&
+        systemRam && *systemRam == 300 && cpuMisses == 1 && gpuMisses == 0 &&
+        clockMisses == 1 && systemVramMisses == 1 && ramMisses == 1,
+        "system telemetry fields retain independently");
+    UpdateRetainedTelemetryField(systemCpu, missingDouble, cpuMisses, 2);
+    UpdateRetainedTelemetryField(systemGpu, missingDouble, gpuMisses, 2);
+    UpdateRetainedTelemetryField(systemClock, missingDouble, clockMisses, 2);
+    UpdateRetainedTelemetryField(systemVram, missingBytes, systemVramMisses, 2);
+    UpdateRetainedTelemetryField(systemRam, missingBytes, ramMisses, 2);
+    UpdateRetainedTelemetryField(systemCpu, missingDouble, cpuMisses, 2);
+    UpdateRetainedTelemetryField(systemGpu, missingDouble, gpuMisses, 2);
+    UpdateRetainedTelemetryField(systemClock, missingDouble, clockMisses, 2);
+    UpdateRetainedTelemetryField(systemVram, missingBytes, systemVramMisses, 2);
+    UpdateRetainedTelemetryField(systemRam, missingBytes, ramMisses, 2);
+    ok &= Check(!systemCpu && !systemGpu && !systemClock && !systemVram && !systemRam,
+        "full system telemetry failure invalidates every retained field");
     ok &= Check(ShouldRetryIntelGpuMemoryCounters(true, true, 0) &&
         ShouldRetryIntelGpuMemoryCounters(false, true, 2) &&
         !ShouldRetryIntelGpuMemoryCounters(true, false, 3) &&

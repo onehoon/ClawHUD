@@ -5,6 +5,7 @@
 #include <memory>
 #include <atomic>
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <string>
 
@@ -29,9 +30,7 @@
 #include "MsiEcHudTelemetry.h"
 #include "WindowsPowerTelemetry.h"
 #include "BatteryRuntimeEstimator.h"
-#include "WindowsUsageTelemetry.h"
 #include "SteamRunningAppIdSource.h"
-#include "IgclGpuTelemetry.h"
 #include "IntelGraphicsApiProbe.h"
 #include "IgclTelemetryDiagnostic.h"
 #include "PresentMonApi2Diagnostic.h"
@@ -244,10 +243,11 @@ private:
     unsigned presentMonRestartAttempts_{};
     std::optional<clawhud::WindowsPowerTelemetry> latestPowerTelemetry_;
     clawhud::BatteryRuntimeEstimator batteryRuntimeEstimator_;
-    clawhud::WindowsUsageSampler usageSampler_;
-    std::optional<clawhud::WindowsUsageTelemetry> latestUsageTelemetry_;
-    clawhud::IgclGpuTelemetrySampler igclGpuSampler_;
-    std::optional<clawhud::IgclGpuTelemetry> latestIgclGpuTelemetry_;
+    std::optional<double> latestCpuUsagePercent_;
+    std::optional<double> latestGpuUsagePercent_;
+    std::optional<double> latestGpuClockMHz_;
+    std::optional<std::uint64_t> latestGpuMemoryUsedBytes_;
+    std::optional<std::uint64_t> latestSystemMemoryUsedBytes_;
     clawhud::IntelGraphicsApiProbe graphicsApiProbe_;
     std::optional<std::wstring> latestGraphicsApi_;
     DWORD graphicsApiProcessId_{};
@@ -274,19 +274,15 @@ private:
     bool hudRenderFailureLogged_{};
     bool hudShowFailureLogged_{};
     bool hudHideFailureLogged_{};
-    unsigned usageTelemetryFailureCount_{};
-    unsigned usageCpuMissingCount_{};
-    unsigned usageMemoryMissingCount_{};
-    unsigned usageGpuMemoryMissingCount_{};
+    unsigned cpuUsageMissingCount_{};
+    unsigned gpuUsageMissingCount_{};
+    unsigned gpuClockMissingCount_{};
+    unsigned gpuMemoryMissingCount_{};
+    unsigned systemMemoryMissingCount_{};
     unsigned ecCpuTempMissingCount_{};
     unsigned ecFan1MissingCount_{};
     unsigned ecFan2MissingCount_{};
     unsigned ecTdpMissingCount_{};
-    bool igclTelemetryAvailable_{};
-    unsigned igclTelemetryFailureCount_{};
-    unsigned igclInitializationFailureCount_{};
-    unsigned igclGpuUsageMissingCount_{};
-    unsigned igclGpuClockMissingCount_{};
     bool intelVrrRangeFixEnabled_{ true };
     bool suspended_{};
     bool resumeRecoveryActive_{};
