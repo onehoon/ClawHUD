@@ -82,7 +82,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/PresentMonHudTelemetry.cpp
     src/ClawHUD/WindowsPowerTelemetry.cpp
     src/ClawHUD/BatteryRuntimeEstimator.cpp
-    src/ClawHUD/WindowsUsageTelemetry.cpp
+    src/ClawHUD/WindowsMemoryTelemetry.cpp
     src/ClawHUD/IntelGraphicsApiProbe.cpp
     src/ClawHUD/SupportedHardware.cpp
     src/ClawHUD/VrrDiagnostic.cpp
@@ -120,7 +120,7 @@ target_compile_definitions(ClawHUD PRIVATE
     UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX
     CLAWHUD_UPDATE_REPOSITORY=\"https://github.com/onehoon/ClawHUD\")
 target_include_directories(ClawHUD PRIVATE src/ClawHUD src/resources "${CMAKE_BINARY_DIR}/generated")
-target_link_libraries(ClawHUD PRIVATE ClawHUD.Velopack comctl32 shell32 user32 winmm dwmapi delayimp d3d11 dxgi dcomp d2d1 dwrite pdh powrprof advapi32 wbemuuid ole32 oleaut32 propsys)
+target_link_libraries(ClawHUD PRIVATE ClawHUD.Velopack comctl32 shell32 user32 winmm dwmapi delayimp d3d11 dxgi dcomp d2d1 dwrite powrprof advapi32 wbemuuid ole32 oleaut32 propsys)
 target_link_options(ClawHUD PRIVATE "/DELAYLOAD:velopack_libc.dll")
 set_target_properties(ClawHUD PROPERTIES CXX_EXTENSIONS OFF)
 
@@ -327,16 +327,23 @@ if(BUILD_TESTING)
     set_target_properties(ClawHUD.WindowsPowerTelemetryTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.WindowsPowerTelemetryTests COMMAND ClawHUD.WindowsPowerTelemetryTests)
 
-    add_executable(ClawHUD.WindowsUsageTelemetryTests
-        tests/WindowsUsageTelemetryTests.cpp
-        src/ClawHUD/WindowsUsageTelemetry.cpp
-        src/ClawHUD/RuntimeLogger.cpp)
-    target_compile_features(ClawHUD.WindowsUsageTelemetryTests PRIVATE cxx_std_20)
-    target_compile_definitions(ClawHUD.WindowsUsageTelemetryTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-    target_include_directories(ClawHUD.WindowsUsageTelemetryTests PRIVATE src/ClawHUD)
-    target_link_libraries(ClawHUD.WindowsUsageTelemetryTests PRIVATE pdh dxgi shell32 ole32)
-    set_target_properties(ClawHUD.WindowsUsageTelemetryTests PROPERTIES CXX_EXTENSIONS OFF)
-    add_test(NAME ClawHUD.WindowsUsageTelemetryTests COMMAND ClawHUD.WindowsUsageTelemetryTests)
+    add_executable(ClawHUD.WindowsMemoryTelemetryTests
+        tests/WindowsMemoryTelemetryTests.cpp
+        src/ClawHUD/WindowsMemoryTelemetry.cpp)
+    target_compile_features(ClawHUD.WindowsMemoryTelemetryTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.WindowsMemoryTelemetryTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.WindowsMemoryTelemetryTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.WindowsMemoryTelemetryTests PRIVATE shell32)
+    set_target_properties(ClawHUD.WindowsMemoryTelemetryTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.WindowsMemoryTelemetryTests COMMAND ClawHUD.WindowsMemoryTelemetryTests)
+
+    add_executable(ClawHUD.TelemetryRetentionTests
+        tests/TelemetryRetentionTests.cpp)
+    target_compile_features(ClawHUD.TelemetryRetentionTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.TelemetryRetentionTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.TelemetryRetentionTests PRIVATE src/ClawHUD)
+    set_target_properties(ClawHUD.TelemetryRetentionTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.TelemetryRetentionTests COMMAND ClawHUD.TelemetryRetentionTests)
 
     add_executable(ClawHUD.IntelGraphicsApiProbeTests
         tests/IntelGraphicsApiProbeTests.cpp
