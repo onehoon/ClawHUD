@@ -58,5 +58,9 @@ private:
     std::vector<PM_QUERY_ELEMENT> elements_;
     std::vector<SystemMetricBinding> bindings_;
     std::vector<std::uint8_t> blob_;
+    bool pollDiagnosticsInitialized_{};
+    PM_STATUS lastPollStatus_{};
+    std::uint32_t lastPollResultCount_{};
+    bool firstSampleLogged_{};
 };
 }

@@ -668,12 +668,13 @@ if(BUILD_TESTING)
         src/ClawHUD/PresentMonTelemetryProvider.cpp
         src/ClawHUD/PresentMonProcessTelemetry.cpp
         src/ClawHUD/PresentMonSystemTelemetry.cpp
-        src/ClawHUD/PresentMonApi2Client.cpp)
+        src/ClawHUD/PresentMonApi2Client.cpp
+        src/ClawHUD/RuntimeLogger.cpp)
     target_compile_features(ClawHUD.PresentMonTelemetryProviderTests PRIVATE cxx_std_20)
     target_compile_definitions(ClawHUD.PresentMonTelemetryProviderTests PRIVATE
         UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
     target_include_directories(ClawHUD.PresentMonTelemetryProviderTests PRIVATE src/ClawHUD)
-    target_link_libraries(ClawHUD.PresentMonTelemetryProviderTests PRIVATE kernel32)
+    target_link_libraries(ClawHUD.PresentMonTelemetryProviderTests PRIVATE kernel32 shell32)
     set_target_properties(ClawHUD.PresentMonTelemetryProviderTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.PresentMonTelemetryProviderTests
         COMMAND ClawHUD.PresentMonTelemetryProviderTests)

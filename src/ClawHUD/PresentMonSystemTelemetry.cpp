@@ -1,11 +1,13 @@
 #include "PresentMonSystemTelemetry.h"
 
 #include "PresentMonApi2Client.h"
+#include "RuntimeLogger.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <string>
 
 namespace clawhud
 {
@@ -53,6 +55,12 @@ std::optional<PM_STAT> Statistic(const PresentMonMetricCapability& metric)
 }
 bool SupportedType(PM_DATA_TYPE type)
 { return type == PM_DATA_TYPE_DOUBLE || type == PM_DATA_TYPE_UINT64 || type == PM_DATA_TYPE_UINT32 || type == PM_DATA_TYPE_INT32; }
+std::wstring Status(PM_STATUS status)
+{ return std::to_wstring(static_cast<int>(status)); }
+std::wstring OptionalDouble(const std::optional<double>& value)
+{ return value ? std::to_wstring(*value) : L"n/a"; }
+std::wstring OptionalBytes(const std::optional<std::uint64_t>& value)
+{ return value ? std::to_wstring(*value) : L"n/a"; }
 std::optional<double> Number(const std::uint8_t* blob, const PM_QUERY_ELEMENT& e, PM_DATA_TYPE type)
 {
     if (!blob || !SupportedType(type)) return std::nullopt;
@@ -155,24 +163,91 @@ bool PresentMonSystemTelemetry::Initialize(PresentMonApi2Client& client,
 {
     Shutdown(client);
     const auto plan = BuildPresentMonSystemQueryPlan(capabilities);
-    if (plan.elements.empty() || client.SetTelemetryPollingPeriod(0, 250) != PM_STATUS_SUCCESS) return false;
+    const auto bound = [&](SystemMetricSlot slot)
+    {
+        return std::any_of(plan.bindings.begin(), plan.bindings.end(),
+            [slot](const auto& binding) { return binding.slot == slot; });
+    };
+    RuntimeLogger::Log(RuntimeLogLevel::Info,
+        L"[PresentMonSystem] query-plan elements=" +
+        std::to_wstring(plan.elements.size()) + L" cpu=" +
+        std::to_wstring(bound(SystemMetricSlot::CpuUsage)) + L" gpuUsage=" +
+        std::to_wstring(bound(SystemMetricSlot::GpuUsage)) + L" gpuClock=" +
+        std::to_wstring(bound(SystemMetricSlot::GpuFrequency)) + L" vram=" +
+        std::to_wstring(bound(SystemMetricSlot::GpuMemoryUsed)));
+    if (plan.elements.empty())
+    {
+        RuntimeLogger::Log(RuntimeLogLevel::Warn,
+            L"[PresentMonSystem] initialized ready=0 stage=query-plan");
+        return false;
+    }
+    const auto pollingStatus = client.SetTelemetryPollingPeriod(0, 250);
+    RuntimeLogger::Log(RuntimeLogLevel::Info,
+        L"[PresentMonSystem] polling-period status=" + Status(pollingStatus));
+    if (pollingStatus != PM_STATUS_SUCCESS)
+    {
+        RuntimeLogger::Log(RuntimeLogLevel::Warn,
+            L"[PresentMonSystem] initialized ready=0 stage=polling-period status=" +
+            Status(pollingStatus));
+        return false;
+    }
     elements_ = plan.elements; bindings_ = plan.bindings;
-    if (client.RegisterDynamicQuery(&query_, elements_.data(), elements_.size(), 1000, 0) != PM_STATUS_SUCCESS)
-    { query_ = nullptr; elements_.clear(); bindings_.clear(); return false; }
+    const auto registerStatus = client.RegisterDynamicQuery(
+        &query_, elements_.data(), elements_.size(), 1000, 0);
+    RuntimeLogger::Log(RuntimeLogLevel::Info,
+        L"[PresentMonSystem] register-query status=" + Status(registerStatus) +
+        L" elements=" + std::to_wstring(elements_.size()));
+    if (registerStatus != PM_STATUS_SUCCESS)
+    {
+        query_ = nullptr; elements_.clear(); bindings_.clear();
+        RuntimeLogger::Log(RuntimeLogLevel::Warn,
+            L"[PresentMonSystem] initialized ready=0 stage=register-query status=" +
+            Status(registerStatus));
+        return false;
+    }
     std::uint64_t end{}; for (const auto& e : elements_) end = std::max(end, e.dataOffset + e.dataSize);
     blob_.resize(static_cast<size_t>(std::max<std::uint64_t>(end, 4096)));
+    RuntimeLogger::Log(RuntimeLogLevel::Info,
+        L"[PresentMonSystem] initialized ready=1");
     return true;
 }
 void PresentMonSystemTelemetry::Shutdown(PresentMonApi2Client& client) noexcept
 {
     if (query_) client.FreeDynamicQuery(query_);
     query_ = nullptr; elements_.clear(); bindings_.clear(); blob_.clear();
+    pollDiagnosticsInitialized_ = false;
+    lastPollStatus_ = {};
+    lastPollResultCount_ = 0;
+    firstSampleLogged_ = false;
 }
 std::optional<PresentMonSystemSnapshot> PresentMonSystemTelemetry::Read(PresentMonApi2Client& client)
 {
     if (!query_) return std::nullopt;
     std::uint32_t resultCount = 1;
     const auto status = client.PollDynamicQuery(query_, kSystemTelemetryProcessId, blob_.data(), &resultCount);
-    return DecodePresentMonSystemSnapshot(status, resultCount, blob_.data(), elements_, bindings_);
+    if (!pollDiagnosticsInitialized_ || status != lastPollStatus_ ||
+        resultCount != lastPollResultCount_)
+    {
+        RuntimeLogger::Log(status == PM_STATUS_SUCCESS && resultCount != 0
+            ? RuntimeLogLevel::Debug : RuntimeLogLevel::Warn,
+            L"[PresentMonSystem] poll pid=0 status=" + Status(status) +
+            L" resultCount=" + std::to_wstring(resultCount));
+        pollDiagnosticsInitialized_ = true;
+        lastPollStatus_ = status;
+        lastPollResultCount_ = resultCount;
+    }
+    const auto snapshot = DecodePresentMonSystemSnapshot(
+        status, resultCount, blob_.data(), elements_, bindings_);
+    if (snapshot && !firstSampleLogged_)
+    {
+        RuntimeLogger::Log(RuntimeLogLevel::Info,
+            L"[PresentMonSystem] first-sample cpu=" +
+            OptionalDouble(snapshot->cpuUsagePercent) + L" gpu=" +
+            OptionalDouble(snapshot->gpuUsagePercent) + L" clockMHz=" +
+            OptionalDouble(snapshot->gpuClockMHz) + L" vramBytes=" +
+            OptionalBytes(snapshot->gpuMemoryUsedBytes));
+        firstSampleLogged_ = true;
+    }
+    return snapshot;
 }
 }

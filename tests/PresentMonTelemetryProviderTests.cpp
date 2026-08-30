@@ -128,8 +128,9 @@ void CheckQueryPlanning(bool& ok)
         "unsupported statistic is rejected");
 
     PresentMonTelemetryProvider provider;
-    ok &= Check(!provider.Ready() && !provider.ProcessReady(),
-        "process readiness is independent on an uninitialized provider");
+    ok &= Check(!provider.Ready() && !provider.ProcessReady() &&
+        !provider.SystemReady(),
+        "process and system readiness are independent on an uninitialized provider");
 }
 
 void CheckDecoding(bool& ok)
