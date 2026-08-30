@@ -9,6 +9,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <vector>
 
 namespace clawhud
@@ -35,8 +36,19 @@ double PositiveCounterDelta(double first, double second) noexcept;
 std::vector<GameDetectionCandidate> RankGpuCandidates(
     const std::vector<GameDetectionEngineDelta>& engines,
     const std::vector<GameDetectionCandidate>& windows);
+class PresentMonAutoTargetBlocklist
+{
+public:
+    bool Load(const std::filesystem::path& path);
+    bool Contains(std::wstring_view executable) const noexcept;
+    std::size_t Size() const noexcept { return blocked_.size(); }
+
+private:
+    std::unordered_set<std::wstring> blocked_;
+};
 std::vector<GameDetectionCandidate> FilterPresentMonAutoTargetCandidates(
-    const std::vector<GameDetectionCandidate>& candidates);
+    const std::vector<GameDetectionCandidate>& candidates,
+    const PresentMonAutoTargetBlocklist& blocklist);
 bool IsFullscreenLike(const RECT& window, const RECT& monitor,
     LONG tolerance = 2) noexcept;
 std::string FormatProbePid(DWORD processId);
@@ -69,6 +81,8 @@ private:
     DWORD previousForegroundPid_{};
     std::wstring previousForegroundExe_;
     std::uint64_t sequence_{};
+    PresentMonAutoTargetBlocklist blocklist_;
+    bool blocklistLoaded_{};
     bool started_{};
 };
 }
