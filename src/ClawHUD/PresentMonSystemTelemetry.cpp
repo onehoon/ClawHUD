@@ -11,6 +11,11 @@
 
 namespace clawhud
 {
+bool SupportsPresentMonDynamicQuery(PM_METRIC_TYPE type) noexcept
+{
+    return type == PM_METRIC_TYPE_DYNAMIC || type == PM_METRIC_TYPE_DYNAMIC_FRAME;
+}
+
 namespace
 {
 constexpr double kSystemTelemetryWindowSizeMs = 1000.0;
@@ -94,7 +99,7 @@ double UnitScale(PM_UNIT unit)
 void AddMetric(PresentMonSystemQueryPlan& plan, const PresentMonMetricCapability& metric,
     std::uint32_t deviceId, SystemMetricSlot slot)
 {
-    if (metric.type != PM_METRIC_TYPE_DYNAMIC || !SupportedType(metric.polledType)) return;
+    if (!SupportsPresentMonDynamicQuery(metric.type) || !SupportedType(metric.polledType)) return;
     const auto stat = Statistic(metric); if (!stat) return;
     bool available{}; for (const auto& info : metric.devices)
         if (info.deviceId == deviceId && info.availability == PM_METRIC_AVAILABILITY_AVAILABLE) available = true;

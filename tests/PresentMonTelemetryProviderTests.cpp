@@ -227,6 +227,15 @@ void CheckProcessLifecycle(bool& ok)
 
 void CheckSystemTelemetry(bool& ok)
 {
+    ok &= Check(SupportsPresentMonDynamicQuery(PM_METRIC_TYPE_DYNAMIC),
+        "dynamic metrics are accepted for system queries");
+    ok &= Check(SupportsPresentMonDynamicQuery(PM_METRIC_TYPE_DYNAMIC_FRAME),
+        "dynamic-frame metrics are accepted for system queries");
+    ok &= Check(!SupportsPresentMonDynamicQuery(PM_METRIC_TYPE_STATIC),
+        "static metrics are rejected for system queries");
+    ok &= Check(!SupportsPresentMonDynamicQuery(PM_METRIC_TYPE_FRAME_EVENT),
+        "frame-event metrics are rejected for system queries");
+
     const char name[] = "Intel Graphics";
     PM_INTROSPECTION_STRING deviceName{name};
     PM_INTROSPECTION_DEVICE devices[] = {
@@ -244,13 +253,13 @@ void CheckSystemTelemetry(bool& ok)
     std::array<const void*, 2> metricDeviceEntries{&metricDevices[0], &metricDevices[1]};
     PM_INTROSPECTION_OBJARRAY metricDeviceArray{metricDeviceEntries.data(), metricDeviceEntries.size()};
     PM_INTROSPECTION_METRIC metrics[] = {
-        {PM_METRIC_CPU_UTILIZATION, PM_METRIC_TYPE_DYNAMIC, PM_UNIT_PERCENT, PM_UNIT_PERCENT,
+        {PM_METRIC_CPU_UTILIZATION, PM_METRIC_TYPE_DYNAMIC_FRAME, PM_UNIT_PERCENT, PM_UNIT_PERCENT,
             &doubleType, &statArray, &metricDeviceArray},
-        {PM_METRIC_GPU_UTILIZATION, PM_METRIC_TYPE_DYNAMIC, PM_UNIT_PERCENT, PM_UNIT_PERCENT,
+        {PM_METRIC_GPU_UTILIZATION, PM_METRIC_TYPE_DYNAMIC_FRAME, PM_UNIT_PERCENT, PM_UNIT_PERCENT,
             &doubleType, &statArray, &metricDeviceArray},
-        {PM_METRIC_GPU_FREQUENCY, PM_METRIC_TYPE_DYNAMIC, PM_UNIT_HERTZ, PM_UNIT_MEGAHERTZ,
+        {PM_METRIC_GPU_FREQUENCY, PM_METRIC_TYPE_DYNAMIC_FRAME, PM_UNIT_HERTZ, PM_UNIT_MEGAHERTZ,
             &doubleType, &statArray, &metricDeviceArray},
-        {PM_METRIC_GPU_MEM_USED, PM_METRIC_TYPE_DYNAMIC, PM_UNIT_BYTES, PM_UNIT_BYTES,
+        {PM_METRIC_GPU_MEM_USED, PM_METRIC_TYPE_DYNAMIC_FRAME, PM_UNIT_BYTES, PM_UNIT_BYTES,
             &uint64Type, &statArray, &metricDeviceArray}};
     std::array<const void*, 4> metricEntries{&metrics[0], &metrics[1], &metrics[2], &metrics[3]};
     PM_INTROSPECTION_OBJARRAY metricArray{metricEntries.data(), metricEntries.size()};
@@ -259,6 +268,11 @@ void CheckSystemTelemetry(bool& ok)
     const auto plan = BuildPresentMonSystemQueryPlan(capabilities);
     ok &= Check(plan.elements.size() == 4 && plan.bindings.size() == 4,
         "system metrics share one query");
+    ok &= Check(plan.bindings[0].slot == SystemMetricSlot::CpuUsage &&
+        plan.bindings[1].slot == SystemMetricSlot::GpuUsage &&
+        plan.bindings[2].slot == SystemMetricSlot::GpuFrequency &&
+        plan.bindings[3].slot == SystemMetricSlot::GpuMemoryUsed,
+        "all four intended system metric slots are planned");
     ok &= Check(plan.elements[0].deviceId == 2 && plan.elements[1].deviceId == 1,
         "system and Intel device selection is capability driven");
     ok &= Check(std::all_of(plan.elements.begin(), plan.elements.end(),
