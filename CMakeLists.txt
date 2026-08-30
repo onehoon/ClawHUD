@@ -518,7 +518,8 @@ if(BUILD_TESTING)
         tests/MicrosoftGameTriggerTests.cpp
         src/ClawHUD/GameDetection/MicrosoftGameTrigger.cpp
         src/ClawHUD/GameDetection/WindowsGameIdentityProbe.cpp
-        src/ClawHUD/GameDetection/GameDetectionCoordinator.cpp)
+        src/ClawHUD/GameDetection/GameDetectionCoordinator.cpp
+        src/ClawHUD/RuntimeLogger.cpp)
     target_compile_features(ClawHUD.MicrosoftGameTriggerTests PRIVATE cxx_std_20)
     target_compile_definitions(ClawHUD.MicrosoftGameTriggerTests PRIVATE
         UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
