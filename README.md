@@ -492,7 +492,7 @@ Intel actual-flip / future driver telemetry
 
 Capability checks should be used per metric. Do not assume every Arc generation exposes every IGCL sensor identically.
 
-In particular, known driver/IGCL gaps on newer GPUs mean MSI EC may remain the preferred source for some Claw temperatures even when IGCL telemetry exists.
+In particular, known driver/IGCL gaps on newer GPUs mean MSI EC may remain the preferred source for Claw CPU temperature even when IGCL telemetry exists.
 
 ---
 
@@ -526,7 +526,7 @@ The authoritative implementation reference is:
 
 [docs/MSI_EC_TELEMETRY_REFERENCE.md](docs/MSI_EC_TELEMETRY_REFERENCE.md)
 
-Expected read-only values include:
+Production HUD EC values are intentionally limited to:
 
 ```text
 Get_Fan(0)
@@ -534,17 +534,10 @@ Get_Fan(0)
 └─ Fan 2 tach
 
 Get_Temperature(0)
-├─ CPU temperature
-└─ GPU temperature
+└─ CPU temperature
 
 Get_Data(221)
 └─ CPU package power
-
-Get_Data(70 / 71)
-└─ battery-side current
-
-Get_Data(74 / 75)
-└─ battery voltage
 ```
 
 ClawHUD does not need fan-control or TDP-write functionality for the HUD telemetry path.
@@ -561,25 +554,16 @@ The production application remains unelevated. MSI EC reads are performed only b
 
 ---
 
-# 13. Battery and system-power model
+# 13. Battery model
 
-The intended battery presentation includes:
+The production battery presentation is intentionally small:
 
 ```text
 Battery %
-System Power
 Remaining Time
 ```
 
-Battery state/capacity comes from normal Windows power APIs. MSI EC provides the battery-side current/voltage source used by MSI's own OSD path for DC system power.
-
-The intended remaining-time concept is simple:
-
-```text
-remaining energy / smoothed current system power
-```
-
-Do not build a complicated prediction engine. A short moving average or EMA is sufficient to avoid a wildly jumping time estimate.
+Battery state, percentage, power-source state, and remaining-time data come from normal Windows power APIs.
 
 ## DC / battery behavior
 
@@ -587,11 +571,10 @@ When discharging:
 
 ```text
 Battery %       visible
-Remaining       visible
-System Power    visible
+Remaining       visible when Windows reports it
 CPU Power       visible
 Fan RPM         visible
-Temperatures    visible
+CPU Temperature visible
 ```
 
 ## AC-connected behavior
@@ -601,15 +584,12 @@ When AC is connected:
 ```text
 Battery %       visible
 Remaining       hidden
-System Power    hidden
 CPU Power       visible
 Fan RPM         visible
-Temperatures    visible
+CPU Temperature visible
 ```
 
-`System Power` is intentionally battery-discharge based. Showing `0 W` or a misleading value on AC is worse than hiding the metric.
-
-CPU package power is independent of that policy and remains useful on both AC and DC.
+CPU package power is independent of battery state and remains useful on both AC and DC.
 
 ---
 
@@ -634,14 +614,12 @@ struct TelemetrySnapshot
 
     // MSI EC
     std::optional<int> cpuTempC;
-    std::optional<int> gpuTempC;
     std::optional<int> fan1Rpm;
     std::optional<int> fan2Rpm;
     std::optional<double> cpuPackagePowerW;
 
     // Power / battery
     std::optional<int> batteryPercent;
-    std::optional<double> systemPowerW;
     std::optional<int> remainingMinutes;
     bool onAcPower{};
 };
@@ -676,7 +654,7 @@ Background opacity
 A representative compact line is:
 
 ```text
-FPS 72 | CPU 61°C | GPU 58°C | FAN1 3520 | FAN2 3610 | BAT 62% | 18.7W | 2h 07m
+FPS 72 | CPU 61% 61°C | GPU 58% 2200MHz | TDP 18W | FAN 3565RPM | BAT 62% 2h 07m
 ```
 
 The exact visual design is not fixed yet. Architecture should not be complicated in anticipation of a future skin/theme system.
@@ -880,13 +858,13 @@ No multi-row layout, graphs, cards, gauges, or vertical sensor list are required
 Current DC / battery example:
 
 ```text
-DX11 60 FPS | CPU 36% 67°C | GPU 98% 72°C | TDP 18 W | SYS 24 W | FAN 3540 RPM | BAT 72%  2.5h
+60 FPS | CPU 36% 67°C | GPU 98% 2300MHz | TDP 18W | RAM 8.0GB | VRAM 3.4GB | FAN 3540RPM | BAT 72% 2.5h
 ```
 
 Current AC-connected example:
 
 ```text
-DX11 60 FPS | CPU 36% 67°C | GPU 98% 72°C | TDP 18 W | FAN 3540 RPM | BAT 72%
+60 FPS | CPU 36% 67°C | GPU 98% 2300MHz | TDP 18W | RAM 8.0GB | VRAM 3.4GB | FAN 3540RPM | BAT 72%
 ```
 
 The graphics API label should conceptually become one of:
@@ -906,9 +884,10 @@ The current one-line order is:
 ```text
 Graphics API + FPS
 | CPU usage + CPU temperature
-| GPU usage + GPU temperature
+| GPU usage + GPU clock
 | TDP
-| SYS (DC only)
+| RAM
+| VRAM
 | FAN
 | BAT + remaining time (remaining is DC only)
 ```
@@ -918,25 +897,25 @@ Meaning of each label:
 | HUD label | Meaning | Intended source |
 |---|---|---|
 | `DX11` / `DX12` / `VULKAN` + FPS | current graphics API label + frame rate | PresentMon / runtime validation path |
-| `CPU` | total CPU usage + live CPU temperature | PresentMon candidate for usage; MSI `Get_Temperature(0)[0]` for temperature |
-| `GPU` | GPU usage + Intel GPU VRAM usage + live GPU temperature | PDH GPU usage and Intel adapter memory counters; MSI `Get_Temperature(0)[1]` for temperature |
+| `CPU` | total CPU usage + live CPU temperature | Windows CPU usage telemetry; MSI `Get_Temperature(0)[0]` for temperature |
+| `GPU` | Intel GPU usage + GPU clock | IGCL telemetry |
 | `TDP` | **current CPU Package Power**, not the configured PL1/TDP limit | MSI `Get_Data(221)` |
-| `SYS` | battery-side whole-system discharge power | MSI `Get_Data(70/71)` current × `Get_Data(74/75)` voltage |
+| `RAM` | used physical system memory | Windows memory API |
+| `VRAM` | Intel GPU dedicated + shared adapter memory usage | Windows GPU Adapter Memory counters |
 | `FAN` | average of the two Claw fan RPM values | MSI `Get_Fan(0)` |
-| `BAT` | battery percentage and, on DC only, estimated remaining time | Windows battery API + smoothed system power |
+| `BAT` | battery percentage and, on DC only, remaining time | Windows power API |
 
 VRAM reports memory usage of the built-in Intel GPU. External GPU (eGPU) memory is not included.
 
 The user-facing `TDP` label is intentionally concise. Internally the value should retain an accurate name such as `cpuPackagePowerW` so it is not confused with configured PL1/PL2 limits.
 
-## 20.4 MSI temperature selectors: do not confuse telemetry with fan-curve axes
+## 20.4 MSI temperature selector
 
-For the HUD, real-time temperature is read from:
+For the production HUD, real-time CPU temperature is read from:
 
 ```text
 Get_Temperature(0)
-├─ payload[0] = CPU temperature °C
-└─ payload[1] = GPU temperature °C
+└─ payload[0] = CPU temperature °C
 ```
 
 Do **not** use the fan-curve selector values as live temperatures:
@@ -946,7 +925,7 @@ Get_Temperature(1) = Fan 1 temperature-axis / curve data
 Get_Temperature(2) = Fan 2 temperature-axis / curve data
 ```
 
-Selectors `1` and `2` are useful for fan-control/curve research but are not the runtime CPU/GPU temperature source for this HUD.
+Selectors `1` and `2` are useful for fan-control/curve research but are not the runtime CPU temperature source for this HUD.
 
 ## 20.5 Fan display policy
 
@@ -962,20 +941,19 @@ If only one fan reading is valid, using the valid fan reading is preferable to m
 
 ## 20.6 AC / DC visibility policy
 
-System Power is derived from battery discharge telemetry and therefore has a strict power-source rule.
-
 ### DC / battery
 
 Show:
 
 ```text
 Battery %
-Remaining time
-System Power
+Remaining time when Windows reports it
 CPU Package Power / TDP
 Fan RPM
-CPU/GPU temperature
+CPU temperature
 CPU/GPU usage
+GPU clock
+RAM / VRAM
 FPS / API
 ```
 
@@ -987,8 +965,10 @@ Show:
 Battery %
 CPU Package Power / TDP
 Fan RPM
-CPU/GPU temperature
+CPU temperature
 CPU/GPU usage
+GPU clock
+RAM / VRAM
 FPS / API
 ```
 
@@ -996,7 +976,6 @@ Hide:
 
 ```text
 Remaining time
-System Power
 ```
 
 Do not replace hidden AC values with artificial text such as:
@@ -1004,13 +983,10 @@ Do not replace hidden AC values with artificial text such as:
 ```text
 Charging
 AC
-0 W
 -- h
 ```
 
 The battery segment simply becomes shorter on AC. Battery percentage remains visible.
-
-This is especially important for `SYS`: it is based on battery current and voltage, not wall power, so showing an AC-side zero or misleading value would be worse than hiding the segment.
 
 ## 20.7 Static category colors, not warning colors
 
@@ -1054,7 +1030,7 @@ Current ClawHUD direction:
 - GPU label/category may use the MangoHud-style green family.
 - Battery may use the MangoHud-style coral family.
 - metric values remain white.
-- TDP, SYS, and FAN should initially remain visually simple rather than inventing additional arbitrary category colors.
+- TDP and FAN should initially remain visually simple rather than inventing additional arbitrary category colors.
 - separators should remain low-emphasis and must not dominate the line.
 - no state-dependent recoloring.
 
@@ -1103,7 +1079,7 @@ The background spans the complete display width while only the text moves accord
 Advantages:
 
 - strongest SteamOS-style top performance-bar appearance;
-- the bar does not grow/shrink when `SYS` and remaining time disappear on AC;
+- the bar does not grow/shrink when remaining time disappears on AC;
 - Left / Center / Right alignment changes only text position, not the overall HUD silhouette;
 - visually stable when metric text length changes.
 
@@ -1209,12 +1185,13 @@ The Phase 0 presentation backend remains authoritative: this section does **not*
 The text line should be composed from separate runs, for example:
 
 ```text
-[DX11] [60 FPS] [|]
+[60 FPS] [|]
 [CPU] [36%] [67°C] [|]
-[GPU] [98%] [72°C] [|]
-[TDP] [18 W] [|]
-[SYS] [24 W] [|]
-[FAN] [3540 RPM] [|]
+[GPU] [98%] [2300MHz] [|]
+[TDP] [18W] [|]
+[RAM] [8.0GB] [|]
+[VRAM] [3.4GB] [|]
+[FAN] [3540RPM] [|]
 [BAT] [72%] [2.5h]
 ```
 
@@ -1243,29 +1220,29 @@ This does not require drawing visible boxes. It only means the renderer should u
 
 ## 20.15 Telemetry-source direction for this layout
 
-The simplest desired runtime split is:
+The current runtime split is:
 
 ```text
 PresentMon
-├─ FPS / presentation metrics
-├─ CPU utilization candidate
-├─ GPU utilization candidate
-└─ graphics API/runtime information candidate
+└─ FPS / presentation metrics
+
+Windows usage telemetry
+├─ CPU utilization
+├─ RAM usage
+└─ Intel adapter VRAM usage
+
+IGCL
+├─ GPU utilization
+└─ GPU clock
 
 MSI_ACPI read-only
-├─ Get_Temperature(0) → CPU/GPU temperature
-├─ Get_Data(221)      → CPU Package Power shown as TDP
-├─ Get_Data(70/71)    → battery current
-├─ Get_Data(74/75)    → battery voltage
-└─ Get_Fan(0)         → Fan 1 / Fan 2 tach → average FAN value
+├─ Get_Temperature(0)[0] → CPU temperature
+├─ Get_Data(221)         → CPU Package Power shown as TDP
+└─ Get_Fan(0)            → Fan 1 / Fan 2 tach
 
 Windows power API
-└─ Battery percentage / power-source state / battery capacity data as available
+└─ Battery percentage / power-source state / remaining time
 ```
-
-Because FPS already makes PresentMon necessary, the first real-device PoC should test whether PresentMon's CPU/GPU utilization metrics are reliable enough to reuse. If they are, do not add a second Windows Performance Counter path merely for architectural symmetry.
-
-If a PresentMon metric is unavailable or its meaning is unsuitable, fall back to a proven Windows/Intel metric source only for that real requirement.
 
 The desired `DX11` / `DX12` / `VULKAN` label also needs validation. A generic Present runtime such as DXGI is not automatically proof of D3D11 vs D3D12, so this must remain a measured implementation detail rather than a guessed mapping.
 
@@ -1281,7 +1258,7 @@ Current starting-point cadence discussed for the PoC/first implementation:
 | CPU usage | ~500 ms |
 | GPU usage | ~500 ms |
 | CPU Package Power / `TDP` | ~500 ms |
-| CPU/GPU temperature | ~500–1000 ms |
+| CPU temperature | ~500–1000 ms |
 | FAN average RPM | ~1000 ms |
 | Battery % | ~5000 ms |
 | Remaining time | ~5000–10000 ms |
@@ -1291,23 +1268,11 @@ These are starting points, not performance requirements.
 
 Do not poll every EC/battery metric at the renderer rate. The renderer should display the latest `TelemetrySnapshot` and redraw independently.
 
-## 20.17 Remaining-time smoothing
+## 20.17 Remaining-time policy
 
-Remaining battery time should not visibly oscillate with every instantaneous power sample.
+Remaining battery time should use the value reported by the Windows power API when available.
 
-Conceptually:
-
-```text
-remaining energy Wh
-÷
-smoothed System Power W
-=
-estimated remaining hours
-```
-
-A simple moving average or EMA is enough. An approximate **30–60 second smoothing window** is a reasonable experiment for stable handheld display, while the visible remaining-time string only needs to update every several seconds.
-
-Do not turn this into a prediction framework.
+Do not build a separate discharge-power estimator or prediction framework for the production HUD. If Windows does not provide a valid remaining-time value, leave it unavailable.
 
 ## 20.18 Missing-value behavior
 
@@ -1315,10 +1280,9 @@ The HUD should prefer unavailable data over misleading data.
 
 Examples:
 
-- do not display fake `0 W` for DC-only system power on AC;
 - do not display a synthetic `0 RPM` merely because fan telemetry failed;
-- do not turn a failed temperature read into `0°C`;
-- do not invent a battery remaining time when the required data is unavailable.
+- do not turn a failed CPU temperature read into `0°C`;
+- do not invent a battery remaining time when Windows does not report one.
 
 Whether an unavailable metric is temporarily omitted or displayed as a compact `--` placeholder can be finalized during visual testing, but synthetic zeroes should not be the default failure representation.
 
@@ -1344,13 +1308,13 @@ Data model:        latest TelemetrySnapshot, independent sampling rates
 DC example:
 
 ```text
-DX11 60 FPS | CPU 36% 67°C | GPU 98% 72°C | TDP 18 W | SYS 24 W | FAN 3540 RPM | BAT 72%  2.5h
+60 FPS | CPU 36% 67°C | GPU 98% 2300MHz | TDP 18W | RAM 8.0GB | VRAM 3.4GB | FAN 3540RPM | BAT 72% 2.5h
 ```
 
 AC example:
 
 ```text
-DX11 60 FPS | CPU 36% 67°C | GPU 98% 72°C | TDP 18 W | FAN 3540 RPM | BAT 72%
+60 FPS | CPU 36% 67°C | GPU 98% 2300MHz | TDP 18W | RAM 8.0GB | VRAM 3.4GB | FAN 3540RPM | BAT 72%
 ```
 
 STATIC isolates the presence of the main HUD composition surface, while DYNAMIC adds the existing repeated HUD render/present cadence. This remains evidence gathering; it does not produce an automatic VRR verdict. This section should be updated when real-device presentation, telemetry, and visual tests settle any of the remaining candidate choices.
