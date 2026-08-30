@@ -77,6 +77,19 @@ int main()
         "third consecutive failure emits unavailable");
     check(observe(true) == clawhud::IgclTelemetryTransition::Recovered,
         "successful sample emits recovery");
+    IgclGpuTelemetry previous{};
+    previous.gpuUsagePercent = 45.0;
+    previous.gpuClockMHz = 1800.0;
+    const auto retained = MergeIgclGpuTelemetry(previous, std::nullopt);
+    check(retained && retained->gpuUsagePercent == 45.0 &&
+        retained->gpuClockMHz == 1800.0,
+        "failed IGCL sample retains last-known-good telemetry");
+    IgclGpuTelemetry partial{};
+    partial.gpuClockMHz = 1900.0;
+    const auto updated = MergeIgclGpuTelemetry(retained, partial);
+    check(updated && !updated->gpuUsagePercent &&
+        updated->gpuClockMHz == 1900.0,
+        "successful partial IGCL sample replaces the cached snapshot");
     const auto almostEqual = [](double actual, double expected)
     {
         return std::abs(actual - expected) < 0.001;

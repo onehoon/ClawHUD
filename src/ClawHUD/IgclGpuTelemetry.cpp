@@ -59,6 +59,13 @@ std::optional<double> CalculateIgclGpuUsage(
     return std::clamp(usage, 0.0, 100.0);
 }
 
+std::optional<IgclGpuTelemetry> MergeIgclGpuTelemetry(
+    const std::optional<IgclGpuTelemetry>& previous,
+    const std::optional<IgclGpuTelemetry>& sample) noexcept
+{
+    return sample ? sample : previous;
+}
+
 IgclGpuTelemetrySampler::~IgclGpuTelemetrySampler()
 {
     Reset();

@@ -1032,7 +1032,8 @@ void App::SampleProductionTelemetry()
             latestUsageTelemetry_.reset();
     }
     if (usageSampler_.Initialized())
-        latestUsageTelemetry_ = usageSampler_.Sample();
+        latestUsageTelemetry_ = clawhud::MergeWindowsUsageTelemetry(
+            latestUsageTelemetry_, usageSampler_.Sample());
 
     if (!igclGpuSampler_.Initialized() && !igclGpuSampler_.InitializationAttempted())
     {
@@ -1043,9 +1044,11 @@ void App::SampleProductionTelemetry()
     }
     if (igclGpuSampler_.Initialized())
     {
-        latestIgclGpuTelemetry_ = igclGpuSampler_.Sample();
-        if (latestIgclGpuTelemetry_)
+        const auto sample = igclGpuSampler_.Sample();
+        if (sample)
         {
+            latestIgclGpuTelemetry_ = clawhud::MergeIgclGpuTelemetry(
+                latestIgclGpuTelemetry_, sample);
             igclTelemetryFailureCount_ = 0;
         }
         else
@@ -1054,17 +1057,20 @@ void App::SampleProductionTelemetry()
         }
         const auto transition = clawhud::ObserveIgclTelemetryTransition(
             igclTelemetryAvailable_, igclTelemetryFailureCount_,
-            latestIgclGpuTelemetry_.has_value(), kIgclUnavailableFailureThreshold);
+            sample.has_value(), kIgclUnavailableFailureThreshold);
         if (transition == clawhud::IgclTelemetryTransition::Recovered)
             clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info,
                 L"IGCL telemetry recovered");
         else if (transition == clawhud::IgclTelemetryTransition::Unavailable)
             clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
                 L"IGCL telemetry unavailable");
-        if (latestIgclGpuTelemetry_)
+        if (sample)
             igclTelemetryAvailable_ = true;
         else if (igclTelemetryFailureCount_ >= kIgclUnavailableFailureThreshold)
+        {
             igclTelemetryAvailable_ = false;
+            latestIgclGpuTelemetry_.reset();
+        }
     }
     RenderProductionHud();
 }
@@ -1643,12 +1649,6 @@ bool App::TryCommitReadyCandidateFromForeground(HWND,
     foregroundTracker_.SetTrackedProcessId(processId);
     presentMonRestartPid_ = processId;
     presentMonRestartAttempts_ = 0;
-    usageSampler_.Reset();
-    latestUsageTelemetry_.reset();
-    igclGpuSampler_.Reset();
-    latestIgclGpuTelemetry_.reset();
-    igclTelemetryAvailable_ = false;
-    igclTelemetryFailureCount_ = 0;
     StartGraphicsApiProbe(processId);
     StartProductionEcSampling();
     HandleGameDetectionTransition({

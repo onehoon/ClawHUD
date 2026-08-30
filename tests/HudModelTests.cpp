@@ -65,6 +65,24 @@ int main()
         L"60FPS | CPU 36% 67\u00B0C | GPU 98% | TDP 18W | FAN 3540RPM | BAT 72%", "game AC formatting");
     ok &= Check(JoinHudRuns(FormatHud(MakeNoGameAlwaysSample())) ==
         L"CPU 36% 67\u00B0C | GPU 98% | TDP 18W | FAN 3540RPM | BAT 72% 2.5h", "no-game formatting");
+    HudTelemetrySnapshot globalTelemetry{};
+    globalTelemetry.cpuUsagePercent = 13.0;
+    globalTelemetry.gpuUsagePercent = 15.0;
+    globalTelemetry.systemMemoryUsedBytes =
+        static_cast<std::uint64_t>(8.0 * 1024.0 * 1024.0 * 1024.0);
+    globalTelemetry.gpuMemoryUsedBytes =
+        static_cast<std::uint64_t>(2.4 * 1024.0 * 1024.0 * 1024.0);
+    const auto beforeFps = JoinHudRuns(FormatHud(globalTelemetry));
+    globalTelemetry.presentMonDisplayedFps = 60.0;
+    const auto afterFps = JoinHudRuns(FormatHud(globalTelemetry));
+    ok &= Check(beforeFps == L"CPU 13% | GPU 15% | RAM 8.0GB | VRAM 2.4GB" &&
+        afterFps == L"60FPS | CPU 13% | GPU 15% | RAM 8.0GB | VRAM 2.4GB",
+        "global telemetry remains visible before and after FPS");
+    globalTelemetry.presentMonDisplayedFps.reset();
+    globalTelemetry.graphicsApi = L"DX12";
+    const auto afterGameExit = JoinHudRuns(FormatHud(globalTelemetry));
+    ok &= Check(afterGameExit == beforeFps,
+        "game-scoped FPS/API removal preserves global telemetry");
     ok &= Check(ShouldShowHud(HudVisibilityMode::Always, false), "always visibility");
     ok &= Check(!ShouldShowHud(HudVisibilityMode::InGameOnly, false), "in-game-only visibility");
     ok &= Check(ShouldShowHud(HudVisibilityMode::InGameOnly, true), "foreground game visibility");

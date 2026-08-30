@@ -78,6 +78,33 @@ int main()
         "one invalid memory counter makes VRAM unavailable");
     ok &= Check(!CombineGpuMemoryBytes(std::nullopt, std::nullopt),
         "missing Intel memory counters are unavailable");
+    WindowsUsageTelemetry previous{};
+    previous.cpuUsagePercent = 25.0;
+    previous.systemMemoryUsedBytes = 10;
+    previous.intelGpuMemoryUsedBytes = 20;
+    const auto retained = MergeWindowsUsageTelemetry(previous,
+        std::nullopt);
+    ok &= Check(retained && retained->cpuUsagePercent == 25.0 &&
+        retained->systemMemoryUsedBytes == 10 &&
+        retained->intelGpuMemoryUsedBytes == 20,
+        "failed usage sample retains last-known-good telemetry");
+    WindowsUsageTelemetry firstSample{};
+    firstSample.systemMemoryUsedBytes = 30;
+    firstSample.intelGpuMemoryUsedBytes = 40;
+    const auto priming = MergeWindowsUsageTelemetry(std::nullopt, firstSample);
+    ok &= Check(priming && !priming->cpuUsagePercent &&
+        priming->systemMemoryUsedBytes == 30 &&
+        priming->intelGpuMemoryUsedBytes == 40,
+        "usage priming keeps RAM and VRAM without faking CPU");
+    WindowsUsageTelemetry updated{};
+    updated.cpuUsagePercent = 35.0;
+    updated.systemMemoryUsedBytes = 11;
+    updated.intelGpuMemoryUsedBytes = 21;
+    const auto recovered = MergeWindowsUsageTelemetry(retained, updated);
+    ok &= Check(recovered && recovered->cpuUsagePercent == 35.0 &&
+        recovered->systemMemoryUsedBytes == 11 &&
+        recovered->intelGpuMemoryUsedBytes == 21,
+        "valid usage sample updates retained telemetry");
     ok &= Check(ShouldRetryIntelGpuMemoryCounters(true, true, 0) &&
         ShouldRetryIntelGpuMemoryCounters(false, true, 2) &&
         !ShouldRetryIntelGpuMemoryCounters(true, false, 3) &&
