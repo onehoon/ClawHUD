@@ -258,8 +258,14 @@ private:
     bool hudRenderFailureLogged_{};
     bool hudShowFailureLogged_{};
     bool hudHideFailureLogged_{};
+    unsigned usageTelemetryFailureCount_{};
+    unsigned usageCpuMissingCount_{};
+    unsigned usageMemoryMissingCount_{};
+    unsigned usageGpuMemoryMissingCount_{};
     bool igclTelemetryAvailable_{};
     unsigned igclTelemetryFailureCount_{};
+    unsigned igclGpuUsageMissingCount_{};
+    unsigned igclGpuClockMissingCount_{};
     bool intelVrrRangeFixEnabled_{ true };
     bool suspended_{};
     bool resumeRecoveryActive_{};

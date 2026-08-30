@@ -42,6 +42,9 @@ constexpr IgclTelemetryTransition ObserveIgclTelemetryTransition(
 std::optional<double> CalculateIgclGpuUsage(
     double previousTimestamp, double previousActivity,
     double currentTimestamp, double currentActivity) noexcept;
+std::optional<IgclGpuTelemetry> MergeIgclGpuTelemetry(
+    const std::optional<IgclGpuTelemetry>& previous,
+    const std::optional<IgclGpuTelemetry>& sample) noexcept;
 
 class IgclGpuTelemetrySampler
 {

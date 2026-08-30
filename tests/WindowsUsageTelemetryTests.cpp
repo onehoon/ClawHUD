@@ -1,4 +1,5 @@
 #include "WindowsUsageTelemetry.h"
+#include "TelemetryRetention.h"
 
 #include <cmath>
 #include <cstdint>
@@ -78,6 +79,54 @@ int main()
         "one invalid memory counter makes VRAM unavailable");
     ok &= Check(!CombineGpuMemoryBytes(std::nullopt, std::nullopt),
         "missing Intel memory counters are unavailable");
+    WindowsUsageTelemetry previous{};
+    previous.cpuUsagePercent = 25.0;
+    previous.systemMemoryUsedBytes = 10;
+    previous.intelGpuMemoryUsedBytes = 20;
+    const auto retained = MergeWindowsUsageTelemetry(previous,
+        std::nullopt);
+    ok &= Check(retained && retained->cpuUsagePercent == 25.0 &&
+        retained->systemMemoryUsedBytes == 10 &&
+        retained->intelGpuMemoryUsedBytes == 20,
+        "failed usage sample retains last-known-good telemetry");
+    WindowsUsageTelemetry partial{};
+    partial.systemMemoryUsedBytes = 11;
+    const auto partialUpdate = MergeWindowsUsageTelemetry(retained, partial);
+    ok &= Check(partialUpdate && partialUpdate->cpuUsagePercent == 25.0 &&
+        partialUpdate->systemMemoryUsedBytes == 11 &&
+        partialUpdate->intelGpuMemoryUsedBytes == 20,
+        "partial usage sample preserves missing metrics");
+    WindowsUsageTelemetry firstSample{};
+    firstSample.systemMemoryUsedBytes = 30;
+    firstSample.intelGpuMemoryUsedBytes = 40;
+    const auto priming = MergeWindowsUsageTelemetry(std::nullopt, firstSample);
+    ok &= Check(priming && !priming->cpuUsagePercent &&
+        priming->systemMemoryUsedBytes == 30 &&
+        priming->intelGpuMemoryUsedBytes == 40,
+        "usage priming keeps RAM and VRAM without faking CPU");
+    WindowsUsageTelemetry updated{};
+    updated.cpuUsagePercent = 35.0;
+    updated.systemMemoryUsedBytes = 11;
+    updated.intelGpuMemoryUsedBytes = 21;
+    const auto recovered = MergeWindowsUsageTelemetry(retained, updated);
+    ok &= Check(recovered && recovered->cpuUsagePercent == 35.0 &&
+        recovered->systemMemoryUsedBytes == 11 &&
+        recovered->intelGpuMemoryUsedBytes == 21,
+        "valid usage sample updates retained telemetry");
+    std::optional<std::uint64_t> vram = 20;
+    unsigned vramMisses = 0;
+    const std::optional<std::uint64_t> missingVram;
+    clawhud::UpdateRetainedTelemetryField(vram, missingVram, vramMisses, 3);
+    clawhud::UpdateRetainedTelemetryField(vram, missingVram, vramMisses, 3);
+    ok &= Check(vram && *vram == 20 && vramMisses == 2,
+        "one or two missing VRAM samples retain the last value");
+    clawhud::UpdateRetainedTelemetryField(vram, missingVram, vramMisses, 3);
+    ok &= Check(!vram && vramMisses == 0,
+        "repeated missing VRAM samples invalidate the field");
+    ok &= Check(!ShouldInvalidateWindowsUsageTelemetry(2, 3) &&
+        ShouldInvalidateWindowsUsageTelemetry(3, 3) &&
+        !ShouldInvalidateWindowsUsageTelemetry(3, 0),
+        "usage telemetry invalidation is bounded");
     ok &= Check(ShouldRetryIntelGpuMemoryCounters(true, true, 0) &&
         ShouldRetryIntelGpuMemoryCounters(false, true, 2) &&
         !ShouldRetryIntelGpuMemoryCounters(true, false, 3) &&

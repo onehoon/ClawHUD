@@ -27,6 +27,11 @@ bool IsIntelGpuMemoryCounterInstance(std::wstring_view instance,
 std::optional<std::uint64_t> CombineGpuMemoryBytes(
     std::optional<std::uint64_t> dedicated,
     std::optional<std::uint64_t> shared) noexcept;
+std::optional<WindowsUsageTelemetry> MergeWindowsUsageTelemetry(
+    const std::optional<WindowsUsageTelemetry>& previous,
+    const std::optional<WindowsUsageTelemetry>& sample) noexcept;
+bool ShouldInvalidateWindowsUsageTelemetry(
+    unsigned consecutiveFailures, unsigned failureThreshold) noexcept;
 bool ShouldRetryIntelGpuMemoryCounters(bool dedicatedEmpty,
     bool sharedEmpty, unsigned int attempts) noexcept;
 

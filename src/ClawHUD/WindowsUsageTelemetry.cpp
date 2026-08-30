@@ -165,6 +165,28 @@ std::optional<std::uint64_t> CombineGpuMemoryBytes(
     return *dedicated + *shared;
 }
 
+std::optional<WindowsUsageTelemetry> MergeWindowsUsageTelemetry(
+    const std::optional<WindowsUsageTelemetry>& previous,
+    const std::optional<WindowsUsageTelemetry>& sample) noexcept
+{
+    if (!sample)
+        return previous;
+    WindowsUsageTelemetry merged = previous.value_or(WindowsUsageTelemetry{});
+    if (sample->cpuUsagePercent)
+        merged.cpuUsagePercent = sample->cpuUsagePercent;
+    if (sample->systemMemoryUsedBytes)
+        merged.systemMemoryUsedBytes = sample->systemMemoryUsedBytes;
+    if (sample->intelGpuMemoryUsedBytes)
+        merged.intelGpuMemoryUsedBytes = sample->intelGpuMemoryUsedBytes;
+    return merged;
+}
+
+bool ShouldInvalidateWindowsUsageTelemetry(
+    unsigned consecutiveFailures, unsigned failureThreshold) noexcept
+{
+    return failureThreshold != 0 && consecutiveFailures >= failureThreshold;
+}
+
 bool ShouldRetryIntelGpuMemoryCounters(bool dedicatedEmpty,
     bool sharedEmpty, unsigned int attempts) noexcept
 {
@@ -348,13 +370,11 @@ std::optional<WindowsUsageTelemetry> WindowsUsageSampler::Sample()
             intelDedicatedMemoryCounters_.empty(),
             intelSharedMemoryCounters_.empty(), intelMemoryRebindAttempts_))
         TryBindIntelGpuMemoryCounters();
-    if (!primed_)
-    {
-        primed_ = true;
-        return WindowsUsageTelemetry{};
-    }
     WindowsUsageTelemetry result{};
-    result.cpuUsagePercent = ReadCounter(cpuCounter_, true);
+    if (primed_)
+        result.cpuUsagePercent = ReadCounter(cpuCounter_, true);
+    else
+        primed_ = true;
     MEMORYSTATUSEX memory{};
     memory.dwLength = sizeof(memory);
     if (GlobalMemoryStatusEx(&memory))

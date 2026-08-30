@@ -10,6 +10,7 @@
 #include "Version.h"
 #include "ProductionTargetPolicy.h"
 #include "GameDetection/GameDetectionTrace.h"
+#include "TelemetryRetention.h"
 
 #include <Velopack.hpp>
 
@@ -27,6 +28,7 @@
 namespace
 {
 constexpr unsigned kIgclUnavailableFailureThreshold = 3;
+constexpr unsigned kUsageUnavailableFailureThreshold = 3;
 constexpr UINT kSettingsDestroyed = WM_APP + 1;
 constexpr UINT kForegroundChanged = WM_APP + 2;
 constexpr UINT kHudVisibilityRequest = WM_APP + 3;
@@ -1052,23 +1054,73 @@ void App::SampleProductionTelemetry()
     if (!usageSampler_.Initialized())
     {
         if (!usageSampler_.Initialize())
+        {
             latestUsageTelemetry_.reset();
+            usageTelemetryFailureCount_ = 0;
+            usageCpuMissingCount_ = 0;
+            usageMemoryMissingCount_ = 0;
+            usageGpuMemoryMissingCount_ = 0;
+        }
     }
     if (usageSampler_.Initialized())
-        latestUsageTelemetry_ = usageSampler_.Sample();
+    {
+        const auto sample = usageSampler_.Sample();
+        if (sample)
+        {
+            latestUsageTelemetry_ = clawhud::MergeWindowsUsageTelemetry(
+                latestUsageTelemetry_, sample);
+            clawhud::UpdateRetainedTelemetryField(
+                latestUsageTelemetry_->cpuUsagePercent,
+                sample->cpuUsagePercent, usageCpuMissingCount_,
+                kUsageUnavailableFailureThreshold);
+            clawhud::UpdateRetainedTelemetryField(
+                latestUsageTelemetry_->systemMemoryUsedBytes,
+                sample->systemMemoryUsedBytes, usageMemoryMissingCount_,
+                kUsageUnavailableFailureThreshold);
+            clawhud::UpdateRetainedTelemetryField(
+                latestUsageTelemetry_->intelGpuMemoryUsedBytes,
+                sample->intelGpuMemoryUsedBytes, usageGpuMemoryMissingCount_,
+                kUsageUnavailableFailureThreshold);
+            usageTelemetryFailureCount_ = 0;
+        }
+        else if (clawhud::ShouldInvalidateWindowsUsageTelemetry(
+            ++usageTelemetryFailureCount_, kUsageUnavailableFailureThreshold))
+        {
+            latestUsageTelemetry_.reset();
+            usageSampler_.Reset();
+            usageTelemetryFailureCount_ = 0;
+            usageCpuMissingCount_ = 0;
+            usageMemoryMissingCount_ = 0;
+            usageGpuMemoryMissingCount_ = 0;
+        }
+    }
 
     if (!igclGpuSampler_.Initialized() && !igclGpuSampler_.InitializationAttempted())
     {
         if (!igclGpuSampler_.Initialize())
+        {
             latestIgclGpuTelemetry_.reset();
+            igclGpuUsageMissingCount_ = 0;
+            igclGpuClockMissingCount_ = 0;
+        }
         else
             igclTelemetryAvailable_ = true;
     }
     if (igclGpuSampler_.Initialized())
     {
-        latestIgclGpuTelemetry_ = igclGpuSampler_.Sample();
-        if (latestIgclGpuTelemetry_)
+        const auto sample = igclGpuSampler_.Sample();
+        if (sample)
         {
+            latestIgclGpuTelemetry_ = clawhud::MergeIgclGpuTelemetry(
+                latestIgclGpuTelemetry_, sample);
+            clawhud::UpdateRetainedTelemetryField(
+                latestIgclGpuTelemetry_->gpuUsagePercent,
+                sample->gpuUsagePercent, igclGpuUsageMissingCount_,
+                kIgclUnavailableFailureThreshold);
+            clawhud::UpdateRetainedTelemetryField(
+                latestIgclGpuTelemetry_->gpuClockMHz,
+                sample->gpuClockMHz, igclGpuClockMissingCount_,
+                kIgclUnavailableFailureThreshold);
             igclTelemetryFailureCount_ = 0;
         }
         else
@@ -1077,17 +1129,22 @@ void App::SampleProductionTelemetry()
         }
         const auto transition = clawhud::ObserveIgclTelemetryTransition(
             igclTelemetryAvailable_, igclTelemetryFailureCount_,
-            latestIgclGpuTelemetry_.has_value(), kIgclUnavailableFailureThreshold);
+            sample.has_value(), kIgclUnavailableFailureThreshold);
         if (transition == clawhud::IgclTelemetryTransition::Recovered)
             clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info,
                 L"IGCL telemetry recovered");
         else if (transition == clawhud::IgclTelemetryTransition::Unavailable)
             clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
                 L"IGCL telemetry unavailable");
-        if (latestIgclGpuTelemetry_)
+        if (sample)
             igclTelemetryAvailable_ = true;
         else if (igclTelemetryFailureCount_ >= kIgclUnavailableFailureThreshold)
+        {
             igclTelemetryAvailable_ = false;
+            latestIgclGpuTelemetry_.reset();
+            igclGpuUsageMissingCount_ = 0;
+            igclGpuClockMissingCount_ = 0;
+        }
     }
     RenderProductionHud();
 }
@@ -1134,8 +1191,14 @@ void App::PauseProductionSamplingForSuspend()
     latestUsageTelemetry_.reset();
     latestPresentMonDisplayedFps_.reset();
     usageSampler_.Reset();
+    usageTelemetryFailureCount_ = 0;
+    usageCpuMissingCount_ = 0;
+    usageMemoryMissingCount_ = 0;
+    usageGpuMemoryMissingCount_ = 0;
     latestIgclGpuTelemetry_.reset();
     igclGpuSampler_.Reset();
+    igclGpuUsageMissingCount_ = 0;
+    igclGpuClockMissingCount_ = 0;
     igclTelemetryAvailable_ = false;
     igclTelemetryFailureCount_ = 0;
     ecHudSamplingActive_ = false;
@@ -1207,8 +1270,14 @@ void App::StopProductionEcSampling(bool stopPresentMon, const wchar_t* reason)
     latestPowerTelemetry_.reset();
     latestUsageTelemetry_.reset();
     usageSampler_.Reset();
+    usageTelemetryFailureCount_ = 0;
+    usageCpuMissingCount_ = 0;
+    usageMemoryMissingCount_ = 0;
+    usageGpuMemoryMissingCount_ = 0;
     latestIgclGpuTelemetry_.reset();
     igclGpuSampler_.Reset();
+    igclGpuUsageMissingCount_ = 0;
+    igclGpuClockMissingCount_ = 0;
     igclTelemetryAvailable_ = false;
     igclTelemetryFailureCount_ = 0;
     ecHudSamplingActive_ = false;
@@ -1767,12 +1836,6 @@ bool App::TryCommitReadyCandidateFromForeground(HWND,
     foregroundTracker_.SetTrackedProcessId(processId);
     presentMonRestartPid_ = processId;
     presentMonRestartAttempts_ = 0;
-    usageSampler_.Reset();
-    latestUsageTelemetry_.reset();
-    igclGpuSampler_.Reset();
-    latestIgclGpuTelemetry_.reset();
-    igclTelemetryAvailable_ = false;
-    igclTelemetryFailureCount_ = 0;
     StartGraphicsApiProbe(processId);
     StartProductionEcSampling();
     HandleGameDetectionTransition({
