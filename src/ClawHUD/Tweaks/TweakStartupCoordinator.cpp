@@ -2,7 +2,6 @@
 #include "IntelVrr\AffectedPanelDetector.h"
 #include "IntelVrr\IntelArcSyncClient.h"
 #include "IntelVrr\IntelVrrRangeTweak.h"
-#include "IntelVrr\IntelVrrRunLogger.h"
 #include <algorithm>
 #include <chrono>
 
@@ -21,14 +20,11 @@ void TweakStartupCoordinator::Run(bool enabled)
 {
     try
     {
-    IntelVrrRunLogger::StartSession();
     RunRetrySequence(
-        [&](int attemptNumber)
+        [&](int)
         {
             IntelVrrRangeTweak tweak([] { return std::make_unique<IntelArcSyncClient>(); }, [] { return EnumeratePanelIdentities(); });
-            const auto result = tweak.Run(enabled);
-            IntelVrrRunLogger::AppendAttempt(attemptNumber, tweak.LastLog());
-            return result;
+            return tweak.Run(enabled);
         },
         [&](std::chrono::seconds delay)
         {
