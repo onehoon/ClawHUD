@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cstring>
 #include <fstream>
+#include <filesystem>
 #include <iomanip>
 #include <limits>
 #include <sstream>
@@ -87,9 +88,8 @@ const char* MetricName(int metric) noexcept
         "BETWEEN_PRESENTS", "IN_PRESENT_API", "BETWEEN_DISPLAY_CHANGE",
         "UNTIL_DISPLAYED", "RENDER_PRESENT_LATENCY", "BETWEEN_SIMULATION_START",
         "PC_LATENCY", "DISPLAYED_FRAME_TIME", "BETWEEN_APP_START",
-        "PRESENTED_FRAME_TIME", "FLIP_DELAY", "PSO_COMPILE_COUNT",
-        "PSO_COMPILE_TIME", "PSO_COMPILE_BUSY_PERCENT", "PROCESS_ID",
-        "SESSION_START_QPC", "CPU_CORE_TEMPERATURE" };
+        "PRESENTED_FRAME_TIME", "FLIP_DELAY", "PROCESS_ID",
+        "SESSION_START_QPC" };
     return metric >= 0 && metric < static_cast<int>(names.size()) ? names[metric] : "UNKNOWN";
 }
 
@@ -125,6 +125,32 @@ std::wstring Stamp()
     swprintf_s(text, L"%04u%02u%02u-%02u%02u%02u", time.wYear, time.wMonth,
         time.wDay, time.wHour, time.wMinute, time.wSecond);
     return text;
+}
+
+std::filesystem::path FindPresentMonApi2Loader()
+{
+    wchar_t modulePath[MAX_PATH]{};
+    const DWORD moduleChars = GetModuleFileNameW(nullptr, modulePath, MAX_PATH);
+    if (moduleChars != 0 && moduleChars < MAX_PATH)
+    {
+        const auto appLocal = std::filesystem::path(modulePath).parent_path()
+            / L"PresentMonAPI2Loader.dll";
+        if (std::filesystem::exists(appLocal))
+            return appLocal;
+    }
+
+    wchar_t programFiles[MAX_PATH]{};
+    const DWORD programFilesChars = GetEnvironmentVariableW(
+        L"ProgramFiles", programFiles, MAX_PATH);
+    if (programFilesChars != 0 && programFilesChars < MAX_PATH)
+    {
+        const auto sdkLoader = std::filesystem::path(programFiles)
+            / L"Intel" / L"PresentMon" / L"SDK" / L"PresentMonAPI2Loader.dll";
+        if (std::filesystem::exists(sdkLoader))
+            return sdkLoader;
+    }
+
+    return {};
 }
 std::string Narrow(const std::wstring& value)
 {
@@ -363,8 +389,14 @@ void PresentMonApi2Diagnostic::Run()
     for (int i = 0; i < 50 && !stop_; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(100));
     if (stop_) { log << "cancelled=true\n"; running_ = false; complete(false); return; }
 
-    HMODULE loader = LoadLibraryW(L"PresentMonAPI2Loader.dll");
-    log << "loader= " << (loader ? "LOADED" : "MISSING") << " error=" << GetLastError() << "\n";
+    const auto loaderPath = FindPresentMonApi2Loader();
+    SetLastError(ERROR_SUCCESS);
+    HMODULE loader = loaderPath.empty() ? nullptr : LoadLibraryExW(
+        loaderPath.c_str(), nullptr,
+        LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+    log << "loader_path=" << Narrow(loaderPath.wstring())
+        << " loader=" << (loader ? "LOADED" : "MISSING")
+        << " error=" << GetLastError() << "\n";
     if (!loader)
     { log << "PresentMon API2 runtime not available.\nInstall the PresentMon SDK/runtime and retry.\n"; Status(L"Runtime unavailable"); running_ = false; complete(false); return; }
     const auto getVersion = Proc<GetVersion>(loader, "pmGetApiVersion");
