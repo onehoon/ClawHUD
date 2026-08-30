@@ -251,6 +251,57 @@ std::string Value(const std::uint8_t* blob, const PM_QUERY_ELEMENT& element, int
     return out.str();
 }
 
+std::string StaticValue(const std::uint8_t* blob, PM_DATA_TYPE type)
+{
+    if (!blob) return {};
+    std::ostringstream out;
+    out << std::setprecision(17);
+    switch (type)
+    {
+    case PM_DATA_TYPE_DOUBLE:
+    {
+        double value{};
+        std::memcpy(&value, blob, sizeof(value));
+        out << value;
+        break;
+    }
+    case PM_DATA_TYPE_UINT64:
+    {
+        std::uint64_t value{};
+        std::memcpy(&value, blob, sizeof(value));
+        out << value;
+        break;
+    }
+    case PM_DATA_TYPE_UINT32:
+    {
+        std::uint32_t value{};
+        std::memcpy(&value, blob, sizeof(value));
+        out << value;
+        break;
+    }
+    case PM_DATA_TYPE_INT32:
+    case PM_DATA_TYPE_ENUM:
+    {
+        std::int32_t value{};
+        std::memcpy(&value, blob, sizeof(value));
+        out << value;
+        break;
+    }
+    case PM_DATA_TYPE_BOOL:
+    {
+        bool value{};
+        std::memcpy(&value, blob, sizeof(value));
+        out << (value ? "true" : "false");
+        break;
+    }
+    case PM_DATA_TYPE_STRING:
+        return reinterpret_cast<const char*>(blob);
+    default:
+        return "<unsupported-static-type>";
+    }
+    return out.str();
+}
+
 void WriteIntrospection(const PM_INTROSPECTION_ROOT* root, std::ofstream& out)
 {
     out << "{\n\"devices\":[";
@@ -521,7 +572,9 @@ void PresentMonApi2Diagnostic::Run()
         const PM_STATUS polled = pollStatic
             ? pollStatic(session, &query.element, pid, staticBlob.data())
             : PM_STATUS_FAILURE;
-        metrics << 0 << ',' << query.element.metric << ',' << Csv(query.name) << ',' << query.element.deviceId << ',' << query.element.arrayIndex << ',' << query.element.stat << ',' << Csv(Value(staticBlob.data(), query.element, query.type)) << ',' << query.unit << ',' << StatusName(polled) << "\n";
+        const auto value = polled == PM_STATUS_SUCCESS
+            ? StaticValue(staticBlob.data(), query.type) : std::string{};
+        metrics << 0 << ',' << query.element.metric << ',' << Csv(query.name) << ',' << query.element.deviceId << ',' << query.element.arrayIndex << ',' << query.element.stat << ',' << Csv(value) << ',' << query.unit << ',' << StatusName(polled) << "\n";
         log << "static_query metric=" << query.name << " device=" << query.element.deviceId << " array=" << query.element.arrayIndex << " status=" << StatusName(polled) << " raw=" << polled << " classification=" << Api2MetricResultName(ClassifyApi2Metric(true, polled == PM_STATUS_SUCCESS, polled == PM_STATUS_SUCCESS, true, false)) << "\n";
     }
     std::vector<QueryRecord> frameQueries;
