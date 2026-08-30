@@ -251,7 +251,7 @@ std::string Value(const std::uint8_t* blob, const PM_QUERY_ELEMENT& element, int
     return out.str();
 }
 
-std::string StaticValue(const std::uint8_t* blob, PM_DATA_TYPE type)
+std::string DecodeStaticValue(const std::uint8_t* blob, PM_DATA_TYPE type)
 {
     if (!blob) return {};
     std::ostringstream out;
@@ -352,6 +352,11 @@ void WriteIntrospection(const PM_INTROSPECTION_ROOT* root, std::ofstream& out)
 }
 }
 
+std::string Api2DecodeStaticValue(const std::uint8_t* blob, PM_DATA_TYPE type)
+{
+    return DecodeStaticValue(blob, type);
+}
+
 const char* Api2MetricResultName(Api2MetricResult result) noexcept
 {
     switch (result)
@@ -378,6 +383,17 @@ bool Api2MetricFailureIsNonFatal() noexcept { return true; }
 bool Api2FrameConsumeZeroIsNonFatal(std::uint32_t) noexcept { return true; }
 bool Api2TargetPidIsUsable(DWORD processId, DWORD currentProcessId) noexcept
 { return processId != 0 && processId != currentProcessId; }
+PM_DATA_TYPE Api2StaticMetricType(PM_DATA_TYPE polledType,
+    PM_DATA_TYPE frameType) noexcept
+{ return frameType == PM_DATA_TYPE_VOID ? polledType : frameType; }
+PM_DATA_TYPE Api2FrameMetricType(PM_DATA_TYPE polledType,
+    PM_DATA_TYPE frameType) noexcept
+{
+    (void)polledType;
+    return frameType;
+}
+bool Api2MetricSupportsFrameQuery(PM_METRIC_TYPE type) noexcept
+{ return type == PM_METRIC_TYPE_FRAME_EVENT || type == PM_METRIC_TYPE_DYNAMIC_FRAME; }
 std::filesystem::path Api2DiagnosticOutputPath(const std::filesystem::path& directory,
     const std::wstring& timestamp, const wchar_t* suffix)
 { return Output(directory, timestamp, suffix); }
@@ -538,7 +554,11 @@ void PresentMonApi2Diagnostic::Run()
             const auto* info = static_cast<const PM_INTROSPECTION_DEVICE_METRIC_INFO*>(metric->pDeviceMetricInfo->pData[d]);
             if (!info || info->availability != PM_METRIC_AVAILABILITY_AVAILABLE) continue;
             for (std::uint32_t a = 0; a < std::max(1u, info->arraySize); ++a)
-                staticQueries.push_back({ { metric->id, PM_STAT_NONE, info->deviceId, a, 0, 0 }, metric->pTypeInfo ? metric->pTypeInfo->polledType : PM_DATA_TYPE_VOID, metric->unit, MetricName(metric->id) });
+                staticQueries.push_back({ { metric->id, PM_STAT_NONE, info->deviceId, a, 0, 0 },
+                    metric->pTypeInfo ? Api2StaticMetricType(
+                        metric->pTypeInfo->polledType, metric->pTypeInfo->frameType)
+                        : PM_DATA_TYPE_VOID,
+                    metric->unit, MetricName(metric->id) });
         }
     }
     log << "available_dynamic_queries=" << dynamic.size() << "\n";
@@ -573,7 +593,7 @@ void PresentMonApi2Diagnostic::Run()
             ? pollStatic(session, &query.element, pid, staticBlob.data())
             : PM_STATUS_FAILURE;
         const auto value = polled == PM_STATUS_SUCCESS
-            ? StaticValue(staticBlob.data(), query.type) : std::string{};
+            ? DecodeStaticValue(staticBlob.data(), query.type) : std::string{};
         metrics << 0 << ',' << query.element.metric << ',' << Csv(query.name) << ',' << query.element.deviceId << ',' << query.element.arrayIndex << ',' << query.element.stat << ',' << Csv(value) << ',' << query.unit << ',' << StatusName(polled) << "\n";
         log << "static_query metric=" << query.name << " device=" << query.element.deviceId << " array=" << query.element.arrayIndex << " status=" << StatusName(polled) << " raw=" << polled << " classification=" << Api2MetricResultName(ClassifyApi2Metric(true, polled == PM_STATUS_SUCCESS, polled == PM_STATUS_SUCCESS, true, false)) << "\n";
     }
@@ -581,8 +601,23 @@ void PresentMonApi2Diagnostic::Run()
     if (root->pMetrics) for (size_t i = 0; i < root->pMetrics->size; ++i)
     {
         const auto* metric = static_cast<const PM_INTROSPECTION_METRIC*>(root->pMetrics->pData[i]);
-        if (metric && metric->type == PM_METRIC_TYPE_FRAME_EVENT)
-            frameQueries.push_back({ { metric->id, PM_STAT_NONE, 0, 0, 0, 0 }, metric->pTypeInfo ? metric->pTypeInfo->frameType : PM_DATA_TYPE_VOID, metric->unit, MetricName(metric->id) });
+        if (!metric || !Api2MetricSupportsFrameQuery(metric->type) ||
+            !metric->pDeviceMetricInfo)
+            continue;
+        for (size_t d = 0; d < metric->pDeviceMetricInfo->size; ++d)
+        {
+            const auto* info = static_cast<const PM_INTROSPECTION_DEVICE_METRIC_INFO*>(
+                metric->pDeviceMetricInfo->pData[d]);
+            if (!info || info->availability != PM_METRIC_AVAILABILITY_AVAILABLE)
+                continue;
+            for (std::uint32_t a = 0; a < std::max(1u, info->arraySize); ++a)
+                frameQueries.push_back({
+                    { metric->id, PM_STAT_NONE, info->deviceId, a, 0, 0 },
+                    metric->pTypeInfo ? Api2FrameMetricType(
+                        metric->pTypeInfo->polledType, metric->pTypeInfo->frameType)
+                        : PM_DATA_TYPE_VOID,
+                    metric->unit, MetricName(metric->id) });
+        }
     }
     std::vector<PM_QUERY_ELEMENT> frameElements;
     for (const auto& query : frameQueries) frameElements.push_back(query.element);
