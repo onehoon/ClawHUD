@@ -7,7 +7,7 @@
 #include "HudSize.h"
 #include "UninstallCleanup.h"
 #include "RuntimeLogger.h"
-#include "WindowsUsageTelemetry.h"
+#include "WindowsMemoryTelemetry.h"
 #include "Version.h"
 #include "ProductionTargetPolicy.h"
 #include "GameDetection/GameDetectionTrace.h"
