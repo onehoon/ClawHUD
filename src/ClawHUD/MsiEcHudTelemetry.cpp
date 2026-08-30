@@ -28,18 +28,6 @@ std::optional<FanTelemetry> DecodeFanTelemetry(std::span<const std::uint8_t> pay
         DecodeFanRpm(payload[2], payload[3])};
 }
 
-std::optional<int> SelectHudFanRpm(
-    std::optional<int> fan1Rpm, std::optional<int> fan2Rpm)
-{
-    if (fan1Rpm && fan2Rpm)
-        return (*fan1Rpm + *fan2Rpm) / 2;
-    if (fan1Rpm)
-        return fan1Rpm;
-    if (fan2Rpm)
-        return fan2Rpm;
-    return std::nullopt;
-}
-
 std::optional<int> DecodeCpuPackagePowerW(
     std::span<const std::uint8_t> payload)
 {

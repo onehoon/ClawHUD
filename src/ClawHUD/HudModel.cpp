@@ -204,8 +204,20 @@ std::wstring JoinHudRuns(const std::vector<HudTextRun>& runs)
 
 HudTelemetrySnapshot MakeGameDcSample()
 {
-    return {L"DX11", 60.0, std::nullopt, std::nullopt, 36.0, 67, 18.0,
-        98.0, std::nullopt, std::nullopt, 3520, 3560, 72, 24.0, 150, true, true};
+    HudTelemetrySnapshot sample{};
+    sample.graphicsApi = L"DX11";
+    sample.renderFps = 60.0;
+    sample.cpuUsagePercent = 36.0;
+    sample.cpuTemperatureC = 67;
+    sample.cpuPackagePowerW = 18.0;
+    sample.gpuUsagePercent = 98.0;
+    sample.fan1Rpm = 3520;
+    sample.fan2Rpm = 3560;
+    sample.batteryPercent = 72;
+    sample.remainingMinutes = 150;
+    sample.onBattery = true;
+    sample.foregroundGameActive = true;
+    return sample;
 }
 
 HudTelemetrySnapshot MakeGameAcSample()

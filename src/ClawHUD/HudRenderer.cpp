@@ -262,7 +262,6 @@ enum class HudMetricKind
     UsagePercent,
     Temperature,
     Vram,
-    Power,
     FanRpm,
     BatteryPercent,
     BatteryTime,
@@ -285,7 +284,6 @@ const wchar_t* MetricExemplar(HudMetricKind kind) noexcept
     case HudMetricKind::BatteryPercent: return L"100%";
     case HudMetricKind::Temperature: return L"100\u00B0C";
     case HudMetricKind::Vram: return L"99.9GB";
-    case HudMetricKind::Power: return L"99.9W";
     case HudMetricKind::TdpPower: return L"35W";
     case HudMetricKind::FanRpm: return L"9999RPM";
     case HudMetricKind::BatteryTime: return L"9.9h";
@@ -314,7 +312,6 @@ HudMetricKind MetricKindForToken(HudSegmentKind kind, std::size_t index,
     case HudSegmentKind::Ram:
     case HudSegmentKind::Vram: return HudMetricKind::Vram;
     case HudSegmentKind::Tdp: return HudMetricKind::TdpPower;
-    case HudSegmentKind::SystemPower: return HudMetricKind::Power;
     case HudSegmentKind::Fan: return HudMetricKind::FanRpm;
     case HudSegmentKind::Battery: return index == 0
         ? HudMetricKind::BatteryPercent : HudMetricKind::BatteryTime;
@@ -427,7 +424,6 @@ D2D1_COLOR_F LabelColor(HudSegmentKind kind) noexcept
     case HudSegmentKind::Ram:
     case HudSegmentKind::Vram: return D2D1::ColorF(kHudVramColor, 1.0f);
     case HudSegmentKind::Graphics: return D2D1::ColorF(kHudGraphicsColor, 1.0f);
-    case HudSegmentKind::SystemPower:
     case HudSegmentKind::Battery: return D2D1::ColorF(kHudSystemColor, 1.0f);
     case HudSegmentKind::Tdp: return D2D1::ColorF(kHudCpuColor, 1.0f);
     case HudSegmentKind::Fan: return D2D1::ColorF(kHudGraphicsColor, 1.0f);

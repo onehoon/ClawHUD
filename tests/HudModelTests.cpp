@@ -123,14 +123,12 @@ int main()
 
     HudTelemetrySnapshot temperaturesOnly{};
     temperaturesOnly.cpuTemperatureC = 48;
-    temperaturesOnly.gpuTemperatureC = 44;
-    ok &= Check(JoinHudRuns(FormatHud(temperaturesOnly)) == L"CPU 48\u00B0C", "GPU temperature omitted");
+    ok &= Check(JoinHudRuns(FormatHud(temperaturesOnly)) == L"CPU 48\u00B0C", "CPU temperature formatting");
 
     HudTelemetrySnapshot usage{};
     usage.cpuUsagePercent = 33.0;
     usage.cpuTemperatureC = 33;
     usage.gpuUsagePercent = 44.0;
-    usage.gpuTemperatureC = 67;
     ok &= Check(JoinHudRuns(FormatHud(usage)) == L"CPU 33% 33\u00B0C | GPU 44%",
         "CPU usage and GPU usage formatting");
     usage.gpuClockMHz = 2300.0;
@@ -235,10 +233,6 @@ int main()
         "RAM formatting and final HUD order");
     ok &= Check(allRuns.size() == 8 && allRuns[4].kind == HudSegmentKind::Ram &&
         allRuns[5].kind == HudSegmentKind::Vram, "RAM precedes VRAM");
-    all.systemPowerW = 24.0;
-    all.onBattery = true;
-    ok &= Check(JoinHudRuns(FormatHud(all)).find(L"SYS") == std::wstring::npos,
-        "system power is omitted from HUD");
     all.systemMemoryUsedBytes.reset();
     const auto withoutRam = FormatHud(all);
     ok &= Check(std::all_of(withoutRam.begin(), withoutRam.end(),

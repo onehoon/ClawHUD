@@ -33,12 +33,6 @@ int main()
     const auto fans = DecodeFanTelemetry(std::vector<std::uint8_t>{0x00, 0x70, 0x00, 0x6F});
     ok &= Check(fans && fans->fan1Rpm.value() == 4285 && fans->fan2Rpm.value() == 4324,
         "fan pair decode");
-    ok &= Check(SelectHudFanRpm(4285, 4324).value() == (4285 + 4324) / 2,
-        "fan average");
-    ok &= Check(SelectHudFanRpm(4285, std::nullopt).value() == 4285 &&
-        SelectHudFanRpm(std::nullopt, 4324).value() == 4324 &&
-        !SelectHudFanRpm(std::nullopt, std::nullopt), "fan partial availability");
-
     ok &= Check(DecodeCpuPackagePowerW(std::vector<std::uint8_t>{0x02}).value() == 2 &&
         DecodeCpuPackagePowerW(std::vector<std::uint8_t>{0x18}).value() == 24 &&
         DecodeCpuPackagePowerW(std::vector<std::uint8_t>{0x00}).value() == 0 &&
