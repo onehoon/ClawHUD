@@ -27,6 +27,7 @@ using settings_internal::kDefaultWindowHeightDip;
 using settings_internal::kDefaultWindowWidthDip;
 using settings_internal::kDiagnosticsEcHeading;
 using settings_internal::kDiagnosticsIgclHeading;
+using settings_internal::kDiagnosticsApi2Heading;
 using settings_internal::kDiagnosticsVrrHeading;
 using settings_internal::kEnableHud;
 using settings_internal::kFontSegoeUiVariable;
@@ -42,6 +43,7 @@ using settings_internal::kOpenLogs;
 using settings_internal::kSettingsClassName;
 using settings_internal::kStartEc;
 using settings_internal::kStartIgcl;
+using settings_internal::kStartApi2;
 using settings_internal::kStartVrr;
 using settings_internal::kStartWithWindows;
 using settings_internal::kStopVrr;
@@ -108,7 +110,8 @@ bool SettingsWindow::Show(HINSTANCE instance)
     UpdateWindow(window_);
     SetForegroundWindow(window_);
     UpdateHudControls();
-    SetDiagnosticStatus(app_.IgclStatus() == L"Idle" ? app_.EcStatus() : app_.IgclStatus()); SetVrrStatus(app_.VrrStatus());
+    SetDiagnosticStatus(app_.PresentMonApi2Status() != L"Idle" ? app_.PresentMonApi2Status() :
+        (app_.IgclStatus() == L"Idle" ? app_.EcStatus() : app_.IgclStatus())); SetVrrStatus(app_.VrrStatus());
     UpdateTweaksControls();
     return true;
 }
@@ -187,6 +190,7 @@ void SettingsWindow::ApplyHeadingFont()
     apply(diagnosticsPanel_, kDiagnosticsVrrHeading);
     apply(diagnosticsPanel_, kDiagnosticsEcHeading);
     apply(diagnosticsPanel_, kDiagnosticsIgclHeading);
+    apply(diagnosticsPanel_, kDiagnosticsApi2Heading);
 }
 
 int SettingsWindow::Scale(int value) const noexcept
@@ -245,7 +249,7 @@ int SettingsWindow::ContentHeightForTab(int tab) const noexcept
     case kTabSettings: return 454;
     case kTabTweaks: return 230;
     case kTabAbout: return 260;
-    case kTabDiagnostics: return 540;
+    case kTabDiagnostics: return 676;
     default: return 0;
     }
 }
@@ -502,6 +506,12 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
     if (message == WM_COMMAND && LOWORD(wParam) == kStartIgcl)
     {
         if (self->app_.StartIgclDiagnostic()) self->SetDiagnosticStatus(L"Waiting 5 seconds...");
+        return 0;
+    }
+    if (message == WM_COMMAND && LOWORD(wParam) == kStartApi2)
+    {
+        if (self->app_.StartPresentMonApi2Diagnostic())
+            self->SetDiagnosticStatus(L"Waiting 5 seconds...");
         return 0;
     }
     if (message == WM_COMMAND && LOWORD(wParam) == kStartVrr)

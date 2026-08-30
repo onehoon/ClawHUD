@@ -35,6 +35,7 @@
 #include "IgclGpuTelemetry.h"
 #include "IntelGraphicsApiProbe.h"
 #include "IgclTelemetryDiagnostic.h"
+#include "PresentMonApi2Diagnostic.h"
 #include "Tweaks/TweakStartupCoordinator.h"
 #include "Tweaks/IntelVrr/IntelVrrRunResult.h"
 
@@ -123,6 +124,10 @@ public:
     void StopIgclDiagnostic();
     bool IgclDiagnosticRunning() const;
     const std::wstring& IgclStatus() const noexcept { return igclStatus_; }
+    bool StartPresentMonApi2Diagnostic();
+    void StopPresentMonApi2Diagnostic();
+    bool PresentMonApi2DiagnosticRunning() const;
+    const std::wstring& PresentMonApi2Status() const noexcept { return presentMonApi2Status_; }
     void StopDiagnostic();
     void FinishIgclDiagnostic(bool success);
     void HandleSystemSuspend();
@@ -232,6 +237,7 @@ private:
     TrayIcon tray_;
     std::unique_ptr<EcDiagnostic> ecDiagnostic_;
     std::unique_ptr<clawhud::IgclTelemetryDiagnostic> igclDiagnostic_;
+    std::unique_ptr<clawhud::PresentMonApi2Diagnostic> presentMonApi2Diagnostic_;
     std::unique_ptr<VrrDiagnostic> vrrDiagnostic_;
     std::unique_ptr<clawhud::HudPresentation> hudPresentation_;
     std::unique_ptr<EcHelperClient> ecHudClient_;
@@ -262,6 +268,7 @@ private:
     std::wstring ecStatus_{ L"Idle" };
     std::wstring vrrStatus_{ L"Idle" };
     std::wstring igclStatus_{ L"Idle" };
+    std::wstring presentMonApi2Status_{ L"Idle" };
     std::wstring executablePath_;
     int hudSizeOffset_{};
     bool hudHotkeyRegistered_{};
