@@ -34,6 +34,11 @@ bool ShouldInvalidateWindowsUsageTelemetry(
     unsigned consecutiveFailures, unsigned failureThreshold) noexcept;
 bool ShouldRetryIntelGpuMemoryCounters(bool dedicatedEmpty,
     bool sharedEmpty, unsigned int attempts) noexcept;
+bool ShouldReleaseIntelGpuMemoryCounters(
+    unsigned consecutiveFailures, unsigned failureThreshold) noexcept;
+bool ShouldRearmIntelGpuMemoryCounters(unsigned attempts,
+    unsigned cooldownSamples, unsigned maxAttempts,
+    unsigned cooldownThreshold) noexcept;
 
 class WindowsUsageSampler
 {
@@ -48,6 +53,7 @@ private:
     static bool IsValidCounter(const PDH_FMT_COUNTERVALUE& value) noexcept;
     bool AddIntelGpuMemoryCounters();
     bool TryBindIntelGpuMemoryCounters();
+    void ReleaseIntelGpuMemoryCounters() noexcept;
     std::optional<double> ReadCounter(PDH_HCOUNTER counter,
         bool capAbove100) const;
     std::optional<std::uint64_t> ReadByteCounter(PDH_HCOUNTER counter) const;
@@ -61,5 +67,7 @@ private:
     bool primed_{};
     bool memoryDiagnosticsLogged_{};
     unsigned int intelMemoryRebindAttempts_{};
+    unsigned int intelMemoryFailureCount_{};
+    unsigned int intelMemoryRebindCooldownSamples_{};
 };
 }

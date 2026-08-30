@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 
 using namespace clawhud;
 
@@ -79,6 +80,9 @@ int main()
         "one invalid memory counter makes VRAM unavailable");
     ok &= Check(!CombineGpuMemoryBytes(std::nullopt, std::nullopt),
         "missing Intel memory counters are unavailable");
+    ok &= Check(!CombineGpuMemoryBytes(
+            std::numeric_limits<std::uint64_t>::max(), 1),
+        "dedicated and shared memory overflow is unavailable");
     WindowsUsageTelemetry previous{};
     previous.cpuUsagePercent = 25.0;
     previous.systemMemoryUsedBytes = 10;
@@ -123,6 +127,21 @@ int main()
     clawhud::UpdateRetainedTelemetryField(vram, missingVram, vramMisses, 3);
     ok &= Check(!vram && vramMisses == 0,
         "repeated missing VRAM samples invalidate the field");
+    vram = 20;
+    vramMisses = 0;
+    clawhud::UpdateRetainedTelemetryField(vram, std::optional<std::uint64_t>{40},
+        vramMisses, 3);
+    ok &= Check(vram && *vram == 40 && vramMisses == 0,
+        "a valid VRAM sample recovers the retained field");
+    WindowsUsageTelemetry cpuAndRam{};
+    cpuAndRam.cpuUsagePercent = 42.0;
+    cpuAndRam.systemMemoryUsedBytes = 50;
+    const auto vramUnavailable = MergeWindowsUsageTelemetry(
+        std::nullopt, cpuAndRam);
+    ok &= Check(vramUnavailable && vramUnavailable->cpuUsagePercent == 42.0 &&
+        vramUnavailable->systemMemoryUsedBytes == 50 &&
+        !vramUnavailable->intelGpuMemoryUsedBytes,
+        "VRAM failure does not affect CPU or RAM telemetry");
     ok &= Check(!ShouldInvalidateWindowsUsageTelemetry(2, 3) &&
         ShouldInvalidateWindowsUsageTelemetry(3, 3) &&
         !ShouldInvalidateWindowsUsageTelemetry(3, 0),
@@ -132,5 +151,13 @@ int main()
         !ShouldRetryIntelGpuMemoryCounters(true, false, 3) &&
         !ShouldRetryIntelGpuMemoryCounters(false, false, 0),
         "Intel memory binding retry is bounded and only targets incomplete binding");
+    ok &= Check(!ShouldReleaseIntelGpuMemoryCounters(2, 3) &&
+        ShouldReleaseIntelGpuMemoryCounters(3, 3) &&
+        !ShouldReleaseIntelGpuMemoryCounters(3, 0),
+        "invalid VRAM counters release only after the bounded failure threshold");
+    ok &= Check(!ShouldRearmIntelGpuMemoryCounters(3, 29, 3, 30) &&
+        ShouldRearmIntelGpuMemoryCounters(3, 30, 3, 30) &&
+        !ShouldRearmIntelGpuMemoryCounters(2, 30, 3, 30),
+        "exhausted VRAM binding retries re-arm only after cooldown");
     return ok ? 0 : 1;
 }
