@@ -72,6 +72,9 @@ struct HudTelemetrySnapshot
     bool onBattery{};
     bool foregroundGameActive{};
     std::optional<double> presentMonDisplayedFps;
+    // Always mode keeps the FPS segment structurally stable: when no measured
+    // FPS is available the segment renders "0FPS" instead of disappearing.
+    bool showUnavailableFpsAsZero{};
     std::optional<std::uint64_t> gpuMemoryUsedBytes;
     std::optional<std::uint64_t> systemMemoryUsedBytes;
 };
