@@ -1,5 +1,6 @@
 #include "GameDetection/GameDetectionCoordinator.h"
 #include "GameDetection/GenericForegroundTrigger.h"
+#include "ProductionTargetPolicy.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -36,22 +37,38 @@ int main()
     Check(!trigger.Inspect(WindowA, GetCurrentProcessId()).has_value(),
         "current process is rejected");
 
-    Check(!IsGenericForegroundImageEligible(L"C:\\Windows\\explorer.exe"),
+    Check(!IsEligibleProductionTargetImage(L"C:\\Windows\\explorer.exe"),
         "explorer is rejected");
-    Check(!IsGenericForegroundImageEligible(L"steam.exe"), "Steam is rejected");
-    Check(!IsGenericForegroundImageEligible(L"steamwebhelper.exe"),
+    Check(!IsEligibleProductionTargetImage(L"steam.exe"), "Steam is rejected");
+    Check(!IsEligibleProductionTargetImage(L"steamwebhelper.exe"),
         "Steam helper is rejected");
-    Check(!IsGenericForegroundImageEligible(L"gamingservicesui.exe"),
+    Check(!IsEligibleProductionTargetImage(L"SteamService.EXE"),
+        "Steam service rejection is case insensitive");
+    Check(!IsEligibleProductionTargetImage(L"gamingservicesui.exe"),
         "Gaming Services UI helper is rejected");
-    Check(!IsGenericForegroundImageEligible(L"PickerHost.exe"),
+    Check(!IsEligibleProductionTargetImage(L"PickerHost.exe"),
         "PickerHost helper is rejected case-insensitively");
-    Check(!IsGenericForegroundImageEligible(L"mongmode.exe"),
+    Check(!IsEligibleProductionTargetImage(L"mongmode.exe"),
         "mongmode helper is rejected");
-    Check(!IsGenericForegroundImageEligible(L"Chrome.EXE"),
+    Check(!IsEligibleProductionTargetImage(L"Chrome.EXE"),
         "browser rejection is case insensitive");
-    Check(IsGenericForegroundImageEligible(L"C:\\Games\\sora_2nd.exe"),
+    Check(!IsEligibleProductionTargetImage(
+        L"C:\\Users\\onehoon\\AppData\\Local\\SteamInputAddonforClaw\\current\\ui\\SteamInputAddonforClaw.UI.exe"),
+        "Steam Input Addon UI path is rejected");
+    Check(!IsEligibleProductionTargetImage(L"STEAMINPUTADDONFORCLAW.UI.EXE"),
+        "Steam Input Addon UI rejection is case insensitive");
+    Check(!IsEligibleProductionTargetImage(
+        L"C:\\Program Files\\MSI\\MSI Center M\\MSI Center M.exe"),
+        "MSI Center M path is rejected");
+    Check(!IsEligibleProductionTargetImage(
+        L"C:\\Program Files\\MSI\\MSI Center M\\Resources\\OSDInfo\\MCMOSDInfo.EXE"),
+        "MCMOSDInfo path is rejected");
+    Check(!IsEligibleProductionTargetImage(
+        L"C:\\Program Files (x86)\\Steam\\GameOverlayUI.EXE"),
+        "Steam GameOverlayUI path is rejected");
+    Check(IsEligibleProductionTargetImage(L"C:\\Games\\sora_2nd.exe"),
         "game-like image is eligible");
-    Check(IsGenericForegroundImageEligible(L"beastofreincarnation.exe"),
+    Check(IsEligibleProductionTargetImage(L"beastofreincarnation.exe"),
         "non-Steam image is eligible");
 
     GameDetectionCoordinator coordinator;

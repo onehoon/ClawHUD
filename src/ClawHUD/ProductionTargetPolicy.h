@@ -5,6 +5,8 @@
 #include <windows.h>
 
 #include <functional>
+#include <optional>
+#include <string>
 #include <string_view>
 
 namespace clawhud
@@ -30,6 +32,12 @@ struct CommittedTargetReleasePlan
     bool clearTrackedProcess{ true };
     bool reconcileHudVisibility{ true };
     GlobalTelemetryAction globalTelemetry{ GlobalTelemetryAction::Keep };
+};
+
+struct ProductionTargetProcess
+{
+    DWORD processId{};
+    std::wstring imageName;
 };
 
 constexpr CommittedTargetReleasePlan PlanCommittedTargetRelease() noexcept
@@ -75,6 +83,9 @@ inline void ApplyCommittedTargetReleasePlan(
 }
 
 bool IsRejectedProductionTargetImage(std::wstring_view image) noexcept;
+bool IsEligibleProductionTargetImage(std::wstring_view image) noexcept;
+std::optional<ProductionTargetProcess> InspectProductionTargetProcess(
+    DWORD processId, DWORD ownProcessId = GetCurrentProcessId()) noexcept;
 CandidateDisposition DecideCandidateDisposition(
     const GameDetectionContext& context,
     GameDetectionTrigger incomingTrigger, DWORD incomingProcessId) noexcept;
