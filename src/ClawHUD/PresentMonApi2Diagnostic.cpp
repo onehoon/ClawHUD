@@ -435,7 +435,7 @@ void PresentMonApi2Diagnostic::Run()
     log << "middleware_path=" << Narrow(MiddlewarePath()) << "\n";
     log << "service_state=" << Narrow(ServiceState()) << "\n";
     metrics << "TimestampMs,MetricId,MetricName,DeviceId,ArrayIndex,Statistic,Value,Unit,Status\n";
-    frames << "TimestampMs,ProcessId,SwapChain,FrameType,PresentMode,PresentRuntime,AllowsTearing,BetweenPresentsMs,BetweenDisplayChangeMs,DisplayedFrameTimeMs,PresentedFrameTimeMs\n";
+    frames << "TimestampMs,ProcessId,MetricId,MetricName,DeviceId,ArrayIndex,Value,Unit\n";
     Status(L"Waiting 5 seconds...");
     for (int i = 0; i < 50 && !stop_; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(100));
     if (stop_) { log << "cancelled=true\n"; running_ = false; complete(false); return; }
@@ -639,23 +639,14 @@ void PresentMonApi2Diagnostic::Run()
                 for (std::uint32_t i = 0; i < count; ++i)
                 {
                     const auto* record = frameBlob.data() + static_cast<size_t>(i) * frameBlobSize;
-                    const auto field = [&](int metric, const char* fallback = "")
+                    for (const auto& query : frameQueries)
                     {
-                        for (const auto& query : frameQueries)
-                            if (query.element.metric == metric)
-                                return Value(record, query.element, query.type);
-                        return std::string(fallback);
-                    };
-                    frames << timestamp << ',' << field(PM_METRIC_PROCESS_ID, std::to_string(pid).c_str()) << ','
-                        << Csv(field(PM_METRIC_SWAP_CHAIN_ADDRESS)) << ','
-                        << Csv(field(PM_METRIC_FRAME_TYPE)) << ','
-                        << Csv(field(PM_METRIC_PRESENT_MODE)) << ','
-                        << Csv(field(PM_METRIC_PRESENT_RUNTIME)) << ','
-                        << Csv(field(PM_METRIC_ALLOWS_TEARING)) << ','
-                        << Csv(field(PM_METRIC_BETWEEN_PRESENTS)) << ','
-                        << Csv(field(PM_METRIC_BETWEEN_DISPLAY_CHANGE)) << ','
-                        << Csv(field(PM_METRIC_DISPLAYED_FRAME_TIME)) << ','
-                        << Csv(field(PM_METRIC_PRESENTED_FRAME_TIME)) << "\n";
+                        frames << timestamp << ',' << pid << ','
+                            << query.element.metric << ',' << Csv(query.name) << ','
+                            << query.element.deviceId << ',' << query.element.arrayIndex << ','
+                            << Csv(Value(record, query.element, query.type)) << ','
+                            << query.unit << "\n";
+                    }
                 }
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
