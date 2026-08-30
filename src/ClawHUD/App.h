@@ -262,8 +262,13 @@ private:
     unsigned usageCpuMissingCount_{};
     unsigned usageMemoryMissingCount_{};
     unsigned usageGpuMemoryMissingCount_{};
+    unsigned ecCpuTempMissingCount_{};
+    unsigned ecFan1MissingCount_{};
+    unsigned ecFan2MissingCount_{};
+    unsigned ecTdpMissingCount_{};
     bool igclTelemetryAvailable_{};
     unsigned igclTelemetryFailureCount_{};
+    unsigned igclInitializationFailureCount_{};
     unsigned igclGpuUsageMissingCount_{};
     unsigned igclGpuClockMissingCount_{};
     bool intelVrrRangeFixEnabled_{ true };

@@ -28,6 +28,7 @@
 namespace
 {
 constexpr unsigned kIgclUnavailableFailureThreshold = 3;
+constexpr unsigned kEcTelemetryMissingThreshold = 3;
 constexpr unsigned kUsageUnavailableFailureThreshold = 3;
 constexpr UINT kSettingsDestroyed = WM_APP + 1;
 constexpr UINT kForegroundChanged = WM_APP + 2;
@@ -1050,7 +1051,21 @@ void App::SampleProductionTelemetry()
         return;
     if (graphicsApiProcessId_ && !ProcessAlive(graphicsApiProcessId_))
         StopGraphicsApiProbe();
-    ecHudTelemetry_ = ReadHudEcTelemetry();
+    const auto freshEcTelemetry = ReadHudEcTelemetry();
+    clawhud::UpdateRetainedTelemetryField(
+        ecHudTelemetry_.cpuTempC, freshEcTelemetry.cpuTempC,
+        ecCpuTempMissingCount_, kEcTelemetryMissingThreshold);
+    clawhud::UpdateRetainedTelemetryField(
+        ecHudTelemetry_.fan1Rpm, freshEcTelemetry.fan1Rpm,
+        ecFan1MissingCount_, kEcTelemetryMissingThreshold);
+    clawhud::UpdateRetainedTelemetryField(
+        ecHudTelemetry_.fan2Rpm, freshEcTelemetry.fan2Rpm,
+        ecFan2MissingCount_, kEcTelemetryMissingThreshold);
+    clawhud::UpdateRetainedTelemetryField(
+        ecHudTelemetry_.cpuPackagePowerW, freshEcTelemetry.cpuPackagePowerW,
+        ecTdpMissingCount_, kEcTelemetryMissingThreshold);
+    ecHudTelemetry_.hudFanRpm = clawhud::SelectHudFanRpm(
+        ecHudTelemetry_.fan1Rpm, ecHudTelemetry_.fan2Rpm);
     if (!usageSampler_.Initialized())
     {
         if (!usageSampler_.Initialize())
@@ -1102,9 +1117,20 @@ void App::SampleProductionTelemetry()
             latestIgclGpuTelemetry_.reset();
             igclGpuUsageMissingCount_ = 0;
             igclGpuClockMissingCount_ = 0;
+            if (++igclInitializationFailureCount_ >=
+                kIgclUnavailableFailureThreshold)
+            {
+                igclGpuSampler_.Reset();
+                igclInitializationFailureCount_ = 0;
+                clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info,
+                    L"IGCL initialization retry re-armed");
+            }
         }
         else
+        {
+            igclInitializationFailureCount_ = 0;
             igclTelemetryAvailable_ = true;
+        }
     }
     if (igclGpuSampler_.Initialized())
     {
@@ -1125,6 +1151,16 @@ void App::SampleProductionTelemetry()
         }
         else
         {
+            if (latestIgclGpuTelemetry_)
+            {
+                const std::optional<double> missingIgclField;
+                clawhud::UpdateRetainedTelemetryField(
+                    latestIgclGpuTelemetry_->gpuUsagePercent, missingIgclField,
+                    igclGpuUsageMissingCount_, kIgclUnavailableFailureThreshold);
+                clawhud::UpdateRetainedTelemetryField(
+                    latestIgclGpuTelemetry_->gpuClockMHz, missingIgclField,
+                    igclGpuClockMissingCount_, kIgclUnavailableFailureThreshold);
+            }
             ++igclTelemetryFailureCount_;
         }
         const auto transition = clawhud::ObserveIgclTelemetryTransition(
@@ -1138,12 +1174,14 @@ void App::SampleProductionTelemetry()
                 L"IGCL telemetry unavailable");
         if (sample)
             igclTelemetryAvailable_ = true;
-        else if (igclTelemetryFailureCount_ >= kIgclUnavailableFailureThreshold)
+        else if (clawhud::ShouldResetIgclProvider(
+            igclTelemetryFailureCount_, kIgclUnavailableFailureThreshold))
         {
             igclTelemetryAvailable_ = false;
-            latestIgclGpuTelemetry_.reset();
-            igclGpuUsageMissingCount_ = 0;
-            igclGpuClockMissingCount_ = 0;
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+                L"IGCL telemetry provider failed repeatedly; resetting provider");
+            igclGpuSampler_.Reset();
+            igclTelemetryFailureCount_ = 0;
         }
     }
     RenderProductionHud();
@@ -1187,6 +1225,10 @@ void App::PauseProductionSamplingForSuspend()
         ecHudClient_.reset();
     }
     ecHudTelemetry_ = {};
+    ecCpuTempMissingCount_ = 0;
+    ecFan1MissingCount_ = 0;
+    ecFan2MissingCount_ = 0;
+    ecTdpMissingCount_ = 0;
     latestPowerTelemetry_.reset();
     latestUsageTelemetry_.reset();
     latestPresentMonDisplayedFps_.reset();
@@ -1201,6 +1243,7 @@ void App::PauseProductionSamplingForSuspend()
     igclGpuClockMissingCount_ = 0;
     igclTelemetryAvailable_ = false;
     igclTelemetryFailureCount_ = 0;
+    igclInitializationFailureCount_ = 0;
     ecHudSamplingActive_ = false;
     if (wasActive)
         Log(L"Production telemetry sampling stopped reason=suspend");
@@ -1267,6 +1310,10 @@ void App::StopProductionEcSampling(bool stopPresentMon, const wchar_t* reason)
         ecHudClient_.reset();
     }
     ecHudTelemetry_ = {};
+    ecCpuTempMissingCount_ = 0;
+    ecFan1MissingCount_ = 0;
+    ecFan2MissingCount_ = 0;
+    ecTdpMissingCount_ = 0;
     latestPowerTelemetry_.reset();
     latestUsageTelemetry_.reset();
     usageSampler_.Reset();
@@ -1280,6 +1327,7 @@ void App::StopProductionEcSampling(bool stopPresentMon, const wchar_t* reason)
     igclGpuClockMissingCount_ = 0;
     igclTelemetryAvailable_ = false;
     igclTelemetryFailureCount_ = 0;
+    igclInitializationFailureCount_ = 0;
     ecHudSamplingActive_ = false;
     if (wasActive)
         Log(L"Production telemetry sampling stopped reason=" + std::wstring(reason));
@@ -1518,6 +1566,7 @@ void App::TrackMockGameWindow(HWND window)
     latestIgclGpuTelemetry_.reset();
     igclTelemetryAvailable_ = false;
     igclTelemetryFailureCount_ = 0;
+    igclInitializationFailureCount_ = 0;
     StartGraphicsApiProbe(processId);
     if (EnsureMockHud())
     {

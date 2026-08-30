@@ -39,6 +39,12 @@ constexpr IgclTelemetryTransition ObserveIgclTelemetryTransition(
     return IgclTelemetryTransition::None;
 }
 
+constexpr bool ShouldResetIgclProvider(
+    unsigned consecutiveFailures, unsigned failureThreshold) noexcept
+{
+    return failureThreshold != 0 && consecutiveFailures >= failureThreshold;
+}
+
 std::optional<double> CalculateIgclGpuUsage(
     double previousTimestamp, double previousActivity,
     double currentTimestamp, double currentActivity) noexcept;
