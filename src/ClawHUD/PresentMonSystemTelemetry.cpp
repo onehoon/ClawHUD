@@ -127,6 +127,8 @@ std::optional<std::uint64_t> DecodePresentMonMemoryBytes(const std::uint8_t* blo
     if (!std::isfinite(result) || result > static_cast<double>(std::numeric_limits<std::uint64_t>::max())) return std::nullopt;
     return static_cast<std::uint64_t>(result);
 }
+bool HasPresentMonDynamicQueryResult(PM_STATUS status, std::uint32_t resultCount) noexcept
+{ return status == PM_STATUS_SUCCESS && resultCount != 0; }
 
 bool PresentMonSystemTelemetry::Initialize(PresentMonApi2Client& client,
     const PresentMonTelemetryCapabilities& capabilities)
@@ -150,7 +152,8 @@ std::optional<PresentMonSystemSnapshot> PresentMonSystemTelemetry::Read(PresentM
 {
     if (!query_) return std::nullopt;
     std::uint32_t resultCount = 1;
-    if (client.PollDynamicQuery(query_, kSystemTelemetryProcessId, blob_.data(), &resultCount) != PM_STATUS_SUCCESS) return std::nullopt;
+    const auto status = client.PollDynamicQuery(query_, kSystemTelemetryProcessId, blob_.data(), &resultCount);
+    if (!HasPresentMonDynamicQueryResult(status, resultCount)) return std::nullopt;
     PresentMonSystemSnapshot snapshot;
     for (const auto& binding : bindings_)
     {

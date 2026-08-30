@@ -38,6 +38,7 @@ std::optional<double> DecodePresentMonFrequencyMHz(
 std::optional<std::uint64_t> DecodePresentMonMemoryBytes(
     const std::uint8_t* blob, const PM_QUERY_ELEMENT& element,
     PM_DATA_TYPE type, PM_UNIT unit);
+bool HasPresentMonDynamicQueryResult(PM_STATUS status, std::uint32_t resultCount) noexcept;
 
 class PresentMonSystemTelemetry
 {
