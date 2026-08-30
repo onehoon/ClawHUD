@@ -1,5 +1,8 @@
 #include "WindowsPowerTelemetry.h"
+#include "BatteryRuntimeEstimator.h"
 
+#include <chrono>
+#include <cmath>
 #include <iostream>
 #include <string>
 
@@ -12,6 +15,55 @@ bool Check(bool condition, const char* message)
     if (condition) return true;
     std::cerr << "FAILED: " << message << '\n';
     return false;
+}
+
+using Estimator = BatteryRuntimeEstimator;
+
+Estimator::TimePoint At(int seconds)
+{
+    return Estimator::TimePoint{} + std::chrono::seconds(seconds);
+}
+
+void CheckBatteryEstimator(bool& ok)
+{
+    Estimator estimator;
+    auto result = estimator.Observe(true, 60777, At(0));
+    ok &= Check(result.state == BatteryEstimateState::AnchorCreated &&
+        !result.remainingMinutes, "initial DC sample creates anchor");
+
+    result = estimator.Observe(true, 60715, At(25));
+    ok &= Check(!result.remainingMinutes, "short capacity delta is not accepted");
+    result = estimator.Observe(true, 60777, At(30));
+    ok &= Check(result.state == BatteryEstimateState::Waiting &&
+        !result.remainingMinutes, "unchanged capacity does not produce zero rate");
+    result = estimator.Observe(true, 60715, At(40));
+    ok &= Check(result.state == BatteryEstimateState::Updated &&
+        result.remainingMinutes && std::abs(result.averageDischargeWatts - 5.58) < 0.01,
+        "capacity delta uses retained anchor and full window");
+
+    result = estimator.Observe(true, 60715, At(45));
+    ok &= Check(result.remainingMinutes &&
+        std::abs(result.averageDischargeWatts - 5.58) < 0.01,
+        "previous discharge estimate is retained");
+
+    result = estimator.Observe(true, 60740, At(50));
+    ok &= Check(result.state == BatteryEstimateState::Reset &&
+        result.resetReason && std::wstring(result.resetReason) == L"capacity-correction" &&
+        result.averageDischargeWatts > 0.0,
+        "capacity increase resets without negative discharge");
+
+    result = estimator.Observe(false, std::nullopt, At(55));
+    ok &= Check(result.state == BatteryEstimateState::Reset &&
+        result.resetReason && std::wstring(result.resetReason) == L"ac-connected" &&
+        !result.remainingMinutes, "AC reconnect resets estimator");
+    result = estimator.Observe(true, 60740, At(60));
+    ok &= Check(result.state == BatteryEstimateState::AnchorCreated &&
+        !result.remainingMinutes, "AC to DC starts a fresh anchor");
+
+    result = estimator.Observe(true, 60740, At(125));
+    ok &= Check(result.state == BatteryEstimateState::Reset &&
+        result.resetReason && std::wstring(result.resetReason) == L"sample-gap" &&
+        !result.remainingMinutes, "large sample gap resets measurement window");
 }
 
 void CheckBatteryDiagnostics(bool& ok)
@@ -77,6 +129,8 @@ int main()
     const auto dc = DecodeWindowsPowerStatus(status);
     ok &= Check(dc && dc->batteryPercent == 72 && dc->onBattery == true &&
         dc->remainingMinutes == 150, "DC power decode");
+    ok &= Check(dc && SelectRemainingMinutes(*dc, 490) == 150,
+        "Windows remaining time takes priority");
 
     status.ACLineStatus = 1;
     const auto ac = DecodeWindowsPowerStatus(status);
@@ -90,6 +144,9 @@ int main()
     ok &= Check(unavailable && !unavailable->batteryPercent &&
         !unavailable->onBattery && !unavailable->remainingMinutes,
         "unavailable power fields");
+    ok &= Check(unavailable && SelectRemainingMinutes(*unavailable, 490) == 490,
+        "capacity estimate fills unknown Windows remaining time");
     CheckBatteryDiagnostics(ok);
+    CheckBatteryEstimator(ok);
     return ok ? 0 : 1;
 }

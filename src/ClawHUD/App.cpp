@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
+#include <iomanip>
 #include <memory>
 #include <shellapi.h>
 #include <shobjidl.h>
@@ -120,6 +121,42 @@ std::wstring HwndText(HWND window)
     wchar_t buffer[32]{};
     swprintf_s(buffer, L"0x%p", window);
     return buffer;
+}
+
+void LogBatteryEstimate(const clawhud::BatteryEstimateResult& result)
+{
+    using State = clawhud::BatteryEstimateState;
+    if (result.state == State::None)
+        return;
+
+    std::wostringstream message;
+    message << L"[BatteryEstimate] state=";
+    switch (result.state)
+    {
+    case State::AnchorCreated:
+        message << L"anchor-created capacity=" << result.currentCapacity;
+        break;
+    case State::Waiting:
+        message << L"waiting capacity=" << result.currentCapacity
+            << L" elapsedSec=" << std::fixed << std::setprecision(0)
+            << result.elapsedSeconds << L" deltaMWh=0";
+        break;
+    case State::Updated:
+        message << L"updated startCapacity=" << result.anchorCapacity
+            << L" currentCapacity=" << result.currentCapacity
+            << L" elapsedSec=" << std::fixed << std::setprecision(0)
+            << result.elapsedSeconds << L" deltaMWh=" << result.deltaMWh
+            << L" avgPowerW=" << std::setprecision(2)
+            << result.averageDischargeWatts << L" remainingMinutes="
+            << result.remainingMinutes.value_or(0);
+        break;
+    case State::Reset:
+        message << L"reset reason=" << (result.resetReason ? result.resetReason : L"unknown");
+        break;
+    case State::None:
+        break;
+    }
+    clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug, message.str());
 }
 
 bool ProcessAlive(DWORD processId)
@@ -1234,6 +1271,20 @@ void App::SampleProductionBatteryTelemetry()
         diagnosticHudMode_.has_value())
         return;
     latestPowerTelemetry_ = clawhud::ReadWindowsPowerTelemetry();
+    if (!latestPowerTelemetry_)
+    {
+        batteryRuntimeEstimator_.Reset();
+    }
+    else
+    {
+        const auto estimate = batteryRuntimeEstimator_.Observe(
+            latestPowerTelemetry_->onBattery.value_or(false),
+            latestPowerTelemetry_->remainingCapacityMWh,
+            clawhud::BatteryRuntimeEstimator::Clock::now());
+        LogBatteryEstimate(estimate);
+        latestPowerTelemetry_->remainingMinutes = clawhud::SelectRemainingMinutes(
+            *latestPowerTelemetry_, estimate.remainingMinutes);
+    }
     RenderProductionHud();
 }
 
@@ -1272,6 +1323,7 @@ void App::PauseProductionSamplingForSuspend()
     ecFan2MissingCount_ = 0;
     ecTdpMissingCount_ = 0;
     latestPowerTelemetry_.reset();
+    batteryRuntimeEstimator_.Reset();
     latestUsageTelemetry_.reset();
     latestPresentMonDisplayedFps_.reset();
     usageSampler_.Reset();
@@ -1357,6 +1409,7 @@ void App::StopProductionEcSampling(bool stopPresentMon, const wchar_t* reason)
     ecFan2MissingCount_ = 0;
     ecTdpMissingCount_ = 0;
     latestPowerTelemetry_.reset();
+    batteryRuntimeEstimator_.Reset();
     latestUsageTelemetry_.reset();
     usageSampler_.Reset();
     usageTelemetryFailureCount_ = 0;
