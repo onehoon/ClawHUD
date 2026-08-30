@@ -58,8 +58,47 @@ void CheckBatteryEstimator(bool& ok)
     result = estimator.Observe(true, 59800, At(135));
     ok &= Check(result.state == BatteryEstimateState::Updated &&
         result.remainingMinutes && result.anchorCapacity == 59930 &&
-        result.currentCapacity == 59800,
-        "capacity change after a long stall updates on the next sample");
+        result.currentCapacity == 59800 &&
+        std::abs(result.elapsedSeconds - 100.0) < 0.01,
+        "capacity change after a long stall uses the full plateau window");
+
+    Estimator coarseStepEstimator;
+    coarseStepEstimator.Observe(true, 60591, At(0));
+    for (int seconds = 5; seconds <= 115; seconds += 5)
+        coarseStepEstimator.Observe(true, 60591, At(seconds));
+    result = coarseStepEstimator.Observe(true, 60015, At(120));
+    ok &= Check(result.state == BatteryEstimateState::Updated &&
+        std::abs(result.elapsedSeconds - 120.0) < 0.01 &&
+        std::abs(result.averageDischargeWatts - 17.28) < 0.01,
+        "coarse capacity step uses the full plateau duration");
+
+    Estimator correctionEstimator;
+    correctionEstimator.Observe(true, 60000, At(0));
+    correctionEstimator.Observe(true, 59990, At(5));
+    correctionEstimator.Observe(true, 59980, At(10));
+    correctionEstimator.Observe(true, 59970, At(15));
+    correctionEstimator.Observe(true, 59960, At(20));
+    correctionEstimator.Observe(true, 59950, At(25));
+    correctionEstimator.Observe(true, 59940, At(30));
+    result = correctionEstimator.Observe(true, 59900, At(35));
+    result = correctionEstimator.Observe(true, 59920, At(40));
+    ok &= Check(result.state == BatteryEstimateState::Reset &&
+        result.resetReason && std::wstring(result.resetReason) ==
+            L"capacity-correction" && correctionEstimator.SampleCount() == 1 &&
+            result.elapsedSeconds == 0.0,
+        "immediate upward capacity correction resets the window");
+
+    Estimator gapEstimator;
+    gapEstimator.Observe(true, 60000, At(0));
+    gapEstimator.Observe(true, 59940, At(30));
+    result = gapEstimator.Observe(true, 59900, At(95));
+    ok &= Check(result.state == BatteryEstimateState::Reset &&
+        result.resetReason && std::wstring(result.resetReason) == L"sample-gap" &&
+        result.elapsedSeconds == 0.0,
+        "sample gap resets the rolling measurement window");
+    result = gapEstimator.Observe(true, 59890, At(100));
+    ok &= Check(result.state != BatteryEstimateState::Updated,
+        "sample gap does not contaminate the next discharge estimate");
 
     result = estimator.Observe(false, std::nullopt, At(140));
     ok &= Check(result.state == BatteryEstimateState::Reset &&

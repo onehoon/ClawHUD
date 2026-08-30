@@ -7,6 +7,7 @@ namespace clawhud
 namespace
 {
 constexpr auto kMinimumBatteryEstimateWindow = std::chrono::seconds(30);
+constexpr auto kMaximumBatterySampleGap = std::chrono::seconds(60);
 constexpr auto kBatterySampleRetention = std::chrono::minutes(3);
 
 BatteryEstimateResult EstimateFromAcceptedPower(
@@ -65,6 +66,31 @@ BatteryEstimateResult BatteryRuntimeEstimator::Observe(
     }
 
     const auto currentCapacity = *remainingCapacityMWh;
+
+    if (!samples_.empty() && now - samples_.back().timestamp >
+        kMaximumBatterySampleGap)
+    {
+        samples_.clear();
+        samples_.push_back({now, currentCapacity});
+        return EstimateFromAcceptedPower(
+            currentCapacity, currentCapacity, 0.0,
+            lastAcceptedDischargeWatts_.value_or(0.0),
+            lastValidEstimateMinutes_, BatteryEstimateState::Reset,
+            L"sample-gap");
+    }
+
+    if (!samples_.empty() && currentCapacity >
+        samples_.back().remainingCapacityMWh)
+    {
+        samples_.clear();
+        samples_.push_back({now, currentCapacity});
+        return EstimateFromAcceptedPower(
+            currentCapacity, currentCapacity, 0.0,
+            lastAcceptedDischargeWatts_.value_or(0.0),
+            lastValidEstimateMinutes_, BatteryEstimateState::Reset,
+            L"capacity-correction");
+    }
+
     samples_.push_back({now, currentCapacity});
     while (!samples_.empty() && now - samples_.front().timestamp >
         kBatterySampleRetention)
@@ -80,15 +106,19 @@ BatteryEstimateResult BatteryRuntimeEstimator::Observe(
     }
 
     const auto& newest = samples_.back();
-    auto historical = samples_.rbegin() + 1;
-    for (; historical != samples_.rend(); ++historical)
+    const BatteryCapacitySample* historical = nullptr;
+    for (auto candidate = samples_.rbegin() + 1;
+         candidate != samples_.rend(); ++candidate)
     {
-        if (newest.timestamp - historical->timestamp >=
+        if (newest.timestamp - candidate->timestamp >=
             kMinimumBatteryEstimateWindow)
+        {
+            historical = &*candidate;
             break;
+        }
     }
 
-    if (historical == samples_.rend())
+    if (historical == nullptr)
     {
         return EstimateFromAcceptedPower(
             samples_.front().remainingCapacityMWh, currentCapacity, 0.0,
@@ -96,21 +126,31 @@ BatteryEstimateResult BatteryRuntimeEstimator::Observe(
             lastValidEstimateMinutes_, BatteryEstimateState::Waiting);
     }
 
+    if (currentCapacity < samples_[samples_.size() - 2].remainingCapacityMWh)
+    {
+        const auto previousCapacity = samples_[samples_.size() - 2]
+            .remainingCapacityMWh;
+        auto plateauStart = samples_.end() - 2;
+        while (plateauStart != samples_.begin())
+        {
+            const auto candidate = plateauStart - 1;
+            if (candidate->remainingCapacityMWh != previousCapacity)
+                break;
+            plateauStart = candidate;
+        }
+
+        if (newest.timestamp - plateauStart->timestamp >=
+            kMinimumBatteryEstimateWindow)
+        {
+            historical = &*plateauStart;
+        }
+    }
+
     const double elapsedSeconds = std::chrono::duration<double>(
         newest.timestamp - historical->timestamp).count();
     const auto historicalCapacity = historical->remainingCapacityMWh;
-    if (currentCapacity >= historicalCapacity)
+    if (currentCapacity == historicalCapacity)
     {
-        if (currentCapacity > historicalCapacity)
-        {
-            samples_.clear();
-            samples_.push_back({now, currentCapacity});
-            return EstimateFromAcceptedPower(
-                currentCapacity, currentCapacity, elapsedSeconds,
-                lastAcceptedDischargeWatts_.value_or(0.0),
-                lastValidEstimateMinutes_, BatteryEstimateState::Reset,
-                L"capacity-correction");
-        }
         return EstimateFromAcceptedPower(
             historicalCapacity, currentCapacity, elapsedSeconds,
             lastAcceptedDischargeWatts_.value_or(0.0),
@@ -118,6 +158,13 @@ BatteryEstimateResult BatteryRuntimeEstimator::Observe(
                 ? BatteryEstimateState::Held : BatteryEstimateState::Waiting,
             lastValidEstimateMinutes_ ? L"capacity-unchanged" : nullptr);
     }
+
+    if (currentCapacity > historicalCapacity)
+        return EstimateFromAcceptedPower(
+            historicalCapacity, currentCapacity, elapsedSeconds,
+            lastAcceptedDischargeWatts_.value_or(0.0),
+            lastValidEstimateMinutes_, BatteryEstimateState::Reset,
+            L"capacity-correction");
 
     const double deltaMWh = static_cast<double>(historicalCapacity - currentCapacity);
     const double elapsedHours = elapsedSeconds / 3600.0;
