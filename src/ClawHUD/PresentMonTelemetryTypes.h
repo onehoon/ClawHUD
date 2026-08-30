@@ -17,6 +17,10 @@ struct PresentMonProcessSnapshot
 {
     std::uint32_t processId{};
     std::optional<double> displayedFps;
+    // Diagnostic comparison data. Never consumed by HUD rendering.
+    std::optional<double> presentedFps;
+    // Identifies the dominant swap chain PresentMon middleware selected.
+    std::optional<std::uint64_t> swapChainAddress;
 };
 struct PresentMonDeviceCapability { std::uint32_t id{}; PM_DEVICE_TYPE type{ PM_DEVICE_TYPE_INDEPENDENT }; PM_DEVICE_VENDOR vendor{ PM_DEVICE_VENDOR_UNKNOWN }; std::string name; };
 struct PresentMonDeviceMetricCapability { std::uint32_t deviceId{}; PM_METRIC_AVAILABILITY availability{ PM_METRIC_AVAILABILITY_UNAVAILABLE }; std::uint32_t arraySize{}; };

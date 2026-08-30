@@ -35,7 +35,11 @@ bool PresentMonTelemetryProvider::Initialize()
     if (client_.FreeIntrospectionRoot(root) != PM_STATUS_SUCCESS) { ShutdownUnlocked(); return false; }
     capabilities_ = std::move(copied);
     ready_ = true;
-    processTelemetry_.Initialize(client_, capabilities_);
+    // Apply the official PresentMon UI ETW flush period once for the shared
+    // session. If it cannot be configured, leave process FPS telemetry
+    // unavailable rather than sampling with the wrong ETW timing.
+    if (client_.SetEtwFlushPeriod(kPresentMonEtwFlushPeriodMs) == PM_STATUS_SUCCESS)
+        processTelemetry_.Initialize(client_, capabilities_);
     systemTelemetry_.Initialize(client_, capabilities_);
     return true;
 }

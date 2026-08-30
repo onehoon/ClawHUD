@@ -240,6 +240,8 @@ private:
     clawhud::MsiEcHudTelemetry ecHudTelemetry_{};
     clawhud::PresentMonTelemetryProvider presentMonTelemetryProvider_;
     std::optional<double> latestProcessFps_;
+    // Rate limiter for the once-per-second Displayed vs Presented FPS debug log.
+    std::uint64_t lastFpsCompareLogTick_{};
     // Always mode: FPS target authority is the current foreground PID only,
     // fully decoupled from game detection. In-Game Only is unaffected.
     clawhud::AlwaysModeFpsTarget alwaysFpsTarget_;
