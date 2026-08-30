@@ -59,9 +59,10 @@ int main()
         clawhud::IsRejectedProductionTargetImage(L"mcmosdinfo.exe"),
         "MSI Center M companion processes are not production targets");
     ok &= Check(clawhud::IsRejectedProductionTargetImage(L"gameoverlayui.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"steamservice.exe") &&
         clawhud::IsRejectedProductionTargetImage(L"steamerrorreporter.exe") &&
         clawhud::IsRejectedProductionTargetImage(L"steamerrorreporter64.exe"),
-        "Steam overlay and error reporters are not production targets");
+        "Steam service, overlay, and error reporters are not production targets");
     ok &= Check(clawhud::IsEligibleProductionTargetImage(L"game.exe") &&
         clawhud::IsEligibleProductionTargetImage(L"C:\\Games\\DaveTheDiver.EXE") &&
         clawhud::IsEligibleProductionTargetImage(

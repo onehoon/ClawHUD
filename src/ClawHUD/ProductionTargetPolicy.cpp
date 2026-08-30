@@ -78,10 +78,11 @@ bool ShouldCommitReadyCandidate(
 
 bool IsRejectedProductionTargetImage(std::wstring_view image) noexcept
 {
-    constexpr std::array<std::wstring_view, 32> rejected{
+    constexpr std::array<std::wstring_view, 33> rejected{
         L"explorer.exe", L"searchhost.exe", L"shellexperiencehost.exe",
         L"startmenuexperiencehost.exe", L"applicationframehost.exe",
-        L"steam.exe", L"steamwebhelper.exe", L"gamebar.exe",
+        L"steam.exe", L"steamwebhelper.exe", L"steamservice.exe",
+        L"gamebar.exe",
         L"gamebarftserver.exe", L"xboxpcappft.exe", L"gamingservices.exe",
         L"gamingservicesui.exe", L"pickerhost.exe", L"mongmode.exe",
         L"textinputhost.exe", L"chrome.exe", L"msedge.exe",

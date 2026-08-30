@@ -42,6 +42,8 @@ int main()
     Check(!IsEligibleProductionTargetImage(L"steam.exe"), "Steam is rejected");
     Check(!IsEligibleProductionTargetImage(L"steamwebhelper.exe"),
         "Steam helper is rejected");
+    Check(!IsEligibleProductionTargetImage(L"SteamService.EXE"),
+        "Steam service rejection is case insensitive");
     Check(!IsEligibleProductionTargetImage(L"gamingservicesui.exe"),
         "Gaming Services UI helper is rejected");
     Check(!IsEligibleProductionTargetImage(L"PickerHost.exe"),
