@@ -696,7 +696,10 @@ void PresentMonApi2Diagnostic::Run()
         if (foregroundTrackedPid != foregroundPid)
         {
             if (foregroundTrackedPid)
+            {
+                foregroundClient.StopTrackingProcess(foregroundTrackedPid);
                 log << "foreground_api2_stop pid=" << foregroundTrackedPid << "\n";
+            }
             foregroundTrackedPid = 0;
             if (foregroundPid)
             {
