@@ -1267,24 +1267,48 @@ void App::SampleProductionFpsTelemetry()
     {
         latestProcessFps_ = snapshot ? snapshot->displayedFps : std::nullopt;
     }
-    if (snapshot)
+    const auto now = GetTickCount64();
+    if (now - lastFpsCompareLogTick_ >= 1000)
     {
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
-            L"[PresentMonFPS] sample pid=" + std::to_wstring(processId) +
-            L" fps=" + (snapshot->displayedFps
-                ? std::to_wstring(*snapshot->displayedFps) : L"unavailable"));
-    }
-    else
-    {
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
-            L"[PresentMonFPS] unavailable pid=" + std::to_wstring(processId));
+        lastFpsCompareLogTick_ = now;
+        const auto fpsText = [](const std::optional<double>& value)
+        {
+            if (!value)
+                return std::wstring(L"NA");
+            std::wostringstream stream;
+            stream << std::fixed << std::setprecision(2) << *value;
+            return stream.str();
+        };
+        std::wstring line = L"[PresentMonFPS] pid=" + std::to_wstring(processId);
+        if (snapshot && snapshot->swapChainAddress)
+        {
+            wchar_t address[19]{};
+            swprintf_s(address, L"0x%016llX",
+                static_cast<unsigned long long>(*snapshot->swapChainAddress));
+            line += L" swap=" + std::wstring(address);
+        }
+        const std::optional<double> displayed =
+            snapshot ? snapshot->displayedFps : std::nullopt;
+        const std::optional<double> presented =
+            snapshot ? snapshot->presentedFps : std::nullopt;
+        line += L" displayed=" + fpsText(displayed) +
+            L" presented=" + fpsText(presented);
+        if (displayed && presented)
+        {
+            std::wostringstream delta;
+            delta << std::fixed << std::setprecision(2)
+                << (*displayed - *presented);
+            line += L" delta=" + delta.str();
+        }
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug, line);
     }
     RenderProductionHud();
 }
 
 void App::StartProductionFpsSampling()
 {
-    if (!presentMonTelemetryProvider_.Ready())
+    if (!presentMonTelemetryProvider_.Ready() ||
+        !presentMonTelemetryProvider_.ProcessReady())
     {
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
             L"[PresentMonFPS] provider-unavailable");

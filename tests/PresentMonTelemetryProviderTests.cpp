@@ -7,6 +7,7 @@
 #include <cstring>
 #include <iostream>
 #include <limits>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -22,22 +23,50 @@ bool Check(bool condition, const char* message)
     return false;
 }
 
+// Capabilities with DISPLAYED_FPS (+AVG). Optionally add PRESENTED_FPS and
+// SWAP_CHAIN_ADDRESS.
 PresentMonTelemetryCapabilities Capabilities(
-    PM_METRIC_TYPE type = PM_METRIC_TYPE_DYNAMIC,
-    PM_DATA_TYPE polledType = PM_DATA_TYPE_DOUBLE,
-    PM_METRIC_AVAILABILITY availability = PM_METRIC_AVAILABILITY_AVAILABLE,
-    std::vector<PM_STAT> statistics = {PM_STAT_AVG, PM_STAT_NEWEST_POINT})
+    bool withPresented = true,
+    bool withSwapChainAddress = true,
+    PM_METRIC_TYPE displayedType = PM_METRIC_TYPE_DYNAMIC,
+    PM_DATA_TYPE displayedPolled = PM_DATA_TYPE_DOUBLE,
+    PM_METRIC_AVAILABILITY displayedAvail = PM_METRIC_AVAILABILITY_AVAILABLE,
+    std::vector<PM_STAT> displayedStats = {PM_STAT_AVG, PM_STAT_NEWEST_POINT})
 {
     PresentMonTelemetryCapabilities result;
     result.devices.push_back({0, PM_DEVICE_TYPE_INDEPENDENT,
         PM_DEVICE_VENDOR_UNKNOWN, "Independent"});
-    PresentMonMetricCapability metric{};
-    metric.id = PM_METRIC_DISPLAYED_FPS;
-    metric.type = type;
-    metric.polledType = polledType;
-    metric.statistics = std::move(statistics);
-    metric.devices.push_back({0, availability, 1});
-    result.metrics.push_back(std::move(metric));
+
+    PresentMonMetricCapability displayed{};
+    displayed.id = PM_METRIC_DISPLAYED_FPS;
+    displayed.type = displayedType;
+    displayed.polledType = displayedPolled;
+    displayed.statistics = std::move(displayedStats);
+    displayed.devices.push_back({0, displayedAvail, 1});
+    result.metrics.push_back(std::move(displayed));
+
+    if (withPresented)
+    {
+        PresentMonMetricCapability presented{};
+        presented.id = PM_METRIC_PRESENTED_FPS;
+        presented.type = PM_METRIC_TYPE_DYNAMIC;
+        presented.polledType = PM_DATA_TYPE_DOUBLE;
+        presented.statistics = {PM_STAT_AVG};
+        presented.devices.push_back({0, PM_METRIC_AVAILABILITY_AVAILABLE, 1});
+        result.metrics.push_back(std::move(presented));
+    }
+
+    if (withSwapChainAddress)
+    {
+        PresentMonMetricCapability address{};
+        address.id = PM_METRIC_SWAP_CHAIN_ADDRESS;
+        address.type = PM_METRIC_TYPE_DYNAMIC;
+        address.polledType = PM_DATA_TYPE_UINT64;
+        address.statistics = {PM_STAT_NEWEST_POINT};
+        address.devices.push_back({0, PM_METRIC_AVAILABILITY_AVAILABLE, 1});
+        result.metrics.push_back(std::move(address));
+    }
+
     return result;
 }
 
@@ -46,13 +75,25 @@ class FakeClient final : public PresentMonApi2Client
 public:
     PM_STATUS startStatus{PM_STATUS_SUCCESS};
     PM_STATUS pollStatus{PM_STATUS_SUCCESS};
-    std::vector<std::optional<double>> values{60.0};
+    std::uint32_t pollResultCount{1};
+
+    // Per-metric values written on the next poll.
+    std::optional<double> displayed{60.0};
+    std::optional<double> presented{58.0};
+    std::optional<std::uint64_t> swapChainAddress{0x1000};
+
     std::vector<std::string> calls;
     std::vector<std::uint32_t> started;
     std::vector<std::uint32_t> stopped;
+    std::vector<PM_METRIC> lastRegisteredMetrics;
+    double lastWindowMs{};
+    double lastOffsetMs{};
+    std::uint32_t lastPollSwapChainRequest{};
     int registerCount{};
     int freeCount{};
     int pollCount{};
+
+    std::vector<PM_QUERY_ELEMENT> elements_;
 
     PM_STATUS StartTrackingProcess(std::uint32_t pid) override
     {
@@ -69,12 +110,23 @@ public:
     }
 
     PM_STATUS RegisterDynamicQuery(PM_DYNAMIC_QUERY_HANDLE* query,
-        PM_QUERY_ELEMENT* element, std::uint64_t, double, double) override
+        PM_QUERY_ELEMENT* elements, std::uint64_t elementCount,
+        double windowMs, double offsetMs) override
     {
         ++registerCount;
+        calls.push_back("register");
+        lastWindowMs = windowMs;
+        lastOffsetMs = offsetMs;
+        lastRegisteredMetrics.clear();
+        elements_.clear();
+        for (std::uint64_t i = 0; i < elementCount; ++i)
+        {
+            elements[i].dataOffset = i * sizeof(std::uint64_t);
+            elements[i].dataSize = sizeof(std::uint64_t);
+            lastRegisteredMetrics.push_back(elements[i].metric);
+            elements_.push_back(elements[i]);
+        }
         *query = reinterpret_cast<PM_DYNAMIC_QUERY_HANDLE>(this);
-        element->dataOffset = 0;
-        element->dataSize = sizeof(double);
         return PM_STATUS_SUCCESS;
     }
 
@@ -89,16 +141,20 @@ public:
         std::uint8_t* blob, std::uint32_t* count) override
     {
         ++pollCount;
+        lastPollSwapChainRequest = *count;
         if (pollStatus != PM_STATUS_SUCCESS)
             return pollStatus;
-        const auto populated = static_cast<std::uint32_t>(
-            std::min<std::size_t>(*count, values.size()));
-        for (std::uint32_t i = 0; i < populated; ++i)
+        for (const auto& element : elements_)
         {
-            if (values[i])
-                std::memcpy(blob + i * 16, &*values[i], sizeof(double));
+            if (element.metric == PM_METRIC_DISPLAYED_FPS && displayed)
+                std::memcpy(blob + element.dataOffset, &*displayed, sizeof(double));
+            else if (element.metric == PM_METRIC_PRESENTED_FPS && presented)
+                std::memcpy(blob + element.dataOffset, &*presented, sizeof(double));
+            else if (element.metric == PM_METRIC_SWAP_CHAIN_ADDRESS && swapChainAddress)
+                std::memcpy(blob + element.dataOffset, &*swapChainAddress,
+                    sizeof(std::uint64_t));
         }
-        *count = populated;
+        *count = pollResultCount;
         return PM_STATUS_SUCCESS;
     }
 };
@@ -106,26 +162,39 @@ public:
 void CheckQueryPlanning(bool& ok)
 {
     const auto plan = BuildPresentMonProcessQueryPlan(Capabilities());
-    ok &= Check(plan && plan->element.metric == PM_METRIC_DISPLAYED_FPS &&
-        plan->element.stat == PM_STAT_AVG && plan->element.deviceId == 0,
-        "Displayed FPS capability selects an AVG independent-device query");
+    ok &= Check(plan.has_value(), "displayed FPS + AVG yields a query plan");
+    ok &= Check(plan && plan->elements.at(plan->displayedIndex).metric ==
+            PM_METRIC_DISPLAYED_FPS &&
+        plan->elements.at(plan->displayedIndex).stat == PM_STAT_AVG,
+        "displayed element is DISPLAYED_FPS + AVG on the independent device");
+    ok &= Check(plan && plan->presentedIndex &&
+        plan->elements.at(*plan->presentedIndex).metric == PM_METRIC_PRESENTED_FPS &&
+        plan->elements.at(*plan->presentedIndex).stat == PM_STAT_AVG,
+        "presented FPS is added to the same query as AVG when supported");
+    ok &= Check(plan && plan->swapChainAddressIndex &&
+        plan->elements.at(*plan->swapChainAddressIndex).metric ==
+            PM_METRIC_SWAP_CHAIN_ADDRESS,
+        "swap chain address is added to the same query when supported");
+
+    const auto noExtras = BuildPresentMonProcessQueryPlan(Capabilities(false, false));
+    ok &= Check(noExtras && !noExtras->presentedIndex &&
+        !noExtras->swapChainAddressIndex && noExtras->elements.size() == 1,
+        "displayed FPS alone still yields a usable plan");
 
     auto newestOnly = Capabilities();
     newestOnly.metrics[0].statistics = {PM_STAT_NEWEST_POINT};
     ok &= Check(!BuildPresentMonProcessQueryPlan(newestOnly),
-        "Displayed FPS without AVG is unavailable");
+        "displayed FPS without AVG is unavailable");
     ok &= Check(!BuildPresentMonProcessQueryPlan(
-        Capabilities(PM_METRIC_TYPE_STATIC)), "static metric is rejected");
-    ok &= Check(!BuildPresentMonProcessQueryPlan(
-        Capabilities(PM_METRIC_TYPE_DYNAMIC, PM_DATA_TYPE_UINT64)),
-        "non-double polled type is rejected");
+        Capabilities(true, true, PM_METRIC_TYPE_STATIC)),
+        "static displayed metric is rejected");
     ok &= Check(!BuildPresentMonProcessQueryPlan(Capabilities(
-        PM_METRIC_TYPE_DYNAMIC, PM_DATA_TYPE_DOUBLE,
-        PM_METRIC_AVAILABILITY_UNAVAILABLE)), "unavailable metric is rejected");
+        true, true, PM_METRIC_TYPE_DYNAMIC, PM_DATA_TYPE_UINT64)),
+        "non-double displayed polled type is rejected");
     ok &= Check(!BuildPresentMonProcessQueryPlan(Capabilities(
-        PM_METRIC_TYPE_DYNAMIC, PM_DATA_TYPE_DOUBLE,
-        PM_METRIC_AVAILABILITY_AVAILABLE, {PM_STAT_NONE})),
-        "unsupported statistic is rejected");
+        true, true, PM_METRIC_TYPE_DYNAMIC, PM_DATA_TYPE_DOUBLE,
+        PM_METRIC_AVAILABILITY_UNAVAILABLE)),
+        "unavailable displayed metric is rejected");
 
     PresentMonTelemetryProvider provider;
     ok &= Check(!provider.Ready() && !provider.ProcessReady(),
@@ -139,89 +208,157 @@ void CheckDecoding(bool& ok)
     std::vector<std::uint8_t> blob(32);
     const double value = 123.5;
     std::memcpy(blob.data() + 8, &value, sizeof(value));
-    ok &= Check(DecodePresentMonDisplayedFps(blob, element) == value,
-        "Displayed FPS decodes from the registered data offset");
+    ok &= Check(DecodePresentMonFps(blob, element) == value,
+        "FPS decodes from the registered data offset");
     const double nan = std::numeric_limits<double>::quiet_NaN();
     std::memcpy(blob.data() + 8, &nan, sizeof(nan));
-    ok &= Check(!DecodePresentMonDisplayedFps(blob, element), "NaN FPS rejected");
+    ok &= Check(!DecodePresentMonFps(blob, element), "NaN FPS rejected");
     const double infinity = std::numeric_limits<double>::infinity();
     std::memcpy(blob.data() + 8, &infinity, sizeof(infinity));
-    ok &= Check(!DecodePresentMonDisplayedFps(blob, element), "infinite FPS rejected");
+    ok &= Check(!DecodePresentMonFps(blob, element), "infinite FPS rejected");
     const double negative = -1.0;
     std::memcpy(blob.data() + 8, &negative, sizeof(negative));
-    ok &= Check(!DecodePresentMonDisplayedFps(blob, element), "negative FPS rejected");
+    ok &= Check(!DecodePresentMonFps(blob, element), "negative FPS rejected");
+    const double zero = 0.0;
+    std::memcpy(blob.data() + 8, &zero, sizeof(zero));
+    ok &= Check(!DecodePresentMonFps(blob, element), "zero FPS is not a valid result");
 
-    const std::vector<std::optional<double>> values{
-        std::nullopt, 60.0, 120.0, -1.0,
-        std::numeric_limits<double>::infinity()};
-    ok &= Check(SelectPresentMonDisplayedFps(values) == 120.0,
-        "multiple swap chains select the highest valid FPS");
-    const std::vector<std::optional<double>> emptyValues;
-    ok &= Check(!SelectPresentMonDisplayedFps(emptyValues),
-        "zero swap chains produce no FPS");
+    PM_QUERY_ELEMENT addressElement{PM_METRIC_SWAP_CHAIN_ADDRESS,
+        PM_STAT_NEWEST_POINT, 0, 0, 0, sizeof(std::uint64_t)};
+    const std::uint64_t address = 0x7FF0ABCD1234ULL;
+    std::memcpy(blob.data(), &address, sizeof(address));
+    ok &= Check(DecodePresentMonSwapChainAddress(blob, addressElement) == address,
+        "swap chain address decodes");
+    const std::uint64_t nullAddress = 0;
+    std::memcpy(blob.data(), &nullAddress, sizeof(nullAddress));
+    ok &= Check(!DecodePresentMonSwapChainAddress(blob, addressElement),
+        "null swap chain address is unavailable");
 }
 
 void CheckProcessLifecycle(bool& ok)
 {
     FakeClient client;
     PresentMonProcessTelemetry telemetry;
-    ok &= Check(telemetry.Initialize(client, Capabilities()) && telemetry.Ready() &&
-        client.registerCount == 1, "process query initializes once");
+    ok &= Check(telemetry.Initialize(client, Capabilities()) &&
+        telemetry.Ready() && client.registerCount == 0,
+        "Initialize validates capabilities only; no query is registered yet");
 
     ok &= Check(!telemetry.Read(client, 0) && client.started.empty(),
         "PID zero does not start tracking");
+
+    client.displayed = 99.0;
+    client.presented = 98.0;
+    client.swapChainAddress = 0xABCD;
     auto snapshot = telemetry.Read(client, 1234);
     ok &= Check(snapshot && snapshot->processId == 1234 &&
-        snapshot->displayedFps && *snapshot->displayedFps == 60.0 &&
-        client.started.size() == 1, "first PID returns its displayed FPS");
+        snapshot->displayedFps == 99.0 && snapshot->presentedFps == 98.0 &&
+        snapshot->swapChainAddress == 0xABCDULL &&
+        client.started.size() == 1 && client.registerCount == 1,
+        "first PID starts tracking, registers the query, returns both rates");
+    ok &= Check(client.lastWindowMs == 1000.0 && client.lastOffsetMs == 80.0,
+        "query uses the official 1000 ms window and 80 ms offset");
+    ok &= Check(client.lastPollSwapChainRequest == 1,
+        "poll requests exactly one swap-chain result");
+
     telemetry.Read(client, 1234);
-    ok &= Check(client.started.size() == 1 && client.pollCount == 2,
-        "same PID reuses existing tracking");
+    ok &= Check(client.started.size() == 1 && client.registerCount == 1 &&
+        client.pollCount == 2,
+        "reading the same PID does not recreate the query or tracking");
 
-    ok &= Check(!telemetry.Read(client, 0) && telemetry.TrackedProcessId() == 0 &&
-        client.stopped.size() == 1,
-        "PID zero clears an active tracking target");
-    snapshot = telemetry.Read(client, 1234);
-    ok &= Check(snapshot && client.started.size() == 2,
-        "a target can be re-entered after an explicit clear");
-
-    client.values = {90.0};
+    // PID transition: old query freed and old PID stopped before the new target.
     snapshot = telemetry.Read(client, 5678);
     ok &= Check(snapshot && snapshot->processId == 5678 &&
-        client.started.size() == 3 && client.stopped.size() == 2 &&
-        client.calls.size() >= 5 && client.calls[3] == "stop" &&
-        client.calls[4] == "start",
-        "PID switch stops the old target before starting the new target");
+        client.freeCount == 1 && client.stopped.size() == 1 &&
+        client.stopped[0] == 1234 && client.started.size() == 2 &&
+        client.registerCount == 2,
+        "PID transition frees the old query and stops the old PID before retarget");
+    const auto freeIndex = std::find(client.calls.begin(), client.calls.end(), "free")
+        - client.calls.begin();
+    const auto secondStart = [&]
+    {
+        int seen = 0;
+        for (std::size_t i = 0; i < client.calls.size(); ++i)
+            if (client.calls[i] == "start" && ++seen == 2) return static_cast<long>(i);
+        return -1L;
+    }();
+    ok &= Check(freeIndex < secondStart,
+        "old frame-query state is destroyed before polling the new target");
 
-    client.values = {60.0, 70.0, 80.0, 90.0, 144.0};
+    // Displayed FPS authority: HUD-facing value is displayed even when presented differs.
+    client.displayed = 99.0;
+    client.presented = 52.0;
     snapshot = telemetry.Read(client, 5678);
-    ok &= Check(snapshot && snapshot->displayedFps &&
-        *snapshot->displayedFps == 144.0,
-        "poll capacity includes swap chains beyond the initial four slots");
+    ok &= Check(snapshot && snapshot->displayedFps == 99.0 &&
+        snapshot->presentedFps == 52.0,
+        "displayed and presented are reported independently");
 
+    // Metric independence: presented unavailable, displayed still usable.
+    client.presented.reset();
+    snapshot = telemetry.Read(client, 5678);
+    ok &= Check(snapshot && snapshot->displayedFps == 99.0 &&
+        !snapshot->presentedFps,
+        "process telemetry stays usable when presented FPS is unavailable");
+
+    // Invalid displayed values become unavailable.
+    client.presented = 60.0;
+    client.displayed = 0.0;
+    snapshot = telemetry.Read(client, 5678);
+    ok &= Check(snapshot && !snapshot->displayedFps && snapshot->presentedFps == 60.0,
+        "zero displayed FPS is unavailable but the snapshot still carries presented");
+    client.displayed = -5.0;
+    ok &= Check(!telemetry.Read(client, 5678)->displayedFps,
+        "negative displayed FPS is unavailable");
+    client.displayed = std::numeric_limits<double>::quiet_NaN();
+    ok &= Check(!telemetry.Read(client, 5678)->displayedFps,
+        "NaN displayed FPS is unavailable");
+    client.displayed = std::numeric_limits<double>::infinity();
+    ok &= Check(!telemetry.Read(client, 5678)->displayedFps,
+        "infinite displayed FPS is unavailable");
+    client.displayed = 120.0;
+
+    // Invalid PID poll releases the target.
     client.pollStatus = PM_STATUS_INVALID_PID;
     ok &= Check(!telemetry.Read(client, 5678) &&
-        telemetry.TrackedProcessId() == 0,
-        "invalid process poll clears the tracked PID");
+        telemetry.TrackedProcessId() == 0 && client.freeCount == 2,
+        "invalid process poll frees the query and clears the tracked PID");
     client.pollStatus = PM_STATUS_SUCCESS;
-    telemetry.Read(client, 5678);
-    ok &= Check(client.started.size() == 4,
-        "cleared invalid PID can be requested again");
+
+    // Read(0) tears down the target without shutting anything else down.
+    telemetry.Read(client, 4321);
+    const int freesBeforeClear = client.freeCount;
+    const std::size_t stopsBeforeClear = client.stopped.size();
+    ok &= Check(!telemetry.Read(client, 0) &&
+        telemetry.TrackedProcessId() == 0 &&
+        client.freeCount == freesBeforeClear + 1 &&
+        client.stopped.size() == stopsBeforeClear + 1 &&
+        client.stopped.back() == 4321 && telemetry.Ready(),
+        "PID zero frees the query, stops the PID, keeps the provider ready");
 
     telemetry.Shutdown(client);
-    ok &= Check(!telemetry.Ready() && client.stopped.size() == 3 &&
-        client.freeCount == 1, "shutdown stops tracking and frees the query");
+    ok &= Check(!telemetry.Ready(), "shutdown clears readiness");
     telemetry.Shutdown(client);
-    ok &= Check(client.stopped.size() == 3 && client.freeCount == 1,
-        "shutdown is idempotent");
+    ok &= Check(!telemetry.Ready(), "shutdown is idempotent");
+}
 
-    FakeClient invalidStart;
-    invalidStart.startStatus = PM_STATUS_INVALID_PID;
-    PresentMonProcessTelemetry invalidTelemetry;
-    invalidTelemetry.Initialize(invalidStart, Capabilities());
-    ok &= Check(!invalidTelemetry.Read(invalidStart, 9999) &&
-        invalidTelemetry.TrackedProcessId() == 0,
-        "invalid process start returns no snapshot without retrying");
+void CheckStaleValueProtection(bool& ok)
+{
+    FakeClient client;
+    PresentMonProcessTelemetry telemetry;
+    telemetry.Initialize(client, Capabilities());
+
+    client.displayed = 175.0;
+    auto a = telemetry.Read(client, 100);
+    ok &= Check(a && a->processId == 100 && a->displayedFps == 175.0,
+        "PID A produces its own value");
+    const int registersAfterA = client.registerCount;
+
+    client.displayed = 99.0;
+    auto b = telemetry.Read(client, 200);
+    ok &= Check(b && b->processId == 200 && b->displayedFps == 99.0 &&
+        client.registerCount == registersAfterA + 1,
+        "PID B gets a freshly registered query and its own value, never PID A's");
+    ok &= Check(telemetry.TrackedProcessId() == 200,
+        "tracking follows the new PID");
 }
 
 void CheckSystemTelemetry(bool& ok)
@@ -281,6 +418,7 @@ int main()
     CheckQueryPlanning(ok);
     CheckDecoding(ok);
     CheckProcessLifecycle(ok);
+    CheckStaleValueProtection(ok);
     CheckSystemTelemetry(ok);
     return ok ? 0 : 1;
 }
