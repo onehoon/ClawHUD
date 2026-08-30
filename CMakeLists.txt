@@ -74,6 +74,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/PresentMonApi2Client.cpp
     src/ClawHUD/PresentMonTelemetryProvider.cpp
     src/ClawHUD/PresentMonProcessTelemetry.cpp
+    src/ClawHUD/AlwaysModeFpsTarget.cpp
     src/ClawHUD/PresentMonSystemTelemetry.cpp
     src/ClawHUD/PresentMonRuntimeBootstrap.cpp
     src/ClawHUD/EcHelperClient.cpp
@@ -221,6 +222,17 @@ if(BUILD_TESTING)
     target_link_libraries(ClawHUD.ForegroundTrackerTests PRIVATE user32)
     set_target_properties(ClawHUD.ForegroundTrackerTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.ForegroundTrackerTests COMMAND ClawHUD.ForegroundTrackerTests)
+
+    add_executable(ClawHUD.AlwaysModeFpsTargetTests
+        tests/AlwaysModeFpsTargetTests.cpp
+        src/ClawHUD/AlwaysModeFpsTarget.cpp
+        src/ClawHUD/HudModel.cpp)
+    target_compile_features(ClawHUD.AlwaysModeFpsTargetTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.AlwaysModeFpsTargetTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.AlwaysModeFpsTargetTests PRIVATE src/ClawHUD)
+    set_target_properties(ClawHUD.AlwaysModeFpsTargetTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.AlwaysModeFpsTargetTests COMMAND ClawHUD.AlwaysModeFpsTargetTests)
 
     add_executable(ClawHUD.ProductionTargetPolicyTests
         tests/ProductionTargetPolicyTests.cpp

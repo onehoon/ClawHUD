@@ -26,6 +26,7 @@
 #include "GameDetection/ProductionProcessLifetime.h"
 #include "GameDetection/SteamRunningAppTrigger.h"
 #include "PresentMonTelemetryProvider.h"
+#include "AlwaysModeFpsTarget.h"
 #include "EcHelperClient.h"
 #include "MsiEcHudTelemetry.h"
 #include "WindowsPowerTelemetry.h"
@@ -239,6 +240,9 @@ private:
     clawhud::MsiEcHudTelemetry ecHudTelemetry_{};
     clawhud::PresentMonTelemetryProvider presentMonTelemetryProvider_;
     std::optional<double> latestProcessFps_;
+    // Always mode: FPS target authority is the current foreground PID only,
+    // fully decoupled from game detection. In-Game Only is unaffected.
+    clawhud::AlwaysModeFpsTarget alwaysFpsTarget_;
     DWORD presentMonRestartPid_{};
     unsigned presentMonRestartAttempts_{};
     std::optional<clawhud::WindowsPowerTelemetry> latestPowerTelemetry_;
