@@ -34,6 +34,18 @@ void Feed(RendererTargetSelector& selector, DWORD pid,
 int main()
 {
     bool ok = true;
+    ok &= Check(!GlobalRendererTelemetryStartAllowed(true, false, false, true, false) &&
+        GlobalRendererTelemetryStartAllowed(false, false, false, true, false),
+        "stream failure blocks respawn until a new lifecycle clears the gate");
+
+    std::optional<RendererTargetSelection> reported = RendererTargetSelection{
+        100, L"game.exe", 60.0, RendererSelectionReason::Highest};
+    auto sameTarget = reported;
+    sameTarget->fps = 120.0;
+    ok &= Check(!RendererTargetSelectionIdentityChanged(reported, sameTarget) &&
+        RendererTargetSelectionIdentityChanged(reported, std::nullopt),
+        "renderer reporting tracks target transitions without logging FPS buckets");
+
     const auto command = BuildGlobalPresentMonCommandLine(
         L"C:\\tools\\PresentMon.exe", L"ClawHUD-Renderer");
     ok &= Check(command.find(L"--output_stdout") != std::wstring::npos &&

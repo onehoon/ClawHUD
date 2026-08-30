@@ -39,6 +39,16 @@ struct RendererTargetSelection
     RendererSelectionReason reason{RendererSelectionReason::None};
 };
 
+inline bool RendererTargetSelectionIdentityChanged(
+    const std::optional<RendererTargetSelection>& previous,
+    const std::optional<RendererTargetSelection>& current)
+{
+    if (!previous || !current) return previous.has_value() != current.has_value();
+    return previous->processId != current->processId ||
+        previous->reason != current->reason ||
+        previous->application != current->application;
+}
+
 constexpr std::uint64_t kRendererStaleThresholdMs = 1750;
 
 std::wstring RendererSelectionReasonName(RendererSelectionReason reason);

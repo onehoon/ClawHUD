@@ -307,6 +307,8 @@ private:
     std::atomic_bool globalRendererUiUpdatePending_{};
     std::atomic_bool globalRendererStreamEnded_{};
     std::atomic<std::uint64_t> lastGlobalRendererUiUpdateTick_{};
+    bool globalRendererTelemetryUnavailable_{};
+    std::optional<clawhud::RendererTargetSelection> lastReportedRendererSelection_;
     SteamRunningAppIdSource steamRunningAppIdSource_;
     std::uint32_t steamRunningAppId_{};
 };

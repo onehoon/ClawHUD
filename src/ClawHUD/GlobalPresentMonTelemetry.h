@@ -34,6 +34,14 @@ struct GlobalPresentMonEvent
     GlobalPresentFrame frame{};
 };
 
+constexpr bool GlobalRendererTelemetryStartAllowed(
+    bool unavailable, bool suspended, bool diagnosticRunning,
+    bool hudEnabled, bool alreadyRunning) noexcept
+{
+    return !unavailable && !suspended && !diagnosticRunning && hudEnabled &&
+        !alreadyRunning;
+}
+
 std::optional<GlobalPresentFrame> ParseGlobalPresentFrame(
     const std::vector<std::string>& headers,
     const std::vector<std::string>& row,
