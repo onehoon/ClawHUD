@@ -34,6 +34,8 @@ bool ShouldInvalidateWindowsUsageTelemetry(
     unsigned consecutiveFailures, unsigned failureThreshold) noexcept;
 bool ShouldRetryIntelGpuMemoryCounters(bool dedicatedEmpty,
     bool sharedEmpty, unsigned int attempts) noexcept;
+bool NeedsIntelGpuMemoryBinding(bool dedicatedEmpty,
+    bool sharedEmpty) noexcept;
 bool ShouldReleaseIntelGpuMemoryCounters(
     unsigned consecutiveFailures, unsigned failureThreshold) noexcept;
 bool ShouldRearmIntelGpuMemoryCounters(unsigned attempts,

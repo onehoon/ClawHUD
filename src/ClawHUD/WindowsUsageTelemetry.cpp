@@ -224,8 +224,14 @@ bool ShouldInvalidateWindowsUsageTelemetry(
 bool ShouldRetryIntelGpuMemoryCounters(bool dedicatedEmpty,
     bool sharedEmpty, unsigned int attempts) noexcept
 {
-    return (dedicatedEmpty || sharedEmpty) &&
+    return NeedsIntelGpuMemoryBinding(dedicatedEmpty, sharedEmpty) &&
         attempts < kMaxIntelMemoryRebindAttempts;
+}
+
+bool NeedsIntelGpuMemoryBinding(bool dedicatedEmpty,
+    bool sharedEmpty) noexcept
+{
+    return dedicatedEmpty || sharedEmpty;
 }
 
 bool ShouldReleaseIntelGpuMemoryCounters(
@@ -441,9 +447,9 @@ std::optional<WindowsUsageTelemetry> WindowsUsageSampler::Sample()
 {
     if (!query_ || PdhCollectQueryData(query_) != ERROR_SUCCESS)
         return std::nullopt;
-    if (ShouldRetryIntelGpuMemoryCounters(
+    if (NeedsIntelGpuMemoryBinding(
             intelDedicatedMemoryCounters_.empty(),
-            intelSharedMemoryCounters_.empty(), intelMemoryRebindAttempts_))
+            intelSharedMemoryCounters_.empty()))
         TryBindIntelGpuMemoryCounters();
     WindowsUsageTelemetry result{};
     if (primed_)

@@ -151,6 +151,10 @@ int main()
         !ShouldRetryIntelGpuMemoryCounters(true, false, 3) &&
         !ShouldRetryIntelGpuMemoryCounters(false, false, 0),
         "Intel memory binding retry is bounded and only targets incomplete binding");
+    ok &= Check(NeedsIntelGpuMemoryBinding(true, true) &&
+        NeedsIntelGpuMemoryBinding(false, true) &&
+        !NeedsIntelGpuMemoryBinding(false, false),
+        "incomplete VRAM counters continue entering bounded rebind state after attempt exhaustion");
     ok &= Check(!ShouldReleaseIntelGpuMemoryCounters(2, 3) &&
         ShouldReleaseIntelGpuMemoryCounters(3, 3) &&
         !ShouldReleaseIntelGpuMemoryCounters(3, 0),
