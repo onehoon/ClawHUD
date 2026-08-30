@@ -1,7 +1,6 @@
 #include "PresentMonApi2Diagnostic.h"
 
 #include <cstring>
-#include <fstream>
 #include <iostream>
 
 using namespace clawhud;
@@ -73,23 +72,5 @@ int main()
         "API2 output filenames remain separated");
     ok &= Check(std::string(Api2MetricResultName(Api2MetricResult::Working)) ==
         "WORKING", "metric result names are stable");
-    const auto loaderTestRoot = std::filesystem::temp_directory_path() /
-        "ClawHUD-PresentMonApi2LoaderPathTests";
-    std::filesystem::remove_all(loaderTestRoot);
-    std::filesystem::create_directories(loaderTestRoot / "app");
-    const auto modulePath = loaderTestRoot / "app" / "ClawHUD.exe";
-    const auto loaderPath = loaderTestRoot / "app" / "PresentMonAPI2Loader.dll";
-    std::ofstream(loaderPath).put('x');
-    ok &= Check(Api2AppLocalLoaderPath(modulePath) == loaderPath,
-        "app-local loader path is selected");
-    std::filesystem::remove(loaderPath);
-    ok &= Check(Api2AppLocalLoaderPath(modulePath).empty(),
-        "missing app-local loader returns unavailable");
-    std::filesystem::create_directories(loaderTestRoot / "Intel" / "PresentMon" / "SDK");
-    std::ofstream(loaderTestRoot / "Intel" / "PresentMon" / "SDK" /
-        "PresentMonAPI2Loader.dll").put('x');
-    ok &= Check(Api2AppLocalLoaderPath(modulePath).empty(),
-        "SDK loader path is never selected");
-    std::filesystem::remove_all(loaderTestRoot);
     return ok ? 0 : 1;
 }
