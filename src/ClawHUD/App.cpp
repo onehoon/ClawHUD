@@ -340,6 +340,16 @@ int App::Run()
         },
         [this](HWND window, DWORD processId)
         {
+            if (alwaysFpsTarget_.SetForegroundProcess(processId) &&
+                hudOptions_.visibilityMode == clawhud::HudVisibilityMode::Always)
+            {
+                // Foreground PID changed: the previous PID's FPS is invalid
+                // immediately, never leaking across the target change.
+                latestProcessFps_.reset();
+                Log(L"[PresentMonFPS] mode=Always foregroundPid=" +
+                    std::to_wstring(processId) + L" fps-invalidated");
+                RenderProductionHud();
+            }
             ReconcileHudVisibility();
             if (debugLoggingEnabled_)
                 windowsGameIdentitySource_.QueueInspect(window, processId);
@@ -1231,7 +1241,11 @@ void App::SampleProductionFpsTelemetry()
         return;
     const auto& context = gameDetectionCoordinator_.Context();
     const bool committed = context.state == clawhud::GameDetectionState::Committed;
-    const DWORD processId = committed ? context.candidateProcessId : 0;
+    const bool alwaysMode =
+        hudOptions_.visibilityMode == clawhud::HudVisibilityMode::Always;
+    const DWORD processId = clawhud::ResolveProductionFpsTargetPid(
+        hudOptions_.visibilityMode, alwaysFpsTarget_.TargetProcessId(),
+        committed ? context.candidateProcessId : 0);
     if (!processId)
     {
         if (latestProcessFps_)
@@ -1241,7 +1255,18 @@ void App::SampleProductionFpsTelemetry()
         return;
     }
     const auto snapshot = presentMonTelemetryProvider_.ReadProcess(processId);
-    latestProcessFps_ = snapshot ? snapshot->displayedFps : std::nullopt;
+    if (alwaysMode)
+    {
+        // Reject a result that no longer belongs to the current foreground PID
+        // and never fall back to a background/committed PID.
+        alwaysFpsTarget_.AcceptSample(
+            processId, snapshot ? snapshot->displayedFps : std::nullopt);
+        latestProcessFps_ = alwaysFpsTarget_.DisplayedFps();
+    }
+    else
+    {
+        latestProcessFps_ = snapshot ? snapshot->displayedFps : std::nullopt;
+    }
     if (snapshot)
     {
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
@@ -1982,8 +2007,27 @@ void App::SetHudVisibilityMode(clawhud::HudVisibilityMode mode)
             L"HUD visibility mode change ignored while VRR diagnostic is running");
         return;
     }
+    const auto previousMode = hudOptions_.visibilityMode;
     hudOptions_.visibilityMode = mode;
     manualHudVisibilityOverride_.reset();
+    if (mode != previousMode)
+    {
+        // Mode switching only changes FPS target authority; it never creates or
+        // destroys the shared PresentMon API2 provider path.
+        alwaysFpsTarget_.Release();
+        latestProcessFps_.reset();
+        if (mode == clawhud::HudVisibilityMode::Always)
+        {
+            // Adopt the currently known foreground PID immediately instead of
+            // waiting for the next foreground-change event.
+            HWND foreground = GetForegroundWindow();
+            DWORD foregroundProcessId{};
+            if (foreground)
+                GetWindowThreadProcessId(foreground, &foregroundProcessId);
+            alwaysFpsTarget_.SetForegroundProcess(foregroundProcessId);
+        }
+        SampleProductionFpsTelemetry();
+    }
     SaveHudSettings();
     ReconcileHudVisibility();
 }
