@@ -72,6 +72,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/IgclTelemetryDiagnostic.cpp
     src/ClawHUD/PresentMonApi2Diagnostic.cpp
     src/ClawHUD/PresentMonApi2Client.cpp
+    src/ClawHUD/PresentMonTelemetryProvider.cpp
     src/ClawHUD/PresentMonRuntimeBootstrap.cpp
     src/ClawHUD/EcHelperClient.cpp
     src/ClawHUD/MsiEcHudTelemetry.cpp
@@ -665,6 +666,19 @@ if(BUILD_TESTING)
     target_link_libraries(ClawHUD.PresentMonApi2ClientTests PRIVATE kernel32)
     set_target_properties(ClawHUD.PresentMonApi2ClientTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.PresentMonApi2ClientTests COMMAND ClawHUD.PresentMonApi2ClientTests)
+
+    add_executable(ClawHUD.PresentMonTelemetryProviderTests
+        tests/PresentMonTelemetryProviderTests.cpp
+        src/ClawHUD/PresentMonTelemetryProvider.cpp
+        src/ClawHUD/PresentMonApi2Client.cpp)
+    target_compile_features(ClawHUD.PresentMonTelemetryProviderTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.PresentMonTelemetryProviderTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.PresentMonTelemetryProviderTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.PresentMonTelemetryProviderTests PRIVATE kernel32)
+    set_target_properties(ClawHUD.PresentMonTelemetryProviderTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.PresentMonTelemetryProviderTests
+        COMMAND ClawHUD.PresentMonTelemetryProviderTests)
 
     add_executable(ClawHUD.PresentMonRuntimeBootstrapTests
         tests/PresentMonRuntimeBootstrapTests.cpp
