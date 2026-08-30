@@ -7,8 +7,10 @@
 #include <atomic>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <thread>
+#include <utility>
 
 namespace clawhud
 {
@@ -42,7 +44,9 @@ std::filesystem::path Api2DiagnosticOutputPath(
 class PresentMonApi2Diagnostic
 {
 public:
-    explicit PresentMonApi2Diagnostic(HWND notifyWindow) : notifyWindow_(notifyWindow) {}
+    explicit PresentMonApi2Diagnostic(HWND notifyWindow,
+        std::function<std::string()> stateSummary = {})
+        : notifyWindow_(notifyWindow), stateSummary_(std::move(stateSummary)) {}
     ~PresentMonApi2Diagnostic();
 
     bool Start();
@@ -53,6 +57,7 @@ private:
     void Run();
     void Status(const wchar_t* status) const;
     HWND notifyWindow_{};
+    std::function<std::string()> stateSummary_;
     std::atomic_bool stop_{};
     std::atomic_bool running_{};
     std::thread worker_;

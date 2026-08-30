@@ -625,7 +625,7 @@ void PresentMonApi2Diagnostic::Run()
                 << " gpuTime=" << (values.contains("GPU_TIME")
                     ? values["GPU_TIME"] : "n/a");
             return result.str();
-        });
+        }, stateSummary_);
     if (!probe.Start()) log << "game_detection_probe_start=FAILED\n";
     else log << "game_detection_probe="
         << Api2DiagnosticOutputPath(directory, stamp, L"-game-detect-probe.log").string() << '\n';

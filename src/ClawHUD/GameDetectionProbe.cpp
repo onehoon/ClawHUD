@@ -139,7 +139,9 @@ std::string FormatProbeOptional(const std::optional<double>& value)
 }
 
 GameDetectionProbe::GameDetectionProbe(std::filesystem::path path,
-    Api2Summary api2Summary) : path_(std::move(path)), api2Summary_(std::move(api2Summary)) {}
+    Api2Summary api2Summary, std::function<std::string()> clawHudSummary)
+    : path_(std::move(path)), api2Summary_(std::move(api2Summary)),
+      clawHudSummary_(std::move(clawHudSummary)) {}
 GameDetectionProbe::~GameDetectionProbe() { Stop(); }
 bool GameDetectionProbe::Start()
 {
@@ -193,6 +195,8 @@ void GameDetectionProbe::LogForeground(HWND window, DWORD processId)
     }
     if (api2Summary_)
         log_ << "[GameDetectProbe][API2]\n" << api2Summary_(processId) << '\n';
+    if (clawHudSummary_)
+        log_ << "[GameDetectProbe][ClawHUD]\n" << clawHudSummary_() << '\n';
 }
 void GameDetectionProbe::LogGeometry(HWND window)
 {

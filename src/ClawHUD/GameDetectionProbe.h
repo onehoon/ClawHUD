@@ -44,7 +44,8 @@ class GameDetectionProbe
 public:
     using Api2Summary = std::function<std::string(DWORD)>;
 
-    GameDetectionProbe(std::filesystem::path path, Api2Summary api2Summary = {});
+    GameDetectionProbe(std::filesystem::path path, Api2Summary api2Summary = {},
+        std::function<std::string()> clawHudSummary = {});
     ~GameDetectionProbe();
     GameDetectionProbe(const GameDetectionProbe&) = delete;
     GameDetectionProbe& operator=(const GameDetectionProbe&) = delete;
@@ -62,6 +63,7 @@ private:
 
     std::filesystem::path path_;
     Api2Summary api2Summary_;
+    std::function<std::string()> clawHudSummary_;
     std::ofstream log_;
     DWORD previousForegroundPid_{};
     std::wstring previousForegroundExe_;
