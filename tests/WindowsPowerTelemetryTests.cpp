@@ -27,43 +27,91 @@ Estimator::TimePoint At(int seconds)
 void CheckBatteryEstimator(bool& ok)
 {
     Estimator estimator;
-    auto result = estimator.Observe(true, 60777, At(0));
+    auto result = estimator.Observe(true, 60000, At(0));
     ok &= Check(result.state == BatteryEstimateState::AnchorCreated &&
         !result.remainingMinutes, "initial DC sample creates anchor");
 
-    result = estimator.Observe(true, 60715, At(25));
+    for (int seconds = 5; seconds <= 25; seconds += 5)
+        result = estimator.Observe(true, 60000 - seconds * 2, At(seconds));
     ok &= Check(!result.remainingMinutes, "short capacity delta is not accepted");
-    result = estimator.Observe(true, 60777, At(30));
-    ok &= Check(result.state == BatteryEstimateState::Waiting &&
-        !result.remainingMinutes, "unchanged capacity does not produce zero rate");
-    result = estimator.Observe(true, 60715, At(40));
+    result = estimator.Observe(true, 59940, At(30));
     ok &= Check(result.state == BatteryEstimateState::Updated &&
-        result.remainingMinutes && std::abs(result.averageDischargeWatts - 5.58) < 0.01,
-        "capacity delta uses retained anchor and full window");
+        result.remainingMinutes && result.anchorCapacity == 60000 &&
+        std::abs(result.averageDischargeWatts - 7.2) < 0.01,
+        "first usable rolling window produces an estimate");
 
-    result = estimator.Observe(true, 60715, At(45));
-    ok &= Check(result.remainingMinutes &&
-        std::abs(result.averageDischargeWatts - 5.58) < 0.01,
-        "previous discharge estimate is retained");
+    result = estimator.Observe(true, 59930, At(35));
+    ok &= Check(result.state == BatteryEstimateState::Updated &&
+        result.remainingMinutes && result.anchorCapacity == 59990 &&
+        std::abs(result.elapsedSeconds - 30.0) < 0.01,
+        "rolling update does not require a fresh anchor cycle");
 
-    result = estimator.Observe(true, 60740, At(50));
+    for (int seconds = 40; seconds <= 70; seconds += 5)
+        result = estimator.Observe(true, 59930, At(seconds));
+    ok &= Check(result.state == BatteryEstimateState::Held &&
+        result.resetReason && std::wstring(result.resetReason) == L"capacity-unchanged" &&
+        result.remainingMinutes && result.averageDischargeWatts > 0.0,
+        "unchanged capacity holds the last valid estimate");
+
+    for (int seconds = 75; seconds <= 130; seconds += 5)
+        result = estimator.Observe(true, 59930, At(seconds));
+    result = estimator.Observe(true, 59800, At(135));
+    ok &= Check(result.state == BatteryEstimateState::Updated &&
+        result.remainingMinutes && result.anchorCapacity == 59930 &&
+        result.currentCapacity == 59800 &&
+        std::abs(result.elapsedSeconds - 100.0) < 0.01,
+        "capacity change after a long stall uses the full plateau window");
+
+    Estimator coarseStepEstimator;
+    coarseStepEstimator.Observe(true, 60591, At(0));
+    for (int seconds = 5; seconds <= 115; seconds += 5)
+        coarseStepEstimator.Observe(true, 60591, At(seconds));
+    result = coarseStepEstimator.Observe(true, 60015, At(120));
+    ok &= Check(result.state == BatteryEstimateState::Updated &&
+        std::abs(result.elapsedSeconds - 120.0) < 0.01 &&
+        std::abs(result.averageDischargeWatts - 17.28) < 0.01,
+        "coarse capacity step uses the full plateau duration");
+
+    Estimator correctionEstimator;
+    correctionEstimator.Observe(true, 60000, At(0));
+    correctionEstimator.Observe(true, 59990, At(5));
+    correctionEstimator.Observe(true, 59980, At(10));
+    correctionEstimator.Observe(true, 59970, At(15));
+    correctionEstimator.Observe(true, 59960, At(20));
+    correctionEstimator.Observe(true, 59950, At(25));
+    correctionEstimator.Observe(true, 59940, At(30));
+    result = correctionEstimator.Observe(true, 59900, At(35));
+    result = correctionEstimator.Observe(true, 59920, At(40));
     ok &= Check(result.state == BatteryEstimateState::Reset &&
-        result.resetReason && std::wstring(result.resetReason) == L"capacity-correction" &&
-        result.averageDischargeWatts > 0.0,
-        "capacity increase resets without negative discharge");
+        result.resetReason && std::wstring(result.resetReason) ==
+            L"capacity-correction" && correctionEstimator.SampleCount() == 1 &&
+            result.elapsedSeconds == 0.0,
+        "immediate upward capacity correction resets the window");
 
-    result = estimator.Observe(false, std::nullopt, At(55));
+    Estimator gapEstimator;
+    gapEstimator.Observe(true, 60000, At(0));
+    gapEstimator.Observe(true, 59940, At(30));
+    result = gapEstimator.Observe(true, 59900, At(95));
+    ok &= Check(result.state == BatteryEstimateState::Reset &&
+        result.resetReason && std::wstring(result.resetReason) == L"sample-gap" &&
+        result.elapsedSeconds == 0.0,
+        "sample gap resets the rolling measurement window");
+    result = gapEstimator.Observe(true, 59890, At(100));
+    ok &= Check(result.state != BatteryEstimateState::Updated,
+        "sample gap does not contaminate the next discharge estimate");
+
+    result = estimator.Observe(false, std::nullopt, At(140));
     ok &= Check(result.state == BatteryEstimateState::Reset &&
         result.resetReason && std::wstring(result.resetReason) == L"ac-connected" &&
         !result.remainingMinutes, "AC reconnect resets estimator");
-    result = estimator.Observe(true, 60740, At(60));
+    result = estimator.Observe(true, 59800, At(145));
     ok &= Check(result.state == BatteryEstimateState::AnchorCreated &&
         !result.remainingMinutes, "AC to DC starts a fresh anchor");
 
-    result = estimator.Observe(true, 60740, At(125));
-    ok &= Check(result.state == BatteryEstimateState::Reset &&
-        result.resetReason && std::wstring(result.resetReason) == L"sample-gap" &&
-        !result.remainingMinutes, "large sample gap resets measurement window");
+    for (int seconds = 150; seconds <= 6150; seconds += 5)
+        estimator.Observe(true, 59800, At(seconds));
+    ok &= Check(estimator.SampleCount() <= 37,
+        "rolling sample history remains bounded to the retention window");
 }
 
 void CheckBatteryDiagnostics(bool& ok)

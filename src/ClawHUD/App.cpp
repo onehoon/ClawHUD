@@ -141,6 +141,12 @@ void LogBatteryEstimate(const clawhud::BatteryEstimateResult& result)
             << L" elapsedSec=" << std::fixed << std::setprecision(0)
             << result.elapsedSeconds << L" deltaMWh=0";
         break;
+    case State::Held:
+        message << L"held reason=" << (result.resetReason ? result.resetReason : L"unavailable")
+            << L" windowSec=" << std::fixed << std::setprecision(0)
+            << result.elapsedSeconds << L" capacity=" << result.currentCapacity
+            << L" remainingMinutes=" << result.remainingMinutes.value_or(0);
+        break;
     case State::Updated:
         message << L"updated startCapacity=" << result.anchorCapacity
             << L" currentCapacity=" << result.currentCapacity
