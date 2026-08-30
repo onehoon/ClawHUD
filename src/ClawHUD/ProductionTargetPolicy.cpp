@@ -78,7 +78,7 @@ bool ShouldCommitReadyCandidate(
 
 bool IsRejectedProductionTargetImage(std::wstring_view image) noexcept
 {
-    constexpr std::array<std::wstring_view, 22> rejected{
+    constexpr std::array<std::wstring_view, 32> rejected{
         L"explorer.exe", L"searchhost.exe", L"shellexperiencehost.exe",
         L"startmenuexperiencehost.exe", L"applicationframehost.exe",
         L"steam.exe", L"steamwebhelper.exe", L"gamebar.exe",
@@ -86,7 +86,12 @@ bool IsRejectedProductionTargetImage(std::wstring_view image) noexcept
         L"gamingservicesui.exe", L"pickerhost.exe", L"mongmode.exe",
         L"textinputhost.exe", L"chrome.exe", L"msedge.exe",
         L"firefox.exe", L"brave.exe", L"opera.exe", L"vivaldi.exe",
-        L"steaminputaddonforclaw.ui.exe"};
+        L"steaminputaddonforclaw.ui.exe",
+        L"msi center m.exe", L"msi_center_m_launcher.exe",
+        L"msi_center_m_server.exe", L"msi_center_m_server_controlmode.exe",
+        L"command center.exe", L"gamebar_widget.exe", L"mcmosdinfo.exe",
+        L"gameoverlayui.exe", L"steamerrorreporter.exe",
+        L"steamerrorreporter64.exe"};
     for (const auto candidate : rejected)
         if (candidate == image)
             return true;

@@ -49,6 +49,19 @@ int main()
     ok &= Check(clawhud::IsRejectedProductionTargetImage(
         L"steaminputaddonforclaw.ui.exe"),
         "Steam Input Addon UI is not a production game target");
+    ok &= Check(clawhud::IsRejectedProductionTargetImage(L"msi center m.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"msi_center_m_launcher.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"msi_center_m_server.exe") &&
+        clawhud::IsRejectedProductionTargetImage(
+            L"msi_center_m_server_controlmode.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"command center.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"gamebar_widget.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"mcmosdinfo.exe"),
+        "MSI Center M companion processes are not production targets");
+    ok &= Check(clawhud::IsRejectedProductionTargetImage(L"gameoverlayui.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"steamerrorreporter.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"steamerrorreporter64.exe"),
+        "Steam overlay and error reporters are not production targets");
     ok &= Check(clawhud::IsEligibleProductionTargetImage(L"game.exe") &&
         clawhud::IsEligibleProductionTargetImage(L"C:\\Games\\DaveTheDiver.EXE") &&
         clawhud::IsEligibleProductionTargetImage(

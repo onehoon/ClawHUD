@@ -55,6 +55,15 @@ int main()
         "Steam Input Addon UI path is rejected");
     Check(!IsEligibleProductionTargetImage(L"STEAMINPUTADDONFORCLAW.UI.EXE"),
         "Steam Input Addon UI rejection is case insensitive");
+    Check(!IsEligibleProductionTargetImage(
+        L"C:\\Program Files\\MSI\\MSI Center M\\MSI Center M.exe"),
+        "MSI Center M path is rejected");
+    Check(!IsEligibleProductionTargetImage(
+        L"C:\\Program Files\\MSI\\MSI Center M\\Resources\\OSDInfo\\MCMOSDInfo.EXE"),
+        "MCMOSDInfo path is rejected");
+    Check(!IsEligibleProductionTargetImage(
+        L"C:\\Program Files (x86)\\Steam\\GameOverlayUI.EXE"),
+        "Steam GameOverlayUI path is rejected");
     Check(IsEligibleProductionTargetImage(L"C:\\Games\\sora_2nd.exe"),
         "game-like image is eligible");
     Check(IsEligibleProductionTargetImage(L"beastofreincarnation.exe"),
