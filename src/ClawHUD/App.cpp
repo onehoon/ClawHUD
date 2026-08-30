@@ -1000,9 +1000,20 @@ clawhud::MsiEcHudTelemetry App::ReadHudEcTelemetry()
     if (!ecHudClient_)
         ecHudClient_ = std::make_unique<EcHelperClient>();
 
+    const auto abortAfterFailure = [this]()
+    {
+        return clawhud::ShouldAbortEcTelemetrySample(
+            ecHudClient_->LastStage());
+    };
+
     std::vector<std::uint8_t> payload;
     if (ecHudClient_->ReadTemperature(payload))
         result.cpuTempC = clawhud::DecodeCpuTempC(payload);
+    else if (abortAfterFailure())
+    {
+        ecHudClient_->Close();
+        return result;
+    }
 
     payload.clear();
     if (ecHudClient_->ReadFan(payload))
@@ -1012,6 +1023,11 @@ clawhud::MsiEcHudTelemetry App::ReadHudEcTelemetry()
             result.fan1Rpm = fans->fan1Rpm;
             result.fan2Rpm = fans->fan2Rpm;
         }
+    }
+    else if (abortAfterFailure())
+    {
+        ecHudClient_->Close();
+        return result;
     }
 
     payload.clear();

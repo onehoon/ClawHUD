@@ -11,6 +11,28 @@
 
 namespace
 {
+void CheckSessionFailureClassification()
+{
+    using clawhud::ec::EcFailureStage;
+    for (const auto stage : {
+        EcFailureStage::Pipe,
+        EcFailureStage::HelperLaunch,
+        EcFailureStage::HelperMissing,
+        EcFailureStage::HelperNotElevated,
+        EcFailureStage::CoInitialize,
+        EcFailureStage::ConnectWmi,
+        EcFailureStage::GetClass})
+        assert(clawhud::ShouldAbortEcTelemetrySample(stage));
+
+    for (const auto stage : {
+        EcFailureStage::None,
+        EcFailureStage::GetMethod,
+        EcFailureStage::ExecMethod,
+        EcFailureStage::GetOutputData,
+        EcFailureStage::GetOutputBytes})
+        assert(!clawhud::ShouldAbortEcTelemetrySample(stage));
+}
+
 std::filesystem::path ReadableTempDirectory()
 {
     wchar_t path[MAX_PATH]{};
@@ -32,6 +54,7 @@ std::string Read(const std::filesystem::path& path)
 
 int main()
 {
+    CheckSessionFailureClassification();
     const auto directory = ReadableTempDirectory();
     clawhud::RuntimeLogger::SetDirectoryForTests(directory.wstring());
 
