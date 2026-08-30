@@ -32,6 +32,7 @@ using GetRoot = PM_STATUS(__cdecl*)(Session, const PM_INTROSPECTION_ROOT**);
 using FreeRoot = PM_STATUS(__cdecl*)(const PM_INTROSPECTION_ROOT*);
 using SetPeriod = PM_STATUS(__cdecl*)(Session, std::uint32_t, std::uint32_t);
 using SetFlush = PM_STATUS(__cdecl*)(Session, std::uint32_t);
+using FlushFrames = PM_STATUS(__cdecl*)(Session, std::uint32_t);
 using RegisterDynamic = PM_STATUS(__cdecl*)(Session, DynamicQuery*, PM_QUERY_ELEMENT*,
     std::uint64_t, double, double);
 using FreeDynamic = PM_STATUS(__cdecl*)(DynamicQuery);
@@ -132,24 +133,7 @@ std::filesystem::path FindPresentMonApi2Loader()
     wchar_t modulePath[MAX_PATH]{};
     const DWORD moduleChars = GetModuleFileNameW(nullptr, modulePath, MAX_PATH);
     if (moduleChars != 0 && moduleChars < MAX_PATH)
-    {
-        const auto appLocal = std::filesystem::path(modulePath).parent_path()
-            / L"PresentMonAPI2Loader.dll";
-        if (std::filesystem::exists(appLocal))
-            return appLocal;
-    }
-
-    wchar_t programFiles[MAX_PATH]{};
-    const DWORD programFilesChars = GetEnvironmentVariableW(
-        L"ProgramFiles", programFiles, MAX_PATH);
-    if (programFilesChars != 0 && programFilesChars < MAX_PATH)
-    {
-        const auto sdkLoader = std::filesystem::path(programFiles)
-            / L"Intel" / L"PresentMon" / L"SDK" / L"PresentMonAPI2Loader.dll";
-        if (std::filesystem::exists(sdkLoader))
-            return sdkLoader;
-    }
-
+        return Api2AppLocalLoaderPath(modulePath);
     return {};
 }
 std::string Narrow(const std::wstring& value)
@@ -398,6 +382,14 @@ std::filesystem::path Api2DiagnosticOutputPath(const std::filesystem::path& dire
     const std::wstring& timestamp, const wchar_t* suffix)
 { return Output(directory, timestamp, suffix); }
 
+std::filesystem::path Api2AppLocalLoaderPath(
+    const std::filesystem::path& modulePath)
+{
+    if (modulePath.empty()) return {};
+    const auto loader = modulePath.parent_path() / L"PresentMonAPI2Loader.dll";
+    return std::filesystem::exists(loader) ? loader : std::filesystem::path{};
+}
+
 PresentMonApi2Diagnostic::~PresentMonApi2Diagnostic()
 {
     Stop();
@@ -465,7 +457,7 @@ void PresentMonApi2Diagnostic::Run()
         << " loader=" << (loader ? "LOADED" : "MISSING")
         << " error=" << GetLastError() << "\n";
     if (!loader)
-    { log << "PresentMon API2 runtime not available.\nInstall the PresentMon SDK/runtime and retry.\n"; Status(L"Runtime unavailable"); running_ = false; complete(false); return; }
+    { log << "PresentMon API2 runtime not available beside ClawHUD.exe.\nInstall the ClawHUD PresentMon runtime and retry.\n"; Status(L"Runtime unavailable"); running_ = false; complete(false); return; }
     const auto getVersion = Proc<GetVersion>(loader, "pmGetApiVersion");
     const auto openSession = Proc<OpenSession>(loader, "pmOpenSession");
     const auto closeSession = Proc<CloseSession>(loader, "pmCloseSession");
@@ -475,6 +467,7 @@ void PresentMonApi2Diagnostic::Run()
     const auto freeRoot = Proc<FreeRoot>(loader, "pmFreeIntrospectionRoot");
     const auto setPeriod = Proc<SetPeriod>(loader, "pmSetTelemetryPollingPeriod");
     const auto setFlush = Proc<SetFlush>(loader, "pmSetEtwFlushPeriod");
+    const auto flushFrames = Proc<FlushFrames>(loader, "pmFlushFrames");
     const auto registerDynamic = Proc<RegisterDynamic>(loader, "pmRegisterDynamicQuery");
     const auto freeDynamic = Proc<FreeDynamic>(loader, "pmFreeDynamicQuery");
     const auto pollDynamic = Proc<PollDynamic>(loader, "pmPollDynamicQuery");
@@ -484,7 +477,8 @@ void PresentMonApi2Diagnostic::Run()
     const auto freeFrame = Proc<FreeFrame>(loader, "pmFreeFrameQuery");
     log << "symbols pmGetApiVersion=" << (getVersion ? "PRESENT" : "MISSING")
         << " pmOpenSession=" << (openSession ? "PRESENT" : "MISSING")
-        << " pmGetIntrospectionRoot=" << (getRoot ? "PRESENT" : "MISSING") << "\n";
+        << " pmGetIntrospectionRoot=" << (getRoot ? "PRESENT" : "MISSING")
+        << " pmFlushFrames=" << (flushFrames ? "PRESENT" : "MISSING") << "\n";
     PM_VERSION version{}; PM_STATUS status = getVersion ? getVersion(&version) : PM_STATUS_FAILURE;
     log << "pmGetApiVersion status=" << StatusName(status) << " raw=" << status
         << " version=" << version.major << '.' << version.minor << '.' << version.patch << "\n";

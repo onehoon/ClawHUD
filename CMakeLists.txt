@@ -38,6 +38,7 @@ file(ARCHIVE_EXTRACT INPUT "${VELOPACK_ARCHIVE}" DESTINATION "${VELOPACK_ROOT}")
 set(PRESENTMON_VERSION "2.5.1")
 set(PRESENTMON_EXE "${CMAKE_BINARY_DIR}/_deps/PresentMon-${PRESENTMON_VERSION}-x64.exe")
 set(PRESENTMON_LICENSE "${CMAKE_SOURCE_DIR}/third_party/PresentMon-LICENSE.txt")
+set(PRESENTMON_API2_ROOT "${CMAKE_SOURCE_DIR}/third_party/presentmon/2.5.1")
 file(DOWNLOAD
     "https://github.com/GameTechDev/PresentMon/releases/download/v${PRESENTMON_VERSION}/PresentMon-${PRESENTMON_VERSION}-x64.exe"
     "${PRESENTMON_EXE}"
@@ -132,12 +133,19 @@ set_target_properties(ClawHUD.EcHelper PROPERTIES CXX_EXTENSIONS OFF)
 add_custom_command(TARGET ClawHUD POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:ClawHUD>/tools"
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:ClawHUD>/fonts"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:ClawHUD>/runtime"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${PRESENTMON_EXE}"
         "$<TARGET_FILE_DIR:ClawHUD>/tools/PresentMon.exe"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${PRESENTMON_LICENSE}"
         "$<TARGET_FILE_DIR:ClawHUD>/tools/PresentMon-LICENSE.txt"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${PRESENTMON_API2_ROOT}/PresentMonAPI2Loader.dll"
+        "$<TARGET_FILE_DIR:ClawHUD>/PresentMonAPI2Loader.dll"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${PRESENTMON_API2_ROOT}/ClawHUD.PresentMonRuntime.msi"
+        "$<TARGET_FILE_DIR:ClawHUD>/runtime/ClawHUD.PresentMonRuntime.msi"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_SOURCE_DIR}/third_party/unispace/Unispace.otf"
         "$<TARGET_FILE_DIR:ClawHUD>/fonts/Unispace.otf"

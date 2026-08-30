@@ -113,3 +113,13 @@ OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
 ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE
 OR OTHER DEALINGS IN THE SOFTWARE.
 ```
+
+## PresentMon API2 shared-service runtime
+
+- Components: `third_party/presentmon/2.5.1/PresentMonAPI2Loader.dll` and `ClawHUD.PresentMonRuntime.msi`
+- Version: PresentMon v2.5.1, API 3.3
+- Project: https://github.com/GameTechDev/PresentMon
+- Upstream commit: `3e06c7dcb922e411bae38503b51ab501be61c37f`
+- License: MIT
+- Provenance and artifact hashes: `third_party/presentmon/2.5.1/PROVENANCE.md` and `SHA256SUMS.txt`
+- The MSI contains the matching shared service, `PresentMonService.exe`, and `PresentMonAPI2.dll`; those files are not shipped separately.
