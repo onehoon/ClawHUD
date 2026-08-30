@@ -13,6 +13,9 @@ namespace clawhud
 {
 namespace
 {
+constexpr double kSystemTelemetryWindowSizeMs = 1000.0;
+constexpr double kSystemTelemetryMetricOffsetMs = 1064.0;
+
 const PresentMonMetricCapability* Metric(
     const PresentMonTelemetryCapabilities& capabilities, PM_METRIC id)
 {
@@ -49,9 +52,18 @@ bool HasStat(const PresentMonMetricCapability& metric, PM_STAT stat)
 { for (const auto supported : metric.statistics) if (supported == stat) return true; return false; }
 std::optional<PM_STAT> Statistic(const PresentMonMetricCapability& metric)
 {
-    if (HasStat(metric, PM_STAT_NEWEST_POINT)) return PM_STAT_NEWEST_POINT;
     if (HasStat(metric, PM_STAT_AVG)) return PM_STAT_AVG;
+    if (HasStat(metric, PM_STAT_NON_ZERO_AVG)) return PM_STAT_NON_ZERO_AVG;
+    if (HasStat(metric, PM_STAT_NEWEST_POINT)) return PM_STAT_NEWEST_POINT;
+    if (HasStat(metric, PM_STAT_MID_POINT)) return PM_STAT_MID_POINT;
+    if (HasStat(metric, PM_STAT_OLDEST_POINT)) return PM_STAT_OLDEST_POINT;
     return std::nullopt;
+}
+PM_DATA_TYPE OutputType(PM_STAT stat, PM_DATA_TYPE polledType)
+{
+    if (stat == PM_STAT_AVG || stat == PM_STAT_NON_ZERO_AVG)
+        return PM_DATA_TYPE_DOUBLE;
+    return polledType;
 }
 bool SupportedType(PM_DATA_TYPE type)
 { return type == PM_DATA_TYPE_DOUBLE || type == PM_DATA_TYPE_UINT64 || type == PM_DATA_TYPE_UINT32 || type == PM_DATA_TYPE_INT32; }
@@ -87,7 +99,7 @@ void AddMetric(PresentMonSystemQueryPlan& plan, const PresentMonMetricCapability
     bool available{}; for (const auto& info : metric.devices)
         if (info.deviceId == deviceId && info.availability == PM_METRIC_AVAILABILITY_AVAILABLE) available = true;
     if (!available) return;
-    plan.bindings.push_back({ slot, plan.elements.size(), metric.polledType, metric.unit });
+    plan.bindings.push_back({ slot, plan.elements.size(), OutputType(*stat, metric.polledType), metric.unit });
     plan.elements.push_back({ metric.id, *stat, deviceId, 0, 0, 0 });
 }
 }
@@ -193,10 +205,13 @@ bool PresentMonSystemTelemetry::Initialize(PresentMonApi2Client& client,
     }
     elements_ = plan.elements; bindings_ = plan.bindings;
     const auto registerStatus = client.RegisterDynamicQuery(
-        &query_, elements_.data(), elements_.size(), 1000, 0);
+        &query_, elements_.data(), elements_.size(),
+        kSystemTelemetryWindowSizeMs, kSystemTelemetryMetricOffsetMs);
     RuntimeLogger::Log(RuntimeLogLevel::Info,
         L"[PresentMonSystem] register-query status=" + Status(registerStatus) +
-        L" elements=" + std::to_wstring(elements_.size()));
+        L" elements=" + std::to_wstring(elements_.size()) +
+        L" windowMs=" + std::to_wstring(kSystemTelemetryWindowSizeMs) +
+        L" offsetMs=" + std::to_wstring(kSystemTelemetryMetricOffsetMs));
     if (registerStatus != PM_STATUS_SUCCESS)
     {
         query_ = nullptr; elements_.clear(); bindings_.clear();
