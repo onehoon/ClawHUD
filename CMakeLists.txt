@@ -83,6 +83,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/PresentMonHudTelemetry.cpp
     src/ClawHUD/WindowsPowerTelemetry.cpp
     src/ClawHUD/BatteryRuntimeEstimator.cpp
+    src/ClawHUD/BatteryPowerEstimator.cpp
     src/ClawHUD/WindowsMemoryTelemetry.cpp
     src/ClawHUD/IntelGraphicsApiProbe.cpp
     src/ClawHUD/SupportedHardware.cpp
@@ -329,6 +330,8 @@ if(BUILD_TESTING)
         tests/WindowsPowerTelemetryTests.cpp
         src/ClawHUD/WindowsPowerTelemetry.cpp
         src/ClawHUD/BatteryRuntimeEstimator.cpp
+        src/ClawHUD/BatteryPowerEstimator.cpp
+        src/ClawHUD/MsiEcHudTelemetry.cpp
         src/ClawHUD/RuntimeLogger.cpp)
     target_compile_features(ClawHUD.WindowsPowerTelemetryTests PRIVATE cxx_std_20)
     target_compile_definitions(ClawHUD.WindowsPowerTelemetryTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)

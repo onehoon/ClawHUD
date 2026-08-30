@@ -1,5 +1,7 @@
 #include "WindowsPowerTelemetry.h"
 #include "BatteryRuntimeEstimator.h"
+#include "BatteryPowerEstimator.h"
+#include "MsiEcHudTelemetry.h"
 
 #include <chrono>
 #include <cmath>
@@ -114,6 +116,32 @@ void CheckBatteryEstimator(bool& ok)
         "rolling sample history remains bounded to the retention window");
 }
 
+void CheckBatteryPowerEstimator(bool& ok)
+{
+    BatteryPowerEstimator estimator;
+    for (int seconds = 1; seconds <= 9; ++seconds)
+        estimator.Observe(true, 40.0, At(seconds));
+    ok &= Check(!estimator.Ready() &&
+        !estimator.EstimateRemainingMinutes(60000),
+        "EC estimate waits for minimum history");
+    estimator.Observe(true, 42.0, At(10));
+    ok &= Check(estimator.Ready() && estimator.SampleCount() == 10 &&
+        std::abs(estimator.AveragePowerW().value() - (40.0 * 9.0 + 42.0) / 10.0) < 0.001,
+        "EC estimate is ready at the second five-second BAT interval");
+    ok &= Check(estimator.EstimateRemainingMinutes(60000).value() == 90,
+        "EC estimate uses RemainingCapacity");
+    estimator.Observe(true, 44.0, At(21));
+    ok &= Check(estimator.SampleCount() == 11 &&
+        std::abs(estimator.AveragePowerW().value() - (40.0 * 9.0 + 42.0 + 44.0) / 11.0) < 0.001,
+        "EC estimate retains only the rolling twenty seconds");
+    estimator.Observe(true, std::nullopt, At(22));
+    ok &= Check(estimator.SampleCount() == 11 && estimator.Ready(),
+        "invalid EC sample does not poison valid history");
+    estimator.Reset();
+    estimator.Observe(false, 40.0, At(23));
+    ok &= Check(estimator.SampleCount() == 0, "AC resets EC history");
+}
+
 void CheckBatteryDiagnostics(bool& ok)
 {
     SYSTEM_POWER_STATUS gps{};
@@ -178,7 +206,9 @@ int main()
     ok &= Check(dc && dc->batteryPercent == 72 && dc->onBattery == true &&
         dc->remainingMinutes == 150, "DC power decode");
     ok &= Check(dc && SelectRemainingMinutes(*dc, 490) == 150,
-        "Windows remaining time takes priority");
+        "Windows remaining time remains the generic preferred source");
+    ok &= Check(dc && SelectRemainingMinutes(*dc, std::nullopt) == 150,
+        "Windows estimate remains available when no estimator result exists");
 
     status.ACLineStatus = 1;
     const auto ac = DecodeWindowsPowerStatus(status);
@@ -196,5 +226,6 @@ int main()
         "capacity estimate fills unknown Windows remaining time");
     CheckBatteryDiagnostics(ok);
     CheckBatteryEstimator(ok);
+    CheckBatteryPowerEstimator(ok);
     return ok ? 0 : 1;
 }

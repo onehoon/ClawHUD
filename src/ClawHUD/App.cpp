@@ -1113,6 +1113,55 @@ clawhud::MsiEcHudTelemetry App::ReadHudEcTelemetry()
     payload.clear();
     if (ecHudClient_->ReadData(221, payload))
         result.cpuPackagePowerW = clawhud::DecodeCpuPackagePowerW(payload);
+    else if (abortAfterFailure())
+    {
+        ecHudClient_->Close();
+        return result;
+    }
+
+    if (!latestPowerTelemetry_ || !latestPowerTelemetry_->onBattery.value_or(false))
+        return result;
+
+    std::vector<std::uint8_t> currentLow;
+    std::vector<std::uint8_t> currentHigh;
+    std::vector<std::uint8_t> voltageLow;
+    std::vector<std::uint8_t> voltageHigh;
+    const bool c0 = ecHudClient_->ReadData(70, currentLow);
+    if (!c0 || currentLow.empty())
+    {
+        if (abortAfterFailure())
+            ecHudClient_->Close();
+        return result;
+    }
+    const bool c1 = ecHudClient_->ReadData(71, currentHigh);
+    if (!c1 || currentHigh.empty())
+    {
+        if (abortAfterFailure())
+            ecHudClient_->Close();
+        return result;
+    }
+    const bool v0 = ecHudClient_->ReadData(74, voltageLow);
+    if (!v0 || voltageLow.empty())
+    {
+        if (abortAfterFailure())
+            ecHudClient_->Close();
+        return result;
+    }
+    const bool v1 = ecHudClient_->ReadData(75, voltageHigh);
+    if (!v1 || voltageHigh.empty())
+    {
+        if (abortAfterFailure())
+            ecHudClient_->Close();
+        return result;
+    }
+    if (c0 && c1 && v0 && v1 && !currentLow.empty() && !currentHigh.empty() &&
+        !voltageLow.empty() && !voltageHigh.empty())
+    {
+        const auto battery = clawhud::DecodeBatteryPower(
+            currentLow[0], currentHigh[0], voltageLow[0], voltageHigh[0]);
+        if (battery)
+            result.batteryDischargePowerW = battery->powerW;
+    }
     return result;
 }
 
@@ -1165,6 +1214,40 @@ void App::SampleProductionTelemetry()
     if (graphicsApiProcessId_ && !ProcessAlive(graphicsApiProcessId_))
         StopGraphicsApiProbe();
     const auto freshEcTelemetry = ReadHudEcTelemetry();
+    const bool onBattery = latestPowerTelemetry_ &&
+        latestPowerTelemetry_->onBattery.value_or(false);
+    const auto historyBefore = batteryPowerEstimator_.SampleCount();
+    if (onBattery && !batteryEcOnDc_)
+    {
+        batteryEcReadyLogged_ = false;
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
+            L"[BatteryEC] DC sampling started");
+    }
+    if (!onBattery && batteryEcOnDc_)
+    {
+        batteryEcReadyLogged_ = false;
+        batteryEcFallbackLogged_ = false;
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
+            L"[BatteryEC] history reset reason=ac-connected");
+    }
+    if (onBattery && historyBefore != 0 &&
+        !freshEcTelemetry.batteryDischargePowerW)
+    {
+        batteryPowerEstimator_.Reset();
+        batteryEcReadyLogged_ = false;
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
+            L"[BatteryEC] history reset reason=invalid-sample");
+    }
+    else
+        batteryPowerEstimator_.Observe(onBattery, freshEcTelemetry.batteryDischargePowerW,
+            clawhud::BatteryPowerEstimator::Clock::now());
+    if (batteryPowerEstimator_.Ready() && !batteryEcReadyLogged_)
+    {
+        batteryEcReadyLogged_ = true;
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
+            L"[BatteryEC] estimator ready");
+    }
+    batteryEcOnDc_ = onBattery;
     clawhud::UpdateRetainedTelemetryField(
         ecHudTelemetry_.cpuTempC, freshEcTelemetry.cpuTempC,
         ecCpuTempMissingCount_, kEcTelemetryMissingThreshold);
@@ -1211,13 +1294,44 @@ void App::SampleProductionBatteryTelemetry()
     }
     else
     {
+        const auto ecEstimate = batteryPowerEstimator_.EstimateRemainingMinutes(
+            latestPowerTelemetry_->remainingCapacityMWh);
         const auto estimate = batteryRuntimeEstimator_.Observe(
             latestPowerTelemetry_->onBattery.value_or(false),
             latestPowerTelemetry_->remainingCapacityMWh,
             clawhud::BatteryRuntimeEstimator::Clock::now());
         LogBatteryEstimate(estimate);
-        latestPowerTelemetry_->remainingMinutes = clawhud::SelectRemainingMinutes(
-            *latestPowerTelemetry_, estimate.remainingMinutes);
+        std::optional<int> selectedRemainingMinutes = ecEstimate;
+        if (!selectedRemainingMinutes)
+            selectedRemainingMinutes = clawhud::SelectRemainingMinutes(
+                *latestPowerTelemetry_, estimate.remainingMinutes);
+        latestPowerTelemetry_->remainingMinutes = selectedRemainingMinutes;
+        if (!ecEstimate && estimate.remainingMinutes && !batteryEcFallbackLogged_)
+        {
+            batteryEcFallbackLogged_ = true;
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
+                L"[BatteryEC] fallback activated reason=estimator-unavailable");
+        }
+        if (ecEstimate && batteryEcFallbackLogged_)
+        {
+            batteryEcFallbackLogged_ = false;
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
+                L"[BatteryEC] recovered");
+        }
+        std::wostringstream batteryLog;
+        batteryLog << L"[BatteryEC] source="
+            << (ecEstimate ? L"EC" : estimate.remainingMinutes ? L"capacity-delta" : L"none")
+            << L" history=" << batteryPowerEstimator_.SampleCount()
+            << L" averageW=";
+        if (const auto average = batteryPowerEstimator_.AveragePowerW())
+            batteryLog << std::fixed << std::setprecision(2) << *average;
+        else
+            batteryLog << L"unavailable";
+        batteryLog << L" remainingCapacityMWh="
+            << latestPowerTelemetry_->remainingCapacityMWh.value_or(0)
+            << L" remainingMinutes="
+            << latestPowerTelemetry_->remainingMinutes.value_or(0);
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug, batteryLog.str());
     }
     RenderProductionHud();
 }
@@ -1365,6 +1479,10 @@ void App::PauseProductionSamplingForSuspend()
     ecTdpMissingCount_ = 0;
     latestPowerTelemetry_.reset();
     batteryRuntimeEstimator_.Reset();
+    batteryPowerEstimator_.Reset();
+    batteryEcOnDc_ = false;
+    batteryEcReadyLogged_ = false;
+    batteryEcFallbackLogged_ = false;
     latestCpuUsagePercent_.reset();
     latestGpuUsagePercent_.reset();
     latestGpuClockMHz_.reset();
@@ -1448,6 +1566,10 @@ void App::StopProductionEcSampling(bool stopPresentMon, const wchar_t* reason)
     ecTdpMissingCount_ = 0;
     latestPowerTelemetry_.reset();
     batteryRuntimeEstimator_.Reset();
+    batteryPowerEstimator_.Reset();
+    batteryEcOnDc_ = false;
+    batteryEcReadyLogged_ = false;
+    batteryEcFallbackLogged_ = false;
     latestCpuUsagePercent_.reset();
     latestGpuUsagePercent_.reset();
     latestGpuClockMHz_.reset();
