@@ -95,11 +95,14 @@ jobs:
           Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path (Join-Path $stage 'tools') | Out-Null
           New-Item -ItemType Directory -Force -Path (Join-Path $stage 'fonts') | Out-Null
+          New-Item -ItemType Directory -Force -Path (Join-Path $stage 'runtime') | Out-Null
 
           $release = Join-Path $pwd 'build\Release'
           Copy-Item (Join-Path $release 'ClawHUD.exe') $stage
           Copy-Item (Join-Path $release 'ClawHUD.EcHelper.exe') $stage
           Copy-Item (Join-Path $release 'velopack_libc.dll') $stage
+          Copy-Item (Join-Path $release 'PresentMonAPI2Loader.dll') $stage
+          Copy-Item (Join-Path $release 'runtime\ClawHUD.PresentMonRuntime.msi') (Join-Path $stage 'runtime')
           Copy-Item (Join-Path $pwd 'THIRD-PARTY-NOTICES.md') $stage
           Copy-Item (Join-Path $release 'tools\PresentMon.exe') (Join-Path $stage 'tools')
           Copy-Item (Join-Path $release 'tools\PresentMon-LICENSE.txt') (Join-Path $stage 'tools')
@@ -110,6 +113,8 @@ jobs:
             'ClawHUD.exe',
             'ClawHUD.EcHelper.exe',
             'velopack_libc.dll',
+            'PresentMonAPI2Loader.dll',
+            'runtime\ClawHUD.PresentMonRuntime.msi',
             'THIRD-PARTY-NOTICES.md',
             'tools\PresentMon.exe',
             'tools\PresentMon-LICENSE.txt',

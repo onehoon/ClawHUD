@@ -1,4 +1,5 @@
 #include "App.h"
+#include "PresentMonRuntimeBootstrap.h"
 #include "UninstallCleanup.h"
 
 #include <Velopack.hpp>
@@ -7,6 +8,16 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
 {
     Velopack::VelopackApp::Build()
         .SetAutoApplyOnStartup(false)
+        .OnFirstRun(
+            [](void*, const char*)
+            {
+                clawhud::EnsurePresentMonRuntime();
+            })
+        .OnRestarted(
+            [](void*, const char*)
+            {
+                clawhud::EnsurePresentMonRuntime();
+            })
         .OnBeforeUninstall(
             [](void*, const char*) noexcept
             {
