@@ -93,31 +93,6 @@ std::optional<PresentMonFrameSample> ParseDisplayedFrame(
     catch (...) { return std::nullopt; }
 }
 
-std::optional<double> CalculateDisplayedFps(
-    std::size_t displayedFrameCount, double elapsedSeconds)
-{
-    if (!displayedFrameCount || !std::isfinite(elapsedSeconds) || elapsedSeconds <= 0.0)
-        return std::nullopt;
-    return static_cast<double>(displayedFrameCount) / elapsedSeconds;
-}
-
-std::optional<double> CalculateDisplayedFpsFromIntervals(
-    const std::vector<double>& displayIntervalsMs)
-{
-    constexpr double kFpsWindowMs = 500.0;
-    double elapsedMs{};
-    for (const double interval : displayIntervalsMs)
-    {
-        if (!std::isfinite(interval) || interval <= 0.0)
-            return std::nullopt;
-        elapsedMs += interval;
-    }
-    if (elapsedMs < kFpsWindowMs)
-        return std::nullopt;
-    return CalculateDisplayedFps(
-        displayIntervalsMs.size(), elapsedMs / 1000.0);
-}
-
 std::vector<PresentMonHudEvent> PresentMonFrameAccumulator::Observe(
     const PresentMonFrameSample& frame)
 {
@@ -133,23 +108,12 @@ std::vector<PresentMonHudEvent> PresentMonFrameAccumulator::Observe(
             std::nullopt});
     }
 
-    ++displayedFrameCount_;
-    displayedElapsedMs_ += frame.msBetweenDisplayChange;
-    if (displayedElapsedMs_ < 500.0)
-        return events;
-
-    events.push_back({PresentMonHudEventType::FpsUpdate,
-        CalculateDisplayedFps(displayedFrameCount_, displayedElapsedMs_ / 1000.0)});
-    displayedFrameCount_ = 0;
-    displayedElapsedMs_ = 0.0;
     return events;
 }
 
 void PresentMonFrameAccumulator::Reset() noexcept
 {
     firstDisplayedFrameEmitted_ = false;
-    displayedFrameCount_ = 0;
-    displayedElapsedMs_ = 0.0;
 }
 
 PresentMonHudTelemetry::~PresentMonHudTelemetry()

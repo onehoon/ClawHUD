@@ -25,12 +25,6 @@ GameRenderVerifierEvent FirstFrame(DWORD processId, std::uint64_t generation)
         {PresentMonHudEventType::FirstDisplayedFrame, {}});
 }
 
-GameRenderVerifierEvent FpsUpdate(DWORD processId, std::uint64_t generation)
-{
-    return StampPresentMonHudEvent(processId, generation,
-        {PresentMonHudEventType::FpsUpdate, 59.94});
-}
-
 bool Commit(GameDetectionCoordinator& coordinator, DWORD processId)
 {
     const auto generation = coordinator.Context().generation;
@@ -352,11 +346,9 @@ bool RendererSignalScenario()
     GameDetectionCoordinator coordinator;
     coordinator.ObserveCandidate(100, nullptr, GameDetectionTrigger::GenericForeground);
     const auto generation = coordinator.Context().generation;
-    const bool fpsIgnored = !GameRenderVerifier::ApplyRendererEvidence(
-        coordinator, FpsUpdate(100, generation));
     const bool firstFrame = GameRenderVerifier::ApplyRendererEvidence(
         coordinator, FirstFrame(100, generation));
-    return Check(fpsIgnored && firstFrame &&
+    return Check(firstFrame &&
         coordinator.Context().state == GameDetectionState::Ready,
         "FirstDisplayedFrame is the readiness signal");
 }

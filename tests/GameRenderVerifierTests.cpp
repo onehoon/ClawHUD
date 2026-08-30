@@ -37,11 +37,6 @@ int main()
         first.event.type == PresentMonHudEventType::FirstDisplayedFrame,
         "FirstDisplayedFrame keeps PID and generation");
 
-    const auto fps = Event(6008, 7, PresentMonHudEventType::FpsUpdate, 59.94);
-    ok &= Check(fps.processId == 6008 && fps.generation == 7 &&
-        fps.event.displayedFps && *fps.event.displayedFps == 59.94,
-        "FpsUpdate keeps PID, generation, and value");
-
     const auto ended = Event(6008, 7, PresentMonHudEventType::StreamEnded);
     ok &= Check(ended.processId == 6008 && ended.generation == 7 &&
         ended.event.type == PresentMonHudEventType::StreamEnded,
@@ -55,14 +50,6 @@ int main()
         ready.Context().rendererObserved &&
         ready.Context().state != GameDetectionState::Committed,
         "valid renderer evidence reaches Ready without commit");
-
-    auto fpsOnly = Candidate(6008);
-    const auto fpsGeneration = fpsOnly.Context().generation;
-    ok &= Check(!GameRenderVerifier::ApplyRendererEvidence(fpsOnly,
-        Event(6008, fpsGeneration, PresentMonHudEventType::FpsUpdate, 59.94)) &&
-        fpsOnly.Context().state == GameDetectionState::Verifying &&
-        !fpsOnly.Context().rendererObserved,
-        "FpsUpdate does not change coordinator state");
 
     auto streamEnded = Candidate(6008);
     const auto endedGeneration = streamEnded.Context().generation;

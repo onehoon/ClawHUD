@@ -79,8 +79,6 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/EcHelperClient.cpp
     src/ClawHUD/MsiEcHudTelemetry.cpp
     src/ClawHUD/PresentMonHudTelemetry.cpp
-    src/ClawHUD/GlobalPresentMonTelemetry.cpp
-    src/ClawHUD/RendererTargetSelector.cpp
     src/ClawHUD/WindowsPowerTelemetry.cpp
     src/ClawHUD/BatteryRuntimeEstimator.cpp
     src/ClawHUD/WindowsUsageTelemetry.cpp
@@ -304,22 +302,6 @@ if(BUILD_TESTING)
     target_link_libraries(ClawHUD.PresentMonHudTelemetryTests PRIVATE advapi32 shell32 ole32)
     set_target_properties(ClawHUD.PresentMonHudTelemetryTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.PresentMonHudTelemetryTests COMMAND ClawHUD.PresentMonHudTelemetryTests)
-
-    add_executable(ClawHUD.RendererTargetSelectorTests
-        tests/RendererTargetSelectorTests.cpp
-        src/ClawHUD/RendererTargetSelector.cpp
-        src/ClawHUD/GlobalPresentMonTelemetry.cpp
-        src/ClawHUD/RuntimeLogger.cpp
-        src/ClawHUD/ProductionTargetPolicy.cpp)
-    target_compile_features(ClawHUD.RendererTargetSelectorTests PRIVATE cxx_std_20)
-    target_compile_definitions(ClawHUD.RendererTargetSelectorTests PRIVATE
-        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-    target_include_directories(ClawHUD.RendererTargetSelectorTests PRIVATE src/ClawHUD)
-    target_link_libraries(ClawHUD.RendererTargetSelectorTests PRIVATE
-        user32 advapi32)
-    set_target_properties(ClawHUD.RendererTargetSelectorTests PROPERTIES CXX_EXTENSIONS OFF)
-    add_test(NAME ClawHUD.RendererTargetSelectorTests
-        COMMAND ClawHUD.RendererTargetSelectorTests)
 
     add_executable(ClawHUD.WindowsPowerTelemetryTests
         tests/WindowsPowerTelemetryTests.cpp

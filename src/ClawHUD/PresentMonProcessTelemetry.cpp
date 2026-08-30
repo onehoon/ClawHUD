@@ -171,7 +171,16 @@ void PresentMonProcessTelemetry::ClearTracking() noexcept
 std::optional<PresentMonProcessSnapshot> PresentMonProcessTelemetry::Read(
     PresentMonApi2Client& client, std::uint32_t processId)
 {
-    if (!ready_ || processId == 0 || !SwitchProcess(client, processId))
+    if (!ready_)
+        return std::nullopt;
+    if (processId == 0)
+    {
+        if (ownsTracking_)
+            (void)client.StopTrackingProcess(trackedProcessId_);
+        ClearTracking();
+        return std::nullopt;
+    }
+    if (!SwitchProcess(client, processId))
         return std::nullopt;
 
     constexpr auto capacity = kMaximumSwapChainCapacity;

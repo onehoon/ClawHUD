@@ -21,7 +21,6 @@ struct PresentMonFrameSample
 enum class PresentMonHudEventType
 {
     FirstDisplayedFrame,
-    FpsUpdate,
     StreamEnded
 };
 
@@ -39,17 +38,11 @@ public:
 
 private:
     bool firstDisplayedFrameEmitted_{};
-    std::size_t displayedFrameCount_{};
-    double displayedElapsedMs_{};
 };
 
 std::optional<PresentMonFrameSample> ParseDisplayedFrame(
     const std::vector<std::string>& headers,
     const std::vector<std::string>& row);
-std::optional<double> CalculateDisplayedFps(
-    std::size_t displayedFrameCount, double elapsedSeconds);
-std::optional<double> CalculateDisplayedFpsFromIntervals(
-    const std::vector<double>& displayIntervalsMs);
 std::wstring BuildPresentMonCommandLine(const std::wstring& executable,
     DWORD processId, const std::wstring& sessionName);
 

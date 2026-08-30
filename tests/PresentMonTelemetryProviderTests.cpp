@@ -178,12 +178,19 @@ void CheckProcessLifecycle(bool& ok)
     ok &= Check(client.started.size() == 1 && client.pollCount == 2,
         "same PID reuses existing tracking");
 
+    ok &= Check(!telemetry.Read(client, 0) && telemetry.TrackedProcessId() == 0 &&
+        client.stopped.size() == 1,
+        "PID zero clears an active tracking target");
+    snapshot = telemetry.Read(client, 1234);
+    ok &= Check(snapshot && client.started.size() == 2,
+        "a target can be re-entered after an explicit clear");
+
     client.values = {90.0};
     snapshot = telemetry.Read(client, 5678);
     ok &= Check(snapshot && snapshot->processId == 5678 &&
-        client.started.size() == 2 && client.stopped.size() == 1 &&
-        client.calls.size() >= 3 && client.calls[1] == "stop" &&
-        client.calls[2] == "start",
+        client.started.size() == 3 && client.stopped.size() == 2 &&
+        client.calls.size() >= 5 && client.calls[3] == "stop" &&
+        client.calls[4] == "start",
         "PID switch stops the old target before starting the new target");
 
     client.values = {60.0, 70.0, 80.0, 90.0, 144.0};
@@ -198,14 +205,14 @@ void CheckProcessLifecycle(bool& ok)
         "invalid process poll clears the tracked PID");
     client.pollStatus = PM_STATUS_SUCCESS;
     telemetry.Read(client, 5678);
-    ok &= Check(client.started.size() == 3,
+    ok &= Check(client.started.size() == 4,
         "cleared invalid PID can be requested again");
 
     telemetry.Shutdown(client);
-    ok &= Check(!telemetry.Ready() && client.stopped.size() == 2 &&
+    ok &= Check(!telemetry.Ready() && client.stopped.size() == 3 &&
         client.freeCount == 1, "shutdown stops tracking and frees the query");
     telemetry.Shutdown(client);
-    ok &= Check(client.stopped.size() == 2 && client.freeCount == 1,
+    ok &= Check(client.stopped.size() == 3 && client.freeCount == 1,
         "shutdown is idempotent");
 
     FakeClient invalidStart;

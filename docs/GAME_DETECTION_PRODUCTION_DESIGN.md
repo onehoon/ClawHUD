@@ -1069,9 +1069,8 @@ Then continue to provide normal FPS telemetry after the candidate is committed.
 
 ### 14.2 Separate renderer proof from FPS aggregation
 
-Current telemetry callback overloads too many meanings.
-
-Replace the optional-double-only contract with typed events.
+The verifier callback carries renderer proof and stream lifecycle events only.
+Production FPS is supplied separately by the PID-bound PresentMon API2 provider.
 
 One possible API:
 
@@ -1079,7 +1078,6 @@ One possible API:
 enum class PresentMonHudEventType
 {
     FirstDisplayedFrame,
-    FpsUpdate,
     StreamEnded,
 };
 
@@ -1097,10 +1095,6 @@ Semantics:
 Emit exactly once after the first valid displayed frame row for the target process.
 
 Do not wait for the FPS accumulation window.
-
-#### FpsUpdate
-
-Continue existing displayed-FPS aggregation, currently around 500 ms.
 
 #### StreamEnded
 
