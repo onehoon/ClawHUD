@@ -454,9 +454,9 @@ If necessary, deeper Intel-driver / ETW actual-flip telemetry should be investig
 
 # 10. Intel IGCL role
 
-Because ClawHUD is Intel Arc only, Intel Graphics Control Library (IGCL) is a first-class candidate rather than an optional generic-GPU backend.
+Production GPU telemetry is provided by PresentMon API2. Intel Graphics Control Library (IGCL) remains an explicit diagnostic and probe dependency for Intel-specific capability and validation work.
 
-Expected IGCL responsibilities include:
+IGCL diagnostic/probe responsibilities include:
 
 ```text
 Intel adapter identification
@@ -476,8 +476,14 @@ However, the publicly documented IGCL live-state surface currently should **not*
 Therefore the intended split is:
 
 ```text
-IGCL
-├─ Intel GPU telemetry
+PresentMon API2
+├─ CPU utilization
+├─ GPU utilization
+├─ GPU clock / frequency
+└─ GPU memory usage
+
+IGCL diagnostics / probes
+├─ Intel-specific capability telemetry
 ├─ XeFG capability
 └─ configured XeFG override / multiplier
 
@@ -897,11 +903,11 @@ Meaning of each label:
 | HUD label | Meaning | Intended source |
 |---|---|---|
 | `DX11` / `DX12` / `VULKAN` + FPS | current graphics API label + frame rate | PresentMon / runtime validation path |
-| `CPU` | total CPU usage + live CPU temperature | Windows CPU usage telemetry; MSI `Get_Temperature(0)[0]` for temperature |
-| `GPU` | Intel GPU usage + GPU clock | IGCL telemetry |
+| `CPU` | total CPU usage + live CPU temperature | PresentMon API2 System telemetry for CPU usage; MSI `Get_Temperature(0)[0]` for temperature |
+| `GPU` | Intel GPU usage + GPU clock | PresentMon API2 System telemetry |
 | `TDP` | **current CPU Package Power**, not the configured PL1/TDP limit | MSI `Get_Data(221)` |
 | `RAM` | used physical system memory | Windows memory API |
-| `VRAM` | Intel GPU dedicated + shared adapter memory usage | Windows GPU Adapter Memory counters |
+| `VRAM` | Intel GPU memory usage | PresentMon API2 System telemetry |
 | `FAN` | average of the two Claw fan RPM values | MSI `Get_Fan(0)` |
 | `BAT` | battery percentage and, on DC only, remaining time | Windows power API |
 
