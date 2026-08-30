@@ -39,6 +39,8 @@ std::string Api2DecodeStaticValue(
 std::filesystem::path Api2DiagnosticOutputPath(
     const std::filesystem::path& directory, const std::wstring& timestamp,
     const wchar_t* suffix);
+std::filesystem::path Api2AppLocalLoaderPath(
+    const std::filesystem::path& modulePath);
 
 class PresentMonApi2Diagnostic
 {
