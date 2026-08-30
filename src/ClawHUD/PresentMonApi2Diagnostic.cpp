@@ -1,5 +1,6 @@
 #include "PresentMonApi2Diagnostic.h"
 #include "PresentMonApi2Client.h"
+#include "GameDetectionProbe.h"
 
 #include "RuntimeLogger.h"
 
@@ -11,6 +12,7 @@
 #include <filesystem>
 #include <iomanip>
 #include <limits>
+#include <map>
 #include <sstream>
 #include <thread>
 #include <vector>
@@ -569,11 +571,74 @@ void PresentMonApi2Diagnostic::Run()
     const auto captureStart = std::chrono::steady_clock::now();
     Status(L"Capturing API2 for 15 seconds...");
     auto nextTelemetry = captureStart;
+    auto nextProbe = captureStart;
+    GameDetectionProbe probe(
+        Api2DiagnosticOutputPath(directory, stamp, L"-game-detect-probe.log"),
+        [&client, &dynamicSlots](DWORD foregroundPid)
+        {
+            std::ostringstream result;
+            result << "pid=" << FormatProbePid(foregroundPid);
+            if (!foregroundPid)
+            {
+                result << " status=UNAVAILABLE swapChains=0 rendererActive=0\n"
+                    << "displayedFps=n/a presentedFps=n/a applicationFps=n/a gpuBusy=n/a gpuTime=n/a";
+                return result.str();
+            }
+            bool queried{};
+            bool queryFailed{};
+            result << " status=";
+            std::uint32_t swapChains = 0;
+            std::map<std::string, std::string> values;
+            for (auto& slot : dynamicSlots)
+            {
+                if (slot.query.name != "DISPLAYED_FPS" &&
+                    slot.query.name != "PRESENTED_FPS" &&
+                    slot.query.name != "APPLICATION_FPS" &&
+                    slot.query.name != "GPU_BUSY" &&
+                    slot.query.name != "GPU_TIME" &&
+                    slot.query.name != "SWAP_CHAIN_ADDRESS") continue;
+                std::uint32_t count = 0;
+                const auto status = client.PollDynamicQuery(slot.handle, foregroundPid,
+                    slot.blob.data(), &count);
+                if (status == PM_STATUS_SUCCESS)
+                {
+                    queried = true;
+                    values.emplace(slot.query.name, Value(slot.blob.data(),
+                        slot.query.element, slot.query.type));
+                    swapChains = std::max(swapChains, count);
+                }
+                else queryFailed = true;
+            }
+            result << (queryFailed ? "QUERY_FAILED" : (queried ? "SUCCESS" : "UNAVAILABLE"));
+            result << " swapChains=" << swapChains << " rendererActive="
+                << (swapChains ? 1 : 0) << "\n"
+                << "swapChain=" << (values.contains("SWAP_CHAIN_ADDRESS")
+                    ? values["SWAP_CHAIN_ADDRESS"] : "n/a")
+                << " displayedFps=" << (values.contains("DISPLAYED_FPS")
+                    ? values["DISPLAYED_FPS"] : "n/a")
+                << " presentedFps=" << (values.contains("PRESENTED_FPS")
+                    ? values["PRESENTED_FPS"] : "n/a")
+                << " applicationFps=" << (values.contains("APPLICATION_FPS")
+                    ? values["APPLICATION_FPS"] : "n/a")
+                << " gpuBusy=" << (values.contains("GPU_BUSY")
+                    ? values["GPU_BUSY"] : "n/a")
+                << " gpuTime=" << (values.contains("GPU_TIME")
+                    ? values["GPU_TIME"] : "n/a");
+            return result.str();
+        });
+    if (!probe.Start()) log << "game_detection_probe_start=FAILED\n";
+    else log << "game_detection_probe="
+        << Api2DiagnosticOutputPath(directory, stamp, L"-game-detect-probe.log").string() << '\n';
     bool trackingStopped{};
     for (int sample = 0; sample < 150 && !stop_; ++sample)
     {
         const auto now = std::chrono::steady_clock::now();
         const auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(now - captureStart).count();
+        if (now >= nextProbe)
+        {
+            probe.Sample(timestamp);
+            nextProbe += std::chrono::milliseconds(500);
+        }
         if (pid && !ProcessAlive(pid))
         {
             log << "target_process_exited timestamp_ms=" << timestamp << " pid=" << pid << "\n";
@@ -624,6 +689,7 @@ void PresentMonApi2Diagnostic::Run()
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
+    probe.Stop();
     for (auto& slot : dynamicSlots) client.FreeDynamicQuery(slot.handle);
     for (const auto& slot : dynamicSlots)
         log << "metric_classification name=" << slot.query.name << " device="
