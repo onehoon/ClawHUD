@@ -1,4 +1,5 @@
 #include "MsiEcHudTelemetry.h"
+#include "TelemetryRetention.h"
 
 #include <iostream>
 #include <vector>
@@ -42,5 +43,45 @@ int main()
         DecodeCpuPackagePowerW(std::vector<std::uint8_t>{0x18}).value() == 24 &&
         DecodeCpuPackagePowerW(std::vector<std::uint8_t>{0x00}).value() == 0 &&
         !DecodeCpuPackagePowerW(std::vector<std::uint8_t>{}), "CPU package power decode");
+
+    std::optional<int> temperature;
+    const std::optional<int> temperature67 = 67;
+    const std::optional<int> temperature68 = 68;
+    unsigned temperatureMisses = 0;
+    const std::optional<int> missing;
+    UpdateRetainedTelemetryField(temperature, temperature67, temperatureMisses, 3);
+    UpdateRetainedTelemetryField(temperature, missing, temperatureMisses, 3);
+    UpdateRetainedTelemetryField(temperature, missing, temperatureMisses, 3);
+    ok &= Check(temperature && *temperature == 67,
+        "EC temperature retains through two missing samples");
+    UpdateRetainedTelemetryField(temperature, missing, temperatureMisses, 3);
+    ok &= Check(!temperature,
+        "EC temperature clears after three missing samples");
+    UpdateRetainedTelemetryField(temperature, temperature68, temperatureMisses, 3);
+    ok &= Check(temperature && *temperature == 68 && temperatureMisses == 0,
+        "EC temperature recovers immediately");
+
+    std::optional<int> fan1;
+    std::optional<int> fan2;
+    std::optional<int> tdp;
+    unsigned fan1Misses = 0;
+    unsigned fan2Misses = 0;
+    unsigned tdpMisses = 0;
+    const std::optional<int> fan13200 = 3200;
+    const std::optional<int> fan23500 = 3500;
+    const std::optional<int> fan23600 = 3600;
+    const std::optional<int> tdp22 = 22;
+    const std::optional<int> tdpZero = 0;
+    UpdateRetainedTelemetryField(fan1, fan13200, fan1Misses, 3);
+    UpdateRetainedTelemetryField(fan2, fan23500, fan2Misses, 3);
+    UpdateRetainedTelemetryField(tdp, tdp22, tdpMisses, 3);
+    UpdateRetainedTelemetryField(fan1, missing, fan1Misses, 3);
+    UpdateRetainedTelemetryField(fan2, fan23600, fan2Misses, 3);
+    ok &= Check(fan1 && *fan1 == 3200 && fan2 && *fan2 == 3600,
+        "EC fan fields retain independently");
+    UpdateRetainedTelemetryField(tdp, tdpZero, tdpMisses, 3);
+    UpdateRetainedTelemetryField(tdp, missing, tdpMisses, 3);
+    ok &= Check(tdp && *tdp == 0 && tdpMisses == 1,
+        "EC TDP zero is valid and retained");
     return ok ? 0 : 1;
 }

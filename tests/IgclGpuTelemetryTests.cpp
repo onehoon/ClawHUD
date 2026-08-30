@@ -29,6 +29,13 @@ int main()
     check(!ShouldLogIgclInitializationFailure(initializationFailureLogged),
         "initialization outage remains deduplicated");
 
+    check(!ShouldResetIgclProvider(1, 3) && !ShouldResetIgclProvider(2, 3),
+        "transient IGCL failures do not reset provider");
+    check(ShouldResetIgclProvider(3, 3),
+        "third consecutive IGCL provider failure requests reset");
+    check(!ShouldResetIgclProvider(1, 3),
+        "successful sample cancels the IGCL failure streak");
+
     check(clawhud::ObserveIgclTelemetryTransition(true, 1, false, 3) ==
         clawhud::IgclTelemetryTransition::None,
         "single failure does not mark unavailable");
