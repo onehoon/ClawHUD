@@ -31,9 +31,12 @@ struct GameDetectionCandidate
 std::optional<DWORD> ParseGpuEngineProcessId(std::wstring_view instance) noexcept;
 bool IsGpuEngine3DInstance(std::wstring_view instance) noexcept;
 bool IsPresentMonCandidateWindow(bool visible, HWND owner) noexcept;
+double PositiveCounterDelta(double first, double second) noexcept;
 std::vector<GameDetectionCandidate> RankGpuCandidates(
     const std::vector<GameDetectionEngineDelta>& engines,
     const std::vector<GameDetectionCandidate>& windows);
+std::vector<GameDetectionCandidate> FilterPresentMonAutoTargetCandidates(
+    const std::vector<GameDetectionCandidate>& candidates);
 bool IsFullscreenLike(const RECT& window, const RECT& monitor,
     LONG tolerance = 2) noexcept;
 std::string FormatProbePid(DWORD processId);
@@ -44,8 +47,7 @@ class GameDetectionProbe
 public:
     using Api2Summary = std::function<std::string(DWORD)>;
 
-    GameDetectionProbe(std::filesystem::path path, Api2Summary api2Summary = {},
-        std::function<std::string()> clawHudSummary = {});
+    GameDetectionProbe(std::filesystem::path path, Api2Summary api2Summary = {});
     ~GameDetectionProbe();
     GameDetectionProbe(const GameDetectionProbe&) = delete;
     GameDetectionProbe& operator=(const GameDetectionProbe&) = delete;
@@ -63,7 +65,6 @@ private:
 
     std::filesystem::path path_;
     Api2Summary api2Summary_;
-    std::function<std::string()> clawHudSummary_;
     std::ofstream log_;
     DWORD previousForegroundPid_{};
     std::wstring previousForegroundExe_;

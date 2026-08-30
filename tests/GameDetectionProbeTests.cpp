@@ -21,6 +21,9 @@ int main()
         "3D instance PID is parsed");
     ok &= Check(!IsGpuEngine3DInstance(L"pid_9124_luid_0x1_eng_1_engtype_Compute"),
         "compute instance is rejected");
+    ok &= Check(PositiveCounterDelta(100.0, 107.0) == 7.0 &&
+        PositiveCounterDelta(107.0, 100.0) == 0.0,
+        "PDH ranking uses positive two-sample deltas");
     ok &= Check(!ParseGpuEngineProcessId(L"malformed"), "malformed instance is rejected");
     ok &= Check(IsPresentMonCandidateWindow(true, nullptr) &&
         !IsPresentMonCandidateWindow(false, nullptr) &&
@@ -32,11 +35,17 @@ int main()
     const std::vector<GameDetectionCandidate> windows{
         {100, reinterpret_cast<HWND>(1), L"a.exe", L"A", 0},
         {200, reinterpret_cast<HWND>(2), L"b.exe", L"B", 0},
-        {300, reinterpret_cast<HWND>(3), L"c.exe", L"C", 0} };
-    const auto ranked = RankGpuCandidates(engines, windows);
-    ok &= Check(ranked.size() == 2 && ranked[0].processId == 200 &&
-        ranked[0].gpu3dDelta == 11.0 && ranked[1].gpu3dDelta == 7.0,
+        {300, reinterpret_cast<HWND>(3), L"c.exe", L"C", 0},
+        {400, reinterpret_cast<HWND>(4), L"explorer.exe", L"Explorer", 0} };
+    const auto ranked = RankGpuCandidates(
+        { {100, 4.0}, {100, 3.0}, {200, 11.0}, {300, 0.0}, {400, 12.0} }, windows);
+    ok &= Check(ranked.size() == 3 && ranked[0].processId == 400 &&
+        ranked[0].gpu3dDelta == 12.0 && ranked[1].processId == 200 &&
+        ranked[2].gpu3dDelta == 7.0,
         "multiple 3D engines aggregate and rank");
+    const auto parity = FilterPresentMonAutoTargetCandidates(ranked);
+    ok &= Check(parity.size() == 2 && parity[0].processId == 200,
+        "PresentMon parity removes blocked basenames after raw ranking");
 
     const RECT monitor{ 0, 0, 1920, 1200 };
     ok &= Check(IsFullscreenLike(monitor, monitor) &&

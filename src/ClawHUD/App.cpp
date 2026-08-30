@@ -322,29 +322,7 @@ int App::Run()
     ecDiagnostic_ = std::make_unique<EcDiagnostic>(tray_.Window());
     igclDiagnostic_ = std::make_unique<clawhud::IgclTelemetryDiagnostic>(tray_.Window());
     vrrDiagnostic_ = std::make_unique<VrrDiagnostic>(*this, tray_.Window());
-    presentMonApi2Diagnostic_ = std::make_unique<clawhud::PresentMonApi2Diagnostic>(
-        tray_.Window(), [this]
-        {
-            const auto& context = gameDetectionCoordinator_.Context();
-            const char* state = "Idle";
-            switch (context.state)
-            {
-            case clawhud::GameDetectionState::Armed: state = "Armed"; break;
-            case clawhud::GameDetectionState::Verifying: state = "Verifying"; break;
-            case clawhud::GameDetectionState::Ready: state = "Ready"; break;
-            case clawhud::GameDetectionState::Committed: state = "Committed"; break;
-            default: break;
-            }
-            std::ostringstream summary;
-            summary << "visibilityMode=" << (hudOptions_.visibilityMode ==
-                clawhud::HudVisibilityMode::Always ? "Always" : "InGameOnly")
-                << " state=" << state
-                << " candidatePid=" << context.candidateProcessId
-                << " committedPid=" << (context.state == clawhud::GameDetectionState::Committed
-                    ? context.candidateProcessId : 0)
-                << " steamRunningAppId=" << steamRunningAppId_;
-            return summary.str();
-        });
+    presentMonApi2Diagnostic_ = std::make_unique<clawhud::PresentMonApi2Diagnostic>(tray_.Window());
     const bool providerReady = presentMonTelemetryProvider_.Initialize();
     Log(L"[PresentMon] providerReady=" + std::to_wstring(providerReady) +
         L" processReady=" + std::to_wstring(

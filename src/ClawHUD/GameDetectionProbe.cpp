@@ -1,4 +1,5 @@
 #include "GameDetectionProbe.h"
+#include "ProductionTargetPolicy.h"
 
 #include <dwmapi.h>
 #include <pdh.h>
@@ -9,6 +10,7 @@
 #include <map>
 #include <sstream>
 #include <unordered_map>
+#include <utility>
 
 #pragma comment(lib, "pdh.lib")
 
@@ -59,6 +61,17 @@ BOOL CALLBACK CollectWindows(HWND window, LPARAM parameter)
         windows->try_emplace(pid, WindowInfo{ window, true, nullptr });
     return TRUE;
 }
+class PdhQueryHandle
+{
+public:
+    explicit PdhQueryHandle(HQUERY query = nullptr) noexcept : query_(query) {}
+    ~PdhQueryHandle() { if (query_) PdhCloseQuery(query_); }
+    PdhQueryHandle(const PdhQueryHandle&) = delete;
+    PdhQueryHandle& operator=(const PdhQueryHandle&) = delete;
+    HQUERY get() const noexcept { return query_; }
+private:
+    HQUERY query_{};
+};
 std::vector<std::wstring> ExpandGpuPaths(PDH_STATUS& status)
 {
     DWORD size{};
@@ -102,6 +115,8 @@ bool IsGpuEngine3DInstance(std::wstring_view instance) noexcept
 }
 bool IsPresentMonCandidateWindow(bool visible, HWND owner) noexcept
 { return visible && owner == nullptr; }
+double PositiveCounterDelta(double first, double second) noexcept
+{ return second > first ? second - first : 0.0; }
 std::vector<GameDetectionCandidate> RankGpuCandidates(
     const std::vector<GameDetectionEngineDelta>& engines,
     const std::vector<GameDetectionCandidate>& windows)
@@ -123,6 +138,21 @@ std::vector<GameDetectionCandidate> RankGpuCandidates(
     });
     return result;
 }
+std::vector<GameDetectionCandidate> FilterPresentMonAutoTargetCandidates(
+    const std::vector<GameDetectionCandidate>& candidates)
+{
+    std::vector<GameDetectionCandidate> result;
+    for (const auto& candidate : candidates)
+    {
+        std::wstring image = candidate.executable;
+        for (auto& character : image)
+            if (character >= L'A' && character <= L'Z')
+                character = static_cast<wchar_t>(character - L'A' + L'a');
+        if (!IsRejectedProductionTargetImage(image))
+            result.push_back(candidate);
+    }
+    return result;
+}
 bool IsFullscreenLike(const RECT& window, const RECT& monitor, LONG tolerance) noexcept
 {
     return std::abs(window.left - monitor.left) <= tolerance &&
@@ -139,9 +169,8 @@ std::string FormatProbeOptional(const std::optional<double>& value)
 }
 
 GameDetectionProbe::GameDetectionProbe(std::filesystem::path path,
-    Api2Summary api2Summary, std::function<std::string()> clawHudSummary)
-    : path_(std::move(path)), api2Summary_(std::move(api2Summary)),
-      clawHudSummary_(std::move(clawHudSummary)) {}
+    Api2Summary api2Summary)
+    : path_(std::move(path)), api2Summary_(std::move(api2Summary)) {}
 GameDetectionProbe::~GameDetectionProbe() { Stop(); }
 bool GameDetectionProbe::Start()
 {
@@ -195,8 +224,6 @@ void GameDetectionProbe::LogForeground(HWND window, DWORD processId)
     }
     if (api2Summary_)
         log_ << "[GameDetectProbe][API2]\n" << api2Summary_(processId) << '\n';
-    if (clawHudSummary_)
-        log_ << "[GameDetectProbe][ClawHUD]\n" << clawHudSummary_() << '\n';
 }
 void GameDetectionProbe::LogGeometry(HWND window)
 {
@@ -221,12 +248,15 @@ void GameDetectionProbe::LogPdhCandidates()
     {
         log_ << "[GameDetectProbe][PDH][Error] operation=PdhExpandWildCardPath status=0x"
             << std::hex << status << std::dec << "\n";
-        log_ << "[GameDetectProbe][TopGPU] unavailable\n"; return;
+        log_ << "[GameDetectProbe][TopGPU][Raw] unavailable\n"
+            << "[GameDetectProbe][TopGPU][PresentMonParity] unavailable\n"; return;
     }
     std::unordered_map<DWORD, WindowInfo> windows; EnumWindows(CollectWindows, reinterpret_cast<LPARAM>(&windows));
     std::vector<GameDetectionEngineDelta> engines; std::vector<GameDetectionCandidate> candidates;
-    HQUERY query{}; status = PdhOpenQueryW(nullptr, 0, &query);
-    std::vector<std::pair<DWORD, HCOUNTER>> counters;
+    HQUERY rawQuery{}; status = PdhOpenQueryW(nullptr, 0, &rawQuery);
+    PdhQueryHandle query(rawQuery);
+    struct CounterSample { DWORD processId{}; HCOUNTER counter{}; double first{}; };
+    std::vector<CounterSample> counters;
     if (status == ERROR_SUCCESS)
     {
         for (const auto& path : paths)
@@ -237,21 +267,35 @@ void GameDetectionProbe::LogPdhCandidates()
             if (!IsGpuEngine3DInstance(instance)) continue;
             const auto pid = ParseGpuEngineProcessId(instance); if (!pid) continue;
             HCOUNTER counter{};
-            if (PdhAddCounterW(query, path.c_str(), 0, &counter) == ERROR_SUCCESS)
-                counters.emplace_back(*pid, counter);
+            if (PdhAddCounterW(query.get(), path.c_str(), 0, &counter) == ERROR_SUCCESS)
+                counters.push_back({ *pid, counter });
         }
-        status = PdhCollectQueryData(query);
-        if (status == ERROR_SUCCESS) Sleep(100), status = PdhCollectQueryData(query);
+        status = PdhCollectQueryData(query.get());
         if (status == ERROR_SUCCESS)
-            for (const auto& [pid, counter] : counters)
+            for (auto& sample : counters)
             {
                 PDH_FMT_COUNTERVALUE value{};
-                const auto read = PdhGetFormattedCounterValue(counter, PDH_FMT_DOUBLE, nullptr, &value);
-                if (read == ERROR_SUCCESS) engines.push_back({ pid, value.doubleValue });
-                else log_ << "[GameDetectProbe][PDH][Error] operation=PdhGetFormattedCounterValue pid="
-                    << pid << " status=0x" << std::hex << read << std::dec << '\n';
+                const auto read = PdhGetFormattedCounterValue(
+                    sample.counter, PDH_FMT_DOUBLE, nullptr, &value);
+                if (read == ERROR_SUCCESS) sample.first = value.doubleValue;
+                else log_ << "[GameDetectProbe][PDH][Error] operation=PdhGetFormattedCounterValueFirst pid="
+                    << sample.processId << " status=0x" << std::hex << read << std::dec << '\n';
             }
-        PdhCloseQuery(query);
+        if (status == ERROR_SUCCESS) Sleep(100), status = PdhCollectQueryData(query.get());
+        if (status == ERROR_SUCCESS)
+            for (const auto& sample : counters)
+            {
+                PDH_FMT_COUNTERVALUE value{};
+                const auto read = PdhGetFormattedCounterValue(sample.counter,
+                    PDH_FMT_DOUBLE, nullptr, &value);
+                if (read == ERROR_SUCCESS)
+                {
+                    const auto delta = PositiveCounterDelta(sample.first, value.doubleValue);
+                    if (delta > 0.0) engines.push_back({ sample.processId, delta });
+                }
+                else log_ << "[GameDetectProbe][PDH][Error] operation=PdhGetFormattedCounterValue pid="
+                    << sample.processId << " status=0x" << std::hex << read << std::dec << '\n';
+            }
     }
     else log_ << "[GameDetectProbe][PDH][Error] operation=PdhOpenQuery status=0x"
         << std::hex << status << std::dec << '\n';
@@ -259,14 +303,19 @@ void GameDetectionProbe::LogPdhCandidates()
         candidates.push_back({ pid, info.window, ProcessName(pid), WindowTitle(info.window), 0 });
     const auto ranked = RankGpuCandidates(engines, candidates);
     for (size_t i = 0; i < std::min<size_t>(ranked.size(), 5); ++i)
-        log_ << "[GameDetectProbe][PDH] rank=" << i + 1 << " pid=" << ranked[i].processId
+        log_ << "[GameDetectProbe][PDH][Raw] rank=" << i + 1 << " pid=" << ranked[i].processId
             << " exe=" << Quote(ranked[i].executable) << " hwnd=" << HexPointer(ranked[i].window)
             << " title=" << Quote(ranked[i].title) << " gpu3dDelta="
             << std::setprecision(8) << ranked[i].gpu3dDelta << '\n';
-    if (ranked.empty()) log_ << "[GameDetectProbe][TopGPU] unavailable\n";
-    else log_ << "[GameDetectProbe][TopGPU] pid=" << ranked[0].processId
+    const auto parity = FilterPresentMonAutoTargetCandidates(ranked);
+    if (ranked.empty()) log_ << "[GameDetectProbe][TopGPU][Raw] unavailable\n";
+    else log_ << "[GameDetectProbe][TopGPU][Raw] pid=" << ranked[0].processId
         << " exe=" << Quote(ranked[0].executable) << " hwnd=" << HexPointer(ranked[0].window)
         << " title=" << Quote(ranked[0].title) << " gpu3dDelta=" << ranked[0].gpu3dDelta << '\n';
+    if (parity.empty()) log_ << "[GameDetectProbe][TopGPU][PresentMonParity] unavailable\n";
+    else log_ << "[GameDetectProbe][TopGPU][PresentMonParity] pid=" << parity[0].processId
+        << " exe=" << Quote(parity[0].executable) << " hwnd=" << HexPointer(parity[0].window)
+        << " title=" << Quote(parity[0].title) << " gpu3dDelta=" << parity[0].gpu3dDelta << '\n';
 }
 void GameDetectionProbe::Sample(std::int64_t elapsedMs)
 {

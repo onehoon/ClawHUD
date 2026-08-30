@@ -651,7 +651,8 @@ if(BUILD_TESTING)
         src/ClawHUD/PresentMonApi2Diagnostic.cpp
         src/ClawHUD/GameDetectionProbe.cpp
         src/ClawHUD/PresentMonApi2Client.cpp
-        src/ClawHUD/RuntimeLogger.cpp)
+        src/ClawHUD/RuntimeLogger.cpp
+        src/ClawHUD/ProductionTargetPolicy.cpp)
     target_compile_features(ClawHUD.PresentMonApi2DiagnosticTests PRIVATE cxx_std_20)
     target_compile_definitions(ClawHUD.PresentMonApi2DiagnosticTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
     target_include_directories(ClawHUD.PresentMonApi2DiagnosticTests PRIVATE src/ClawHUD "${CMAKE_BINARY_DIR}/generated")
@@ -661,7 +662,8 @@ if(BUILD_TESTING)
 
     add_executable(ClawHUD.GameDetectionProbeTests
         tests/GameDetectionProbeTests.cpp
-        src/ClawHUD/GameDetectionProbe.cpp)
+        src/ClawHUD/GameDetectionProbe.cpp
+        src/ClawHUD/ProductionTargetPolicy.cpp)
     target_compile_features(ClawHUD.GameDetectionProbeTests PRIVATE cxx_std_20)
     target_compile_definitions(ClawHUD.GameDetectionProbeTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
     target_include_directories(ClawHUD.GameDetectionProbeTests PRIVATE src/ClawHUD)

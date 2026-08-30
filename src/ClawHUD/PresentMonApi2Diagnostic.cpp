@@ -14,6 +14,7 @@
 #include <limits>
 #include <map>
 #include <sstream>
+#include <set>
 #include <thread>
 #include <vector>
 
@@ -302,6 +303,36 @@ void WriteIntrospection(const PM_INTROSPECTION_ROOT* root, std::ofstream& out)
     { if (i) out << ','; const auto* unit = static_cast<const PM_INTROSPECTION_UNIT*>(root->pUnits->pData[i]); if (unit) out << "{\"id\":" << unit->id << ",\"baseUnitId\":" << unit->baseUnitId << ",\"scale\":" << unit->scale << "}"; }
     out << "]}\n";
 }
+
+std::vector<DynamicSlot> RegisterForegroundQueries(PresentMonApi2Client& client,
+    const std::vector<QueryRecord>& available, std::ofstream& log)
+{
+    constexpr std::array<const char*, 6> names{
+        "SWAP_CHAIN_ADDRESS", "DISPLAYED_FPS", "PRESENTED_FPS",
+        "APPLICATION_FPS", "GPU_BUSY", "GPU_TIME" };
+    std::vector<DynamicSlot> slots;
+    std::set<std::string> registered;
+    for (const auto name : names)
+    {
+        const auto query = std::find_if(available.begin(), available.end(),
+            [name](const auto& candidate) { return candidate.name == name; });
+        if (query == available.end() || !registered.insert(name).second)
+            continue;
+        DynamicQuery handle{};
+        auto queryCopy = *query;
+        const auto status = client.RegisterDynamicQuery(&handle,
+            &queryCopy.element, 1, 1000, 1020);
+        log << "foreground_query metric=" << name << " status="
+            << StatusName(status) << " raw=" << status << "\n";
+        if (status == PM_STATUS_SUCCESS && handle)
+        {
+            const auto size = static_cast<size_t>(std::max<std::uint64_t>(
+                query->element.dataOffset + query->element.dataSize, 4096));
+            slots.push_back({ std::move(queryCopy), handle, std::vector<std::uint8_t>(size) });
+        }
+    }
+    return slots;
+}
 }
 
 std::string Api2DecodeStaticValue(const std::uint8_t* blob, PM_DATA_TYPE type)
@@ -571,74 +602,11 @@ void PresentMonApi2Diagnostic::Run()
     const auto captureStart = std::chrono::steady_clock::now();
     Status(L"Capturing API2 for 15 seconds...");
     auto nextTelemetry = captureStart;
-    auto nextProbe = captureStart;
-    GameDetectionProbe probe(
-        Api2DiagnosticOutputPath(directory, stamp, L"-game-detect-probe.log"),
-        [&client, &dynamicSlots](DWORD foregroundPid)
-        {
-            std::ostringstream result;
-            result << "pid=" << FormatProbePid(foregroundPid);
-            if (!foregroundPid)
-            {
-                result << " status=UNAVAILABLE swapChains=0 rendererActive=0\n"
-                    << "displayedFps=n/a presentedFps=n/a applicationFps=n/a gpuBusy=n/a gpuTime=n/a";
-                return result.str();
-            }
-            bool queried{};
-            bool queryFailed{};
-            result << " status=";
-            std::uint32_t swapChains = 0;
-            std::map<std::string, std::string> values;
-            for (auto& slot : dynamicSlots)
-            {
-                if (slot.query.name != "DISPLAYED_FPS" &&
-                    slot.query.name != "PRESENTED_FPS" &&
-                    slot.query.name != "APPLICATION_FPS" &&
-                    slot.query.name != "GPU_BUSY" &&
-                    slot.query.name != "GPU_TIME" &&
-                    slot.query.name != "SWAP_CHAIN_ADDRESS") continue;
-                std::uint32_t count = 0;
-                const auto status = client.PollDynamicQuery(slot.handle, foregroundPid,
-                    slot.blob.data(), &count);
-                if (status == PM_STATUS_SUCCESS)
-                {
-                    queried = true;
-                    values.emplace(slot.query.name, Value(slot.blob.data(),
-                        slot.query.element, slot.query.type));
-                    swapChains = std::max(swapChains, count);
-                }
-                else queryFailed = true;
-            }
-            result << (queryFailed ? "QUERY_FAILED" : (queried ? "SUCCESS" : "UNAVAILABLE"));
-            result << " swapChains=" << swapChains << " rendererActive="
-                << (swapChains ? 1 : 0) << "\n"
-                << "swapChain=" << (values.contains("SWAP_CHAIN_ADDRESS")
-                    ? values["SWAP_CHAIN_ADDRESS"] : "n/a")
-                << " displayedFps=" << (values.contains("DISPLAYED_FPS")
-                    ? values["DISPLAYED_FPS"] : "n/a")
-                << " presentedFps=" << (values.contains("PRESENTED_FPS")
-                    ? values["PRESENTED_FPS"] : "n/a")
-                << " applicationFps=" << (values.contains("APPLICATION_FPS")
-                    ? values["APPLICATION_FPS"] : "n/a")
-                << " gpuBusy=" << (values.contains("GPU_BUSY")
-                    ? values["GPU_BUSY"] : "n/a")
-                << " gpuTime=" << (values.contains("GPU_TIME")
-                    ? values["GPU_TIME"] : "n/a");
-            return result.str();
-        }, stateSummary_);
-    if (!probe.Start()) log << "game_detection_probe_start=FAILED\n";
-    else log << "game_detection_probe="
-        << Api2DiagnosticOutputPath(directory, stamp, L"-game-detect-probe.log").string() << '\n';
     bool trackingStopped{};
     for (int sample = 0; sample < 150 && !stop_; ++sample)
     {
         const auto now = std::chrono::steady_clock::now();
         const auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(now - captureStart).count();
-        if (now >= nextProbe)
-        {
-            probe.Sample(timestamp);
-            nextProbe += std::chrono::milliseconds(500);
-        }
         if (pid && !ProcessAlive(pid))
         {
             log << "target_process_exited timestamp_ms=" << timestamp << " pid=" << pid << "\n";
@@ -689,7 +657,6 @@ void PresentMonApi2Diagnostic::Run()
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
-    probe.Stop();
     for (auto& slot : dynamicSlots) client.FreeDynamicQuery(slot.handle);
     for (const auto& slot : dynamicSlots)
         log << "metric_classification name=" << slot.query.name << " device="
@@ -698,10 +665,101 @@ void PresentMonApi2Diagnostic::Run()
                 slot.hasSample, slot.hasNonZeroSample, true)) << "\n";
     if (frameQuery) client.FreeFrameQuery(frameQuery);
     if (pid && !trackingStopped) { status = client.StopTrackingProcess(pid); log << "pmStopTrackingProcess pid=" << pid << " status=" << StatusName(status) << " raw=" << status << "\n"; }
-    client.FreeIntrospectionRoot(root); client.Shutdown(); success = !stop_;
-    log << "capture_complete=" << (success ? "true" : "false") << "\n";
-    if (success) { Status(L"Completed"); MessageBeep(MB_OK); }
-    else Status(L"Cancelled");
+    client.FreeIntrospectionRoot(root); client.Shutdown();
+    if (stop_)
+    {
+        log << "capture_complete=false\n";
+        Status(L"Cancelled"); running_ = false; complete(false); return;
+    }
+    log << "capture_complete=true\n";
+    Status(L"Full survey complete; research probe running. Press Stop to finish.");
+
+    PresentMonApi2Client foregroundClient;
+    std::vector<DynamicSlot> foregroundSlots;
+    DWORD foregroundTrackedPid{};
+    if (foregroundClient.Initialize() &&
+        foregroundClient.OpenSession() == PM_STATUS_SUCCESS)
+    {
+        const PM_INTROSPECTION_ROOT* foregroundRoot{};
+        if (foregroundClient.GetIntrospectionRoot(&foregroundRoot) == PM_STATUS_SUCCESS)
+        {
+            foregroundSlots = RegisterForegroundQueries(foregroundClient, dynamic, log);
+            foregroundClient.FreeIntrospectionRoot(foregroundRoot);
+        }
+    }
+    else log << "foreground_api2_probe=UNAVAILABLE\n";
+    const auto api2Summary = [&foregroundClient, &foregroundSlots,
+        &foregroundTrackedPid, &log](DWORD foregroundPid)
+    {
+        std::ostringstream result;
+        result << "pid=" << FormatProbePid(foregroundPid);
+        if (foregroundTrackedPid != foregroundPid)
+        {
+            if (foregroundTrackedPid)
+                log << "foreground_api2_stop pid=" << foregroundTrackedPid << "\n";
+            foregroundTrackedPid = 0;
+            if (foregroundPid)
+            {
+                const auto start = foregroundClient.StartTrackingProcess(foregroundPid);
+                log << "foreground_api2_start pid=" << foregroundPid << " status="
+                    << StatusName(start) << " raw=" << start << "\n";
+                if (start == PM_STATUS_SUCCESS ||
+                    start == PM_STATUS_ALREADY_TRACKING_PROCESS)
+                    foregroundTrackedPid = foregroundPid;
+            }
+        }
+        if (!foregroundTrackedPid || foregroundSlots.empty())
+        {
+            result << " status=UNAVAILABLE swapChains=0 rendererActive=0\n"
+                << "swapChain=n/a displayedFps=n/a presentedFps=n/a applicationFps=n/a gpuBusy=n/a gpuTime=n/a";
+            return result.str();
+        }
+        bool queried{}; bool failed{}; std::uint32_t swapChains{};
+        std::map<std::string, std::string> values;
+        for (auto& slot : foregroundSlots)
+        {
+            std::uint32_t count = 1;
+            const auto poll = foregroundClient.PollDynamicQuery(slot.handle,
+                foregroundPid, slot.blob.data(), &count);
+            if (poll == PM_STATUS_SUCCESS)
+            {
+                queried = true;
+                values.emplace(slot.query.name, Value(slot.blob.data(),
+                    slot.query.element, slot.query.type));
+                swapChains = std::max(swapChains, count);
+            }
+            else failed = true;
+        }
+        result << " status=" << (failed ? "QUERY_FAILED" : (queried ? "SUCCESS" : "UNAVAILABLE"))
+            << " swapChains=" << swapChains << " rendererActive=" << (swapChains ? 1 : 0) << "\n"
+            << "swapChain=" << (values.contains("SWAP_CHAIN_ADDRESS") ? values["SWAP_CHAIN_ADDRESS"] : "n/a")
+            << " displayedFps=" << (values.contains("DISPLAYED_FPS") ? values["DISPLAYED_FPS"] : "n/a")
+            << " presentedFps=" << (values.contains("PRESENTED_FPS") ? values["PRESENTED_FPS"] : "n/a")
+            << " applicationFps=" << (values.contains("APPLICATION_FPS") ? values["APPLICATION_FPS"] : "n/a")
+            << " gpuBusy=" << (values.contains("GPU_BUSY") ? values["GPU_BUSY"] : "n/a")
+            << " gpuTime=" << (values.contains("GPU_TIME") ? values["GPU_TIME"] : "n/a");
+        return result.str();
+    };
+    GameDetectionProbe probe(Api2DiagnosticOutputPath(directory, stamp,
+        L"-game-detect-probe.log"), api2Summary);
+    if (!probe.Start()) log << "game_detection_probe_start=FAILED\n";
+    else log << "game_detection_probe=" << Api2DiagnosticOutputPath(directory, stamp,
+        L"-game-detect-probe.log").string() << '\n';
+    const auto probeStart = std::chrono::steady_clock::now();
+    while (!stop_)
+    {
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - probeStart).count();
+        probe.Sample(elapsed);
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
+    probe.Stop();
+    if (foregroundTrackedPid) foregroundClient.StopTrackingProcess(foregroundTrackedPid);
+    for (auto& slot : foregroundSlots) foregroundClient.FreeDynamicQuery(slot.handle);
+    foregroundClient.Shutdown();
+    log << "research_probe_complete=true\n";
+    Status(L"Stopped");
+    success = false;
     running_ = false;
     complete(success);
 }
