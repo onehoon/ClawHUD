@@ -88,6 +88,13 @@ int main()
         retained->systemMemoryUsedBytes == 10 &&
         retained->intelGpuMemoryUsedBytes == 20,
         "failed usage sample retains last-known-good telemetry");
+    WindowsUsageTelemetry partial{};
+    partial.systemMemoryUsedBytes = 11;
+    const auto partialUpdate = MergeWindowsUsageTelemetry(retained, partial);
+    ok &= Check(partialUpdate && partialUpdate->cpuUsagePercent == 25.0 &&
+        partialUpdate->systemMemoryUsedBytes == 11 &&
+        partialUpdate->intelGpuMemoryUsedBytes == 20,
+        "partial usage sample preserves missing metrics");
     WindowsUsageTelemetry firstSample{};
     firstSample.systemMemoryUsedBytes = 30;
     firstSample.intelGpuMemoryUsedBytes = 40;
@@ -105,6 +112,10 @@ int main()
         recovered->systemMemoryUsedBytes == 11 &&
         recovered->intelGpuMemoryUsedBytes == 21,
         "valid usage sample updates retained telemetry");
+    ok &= Check(!ShouldInvalidateWindowsUsageTelemetry(2, 3) &&
+        ShouldInvalidateWindowsUsageTelemetry(3, 3) &&
+        !ShouldInvalidateWindowsUsageTelemetry(3, 0),
+        "usage telemetry invalidation is bounded");
     ok &= Check(ShouldRetryIntelGpuMemoryCounters(true, true, 0) &&
         ShouldRetryIntelGpuMemoryCounters(false, true, 2) &&
         !ShouldRetryIntelGpuMemoryCounters(true, false, 3) &&

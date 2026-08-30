@@ -87,9 +87,9 @@ int main()
     IgclGpuTelemetry partial{};
     partial.gpuClockMHz = 1900.0;
     const auto updated = MergeIgclGpuTelemetry(retained, partial);
-    check(updated && !updated->gpuUsagePercent &&
+    check(updated && updated->gpuUsagePercent == 45.0 &&
         updated->gpuClockMHz == 1900.0,
-        "successful partial IGCL sample replaces the cached snapshot");
+        "partial IGCL sample preserves missing metric");
     const auto almostEqual = [](double actual, double expected)
     {
         return std::abs(actual - expected) < 0.001;

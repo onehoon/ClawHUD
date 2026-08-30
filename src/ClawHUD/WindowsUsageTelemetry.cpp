@@ -169,7 +169,22 @@ std::optional<WindowsUsageTelemetry> MergeWindowsUsageTelemetry(
     const std::optional<WindowsUsageTelemetry>& previous,
     const std::optional<WindowsUsageTelemetry>& sample) noexcept
 {
-    return sample ? sample : previous;
+    if (!sample)
+        return previous;
+    WindowsUsageTelemetry merged = previous.value_or(WindowsUsageTelemetry{});
+    if (sample->cpuUsagePercent)
+        merged.cpuUsagePercent = sample->cpuUsagePercent;
+    if (sample->systemMemoryUsedBytes)
+        merged.systemMemoryUsedBytes = sample->systemMemoryUsedBytes;
+    if (sample->intelGpuMemoryUsedBytes)
+        merged.intelGpuMemoryUsedBytes = sample->intelGpuMemoryUsedBytes;
+    return merged;
+}
+
+bool ShouldInvalidateWindowsUsageTelemetry(
+    unsigned consecutiveFailures, unsigned failureThreshold) noexcept
+{
+    return failureThreshold != 0 && consecutiveFailures >= failureThreshold;
 }
 
 bool ShouldRetryIntelGpuMemoryCounters(bool dedicatedEmpty,

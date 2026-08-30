@@ -27,6 +27,7 @@
 namespace
 {
 constexpr unsigned kIgclUnavailableFailureThreshold = 3;
+constexpr unsigned kUsageUnavailableFailureThreshold = 3;
 constexpr UINT kSettingsDestroyed = WM_APP + 1;
 constexpr UINT kForegroundChanged = WM_APP + 2;
 constexpr UINT kHudVisibilityRequest = WM_APP + 3;
@@ -1032,8 +1033,22 @@ void App::SampleProductionTelemetry()
             latestUsageTelemetry_.reset();
     }
     if (usageSampler_.Initialized())
-        latestUsageTelemetry_ = clawhud::MergeWindowsUsageTelemetry(
-            latestUsageTelemetry_, usageSampler_.Sample());
+    {
+        const auto sample = usageSampler_.Sample();
+        if (sample)
+        {
+            latestUsageTelemetry_ = clawhud::MergeWindowsUsageTelemetry(
+                latestUsageTelemetry_, sample);
+            usageTelemetryFailureCount_ = 0;
+        }
+        else if (clawhud::ShouldInvalidateWindowsUsageTelemetry(
+            ++usageTelemetryFailureCount_, kUsageUnavailableFailureThreshold))
+        {
+            latestUsageTelemetry_.reset();
+            usageSampler_.Reset();
+            usageTelemetryFailureCount_ = 0;
+        }
+    }
 
     if (!igclGpuSampler_.Initialized() && !igclGpuSampler_.InitializationAttempted())
     {
@@ -1117,6 +1132,7 @@ void App::PauseProductionSamplingForSuspend()
     latestUsageTelemetry_.reset();
     latestPresentMonDisplayedFps_.reset();
     usageSampler_.Reset();
+    usageTelemetryFailureCount_ = 0;
     latestIgclGpuTelemetry_.reset();
     igclGpuSampler_.Reset();
     igclTelemetryAvailable_ = false;
@@ -1190,6 +1206,7 @@ void App::StopProductionEcSampling(bool stopPresentMon, const wchar_t* reason)
     latestPowerTelemetry_.reset();
     latestUsageTelemetry_.reset();
     usageSampler_.Reset();
+    usageTelemetryFailureCount_ = 0;
     latestIgclGpuTelemetry_.reset();
     igclGpuSampler_.Reset();
     igclTelemetryAvailable_ = false;

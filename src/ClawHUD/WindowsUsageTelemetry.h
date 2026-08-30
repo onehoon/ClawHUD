@@ -30,6 +30,8 @@ std::optional<std::uint64_t> CombineGpuMemoryBytes(
 std::optional<WindowsUsageTelemetry> MergeWindowsUsageTelemetry(
     const std::optional<WindowsUsageTelemetry>& previous,
     const std::optional<WindowsUsageTelemetry>& sample) noexcept;
+bool ShouldInvalidateWindowsUsageTelemetry(
+    unsigned consecutiveFailures, unsigned failureThreshold) noexcept;
 bool ShouldRetryIntelGpuMemoryCounters(bool dedicatedEmpty,
     bool sharedEmpty, unsigned int attempts) noexcept;
 
