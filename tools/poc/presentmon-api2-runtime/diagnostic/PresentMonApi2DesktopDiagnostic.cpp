@@ -146,7 +146,13 @@ int wmain(int argc, wchar_t** argv) {
     if (pid) { s = api.pmStartTrackingProcess(session, pid); log << "pmStartTrackingProcess pid=" << pid << " status=" << StatusName(s) << " raw=" << static_cast<int>(s) << "\n"; }
     for (uint32_t period : {100u, 250u, 500u, 1000u}) { PM_STATUS ps = api.pmSetTelemetryPollingPeriod(session, 0, period); log << "polling_period requested_ms=" << period << " status=" << StatusName(ps) << " raw=" << static_cast<int>(ps) << "\n"; }
     PM_STATUS flush = api.pmSetEtwFlushPeriod(session, 100); log << "etw_flush_period requested_ms=100 status=" << StatusName(flush) << " raw=" << static_cast<int>(flush) << "\n";
-    PM_DYNAMIC_QUERY_HANDLE dq{}; s = api.pmRegisterDynamicQuery(session, &dq, dynamic.empty() ? nullptr : &dynamic[0].element, dynamic.size(), 1000, 1020); log << "pmRegisterDynamicQuery elements=" << dynamic.size() << " status=" << StatusName(s) << " raw=" << static_cast<int>(s) << "\n";
+    std::vector<PM_QUERY_ELEMENT> batchElements;
+    batchElements.reserve(dynamic.size());
+    for (const auto& query : dynamic) batchElements.push_back(query.element);
+    PM_DYNAMIC_QUERY_HANDLE dq{};
+    s = api.pmRegisterDynamicQuery(session, &dq, batchElements.empty() ? nullptr : batchElements.data(), batchElements.size(), 1000, 1020);
+    log << "pmRegisterDynamicQuery elements=" << dynamic.size() << " contiguous_elements=true status=" << StatusName(s) << " raw=" << static_cast<int>(s) << "\n";
+    if (s == PM_STATUS_SUCCESS) for (size_t i = 0; i < dynamic.size(); ++i) dynamic[i].element = batchElements[i];
     std::vector<uint8_t> blob; if (s == PM_STATUS_SUCCESS && dq) { auto maxEnd = size_t(0); for (auto& q : dynamic) maxEnd = std::max(maxEnd, static_cast<size_t>(q.element.dataOffset + q.element.dataSize)); blob.resize(std::max<size_t>(maxEnd, 4096)); for (uint32_t sample = 0; sample < 20; ++sample) { uint32_t n = 1; auto before = std::chrono::steady_clock::now(); PM_STATUS ps = api.pmPollDynamicQuery(dq, pid, blob.data(), &n); auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - before).count(); all << "sample=" << sample << " query_status=" << StatusName(ps) << " raw=" << static_cast<int>(ps) << " swapchains=" << n << " query_elapsed_ms=" << elapsed << "\n"; if (ps == PM_STATUS_SUCCESS) for (auto& q : dynamic) all << q.name << " metric_id=" << static_cast<int>(q.element.metric) << " device=" << q.element.deviceId << " array=" << q.element.arrayIndex << " value=" << ReadValue(blob.data(), q.element, q.type) << "\n"; std::this_thread::sleep_for(250ms); } api.pmFreeDynamicQuery(dq); }
     if (s != PM_STATUS_SUCCESS) {
         all << "batch_dynamic_query_failed_fallback=per_metric\n";

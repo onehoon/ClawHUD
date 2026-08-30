@@ -137,7 +137,7 @@ id=1      NVIDIA GeForce RTX 4070 SUPER
 id=65536  System
 ```
 
-The generated `presentmon-api2-introspection-rtx4070.json` preserves metric IDs, types, units, supported statistics, device associations, availability, and array sizes. All 41 available dynamic/dynamic-frame entries were individually registered and sampled after the combined registration returned `QUERY_MALFORMED (21)`.
+The generated `presentmon-api2-introspection-rtx4070.json` preserves metric IDs, types, units, supported statistics, device associations, availability, and array sizes. The batch query now marshals the wrapper records into a contiguous `PM_QUERY_ELEMENT[]` buffer, then copies the returned offsets and sizes back before allocating the result blob. A rerun registered all 39 available dynamic/dynamic-frame entries in one batch (`SUCCESS`, raw `0`) and collected 20 successful samples for each batch poll; no per-metric fallback was required. Frame-query registration also succeeded (`11` elements, blob size `96`), while this desktop run produced no frame records.
 
 ### RTX 4070 SUPER capability matrix
 
