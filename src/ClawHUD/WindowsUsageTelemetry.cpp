@@ -3,6 +3,7 @@
 #include "RuntimeLogger.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cmath>
 #include <cwchar>
 #include <dxgi.h>
@@ -19,6 +20,8 @@ namespace
 {
 constexpr DWORD kPdhMoreData = 0x800007D2u;
 constexpr unsigned int kMaxIntelMemoryRebindAttempts = 3;
+constexpr unsigned int kIntelMemoryFailureThreshold = 3;
+constexpr unsigned int kIntelMemoryRebindCooldownSamples = 30;
 
 void LogMemoryDebug(const std::wstring& message)
 {
@@ -67,14 +70,45 @@ std::optional<LUID> FindIntelAdapterLuid()
     return std::nullopt;
 }
 
-bool ExpandCounterPaths(const wchar_t* path, std::vector<std::wstring>& paths)
+bool LocalizeEnglishWildcardPath(PDH_HQUERY query,
+    const wchar_t* englishPath, std::wstring& localizedPath)
 {
+    PDH_HCOUNTER temporaryCounter{};
+    if (PdhAddEnglishCounterW(query, englishPath, 0, &temporaryCounter) !=
+        ERROR_SUCCESS)
+        return false;
+
     DWORD size{};
-    auto status = PdhExpandWildCardPathW(nullptr, path, nullptr, &size, 0);
+    auto status = PdhGetCounterInfoW(temporaryCounter, FALSE, &size, nullptr);
+    if (static_cast<DWORD>(status) != kPdhMoreData ||
+        size < sizeof(PDH_COUNTER_INFO))
+    {
+        PdhRemoveCounter(temporaryCounter);
+        return false;
+    }
+    std::vector<std::byte> buffer(size);
+    auto* info = reinterpret_cast<PDH_COUNTER_INFO*>(buffer.data());
+    status = PdhGetCounterInfoW(temporaryCounter, FALSE, &size, info);
+    if (status == ERROR_SUCCESS && info->szFullPath[0])
+        localizedPath = info->szFullPath;
+    PdhRemoveCounter(temporaryCounter);
+    return status == ERROR_SUCCESS && !localizedPath.empty();
+}
+
+bool ExpandCounterPaths(PDH_HQUERY query, const wchar_t* englishPath,
+    std::vector<std::wstring>& paths)
+{
+    std::wstring localizedPath;
+    if (!LocalizeEnglishWildcardPath(query, englishPath, localizedPath))
+        return false;
+    DWORD size{};
+    auto status = PdhExpandWildCardPathW(nullptr, localizedPath.c_str(),
+        nullptr, &size, 0);
     if (static_cast<DWORD>(status) != kPdhMoreData || !size)
         return false;
     std::vector<wchar_t> buffer(size);
-    status = PdhExpandWildCardPathW(nullptr, path, buffer.data(), &size, 0);
+    status = PdhExpandWildCardPathW(nullptr, localizedPath.c_str(),
+        buffer.data(), &size, 0);
     if (status != ERROR_SUCCESS)
         return false;
     for (const wchar_t* current = buffer.data(); *current;
@@ -190,8 +224,29 @@ bool ShouldInvalidateWindowsUsageTelemetry(
 bool ShouldRetryIntelGpuMemoryCounters(bool dedicatedEmpty,
     bool sharedEmpty, unsigned int attempts) noexcept
 {
-    return (dedicatedEmpty || sharedEmpty) &&
+    return NeedsIntelGpuMemoryBinding(dedicatedEmpty, sharedEmpty) &&
         attempts < kMaxIntelMemoryRebindAttempts;
+}
+
+bool NeedsIntelGpuMemoryBinding(bool dedicatedEmpty,
+    bool sharedEmpty) noexcept
+{
+    return dedicatedEmpty || sharedEmpty;
+}
+
+bool ShouldReleaseIntelGpuMemoryCounters(
+    unsigned consecutiveFailures, unsigned failureThreshold) noexcept
+{
+    return failureThreshold != 0 &&
+        consecutiveFailures >= failureThreshold;
+}
+
+bool ShouldRearmIntelGpuMemoryCounters(unsigned attempts,
+    unsigned cooldownSamples, unsigned maxAttempts,
+    unsigned cooldownThreshold) noexcept
+{
+    return maxAttempts != 0 && cooldownThreshold != 0 &&
+        attempts >= maxAttempts && cooldownSamples >= cooldownThreshold;
 }
 
 WindowsUsageSampler::~WindowsUsageSampler()
@@ -210,6 +265,8 @@ void WindowsUsageSampler::Reset() noexcept
     primed_ = false;
     memoryDiagnosticsLogged_ = false;
     intelMemoryRebindAttempts_ = 0;
+    intelMemoryFailureCount_ = 0;
+    intelMemoryRebindCooldownSamples_ = 0;
 }
 
 bool WindowsUsageSampler::Initialize()
@@ -246,9 +303,9 @@ bool WindowsUsageSampler::AddIntelGpuMemoryCounters()
     std::vector<std::wstring> dedicatedPaths;
     std::vector<std::wstring> sharedPaths;
     const bool dedicatedExpanded = ExpandCounterPaths(
-        L"\\GPU Adapter Memory(*)\\Dedicated Usage", dedicatedPaths);
+        query_, L"\\GPU Adapter Memory(*)\\Dedicated Usage", dedicatedPaths);
     const bool sharedExpanded = ExpandCounterPaths(
-        L"\\GPU Adapter Memory(*)\\Shared Usage", sharedPaths);
+        query_, L"\\GPU Adapter Memory(*)\\Shared Usage", sharedPaths);
 
     LogMemoryDebug(L"GPU memory dedicated paths=" +
         std::to_wstring(dedicatedPaths.size()) + L" shared paths=" +
@@ -264,7 +321,7 @@ bool WindowsUsageSampler::AddIntelGpuMemoryCounters()
             continue;
         ++dedicatedMatches;
         PDH_HCOUNTER counter{};
-        const PDH_STATUS status = PdhAddEnglishCounterW(
+        const PDH_STATUS status = PdhAddCounterW(
             query_, path.c_str(), 0, &counter);
         LogMemoryDebug(L"GPU memory counter add kind=Dedicated path=" +
             path + L" status=" + HexPdhStatus(status));
@@ -277,7 +334,7 @@ bool WindowsUsageSampler::AddIntelGpuMemoryCounters()
             continue;
         ++sharedMatches;
         PDH_HCOUNTER counter{};
-        const PDH_STATUS status = PdhAddEnglishCounterW(
+        const PDH_STATUS status = PdhAddCounterW(
             query_, path.c_str(), 0, &counter);
         LogMemoryDebug(L"GPU memory counter add kind=Shared path=" +
             path + L" status=" + HexPdhStatus(status));
@@ -293,20 +350,44 @@ bool WindowsUsageSampler::AddIntelGpuMemoryCounters()
 
 bool WindowsUsageSampler::TryBindIntelGpuMemoryCounters()
 {
+    const bool dedicatedEmpty = intelDedicatedMemoryCounters_.empty();
+    const bool sharedEmpty = intelSharedMemoryCounters_.empty();
+    if (!dedicatedEmpty && !sharedEmpty)
+        return true;
+    if (intelMemoryRebindAttempts_ >= kMaxIntelMemoryRebindAttempts)
+    {
+        ++intelMemoryRebindCooldownSamples_;
+        if (!ShouldRearmIntelGpuMemoryCounters(
+                intelMemoryRebindAttempts_, intelMemoryRebindCooldownSamples_,
+                kMaxIntelMemoryRebindAttempts,
+                kIntelMemoryRebindCooldownSamples))
+            return false;
+        intelMemoryRebindAttempts_ = 0;
+        intelMemoryRebindCooldownSamples_ = 0;
+    }
     if (!ShouldRetryIntelGpuMemoryCounters(
-            intelDedicatedMemoryCounters_.empty(),
-            intelSharedMemoryCounters_.empty(), intelMemoryRebindAttempts_))
-        return !intelDedicatedMemoryCounters_.empty() &&
-            !intelSharedMemoryCounters_.empty();
+            dedicatedEmpty, sharedEmpty, intelMemoryRebindAttempts_))
+        return false;
 
     ++intelMemoryRebindAttempts_;
+    ReleaseIntelGpuMemoryCounters();
+    const bool bound = AddIntelGpuMemoryCounters();
+    if (bound)
+    {
+        intelMemoryRebindCooldownSamples_ = 0;
+        LogMemoryDebug(L"Intel VRAM counters rebound successfully");
+    }
+    return bound;
+}
+
+void WindowsUsageSampler::ReleaseIntelGpuMemoryCounters() noexcept
+{
     for (const auto counter : intelDedicatedMemoryCounters_)
         PdhRemoveCounter(counter);
     for (const auto counter : intelSharedMemoryCounters_)
         PdhRemoveCounter(counter);
     intelDedicatedMemoryCounters_.clear();
     intelSharedMemoryCounters_.clear();
-    return AddIntelGpuMemoryCounters();
 }
 
 bool WindowsUsageSampler::IsValidCounter(
@@ -366,9 +447,9 @@ std::optional<WindowsUsageTelemetry> WindowsUsageSampler::Sample()
 {
     if (!query_ || PdhCollectQueryData(query_) != ERROR_SUCCESS)
         return std::nullopt;
-    if (ShouldRetryIntelGpuMemoryCounters(
+    if (NeedsIntelGpuMemoryBinding(
             intelDedicatedMemoryCounters_.empty(),
-            intelSharedMemoryCounters_.empty(), intelMemoryRebindAttempts_))
+            intelSharedMemoryCounters_.empty()))
         TryBindIntelGpuMemoryCounters();
     WindowsUsageTelemetry result{};
     if (primed_)
@@ -383,6 +464,19 @@ std::optional<WindowsUsageTelemetry> WindowsUsageSampler::Sample()
     const auto dedicated = ReadByteCounters(intelDedicatedMemoryCounters_);
     const auto shared = ReadByteCounters(intelSharedMemoryCounters_);
     result.intelGpuMemoryUsedBytes = CombineGpuMemoryBytes(dedicated, shared);
+    if (result.intelGpuMemoryUsedBytes)
+        intelMemoryFailureCount_ = 0;
+    else if (!intelDedicatedMemoryCounters_.empty() &&
+        !intelSharedMemoryCounters_.empty() &&
+        ShouldReleaseIntelGpuMemoryCounters(
+            ++intelMemoryFailureCount_, kIntelMemoryFailureThreshold))
+    {
+        ReleaseIntelGpuMemoryCounters();
+        intelMemoryFailureCount_ = 0;
+        intelMemoryRebindAttempts_ = 0;
+        intelMemoryRebindCooldownSamples_ = 0;
+        LogMemoryDebug(L"Intel VRAM counters became invalid and were released for rebind");
+    }
     if (!memoryDiagnosticsLogged_)
     {
         const auto format = [](const auto& value)
