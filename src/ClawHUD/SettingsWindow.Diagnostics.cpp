@@ -20,11 +20,14 @@ using settings_internal::kDiagnosticsEcDescription;
 using settings_internal::kDiagnosticsEcHeading;
 using settings_internal::kDiagnosticsIgclDescription;
 using settings_internal::kDiagnosticsIgclHeading;
+using settings_internal::kDiagnosticsApi2Heading;
+using settings_internal::kDiagnosticsApi2Description;
 using settings_internal::kDiagnosticsVrrDescription;
 using settings_internal::kDiagnosticsVrrHeading;
 using settings_internal::kOpenLogs;
 using settings_internal::kStartEc;
 using settings_internal::kStartIgcl;
+using settings_internal::kStartApi2;
 using settings_internal::kStartVrr;
 using settings_internal::kStopVrr;
 }
@@ -62,6 +65,13 @@ void SettingsWindow::CreateDiagnosticsControls()
     startIgclButton_ = CreateWindowW(L"BUTTON", L"Start IGCL Test",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, 0, 0, diagnosticsPanel_,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kStartIgcl)), instance_, nullptr);
+    CreateWindowW(L"STATIC", L"PresentMon API2 Read-only Capability Test", WS_CHILD | WS_VISIBLE,
+        0, 0, 0, 0, diagnosticsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kDiagnosticsApi2Heading)), instance_, nullptr);
+    CreateWindowW(L"STATIC", L"Requires the installed PresentMon API2 SDK/runtime. Closes Settings, waits 5 seconds, then records read-only capabilities, telemetry, FPS, and frame data for approximately 15 seconds.",
+        WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, diagnosticsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kDiagnosticsApi2Description)), instance_, nullptr);
+    startApi2Button_ = CreateWindowW(L"BUTTON", L"Start API2 Test",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, 0, 0, 0, diagnosticsPanel_,
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kStartApi2)), instance_, nullptr);
     debugLoggingToggle_ = CreateWindowW(L"BUTTON", L"Enable debug logging",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, 0, 0, 0, 0,
         diagnosticsPanel_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kDebugLoggingToggle)), instance_, nullptr);
@@ -74,6 +84,7 @@ void SettingsWindow::CreateDiagnosticsControls()
     EnableMouseWheelForwarding(stopVrrButton_);
     EnableMouseWheelForwarding(startEcButton_);
     EnableMouseWheelForwarding(startIgclButton_);
+    EnableMouseWheelForwarding(startApi2Button_);
     EnableMouseWheelForwarding(debugLoggingToggle_);
     EnableMouseWheelForwarding(openLogsButton_);
     EnableStaticPanForwarding(diagnosticsPanel_);
@@ -99,9 +110,12 @@ void SettingsWindow::LayoutDiagnostics()
     MoveControl(diagnosticsPanel_, kDiagnosticsIgclHeading, x, Scale(328) - scrollY, contentWidth, Scale(28));
     MoveControl(diagnosticsPanel_, kDiagnosticsIgclDescription, x, Scale(360) - scrollY, contentWidth, Scale(48));
     MoveWindow(startIgclButton_, x, Scale(416) - scrollY, Scale(140), Scale(32), TRUE);
-    MoveWindow(openLogsButton_, x + Scale(152), Scale(416) - scrollY, Scale(150), Scale(32), TRUE);
-    MoveWindow(debugLoggingToggle_, x, Scale(456) - scrollY, Scale(300), Scale(32), TRUE);
-    MoveWindow(diagnosticStatus_, x, Scale(496) - scrollY, contentWidth, Scale(24), TRUE);
+    MoveControl(diagnosticsPanel_, kDiagnosticsApi2Heading, x, Scale(464) - scrollY, contentWidth, Scale(28));
+    MoveControl(diagnosticsPanel_, kDiagnosticsApi2Description, x, Scale(496) - scrollY, contentWidth, Scale(48));
+    MoveWindow(startApi2Button_, x, Scale(552) - scrollY, Scale(140), Scale(32), TRUE);
+    MoveWindow(openLogsButton_, x + Scale(152), Scale(552) - scrollY, Scale(150), Scale(32), TRUE);
+    MoveWindow(debugLoggingToggle_, x, Scale(592) - scrollY, Scale(300), Scale(32), TRUE);
+    MoveWindow(diagnosticStatus_, x, Scale(632) - scrollY, contentWidth, Scale(24), TRUE);
 }
 
 void SettingsWindow::SetDiagnosticStatus(const std::wstring& status)
@@ -121,6 +135,7 @@ void SettingsWindow::UpdateDiagnosticButtons()
     const bool busy = app_.DiagnosticRunning();
     if (startEcButton_) EnableWindow(startEcButton_, !busy);
     if (startIgclButton_) EnableWindow(startIgclButton_, !busy);
+    if (startApi2Button_) EnableWindow(startApi2Button_, !busy);
     if (startVrrButton_) EnableWindow(startVrrButton_, !busy);
     if (stopVrrButton_) EnableWindow(stopVrrButton_, app_.VrrDiagnosticRunning());
     if (debugLoggingToggle_) SendMessageW(debugLoggingToggle_, BM_SETCHECK,

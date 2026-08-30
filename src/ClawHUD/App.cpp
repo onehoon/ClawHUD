@@ -204,6 +204,7 @@ App::~App()
     presentActivitySource_.Stop();
     processLifecycleSource_.Stop();
     if (vrrDiagnostic_) vrrDiagnostic_->Stop();
+    if (presentMonApi2Diagnostic_) presentMonApi2Diagnostic_->Stop();
     DiscardPendingHudVisibilityRequests();
     StopProductionPresentMonSampling(L"app-shutdown", true);
     StopGlobalRendererTelemetry();
@@ -316,6 +317,7 @@ int App::Run()
     ecDiagnostic_ = std::make_unique<EcDiagnostic>(tray_.Window());
     igclDiagnostic_ = std::make_unique<clawhud::IgclTelemetryDiagnostic>(tray_.Window());
     vrrDiagnostic_ = std::make_unique<VrrDiagnostic>(*this, tray_.Window());
+    presentMonApi2Diagnostic_ = std::make_unique<clawhud::PresentMonApi2Diagnostic>(tray_.Window());
     if (!foregroundTracker_.Start(tray_.Window(), kForegroundChanged,
         [this](bool matches)
         {
@@ -554,8 +556,46 @@ void App::StopVrrDiagnostic()
     ReconcileHudVisibility();
 }
 bool App::VrrDiagnosticRunning() const { return vrrDiagnostic_ && vrrDiagnostic_->Running(); }
-bool App::DiagnosticRunning() const { return EcDiagnosticRunning() || VrrDiagnosticRunning() || IgclDiagnosticRunning(); }
-void App::StopDiagnostic() { StopVrrDiagnostic(); StopEcDiagnostic(); StopIgclDiagnostic(); }
+bool App::StartPresentMonApi2Diagnostic()
+{
+    if (!presentMonApi2Diagnostic_ || DiagnosticRunning()) return false;
+    ecStatus_ = L"Idle";
+    igclStatus_ = L"Idle";
+    StopProductionEcSampling(false, L"api2-diagnostic-start");
+    StopProductionPresentMonSampling(L"api2-diagnostic-start", false);
+    StopGlobalRendererTelemetry();
+    StopGraphicsApiProbe();
+    if (!presentMonApi2Diagnostic_->Start())
+    {
+        presentMonApi2Status_ = L"Start failed";
+        return false;
+    }
+    presentMonApi2Status_ = L"Waiting 5 seconds...";
+    if (settings_) settings_->RequestClose();
+    return true;
+}
+void App::StopPresentMonApi2Diagnostic()
+{
+    if (presentMonApi2Diagnostic_) presentMonApi2Diagnostic_->Stop();
+    if (clawhud::ShouldReevaluateForegroundAfterDiagnostic(
+        mockHudEnabled_, DiagnosticRunning(), suspended_))
+        ReevaluateProductionGameDetection();
+    ReconcileHudVisibility();
+}
+bool App::PresentMonApi2DiagnosticRunning() const
+{
+    return presentMonApi2Diagnostic_ && presentMonApi2Diagnostic_->Running();
+}
+bool App::DiagnosticRunning() const
+{
+    return EcDiagnosticRunning() || VrrDiagnosticRunning() ||
+        IgclDiagnosticRunning() || PresentMonApi2DiagnosticRunning();
+}
+void App::StopDiagnostic()
+{
+    StopVrrDiagnostic(); StopEcDiagnostic(); StopIgclDiagnostic();
+    StopPresentMonApi2Diagnostic();
+}
 
 void App::HandleSystemSuspend()
 {
@@ -2816,6 +2856,22 @@ int App::ProcessMessages()
         if (message.message == clawhud::kIgclDiagnosticCompleted)
         {
             FinishIgclDiagnostic(message.wParam != 0);
+            continue;
+        }
+        if (message.message == clawhud::kPresentMonApi2DiagnosticStatus)
+        {
+            auto* status = reinterpret_cast<std::wstring*>(message.wParam);
+            if (status)
+            {
+                presentMonApi2Status_ = *status;
+                if (settings_) settings_->SetDiagnosticStatus(*status);
+            }
+            delete status;
+            continue;
+        }
+        if (message.message == clawhud::kPresentMonApi2DiagnosticCompleted)
+        {
+            StopPresentMonApi2Diagnostic();
             continue;
         }
         if (message.message == kVrrDiagnosticStatus)
