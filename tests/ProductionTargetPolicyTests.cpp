@@ -46,8 +46,14 @@ int main()
         "Steam and Windows gaming shells are not production targets");
     ok &= Check(clawhud::IsRejectedProductionTargetImage(L"explorer.exe"),
         "Explorer is not a production target");
-    ok &= Check(!clawhud::IsRejectedProductionTargetImage(L"game.exe"),
-        "game process remains an eligible candidate");
+    ok &= Check(clawhud::IsRejectedProductionTargetImage(
+        L"steaminputaddonforclaw.ui.exe"),
+        "Steam Input Addon UI is not a production game target");
+    ok &= Check(clawhud::IsEligibleProductionTargetImage(L"game.exe") &&
+        clawhud::IsEligibleProductionTargetImage(L"C:\\Games\\DaveTheDiver.EXE") &&
+        clawhud::IsEligibleProductionTargetImage(
+            L"C:\\Games\\Game-Win64-Shipping.exe"),
+        "normal game images remain eligible after normalization");
     ok &= Check(clawhud::ShouldRetainCommittedProductionTarget(100, true) &&
         !clawhud::ShouldRetainCommittedProductionTarget(100, false),
         "committed target sampling follows process lifetime, not foreground");

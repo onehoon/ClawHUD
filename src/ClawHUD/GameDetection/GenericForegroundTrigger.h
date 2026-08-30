@@ -3,8 +3,6 @@
 #include "GameDetectionCoordinator.h"
 
 #include <optional>
-#include <string_view>
-
 namespace clawhud
 {
 struct GenericForegroundObservation
@@ -18,8 +16,6 @@ struct GenericForegroundEvidence
     HWND window{};
     DWORD processId{};
 };
-
-bool IsGenericForegroundImageEligible(std::wstring_view image) noexcept;
 
 class GenericForegroundTrigger
 {
