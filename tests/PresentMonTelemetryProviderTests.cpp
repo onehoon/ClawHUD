@@ -72,7 +72,7 @@ public:
     {
         ++registerCount;
         *query = reinterpret_cast<PM_DYNAMIC_QUERY_HANDLE>(this);
-        element->dataOffset = 8;
+        element->dataOffset = 0;
         element->dataSize = sizeof(double);
         return PM_STATUS_SUCCESS;
     }
@@ -95,7 +95,7 @@ public:
         for (std::uint32_t i = 0; i < populated; ++i)
         {
             if (values[i])
-                std::memcpy(blob + 8 + i * 16, &*values[i], sizeof(double));
+                std::memcpy(blob + i * 16, &*values[i], sizeof(double));
         }
         *count = populated;
         return PM_STATUS_SUCCESS;
@@ -184,6 +184,12 @@ void CheckProcessLifecycle(bool& ok)
         client.calls.size() >= 3 && client.calls[1] == "stop" &&
         client.calls[2] == "start",
         "PID switch stops the old target before starting the new target");
+
+    client.values = {60.0, 70.0, 80.0, 90.0, 144.0};
+    snapshot = telemetry.Read(client, 5678);
+    ok &= Check(snapshot && snapshot->displayedFps &&
+        *snapshot->displayedFps == 144.0,
+        "poll capacity includes swap chains beyond the initial four slots");
 
     client.pollStatus = PM_STATUS_INVALID_PID;
     ok &= Check(!telemetry.Read(client, 5678) &&

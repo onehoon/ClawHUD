@@ -12,7 +12,7 @@ namespace
 constexpr std::uint32_t kIndependentDeviceId = 0;
 constexpr double kFpsWindowMs = 500.0;
 constexpr double kFpsOffsetMs = 0.0;
-constexpr std::uint32_t kInitialSwapChainCapacity = 4;
+constexpr std::uint64_t kDynamicQueryBlobAlignment = 16;
 constexpr std::uint32_t kMaximumSwapChainCapacity = 64;
 
 const PresentMonMetricCapability* FindMetric(
@@ -113,7 +113,16 @@ bool PresentMonProcessTelemetry::Initialize(
         fpsElement_ = {};
         return false;
     }
-    blobSize_ = fpsElement_.dataOffset + fpsElement_.dataSize;
+    constexpr auto alignment = kDynamicQueryBlobAlignment;
+    const auto end = fpsElement_.dataOffset + fpsElement_.dataSize;
+    if (end > std::numeric_limits<std::uint64_t>::max() - (alignment - 1))
+    {
+        client.FreeDynamicQuery(query_);
+        query_ = nullptr;
+        fpsElement_ = {};
+        return false;
+    }
+    blobSize_ = (end + (alignment - 1)) & ~(alignment - 1);
     ready_ = true;
     return true;
 }
@@ -165,43 +174,31 @@ std::optional<PresentMonProcessSnapshot> PresentMonProcessTelemetry::Read(
     if (!ready_ || processId == 0 || !SwitchProcess(client, processId))
         return std::nullopt;
 
-    std::uint32_t capacity = kInitialSwapChainCapacity;
-    for (int attempt = 0; attempt < 5; ++attempt)
+    constexpr auto capacity = kMaximumSwapChainCapacity;
+    if (blobSize_ > std::numeric_limits<std::size_t>::max() / capacity)
+        return std::nullopt;
+    std::vector<std::uint8_t> blob(static_cast<std::size_t>(blobSize_) * capacity);
+    std::uint32_t count = capacity;
+    const auto status = client.PollDynamicQuery(
+        query_, processId, blob.data(), &count);
+    if (status == PM_STATUS_INVALID_PID)
     {
-        if (blobSize_ > std::numeric_limits<std::size_t>::max() / capacity)
-            return std::nullopt;
-        std::vector<std::uint8_t> blob(static_cast<std::size_t>(blobSize_) * capacity);
-        std::uint32_t count = capacity;
-        const auto status = client.PollDynamicQuery(
-            query_, processId, blob.data(), &count);
-        if (status == PM_STATUS_INSUFFICIENT_BUFFER)
-        {
-            const auto requested = count > capacity ? count : capacity * 2;
-            if (requested <= capacity || requested > kMaximumSwapChainCapacity)
-                return std::nullopt;
-            capacity = requested;
-            continue;
-        }
-        if (status == PM_STATUS_INVALID_PID)
-        {
-            ClearTracking();
-            return std::nullopt;
-        }
-        if (status != PM_STATUS_SUCCESS || count > capacity)
-            return std::nullopt;
-
-        std::vector<std::optional<double>> values;
-        values.reserve(count);
-        for (std::uint32_t i = 0; i < count; ++i)
-        {
-            const auto offset = static_cast<std::size_t>(blobSize_) * i;
-            values.push_back(DecodePresentMonDisplayedFps(
-                std::span<const std::uint8_t>(blob).subspan(offset,
-                    static_cast<std::size_t>(blobSize_)), fpsElement_));
-        }
-        return PresentMonProcessSnapshot{
-            processId, SelectPresentMonDisplayedFps(values)};
+        ClearTracking();
+        return std::nullopt;
     }
-    return std::nullopt;
+    if (status != PM_STATUS_SUCCESS || count > capacity)
+        return std::nullopt;
+
+    std::vector<std::optional<double>> values;
+    values.reserve(count);
+    for (std::uint32_t i = 0; i < count; ++i)
+    {
+        const auto offset = static_cast<std::size_t>(blobSize_) * i;
+        values.push_back(DecodePresentMonDisplayedFps(
+            std::span<const std::uint8_t>(blob).subspan(offset,
+                static_cast<std::size_t>(blobSize_)), fpsElement_));
+    }
+    return PresentMonProcessSnapshot{
+        processId, SelectPresentMonDisplayedFps(values)};
 }
 }
