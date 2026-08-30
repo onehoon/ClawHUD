@@ -110,6 +110,6 @@ std::optional<int> SelectRemainingMinutes(
     const WindowsPowerTelemetry& telemetry,
     std::optional<int> estimatedMinutes)
 {
-    return telemetry.remainingMinutes ? telemetry.remainingMinutes : estimatedMinutes;
+    return estimatedMinutes ? estimatedMinutes : telemetry.remainingMinutes;
 }
 }

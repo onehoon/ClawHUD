@@ -2,6 +2,7 @@
 #include "TelemetryRetention.h"
 
 #include <iostream>
+#include <cmath>
 #include <vector>
 
 using namespace clawhud;
@@ -37,6 +38,23 @@ int main()
         DecodeCpuPackagePowerW(std::vector<std::uint8_t>{0x18}).value() == 24 &&
         DecodeCpuPackagePowerW(std::vector<std::uint8_t>{0x00}).value() == 0 &&
         !DecodeCpuPackagePowerW(std::vector<std::uint8_t>{}), "CPU package power decode");
+
+    ok &= Check(DecodeBatteryCurrentMa(0xC8, 0xFC) == -824 &&
+        DecodeBatteryCurrentMa(0xDB, 0xF9) == -1573 &&
+        DecodeBatteryCurrentMa(0xF9, 0xF5) == -2567 &&
+        DecodeBatteryCurrentMa(0xFD, 0xF5) == -2563,
+        "signed battery current decode");
+    ok &= Check(DecodeBatteryVoltageMv(0xAB, 0x3E) == 16043 &&
+        DecodeBatteryVoltageMv(0x1E, 0x3E) == 15902 &&
+        DecodeBatteryVoltageMv(0xF3, 0x3D) == 15859 &&
+        DecodeBatteryVoltageMv(0xCE, 0x3D) == 15822,
+        "battery voltage decode");
+    const auto battery = DecodeBatteryPower(0xF9, 0xF5, 0xF3, 0x3D);
+    ok &= Check(battery && std::abs(battery->powerW - 40.710713) < 0.001,
+        "battery discharge power calculation");
+    ok &= Check(!DecodeBatteryPower(0x01, 0x00, 0xF3, 0x3D) &&
+        !DecodeBatteryPower(0xF9, 0xF5, 0x00, 0x00),
+        "invalid battery power rejected");
 
     std::optional<int> temperature;
     const std::optional<int> temperature67 = 67;

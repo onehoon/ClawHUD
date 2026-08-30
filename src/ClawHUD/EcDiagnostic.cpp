@@ -1,4 +1,5 @@
 #include "EcDiagnostic.h"
+#include "MsiEcHudTelemetry.h"
 
 #include "EcHelperClient.h"
 #include "RuntimeLogger.h"
@@ -154,9 +155,15 @@ void EcDiagnostic::Run()
         const bool v1 = data(75, "Get_Data(75)"); const auto b3 = value;
         if (c0 && c1 && v0 && v1 && !b0.empty() && !b1.empty() && !b2.empty() && !b3.empty())
         {
-            log << "Battery Current Raw: " << static_cast<unsigned>(b0[0]) << ' ' << static_cast<unsigned>(b1[0])
-                << "\nBattery Voltage Raw: " << static_cast<unsigned>(b2[0]) << ' ' << static_cast<unsigned>(b3[0])
-                << "\nSystem Power: Not decoded (sign/scaling requires hardware validation)\n";
+            const auto battery = clawhud::DecodeBatteryPower(b0[0], b1[0], b2[0], b3[0]);
+            log << "Battery Current Raw: " << Hex(b0) << ' ' << Hex(b1)
+                << "\nBattery Current: " << clawhud::DecodeBatteryCurrentMa(b0[0], b1[0]) << " mA"
+                << "\nBattery Voltage Raw: " << Hex(b2) << ' ' << Hex(b3)
+                << "\nBattery Voltage: " << clawhud::DecodeBatteryVoltageMv(b2[0], b3[0]) << " mV\n";
+            if (battery)
+                log << "Battery Power: " << std::fixed << std::setprecision(2) << battery->powerW << " W\n";
+            else
+                log << "Battery Power: Not valid\n";
         }
         log.flush(); if (sample < 10) std::this_thread::sleep_for(std::chrono::seconds(1));
     }

@@ -588,7 +588,7 @@ Future captures must fix the current `Board: Unavailable` / `BIOS: Unavailable` 
 When implementing EC telemetry from this document:
 
 1. Keep the current MSI WMI transport/helper architecture; do not redesign it for parsing work.
-2. Production EC reads are only `Get_Temperature(0)`, `Get_Fan(0)`, and `Get_Data(221)`.
+2. Production EC reads are `Get_Temperature(0)`, `Get_Fan(0)`, and `Get_Data(221)` on all sampling states; while Windows reports DC power, the remaining-time estimator additionally reads validated battery selectors `70`, `71`, `74`, and `75`.
 3. Parse only `Get_Temperature(0)[0]` as CPU temperature.
 4. Do not expose or render GPU temperature.
 5. Parse both fan tach pairs and keep both in Diagnostics.
@@ -597,7 +597,7 @@ When implementing EC telemetry from this document:
 8. Parse `Get_Data(221)[0]` as current CPU package watts.
 9. Internal name is `cpuPackagePowerW`; compact HUD label may be `TDP`.
 10. Do not implement `SYS` / System Power.
-11. Do not make production HUD telemetry depend on EC blocks 70/71/74/75.
+11. Do not expose EC blocks 70/71/74/75 as a production HUD metric; they may be used internally by the DC remaining-time estimator.
 12. Battery `%` and remaining time are outside this EC parser and come from the battery/power layer.
 13. Keep `std::optional`/explicit-unavailable semantics.
 14. Validate payload length before indexing.
