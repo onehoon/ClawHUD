@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Configuration Condition="'$(Configuration)' == ''">Release</Configuration>
+    <Platform Condition="'$(Platform)' == ''">x86</Platform>
+    <OutputType>Package</OutputType>
+    <OutputName>ClawHUD.PresentMonRuntime</OutputName>
+    <OutputPath>$(MSBuildProjectDirectory)\..\..\..\..\..\build\</OutputPath>
+    <IntermediateOutputPath>$(MSBuildProjectDirectory)\..\..\..\..\..\build\obj\ClawHUD-PresentMonRuntime-$(Platform)-$(Configuration)\</IntermediateOutputPath>
+    <WixTargetsPath Condition="'$(WixTargetsPath)' == ''">$(MSBuildExtensionsPath32)\Microsoft\WiX\v3.x\Wix.targets</WixTargetsPath>
+    <WixToolPath Condition="'$(WixToolPath)' == ''">$(WIX)bin\</WixToolPath>
+    <ProjectGuid>{A8B4EE22-FA4B-479E-A4D4-3D394CA4A4B0}</ProjectGuid>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x86'">
+    <DefineConstants>PresentMonSharedServiceModule=$(PresentMonSharedServiceModule)</DefineConstants>
+    <SuppressIces>ICE60</SuppressIces>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="ClawHUD.PresentMonRuntime.wxs" />
+  </ItemGroup>
+  <Import Project="$(WixTargetsPath)" Condition="Exists('$(WixTargetsPath)')" />
+  <Target Name="EnsureWixToolsetInstalled" BeforeTargets="Build" Condition="!Exists('$(WixTargetsPath)')">
+    <Error Text="WiX Toolset 3.x was not found. Install WiX 3.11+ or pass WixTargetsPath/WixToolPath." />
+  </Target>
+</Project>
