@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdint>
 #include <optional>
+#include <deque>
 
 namespace clawhud
 {
@@ -12,6 +13,7 @@ enum class BatteryEstimateState
     AnchorCreated,
     Waiting,
     Updated,
+    Held,
     Reset
 };
 
@@ -38,13 +40,17 @@ public:
         std::optional<std::uint64_t> remainingCapacityMWh,
         TimePoint now);
     void Reset() noexcept;
+    std::size_t SampleCount() const noexcept { return samples_.size(); }
 
 private:
-    std::optional<std::uint64_t> anchorCapacity_;
-    TimePoint anchorTimestamp_{};
-    TimePoint lastSampleTimestamp_{};
+    struct BatteryCapacitySample
+    {
+        TimePoint timestamp;
+        std::uint64_t remainingCapacityMWh{};
+    };
+
+    std::deque<BatteryCapacitySample> samples_;
     std::optional<double> lastAcceptedDischargeWatts_;
-    bool activeSession_{};
-    bool anchorMatured_{};
+    std::optional<int> lastValidEstimateMinutes_;
 };
 }

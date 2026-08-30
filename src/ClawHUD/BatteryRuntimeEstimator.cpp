@@ -6,15 +6,25 @@ namespace clawhud
 {
 namespace
 {
-constexpr double kMinimumMeasurementSeconds = 30.0;
-constexpr double kMaximumSampleGapSeconds = 60.0;
+constexpr auto kMinimumBatteryEstimateWindow = std::chrono::seconds(30);
+constexpr auto kBatterySampleRetention = std::chrono::minutes(3);
 
 BatteryEstimateResult EstimateFromAcceptedPower(
-    std::uint64_t currentCapacity, double watts)
+    std::uint64_t startCapacity, std::uint64_t currentCapacity,
+    double elapsedSeconds, double watts, std::optional<int> lastEstimate,
+    BatteryEstimateState state = BatteryEstimateState::Held,
+    const wchar_t* reason = nullptr)
 {
     BatteryEstimateResult result{};
+    result.state = state;
+    result.anchorCapacity = startCapacity;
     result.currentCapacity = currentCapacity;
+    result.elapsedSeconds = elapsedSeconds;
     result.averageDischargeWatts = watts;
+    result.resetReason = reason;
+    result.remainingMinutes = lastEstimate;
+    if (state != BatteryEstimateState::Updated && lastEstimate)
+        return result;
     if (!(watts > 0.0) || !std::isfinite(watts))
         return result;
 
@@ -35,7 +45,7 @@ BatteryEstimateResult BatteryRuntimeEstimator::Observe(
 {
     if (!onBattery)
     {
-        if (!activeSession_ && !lastAcceptedDischargeWatts_)
+        if (samples_.empty() && !lastAcceptedDischargeWatts_)
             return {};
         Reset();
         BatteryEstimateResult result{};
@@ -44,16 +54,24 @@ BatteryEstimateResult BatteryRuntimeEstimator::Observe(
         return result;
     }
     if (!remainingCapacityMWh)
-        return {};
+    {
+        if (samples_.empty() && !lastAcceptedDischargeWatts_)
+            return {};
+        Reset();
+        BatteryEstimateResult result{};
+        result.state = BatteryEstimateState::Reset;
+        result.resetReason = L"invalid-capacity";
+        return result;
+    }
 
     const auto currentCapacity = *remainingCapacityMWh;
-    if (!activeSession_)
+    samples_.push_back({now, currentCapacity});
+    while (!samples_.empty() && now - samples_.front().timestamp >
+        kBatterySampleRetention)
+        samples_.pop_front();
+
+    if (samples_.size() == 1)
     {
-        activeSession_ = true;
-        anchorCapacity_ = currentCapacity;
-        anchorTimestamp_ = now;
-        lastSampleTimestamp_ = now;
-        anchorMatured_ = false;
         BatteryEstimateResult result{};
         result.state = BatteryEstimateState::AnchorCreated;
         result.anchorCapacity = currentCapacity;
@@ -61,84 +79,70 @@ BatteryEstimateResult BatteryRuntimeEstimator::Observe(
         return result;
     }
 
-    const double sampleGap = std::chrono::duration<double>(
-        now - lastSampleTimestamp_).count();
-    lastSampleTimestamp_ = now;
-    if (sampleGap > kMaximumSampleGapSeconds)
+    const auto& newest = samples_.back();
+    auto historical = samples_.rbegin() + 1;
+    for (; historical != samples_.rend(); ++historical)
     {
-        anchorCapacity_ = currentCapacity;
-        anchorTimestamp_ = now;
-        anchorMatured_ = false;
-        BatteryEstimateResult result = EstimateFromAcceptedPower(
-            currentCapacity, lastAcceptedDischargeWatts_.value_or(0.0));
-        result.state = BatteryEstimateState::Reset;
-        result.anchorCapacity = currentCapacity;
-        result.resetReason = L"sample-gap";
-        return result;
+        if (newest.timestamp - historical->timestamp >=
+            kMinimumBatteryEstimateWindow)
+            break;
+    }
+
+    if (historical == samples_.rend())
+    {
+        return EstimateFromAcceptedPower(
+            samples_.front().remainingCapacityMWh, currentCapacity, 0.0,
+            lastAcceptedDischargeWatts_.value_or(0.0),
+            lastValidEstimateMinutes_, BatteryEstimateState::Waiting);
     }
 
     const double elapsedSeconds = std::chrono::duration<double>(
-        now - anchorTimestamp_).count();
-    const auto anchorCapacity = *anchorCapacity_;
-    if (currentCapacity > anchorCapacity)
+        newest.timestamp - historical->timestamp).count();
+    const auto historicalCapacity = historical->remainingCapacityMWh;
+    if (currentCapacity >= historicalCapacity)
     {
-        anchorCapacity_ = currentCapacity;
-        anchorTimestamp_ = now;
-        anchorMatured_ = false;
-        BatteryEstimateResult result = EstimateFromAcceptedPower(
-            currentCapacity, lastAcceptedDischargeWatts_.value_or(0.0));
-        result.state = BatteryEstimateState::Reset;
-        result.anchorCapacity = currentCapacity;
-        result.elapsedSeconds = elapsedSeconds;
-        result.resetReason = L"capacity-correction";
-        return result;
-    }
-
-    if (elapsedSeconds >= kMinimumMeasurementSeconds &&
-        !anchorMatured_ && currentCapacity == anchorCapacity)
-    {
-        anchorMatured_ = true;
-        BatteryEstimateResult result = EstimateFromAcceptedPower(
-            currentCapacity, lastAcceptedDischargeWatts_.value_or(0.0));
-        result.state = BatteryEstimateState::Waiting;
-        result.anchorCapacity = anchorCapacity;
-        result.elapsedSeconds = elapsedSeconds;
-        return result;
-    }
-
-    if (currentCapacity < anchorCapacity &&
-        elapsedSeconds >= kMinimumMeasurementSeconds && elapsedSeconds > 0.0)
-    {
-        const double deltaMWh = static_cast<double>(anchorCapacity - currentCapacity);
-        const double elapsedHours = elapsedSeconds / 3600.0;
-        const double averageDischargeWatts = deltaMWh / elapsedHours / 1000.0;
-        if (averageDischargeWatts > 0.0 && std::isfinite(averageDischargeWatts))
+        if (currentCapacity > historicalCapacity)
         {
-            lastAcceptedDischargeWatts_ = averageDischargeWatts;
-            anchorCapacity_ = currentCapacity;
-            anchorTimestamp_ = now;
-            anchorMatured_ = false;
-            BatteryEstimateResult result = EstimateFromAcceptedPower(
-                currentCapacity, averageDischargeWatts);
-            result.state = BatteryEstimateState::Updated;
-            result.anchorCapacity = anchorCapacity;
-            result.elapsedSeconds = elapsedSeconds;
-            result.deltaMWh = deltaMWh;
-            return result;
+            samples_.clear();
+            samples_.push_back({now, currentCapacity});
+            return EstimateFromAcceptedPower(
+                currentCapacity, currentCapacity, elapsedSeconds,
+                lastAcceptedDischargeWatts_.value_or(0.0),
+                lastValidEstimateMinutes_, BatteryEstimateState::Reset,
+                L"capacity-correction");
         }
+        return EstimateFromAcceptedPower(
+            historicalCapacity, currentCapacity, elapsedSeconds,
+            lastAcceptedDischargeWatts_.value_or(0.0),
+            lastValidEstimateMinutes_, lastValidEstimateMinutes_
+                ? BatteryEstimateState::Held : BatteryEstimateState::Waiting,
+            lastValidEstimateMinutes_ ? L"capacity-unchanged" : nullptr);
+    }
+
+    const double deltaMWh = static_cast<double>(historicalCapacity - currentCapacity);
+    const double elapsedHours = elapsedSeconds / 3600.0;
+    const double averageDischargeWatts = deltaMWh / elapsedHours / 1000.0;
+    if (averageDischargeWatts > 0.0 && std::isfinite(averageDischargeWatts))
+    {
+        lastAcceptedDischargeWatts_ = averageDischargeWatts;
+        BatteryEstimateResult result = EstimateFromAcceptedPower(
+            historicalCapacity, currentCapacity, elapsedSeconds,
+            averageDischargeWatts, lastValidEstimateMinutes_,
+            BatteryEstimateState::Updated);
+        result.deltaMWh = deltaMWh;
+        lastValidEstimateMinutes_ = result.remainingMinutes;
+        return result;
     }
 
     return EstimateFromAcceptedPower(
-        currentCapacity, lastAcceptedDischargeWatts_.value_or(0.0));
+        historicalCapacity, currentCapacity, elapsedSeconds,
+        lastAcceptedDischargeWatts_.value_or(0.0), lastValidEstimateMinutes_);
 }
 
 void BatteryRuntimeEstimator::Reset() noexcept
 {
-    anchorCapacity_.reset();
-    anchorTimestamp_ = {};
-    lastSampleTimestamp_ = {};
+    samples_.clear();
     lastAcceptedDischargeWatts_.reset();
-    activeSession_ = false;
-    anchorMatured_ = false;
+    lastValidEstimateMinutes_.reset();
 }
 }
