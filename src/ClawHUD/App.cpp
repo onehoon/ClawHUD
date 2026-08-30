@@ -345,11 +345,13 @@ int App::Run()
                 hudOptions_.visibilityMode == clawhud::HudVisibilityMode::Always)
             {
                 // Foreground PID changed: the previous PID's FPS is invalid
-                // immediately, never leaking across the target change.
+                // immediately, never leaking across the target change. Always
+                // mode keeps the FPS segment as "0FPS" until the new PID has a
+                // result, so no extra render is needed here; the normal
+                // visibility/sampling path performs the HUD update.
                 latestProcessFps_.reset();
                 Log(L"[PresentMonFPS] mode=Always foregroundPid=" +
                     std::to_wstring(processId) + L" fps-invalidated");
-                RenderProductionHud();
             }
             ReconcileHudVisibility();
             if (debugLoggingEnabled_)
@@ -1128,6 +1130,8 @@ void App::RenderProductionHud(bool allowHidden)
     snapshot.fan2Rpm = ecHudTelemetry_.fan2Rpm;
     snapshot.graphicsApi = latestGraphicsApi_;
     snapshot.presentMonDisplayedFps = latestProcessFps_;
+    snapshot.showUnavailableFpsAsZero =
+        hudOptions_.visibilityMode == clawhud::HudVisibilityMode::Always;
     snapshot.cpuUsagePercent = latestCpuUsagePercent_;
     snapshot.systemMemoryUsedBytes = latestSystemMemoryUsedBytes_;
     snapshot.gpuMemoryUsedBytes = latestGpuMemoryUsedBytes_;
