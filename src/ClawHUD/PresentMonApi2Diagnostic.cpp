@@ -660,12 +660,6 @@ void PresentMonApi2Diagnostic::Run()
         }
         if (frameQuery && consumeFrames && pid)
         {
-            if (flushFrames)
-            {
-                const PM_STATUS flushed = flushFrames(session, pid);
-                log << "frame_flush timestamp_ms=" << timestamp << " status="
-                    << StatusName(flushed) << " raw=" << flushed << "\n";
-            }
             std::vector<std::uint8_t> frameBlob(std::max<std::uint32_t>(frameBlobSize, 1) * 64);
             std::uint32_t count = 64;
             const PM_STATUS consumed = consumeFrames(frameQuery, pid, frameBlob.data(), &count);
