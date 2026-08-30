@@ -1011,8 +1011,6 @@ clawhud::MsiEcHudTelemetry App::ReadHudEcTelemetry()
         {
             result.fan1Rpm = fans->fan1Rpm;
             result.fan2Rpm = fans->fan2Rpm;
-            result.hudFanRpm = clawhud::SelectHudFanRpm(
-                result.fan1Rpm, result.fan2Rpm);
         }
     }
 
@@ -1090,8 +1088,6 @@ void App::SampleProductionTelemetry()
     clawhud::UpdateRetainedTelemetryField(
         ecHudTelemetry_.cpuPackagePowerW, freshEcTelemetry.cpuPackagePowerW,
         ecTdpMissingCount_, kEcTelemetryMissingThreshold);
-    ecHudTelemetry_.hudFanRpm = clawhud::SelectHudFanRpm(
-        ecHudTelemetry_.fan1Rpm, ecHudTelemetry_.fan2Rpm);
     if (!usageSampler_.Initialized())
     {
         if (!usageSampler_.Initialize())

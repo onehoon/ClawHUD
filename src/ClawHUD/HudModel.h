@@ -65,11 +65,9 @@ struct HudTelemetrySnapshot
     std::optional<double> cpuPackagePowerW;
     std::optional<double> gpuUsagePercent;
     std::optional<double> gpuClockMHz;
-    std::optional<int> gpuTemperatureC;
     std::optional<int> fan1Rpm;
     std::optional<int> fan2Rpm;
     std::optional<int> batteryPercent;
-    std::optional<double> systemPowerW;
     std::optional<int> remainingMinutes;
     bool onBattery{};
     bool foregroundGameActive{};
@@ -86,7 +84,6 @@ enum class HudSegmentKind
     Tdp,
     Ram,
     Vram,
-    SystemPower,
     Fan,
     Battery
 };
