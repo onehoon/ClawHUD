@@ -27,6 +27,7 @@
 #include "GameDetection/SteamRunningAppTrigger.h"
 #include "PresentMonTelemetryProvider.h"
 #include "AlwaysModeFpsTarget.h"
+#include "FpsStaleHold.h"
 #include "EcHelperClient.h"
 #include "MsiEcHudTelemetry.h"
 #include "WindowsPowerTelemetry.h"
@@ -240,6 +241,8 @@ private:
     clawhud::MsiEcHudTelemetry ecHudTelemetry_{};
     clawhud::PresentMonTelemetryProvider presentMonTelemetryProvider_;
     std::optional<double> latestProcessFps_;
+    // Retains the last valid FPS across short same-PID API2 misses (2 s window).
+    clawhud::FpsStaleHold fpsStaleHold_;
     // Rate limiter for the once-per-second Displayed vs Presented FPS debug log.
     std::uint64_t lastFpsCompareLogTick_{};
     // Always mode: FPS target authority is the current foreground PID only,
