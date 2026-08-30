@@ -1113,6 +1113,11 @@ clawhud::MsiEcHudTelemetry App::ReadHudEcTelemetry()
     payload.clear();
     if (ecHudClient_->ReadData(221, payload))
         result.cpuPackagePowerW = clawhud::DecodeCpuPackagePowerW(payload);
+    else if (abortAfterFailure())
+    {
+        ecHudClient_->Close();
+        return result;
+    }
 
     if (!latestPowerTelemetry_ || !latestPowerTelemetry_->onBattery.value_or(false))
         return result;
