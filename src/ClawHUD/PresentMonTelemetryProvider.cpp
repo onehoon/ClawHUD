@@ -26,14 +26,38 @@ PresentMonTelemetryCapabilities BuildPresentMonTelemetryCapabilities(const PM_IN
 PresentMonTelemetryProvider::~PresentMonTelemetryProvider() { Shutdown(); }
 bool PresentMonTelemetryProvider::Initialize()
 {
-    Shutdown(); if (!client_.Initialize() || client_.OpenSession() != PM_STATUS_SUCCESS) { Shutdown(); return false; }
+    std::scoped_lock lock(apiMutex_);
+    ShutdownUnlocked();
+    if (!client_.Initialize() || client_.OpenSession() != PM_STATUS_SUCCESS) { ShutdownUnlocked(); return false; }
     const PM_INTROSPECTION_ROOT* root{};
-    if (client_.GetIntrospectionRoot(&root) != PM_STATUS_SUCCESS || !root) { Shutdown(); return false; }
+    if (client_.GetIntrospectionRoot(&root) != PM_STATUS_SUCCESS || !root) { ShutdownUnlocked(); return false; }
     auto copied = BuildPresentMonTelemetryCapabilities(root);
-    if (client_.FreeIntrospectionRoot(root) != PM_STATUS_SUCCESS) { Shutdown(); return false; }
-    capabilities_ = std::move(copied); ready_ = true; return true;
+    if (client_.FreeIntrospectionRoot(root) != PM_STATUS_SUCCESS) { ShutdownUnlocked(); return false; }
+    capabilities_ = std::move(copied);
+    ready_ = true;
+    processTelemetry_.Initialize(client_, capabilities_);
+    return true;
 }
-void PresentMonTelemetryProvider::Shutdown() noexcept { ready_ = false; capabilities_ = {}; client_.Shutdown(); }
+void PresentMonTelemetryProvider::Shutdown() noexcept
+{
+    std::scoped_lock lock(apiMutex_);
+    ShutdownUnlocked();
+}
+void PresentMonTelemetryProvider::ShutdownUnlocked() noexcept
+{
+    processTelemetry_.Shutdown(client_);
+    ready_ = false;
+    capabilities_ = {};
+    client_.Shutdown();
+}
+std::optional<PresentMonProcessSnapshot> PresentMonTelemetryProvider::ReadProcess(
+    std::uint32_t processId)
+{
+    std::scoped_lock lock(apiMutex_);
+    if (!ready_)
+        return std::nullopt;
+    return processTelemetry_.Read(client_, processId);
+}
 const PresentMonMetricCapability* PresentMonTelemetryProvider::FindMetric(PM_METRIC metric) const noexcept { for (const auto& m : capabilities_.metrics) if (m.id == metric) return &m; return nullptr; }
 const PresentMonDeviceCapability* PresentMonTelemetryProvider::FindDevice(std::uint32_t id) const noexcept { for (const auto& d : capabilities_.devices) if (d.id == id) return &d; return nullptr; }
 const PresentMonDeviceCapability* PresentMonTelemetryProvider::FindFirstDevice(PM_DEVICE_TYPE type, std::optional<PM_DEVICE_VENDOR> vendor) const noexcept { for (const auto& d : capabilities_.devices) if (d.type == type && (!vendor || d.vendor == *vendor)) return &d; return nullptr; }

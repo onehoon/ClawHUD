@@ -52,19 +52,19 @@ public:
     void CloseSession() noexcept;
     bool SessionOpen() const noexcept { return session_ != nullptr; }
 
-    PM_STATUS StartTrackingProcess(std::uint32_t processId);
-    PM_STATUS StopTrackingProcess(std::uint32_t processId);
+    virtual PM_STATUS StartTrackingProcess(std::uint32_t processId);
+    virtual PM_STATUS StopTrackingProcess(std::uint32_t processId);
     PM_STATUS GetIntrospectionRoot(const PM_INTROSPECTION_ROOT** root);
     PM_STATUS FreeIntrospectionRoot(const PM_INTROSPECTION_ROOT* root);
     PM_STATUS SetTelemetryPollingPeriod(std::uint32_t reserved, std::uint32_t periodMs);
     PM_STATUS SetEtwFlushPeriod(std::uint32_t periodMs);
     PM_STATUS FlushFrames(std::uint32_t processId);
 
-    PM_STATUS RegisterDynamicQuery(PM_DYNAMIC_QUERY_HANDLE* query,
+    virtual PM_STATUS RegisterDynamicQuery(PM_DYNAMIC_QUERY_HANDLE* query,
         PM_QUERY_ELEMENT* elements, std::uint64_t elementCount,
         double windowSizeMs, double metricOffsetMs);
-    PM_STATUS FreeDynamicQuery(PM_DYNAMIC_QUERY_HANDLE query);
-    PM_STATUS PollDynamicQuery(PM_DYNAMIC_QUERY_HANDLE query,
+    virtual PM_STATUS FreeDynamicQuery(PM_DYNAMIC_QUERY_HANDLE query);
+    virtual PM_STATUS PollDynamicQuery(PM_DYNAMIC_QUERY_HANDLE query,
         std::uint32_t processId, std::uint8_t* blob, std::uint32_t* swapChainCount);
     PM_STATUS PollStaticQuery(const PM_QUERY_ELEMENT* element,
         std::uint32_t processId, std::uint8_t* blob);

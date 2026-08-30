@@ -73,6 +73,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/PresentMonApi2Diagnostic.cpp
     src/ClawHUD/PresentMonApi2Client.cpp
     src/ClawHUD/PresentMonTelemetryProvider.cpp
+    src/ClawHUD/PresentMonProcessTelemetry.cpp
     src/ClawHUD/PresentMonRuntimeBootstrap.cpp
     src/ClawHUD/EcHelperClient.cpp
     src/ClawHUD/MsiEcHudTelemetry.cpp
@@ -670,6 +671,7 @@ if(BUILD_TESTING)
     add_executable(ClawHUD.PresentMonTelemetryProviderTests
         tests/PresentMonTelemetryProviderTests.cpp
         src/ClawHUD/PresentMonTelemetryProvider.cpp
+        src/ClawHUD/PresentMonProcessTelemetry.cpp
         src/ClawHUD/PresentMonApi2Client.cpp)
     target_compile_features(ClawHUD.PresentMonTelemetryProviderTests PRIVATE cxx_std_20)
     target_compile_definitions(ClawHUD.PresentMonTelemetryProviderTests PRIVATE
