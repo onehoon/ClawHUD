@@ -2,6 +2,7 @@
 #include "PresentMonApi2Client.h"
 #include "PresentMonTelemetryTypes.h"
 #include "PresentMonProcessTelemetry.h"
+#include "PresentMonSystemTelemetry.h"
 #include <mutex>
 #include <optional>
 namespace clawhud
@@ -17,6 +18,8 @@ public:
     bool Ready() const noexcept { return ready_; }
     bool ProcessReady() const noexcept { return processTelemetry_.Ready(); }
     std::optional<PresentMonProcessSnapshot> ReadProcess(std::uint32_t processId);
+    bool SystemReady() const noexcept;
+    std::optional<PresentMonSystemSnapshot> ReadSystem();
     const PresentMonTelemetryCapabilities& Capabilities() const noexcept { return capabilities_; }
     const PresentMonMetricCapability* FindMetric(PM_METRIC metric) const noexcept;
     const PresentMonDeviceCapability* FindDevice(std::uint32_t id) const noexcept;
@@ -28,6 +31,7 @@ private:
 
     PresentMonApi2Client client_;
     PresentMonProcessTelemetry processTelemetry_;
+    PresentMonSystemTelemetry systemTelemetry_;
     PresentMonTelemetryCapabilities capabilities_;
     mutable std::mutex apiMutex_;
     bool ready_{};

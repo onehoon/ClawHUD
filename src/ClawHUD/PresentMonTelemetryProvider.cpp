@@ -36,6 +36,7 @@ bool PresentMonTelemetryProvider::Initialize()
     capabilities_ = std::move(copied);
     ready_ = true;
     processTelemetry_.Initialize(client_, capabilities_);
+    systemTelemetry_.Initialize(client_, capabilities_);
     return true;
 }
 void PresentMonTelemetryProvider::Shutdown() noexcept
@@ -46,6 +47,7 @@ void PresentMonTelemetryProvider::Shutdown() noexcept
 void PresentMonTelemetryProvider::ShutdownUnlocked() noexcept
 {
     processTelemetry_.Shutdown(client_);
+    systemTelemetry_.Shutdown(client_);
     ready_ = false;
     capabilities_ = {};
     client_.Shutdown();
@@ -57,6 +59,13 @@ std::optional<PresentMonProcessSnapshot> PresentMonTelemetryProvider::ReadProces
     if (!ready_)
         return std::nullopt;
     return processTelemetry_.Read(client_, processId);
+}
+bool PresentMonTelemetryProvider::SystemReady() const noexcept
+{ std::scoped_lock lock(apiMutex_); return ready_ && systemTelemetry_.Ready(); }
+std::optional<PresentMonSystemSnapshot> PresentMonTelemetryProvider::ReadSystem()
+{
+    std::scoped_lock lock(apiMutex_);
+    return ready_ ? systemTelemetry_.Read(client_) : std::nullopt;
 }
 const PresentMonMetricCapability* PresentMonTelemetryProvider::FindMetric(PM_METRIC metric) const noexcept { for (const auto& m : capabilities_.metrics) if (m.id == metric) return &m; return nullptr; }
 const PresentMonDeviceCapability* PresentMonTelemetryProvider::FindDevice(std::uint32_t id) const noexcept { for (const auto& d : capabilities_.devices) if (d.id == id) return &d; return nullptr; }
