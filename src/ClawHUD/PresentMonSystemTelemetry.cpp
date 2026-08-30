@@ -129,6 +129,26 @@ std::optional<std::uint64_t> DecodePresentMonMemoryBytes(const std::uint8_t* blo
 }
 bool HasPresentMonDynamicQueryResult(PM_STATUS status, std::uint32_t resultCount) noexcept
 { return status == PM_STATUS_SUCCESS && resultCount != 0; }
+std::optional<PresentMonSystemSnapshot> DecodePresentMonSystemSnapshot(
+    PM_STATUS status, std::uint32_t resultCount, const std::uint8_t* blob,
+    const std::vector<PM_QUERY_ELEMENT>& elements,
+    const std::vector<SystemMetricBinding>& bindings)
+{
+    if (!HasPresentMonDynamicQueryResult(status, resultCount) || !blob) return std::nullopt;
+    PresentMonSystemSnapshot snapshot;
+    for (const auto& binding : bindings)
+    {
+        const auto& element = elements[binding.elementIndex];
+        switch (binding.slot)
+        {
+        case SystemMetricSlot::CpuUsage: snapshot.cpuUsagePercent = DecodePresentMonPercentage(blob, element, binding.type); break;
+        case SystemMetricSlot::GpuUsage: snapshot.gpuUsagePercent = DecodePresentMonPercentage(blob, element, binding.type); break;
+        case SystemMetricSlot::GpuFrequency: snapshot.gpuClockMHz = DecodePresentMonFrequencyMHz(blob, element, binding.type, binding.unit); break;
+        case SystemMetricSlot::GpuMemoryUsed: snapshot.gpuMemoryUsedBytes = DecodePresentMonMemoryBytes(blob, element, binding.type, binding.unit); break;
+        }
+    }
+    return snapshot;
+}
 
 bool PresentMonSystemTelemetry::Initialize(PresentMonApi2Client& client,
     const PresentMonTelemetryCapabilities& capabilities)
@@ -153,19 +173,6 @@ std::optional<PresentMonSystemSnapshot> PresentMonSystemTelemetry::Read(PresentM
     if (!query_) return std::nullopt;
     std::uint32_t resultCount = 1;
     const auto status = client.PollDynamicQuery(query_, kSystemTelemetryProcessId, blob_.data(), &resultCount);
-    if (!HasPresentMonDynamicQueryResult(status, resultCount)) return std::nullopt;
-    PresentMonSystemSnapshot snapshot;
-    for (const auto& binding : bindings_)
-    {
-        const auto& element = elements_[binding.elementIndex];
-        switch (binding.slot)
-        {
-        case SystemMetricSlot::CpuUsage: snapshot.cpuUsagePercent = DecodePresentMonPercentage(blob_.data(), element, binding.type); break;
-        case SystemMetricSlot::GpuUsage: snapshot.gpuUsagePercent = DecodePresentMonPercentage(blob_.data(), element, binding.type); break;
-        case SystemMetricSlot::GpuFrequency: snapshot.gpuClockMHz = DecodePresentMonFrequencyMHz(blob_.data(), element, binding.type, binding.unit); break;
-        case SystemMetricSlot::GpuMemoryUsed: snapshot.gpuMemoryUsedBytes = DecodePresentMonMemoryBytes(blob_.data(), element, binding.type, binding.unit); break;
-        }
-    }
-    return snapshot;
+    return DecodePresentMonSystemSnapshot(status, resultCount, blob_.data(), elements_, bindings_);
 }
 }
