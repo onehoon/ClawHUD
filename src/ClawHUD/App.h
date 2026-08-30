@@ -21,6 +21,7 @@
 #include "GameDetection/GenericForegroundTrigger.h"
 #include "GameDetection/MicrosoftGameTrigger.h"
 #include "GameDetection/ProductionGameWindowSource.h"
+#include "GameDetection/ProductionProcessLifetime.h"
 #include "GameDetection/SteamRunningAppTrigger.h"
 #include "EcHelperClient.h"
 #include "MsiEcHudTelemetry.h"
@@ -174,6 +175,8 @@ private:
     void HandleProductionForegroundChanged(HWND window, DWORD processId);
     void HandleProductionWindowEvent(
         const clawhud::ProductionWindowEvent& event);
+    void HandleProductionProcessExit(DWORD processId,
+        std::uint64_t generation);
     void HandleMicrosoftGameEvidence(
         const clawhud::MicrosoftGameTriggerEvidence& evidence);
     void HandleGameDetectionTransition(
@@ -183,6 +186,8 @@ private:
         DWORD previousProcessId = 0,
         std::uint64_t previousGeneration = 0);
     void StartCandidateRenderVerification();
+    void ArmProductionProcessLifetime(DWORD processId,
+        std::uint64_t generation);
     void HandleGameRenderVerifierEvent(
         const clawhud::GameRenderVerifierEvent& event);
     bool TryCommitReadyCandidateFromForeground(
@@ -208,6 +213,7 @@ private:
     void DiscardPendingHudVisibilityRequests();
     void DiscardPendingMicrosoftGameEvidence();
     void DiscardPendingProductionWindowEvents();
+    void DiscardPendingProductionProcessExitEvents();
     void DiscardPendingGameRenderVerifierEvents();
 
     HINSTANCE instance_{};
@@ -270,6 +276,7 @@ private:
     clawhud::GenericForegroundTrigger genericForegroundTrigger_;
     clawhud::MicrosoftGameTrigger microsoftGameTrigger_;
     clawhud::ProductionGameWindowSource productionGameWindowSource_;
+    clawhud::ProductionProcessLifetimeWatcher productionProcessLifetimeWatcher_;
     clawhud::GameRenderVerifier gameRenderVerifier_;
     SteamRunningAppIdSource steamRunningAppIdSource_;
     std::uint32_t steamRunningAppId_{};

@@ -34,6 +34,7 @@ constexpr UINT kSteamRunningAppIdChanged = WM_APP + 5;
 constexpr UINT kMicrosoftGameEvidence = WM_APP + 6;
 constexpr UINT kGameRenderVerifierUpdate = WM_APP + 7;
 constexpr UINT kProductionWindowEvent = WM_APP + 8;
+constexpr UINT kProductionProcessExit = WM_APP + 9;
 constexpr UINT kUsageSamplingIntervalMs = 1000;
 constexpr UINT kBatteryHudTimerIntervalMs = 5000;
 constexpr UINT kGraphicsApiRetryIntervalMs = 500;
@@ -61,6 +62,12 @@ struct MicrosoftGameEvidenceUpdate
 struct ProductionWindowEventUpdate
 {
     clawhud::ProductionWindowEvent event;
+};
+
+struct ProductionProcessExitUpdate
+{
+    DWORD processId{};
+    std::uint64_t generation{};
 };
 
 struct GameRenderVerifierUpdate
@@ -151,6 +158,7 @@ App::~App()
     StopProductionEcSampling(false, L"app-shutdown");
     StopGraphicsApiProbe();
     productionGameWindowSource_.Stop();
+    productionProcessLifetimeWatcher_.Disarm();
     foregroundTracker_.Stop();
     windowLifecycleSource_.Stop();
     presentActivitySource_.Stop();
@@ -162,6 +170,7 @@ App::~App()
     DiscardPendingGameRenderVerifierEvents();
     DiscardPendingMicrosoftGameEvidence();
     DiscardPendingProductionWindowEvents();
+    DiscardPendingProductionProcessExitEvents();
     vrrDiagnostic_.reset();
     if (hudHotkeyRegistered_ && tray_.Window())
         UnregisterHotKey(tray_.Window(), kHudToggleHotkeyId);
@@ -1582,6 +1591,8 @@ void App::HandleGameDetectionTransition(
             std::to_wstring(gameDetectionCoordinator_.Context().steamAppId));
         break;
     case clawhud::GameDetectionTransition::CandidateStarted:
+        ArmProductionProcessLifetime(transition.processId,
+            transition.generation);
         latestPresentMonDisplayedFps_.reset();
         presentMonRestartPid_ = 0;
         presentMonRestartAttempts_ = 0;
@@ -1624,6 +1635,8 @@ void App::HandleGameDetectionTransition(
         break;
     }
     case clawhud::GameDetectionTransition::CandidateReplaced:
+        ArmProductionProcessLifetime(transition.processId,
+            transition.generation);
         StopProductionPresentMonSampling(L"candidate-replaced", true);
         StopGraphicsApiProbe();
         presentMonRestartPid_ = 0;
@@ -1664,10 +1677,12 @@ void App::HandleGameDetectionTransition(
                 gameDetectionCoordinator_.Context().rendererObserved ? 1 : 0));
         break;
     case clawhud::GameDetectionTransition::CandidateCleared:
+        productionProcessLifetimeWatcher_.Disarm();
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
             L"[GameDetection] transition=CandidateCleared");
         break;
     case clawhud::GameDetectionTransition::Reset:
+        productionProcessLifetimeWatcher_.Disarm();
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
             L"[GameDetection] reset");
         break;
@@ -1679,6 +1694,62 @@ void App::HandleGameDetectionTransition(
 void App::StartCandidateRenderVerification()
 {
     StartProductionPresentMonSampling();
+}
+
+void App::ArmProductionProcessLifetime(DWORD processId,
+    std::uint64_t generation)
+{
+    const HWND messageWindow = tray_.Window();
+    if (!productionProcessLifetimeWatcher_.Arm(processId, generation,
+        [messageWindow](DWORD exitedProcessId, std::uint64_t exitedGeneration)
+        {
+            auto* update = new ProductionProcessExitUpdate{
+                exitedProcessId, exitedGeneration};
+            if (!PostMessageW(messageWindow, kProductionProcessExit,
+                reinterpret_cast<WPARAM>(update), 0))
+                delete update;
+        }))
+    {
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+            L"[GameDetection] process-watch.arm-failed pid=" +
+            std::to_wstring(processId) + L" gen=" +
+            std::to_wstring(generation));
+        return;
+    }
+    clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
+        L"[GameDetection] process-watch.arm pid=" +
+        std::to_wstring(processId) + L" gen=" +
+        std::to_wstring(generation));
+}
+
+void App::HandleProductionProcessExit(DWORD processId,
+    std::uint64_t generation)
+{
+    const auto& context = gameDetectionCoordinator_.Context();
+    if (context.candidateProcessId != processId ||
+        context.generation != generation)
+    {
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
+            L"[GameDetection] process.exit-stale pid=" +
+            std::to_wstring(processId) + L" gen=" +
+            std::to_wstring(generation));
+        return;
+    }
+
+    const auto action = clawhud::DecideProductionProcessExit(
+        context, processId, generation);
+    if (action == clawhud::ProductionProcessExitAction::Ignore)
+        return;
+    const auto state = std::wstring(
+        clawhud::GameDetectionStateName(context.state));
+    Log(L"[GameDetection] process.exit pid=" + std::to_wstring(processId) +
+        L" gen=" + std::to_wstring(generation) + L" state=" + state);
+    if (action == clawhud::ProductionProcessExitAction::ReleaseCommitted)
+        ReleaseCommittedProductionTarget(L"game-exited");
+    else
+        ReleaseProductionGameCandidate(L"process-exited");
+    if (mockHudEnabled_ && !DiagnosticRunning() && !suspended_)
+        ReevaluateProductionGameDetection();
 }
 
 bool App::TryCommitReadyCandidateFromForeground(HWND,
@@ -1969,6 +2040,14 @@ void App::DiscardPendingProductionWindowEvents()
         delete reinterpret_cast<ProductionWindowEventUpdate*>(message.wParam);
 }
 
+void App::DiscardPendingProductionProcessExitEvents()
+{
+    MSG message{};
+    while (PeekMessageW(&message, tray_.Window(), kProductionProcessExit,
+        kProductionProcessExit, PM_REMOVE))
+        delete reinterpret_cast<ProductionProcessExitUpdate*>(message.wParam);
+}
+
 void App::ReconcileHudVisibility()
 {
     if (!hudPresentation_)
@@ -2228,6 +2307,7 @@ void App::Exit()
     StopProductionEcSampling(false, L"app-shutdown");
     StopGraphicsApiProbe();
     productionGameWindowSource_.Stop();
+    productionProcessLifetimeWatcher_.Disarm();
     foregroundTracker_.Stop();
     windowLifecycleSource_.Stop();
     presentActivitySource_.Stop();
@@ -2238,6 +2318,7 @@ void App::Exit()
     StopProductionPresentMonSampling(L"app-shutdown", true);
     DiscardPendingHudVisibilityRequests();
     DiscardPendingProductionWindowEvents();
+    DiscardPendingProductionProcessExitEvents();
     DiscardPendingMicrosoftGameEvidence();
     DiscardPendingGameRenderVerifierEvents();
     if (hudHotkeyRegistered_ && tray_.Window())
@@ -2302,6 +2383,17 @@ int App::ProcessMessages()
             if (update)
             {
                 HandleProductionWindowEvent(update->event);
+                delete update;
+            }
+            continue;
+        }
+        if (message.message == kProductionProcessExit)
+        {
+            auto* update = reinterpret_cast<ProductionProcessExitUpdate*>(message.wParam);
+            if (update)
+            {
+                HandleProductionProcessExit(update->processId,
+                    update->generation);
                 delete update;
             }
             continue;

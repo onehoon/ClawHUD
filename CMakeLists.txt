@@ -105,6 +105,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/GameDetection/MicrosoftGameTrigger.cpp
     src/ClawHUD/GameDetection/GameRenderVerifier.cpp
     src/ClawHUD/GameDetection/GenericForegroundTrigger.cpp
+    src/ClawHUD/GameDetection/ProductionProcessLifetime.cpp
     src/ClawHUD/ProductionTargetPolicy.cpp
     src/ClawHUD/SteamRunningAppIdSource.cpp)
 target_compile_features(ClawHUD PRIVATE cxx_std_20)
@@ -486,6 +487,19 @@ if(BUILD_TESTING)
     set_target_properties(ClawHUD.ProductionGameDetectionScenarioTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.ProductionGameDetectionScenarioTests
         COMMAND ClawHUD.ProductionGameDetectionScenarioTests)
+
+    add_executable(ClawHUD.ProductionProcessLifetimeTests
+        tests/ProductionProcessLifetimeTests.cpp
+        src/ClawHUD/GameDetection/ProductionProcessLifetime.cpp
+        src/ClawHUD/GameDetection/GameDetectionCoordinator.cpp)
+    target_compile_features(ClawHUD.ProductionProcessLifetimeTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.ProductionProcessLifetimeTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.ProductionProcessLifetimeTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.ProductionProcessLifetimeTests PRIVATE user32)
+    set_target_properties(ClawHUD.ProductionProcessLifetimeTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.ProductionProcessLifetimeTests
+        COMMAND ClawHUD.ProductionProcessLifetimeTests)
 
     add_executable(ClawHUD.SteamRunningAppTriggerTests
         tests/SteamRunningAppTriggerTests.cpp
