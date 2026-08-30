@@ -38,18 +38,6 @@ int main()
         command.find(L"--session_name \"ClawHUD-HUD-1234\"") != std::wstring::npos &&
         command.find(L"--terminate_on_proc_exit") != std::wstring::npos,
         "PresentMon command enables stale-session recovery");
-    ok &= Check(Near(CalculateDisplayedFps(60, 0.500).value(), 120.0), "120 FPS bucket");
-    ok &= Check(Near(CalculateDisplayedFps(20, 0.500).value(), 40.0), "40 FPS bucket");
-    ok &= Check(Near(CalculateDisplayedFps(37, 0.507).value(), 37.0 / 0.507),
-        "actual elapsed bucket");
-    ok &= Check(!CalculateDisplayedFps(0, 0.500), "empty window unavailable");
-    ok &= Check(!CalculateDisplayedFps(20, 0.0), "invalid elapsed window unavailable");
-    ok &= Check(Near(CalculateDisplayedFpsFromIntervals({250.0, 250.0}).value(), 4.0),
-        "display-timeline 500ms bucket");
-    ok &= Check(!CalculateDisplayedFpsFromIntervals({100.0, 200.0}),
-        "incomplete display-timeline bucket unavailable");
-    ok &= Check(!CalculateDisplayedFpsFromIntervals({250.0, -1.0}),
-        "invalid display interval unavailable");
 
     const std::vector<std::string> headers{
         "Application", "ProcessID", "SwapChainAddress", "PresentRuntime",
@@ -91,7 +79,7 @@ int main()
     ok &= Check(invalidEvents.empty(), "invalid frame produces no event");
     const auto firstEvents = accumulator.Observe({8.33, "Application"});
     ok &= Check(CountEvents(firstEvents, PresentMonHudEventType::FirstDisplayedFrame) == 1 &&
-        CountEvents(firstEvents, PresentMonHudEventType::FpsUpdate) == 0,
+        CountEvents(firstEvents, PresentMonHudEventType::StreamEnded) == 0,
         "first valid frame emits renderer evidence immediately");
 
     auto events = firstEvents;
@@ -102,13 +90,8 @@ int main()
     }
     ok &= Check(CountEvents(events, PresentMonHudEventType::FirstDisplayedFrame) == 1,
         "first displayed frame emits only once");
-    ok &= Check(CountEvents(events, PresentMonHudEventType::FpsUpdate) == 0,
-        "FPS waits for the aggregation window");
-
-    const auto fpsEvents = accumulator.Observe({8.33, "Application"});
-    ok &= Check(CountEvents(fpsEvents, PresentMonHudEventType::FpsUpdate) == 1 &&
-        fpsEvents.back().displayedFps && Near(*fpsEvents.back().displayedFps, 120.0),
-        "FPS update preserves calculated value");
+    ok &= Check(CountEvents(events, PresentMonHudEventType::StreamEnded) == 0,
+        "frame accumulator emits no legacy FPS events");
 
     accumulator.Reset();
     const auto resetEvents = accumulator.Observe({8.33, "Application"});
@@ -116,7 +99,7 @@ int main()
         "new session resets first displayed frame state");
     ok &= Check(events.size() >= 1 &&
         events.front().type == PresentMonHudEventType::FirstDisplayedFrame,
-        "first displayed frame precedes FPS updates");
+        "first displayed frame is emitted first");
     const PresentMonHudEvent streamEnded{
         PresentMonHudEventType::StreamEnded, std::nullopt};
     ok &= Check(streamEnded.type == PresentMonHudEventType::StreamEnded &&
@@ -126,14 +109,6 @@ int main()
     rows.reserve(61);
     for (std::size_t i = 0; i < 61; ++i)
         rows.push_back(row("8.33", i % 2 == 0 ? "Application" : "Intel XeSS-FG"));
-    std::vector<double> intervals;
-    for (const auto& csvRow : rows)
-    {
-        const auto sample = ParseDisplayedFrame(headers, csvRow);
-        if (sample) intervals.push_back(sample->msBetweenDisplayChange);
-    }
-    ok &= Check(intervals.size() == 61, "displayed rows collected from default schema");
-    ok &= Check(Near(CalculateDisplayedFpsFromIntervals(intervals).value(), 120.0),
-        "default schema displayed FPS regression");
+    ok &= Check(rows.size() == 61, "displayed rows collected from default schema");
     return ok ? 0 : 1;
 }
