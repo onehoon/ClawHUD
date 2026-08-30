@@ -903,11 +903,11 @@ Meaning of each label:
 | HUD label | Meaning | Intended source |
 |---|---|---|
 | `DX11` / `DX12` / `VULKAN` + FPS | current graphics API label + frame rate | PresentMon / runtime validation path |
-| `CPU` | total CPU usage + live CPU temperature | Windows CPU usage telemetry; MSI `Get_Temperature(0)[0]` for temperature |
+| `CPU` | total CPU usage + live CPU temperature | PresentMon API2 System telemetry for CPU usage; MSI `Get_Temperature(0)[0]` for temperature |
 | `GPU` | Intel GPU usage + GPU clock | PresentMon API2 System telemetry |
 | `TDP` | **current CPU Package Power**, not the configured PL1/TDP limit | MSI `Get_Data(221)` |
 | `RAM` | used physical system memory | Windows memory API |
-| `VRAM` | Intel GPU dedicated + shared adapter memory usage | Windows GPU Adapter Memory counters |
+| `VRAM` | Intel GPU memory usage | PresentMon API2 System telemetry |
 | `FAN` | average of the two Claw fan RPM values | MSI `Get_Fan(0)` |
 | `BAT` | battery percentage and, on DC only, remaining time | Windows power API |
 
