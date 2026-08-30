@@ -9,6 +9,24 @@
 
 namespace clawhud
 {
+enum class PresentMonApi2InitFailure
+{
+    None,
+    LoaderNotFound,
+    LoaderLoadFailed,
+    MissingEndpoint,
+    VersionQueryFailed,
+};
+
+struct PresentMonApi2InitStatus
+{
+    PresentMonApi2InitFailure failure{ PresentMonApi2InitFailure::None };
+    DWORD win32Error{};
+    PM_STATUS apiStatus{ PM_STATUS_SUCCESS };
+    const char* missingEndpoint{};
+};
+
+const char* PresentMonApi2InitFailureName(PresentMonApi2InitFailure failure) noexcept;
 std::filesystem::path PresentMonApi2AppLocalLoaderPath(
     const std::filesystem::path& modulePath);
 
@@ -28,6 +46,7 @@ public:
     const std::filesystem::path& LoaderPath() const noexcept { return loaderPath_; }
     DWORD LoaderError() const noexcept { return loaderError_; }
     const PM_VERSION& ApiVersion() const noexcept { return version_; }
+    const PresentMonApi2InitStatus& InitStatus() const noexcept { return initStatus_; }
 
     PM_STATUS OpenSession();
     void CloseSession() noexcept;
@@ -62,6 +81,7 @@ private:
     HMODULE loader_{};
     PM_SESSION_HANDLE session_{};
     PM_VERSION version_{};
+    PresentMonApi2InitStatus initStatus_{};
     std::filesystem::path loaderPath_;
     DWORD loaderError_{};
     bool initialized_{};

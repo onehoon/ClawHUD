@@ -408,7 +408,17 @@ void PresentMonApi2Diagnostic::Run()
 
     PresentMonApi2Client client;
     if (!client.Initialize())
-    { log << "PresentMon API2 runtime not available beside ClawHUD.exe.\nInstall the ClawHUD PresentMon runtime and retry.\n"; Status(L"Runtime unavailable"); running_ = false; complete(false); return; }
+    {
+        const auto& init = client.InitStatus();
+        log << "loader_path=" << Narrow(client.LoaderPath().wstring())
+            << " loader_error=" << client.LoaderError()
+            << " init_failure=" << PresentMonApi2InitFailureName(init.failure)
+            << " api_status=" << StatusName(init.apiStatus)
+            << " api_status_raw=" << init.apiStatus;
+        if (init.missingEndpoint) log << " missing_endpoint=" << init.missingEndpoint;
+        log << "\nPresentMon API2 runtime initialization failed.\n";
+        Status(L"Runtime unavailable"); running_ = false; complete(false); return;
+    }
     log << "loader_path=" << Narrow(client.LoaderPath().wstring())
         << " loader=LOADED error=" << client.LoaderError() << "\n";
     log << "symbols=RESOLVED\n";

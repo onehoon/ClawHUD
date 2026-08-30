@@ -48,6 +48,14 @@ int main()
     const bool initialized = client.Initialize();
     ok &= Check(initialized == client.Initialized(),
         "loader initialization state is internally consistent");
+    if (!initialized)
+    {
+        ok &= Check(client.InitStatus().failure != PresentMonApi2InitFailure::None,
+            "failed initialization preserves a failure reason");
+        ok &= Check(std::string(PresentMonApi2InitFailureName(
+            client.InitStatus().failure)) != "NONE",
+            "failed initialization has a readable failure reason");
+    }
     client.Shutdown();
     ok &= Check(!client.Initialized() && !client.SessionOpen(),
         "shutdown clears initialization after either initialization result");

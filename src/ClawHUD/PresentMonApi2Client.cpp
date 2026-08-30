@@ -64,7 +64,42 @@ struct PresentMonApi2Client::Endpoints
             flushFrames && registerDynamic && freeDynamic && pollDynamic &&
             pollStatic && registerFrame && consumeFrames && freeFrame;
     }
+
+    const char* FirstMissingName() const noexcept
+    {
+        if (!getVersion) return "pmGetApiVersion";
+        if (!openSession) return "pmOpenSession";
+        if (!closeSession) return "pmCloseSession";
+        if (!startTracking) return "pmStartTrackingProcess";
+        if (!stopTracking) return "pmStopTrackingProcess";
+        if (!getRoot) return "pmGetIntrospectionRoot";
+        if (!freeRoot) return "pmFreeIntrospectionRoot";
+        if (!setPeriod) return "pmSetTelemetryPollingPeriod";
+        if (!setFlush) return "pmSetEtwFlushPeriod";
+        if (!flushFrames) return "pmFlushFrames";
+        if (!registerDynamic) return "pmRegisterDynamicQuery";
+        if (!freeDynamic) return "pmFreeDynamicQuery";
+        if (!pollDynamic) return "pmPollDynamicQuery";
+        if (!pollStatic) return "pmPollStaticQuery";
+        if (!registerFrame) return "pmRegisterFrameQuery";
+        if (!consumeFrames) return "pmConsumeFrames";
+        if (!freeFrame) return "pmFreeFrameQuery";
+        return nullptr;
+    }
 };
+
+const char* PresentMonApi2InitFailureName(PresentMonApi2InitFailure failure) noexcept
+{
+    switch (failure)
+    {
+    case PresentMonApi2InitFailure::None: return "NONE";
+    case PresentMonApi2InitFailure::LoaderNotFound: return "LOADER_NOT_FOUND";
+    case PresentMonApi2InitFailure::LoaderLoadFailed: return "LOADER_LOAD_FAILED";
+    case PresentMonApi2InitFailure::MissingEndpoint: return "MISSING_ENDPOINT";
+    case PresentMonApi2InitFailure::VersionQueryFailed: return "VERSION_QUERY_FAILED";
+    default: return "UNKNOWN";
+    }
+}
 
 std::filesystem::path PresentMonApi2AppLocalLoaderPath(
     const std::filesystem::path& modulePath)
@@ -82,24 +117,34 @@ PresentMonApi2Client::~PresentMonApi2Client()
 bool PresentMonApi2Client::Initialize()
 {
     Shutdown();
+    initStatus_ = {};
     wchar_t moduleName[MAX_PATH]{};
     const DWORD length = GetModuleFileNameW(nullptr, moduleName, MAX_PATH);
     if (length == 0 || length >= MAX_PATH)
     {
         loaderError_ = GetLastError();
+        initStatus_.failure = PresentMonApi2InitFailure::LoaderLoadFailed;
+        initStatus_.win32Error = loaderError_;
         return false;
     }
     loaderPath_ = PresentMonApi2AppLocalLoaderPath(moduleName);
     if (loaderPath_.empty())
     {
         loaderError_ = ERROR_FILE_NOT_FOUND;
+        initStatus_.failure = PresentMonApi2InitFailure::LoaderNotFound;
+        initStatus_.win32Error = loaderError_;
         return false;
     }
     SetLastError(ERROR_SUCCESS);
     loader_ = LoadLibraryExW(loaderPath_.c_str(), nullptr,
         LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
     loaderError_ = loader_ ? ERROR_SUCCESS : GetLastError();
-    if (!loader_) return false;
+    if (!loader_)
+    {
+        initStatus_.failure = PresentMonApi2InitFailure::LoaderLoadFailed;
+        initStatus_.win32Error = loaderError_;
+        return false;
+    }
 
     endpoints_ = new Endpoints{
         Resolve<ApiGetVersion>(loader_, "pmGetApiVersion"),
@@ -119,9 +164,18 @@ bool PresentMonApi2Client::Initialize()
         Resolve<ApiRegisterFrame>(loader_, "pmRegisterFrameQuery"),
         Resolve<ApiConsumeFrames>(loader_, "pmConsumeFrames"),
         Resolve<ApiFreeFrame>(loader_, "pmFreeFrameQuery")};
-    if (!endpoints_->Complete() ||
-        endpoints_->getVersion(&version_) != PM_STATUS_SUCCESS)
+    if (!endpoints_->Complete())
     {
+        initStatus_.failure = PresentMonApi2InitFailure::MissingEndpoint;
+        initStatus_.missingEndpoint = endpoints_->FirstMissingName();
+        Shutdown();
+        return false;
+    }
+    const PM_STATUS versionStatus = endpoints_->getVersion(&version_);
+    if (versionStatus != PM_STATUS_SUCCESS)
+    {
+        initStatus_.failure = PresentMonApi2InitFailure::VersionQueryFailed;
+        initStatus_.apiStatus = versionStatus;
         Shutdown();
         return false;
     }
