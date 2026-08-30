@@ -76,7 +76,6 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/Tweaks/IntelVrr/IntelVrrRangeTweak.cpp
     src/ClawHUD/Tweaks/IntelVrr/IntelVrrRunResult.cpp
     src/ClawHUD/Tweaks/IntelVrr/IntelVrrResultStore.cpp
-    src/ClawHUD/Tweaks/IntelVrr/IntelVrrRunLogger.cpp
     src/ClawHUD/HudModel.cpp
     src/ClawHUD/HudSize.cpp
     src/ClawHUD/UninstallCleanup.cpp
