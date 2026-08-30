@@ -8,7 +8,8 @@ namespace clawhud
 {
 namespace
 {
-constexpr auto kMinimumHistory = std::chrono::seconds(10);
+constexpr std::size_t kMinimumSamples = 10;
+constexpr auto kMinimumHistory = std::chrono::seconds(9);
 constexpr auto kRollingWindow = std::chrono::seconds(20);
 }
 
@@ -29,7 +30,7 @@ void BatteryPowerEstimator::Observe(bool onBattery, std::optional<double> powerW
 
 bool BatteryPowerEstimator::Ready() const noexcept
 {
-    return samples_.size() >= 2 &&
+    return samples_.size() >= kMinimumSamples &&
         samples_.back().timestamp - samples_.front().timestamp >= kMinimumHistory;
 }
 

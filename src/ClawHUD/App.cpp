@@ -1296,8 +1296,11 @@ void App::SampleProductionBatteryTelemetry()
             latestPowerTelemetry_->remainingCapacityMWh,
             clawhud::BatteryRuntimeEstimator::Clock::now());
         LogBatteryEstimate(estimate);
-        latestPowerTelemetry_->remainingMinutes = clawhud::SelectRemainingMinutes(
-            *latestPowerTelemetry_, ecEstimate ? ecEstimate : estimate.remainingMinutes);
+        std::optional<int> selectedRemainingMinutes = ecEstimate;
+        if (!selectedRemainingMinutes)
+            selectedRemainingMinutes = clawhud::SelectRemainingMinutes(
+                *latestPowerTelemetry_, estimate.remainingMinutes);
+        latestPowerTelemetry_->remainingMinutes = selectedRemainingMinutes;
         if (!ecEstimate && estimate.remainingMinutes && !batteryEcFallbackLogged_)
         {
             batteryEcFallbackLogged_ = true;
