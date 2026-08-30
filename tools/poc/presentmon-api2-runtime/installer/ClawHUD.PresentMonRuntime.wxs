@@ -16,7 +16,12 @@
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFiles64Folder">
         <Directory Id="intel_folder" Name="Intel">
-          <Directory Id="service_folder" Name="PresentMonSharedService" />
+        <Directory Id="service_folder" Name="PresentMonSharedService">
+          <Merge Id="PresentMonSharedServiceModule"
+                 Language="1033"
+                 SourceFile="$(var.PresentMonSharedServiceModule)"
+                 DiskId="1" />
+        </Directory>
         </Directory>
       </Directory>
     </Directory>
@@ -25,9 +30,5 @@
       <MergeRef Id="PresentMonSharedServiceModule" />
     </Feature>
 
-    <Merge Id="PresentMonSharedServiceModule"
-           Language="1033"
-           SourceFile="$(var.PresentMonSharedServiceModule)"
-           DiskId="1" />
   </Product>
 </Wix>

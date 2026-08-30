@@ -8,6 +8,7 @@ The POC consumes the official PresentMon `v2.5.1` source at commit `3e06c7dcb922
 
 - `scripts/prepare-upstream.ps1` — clones and verifies the exact upstream tag.
 - `scripts/build-runtime.ps1` — builds the upstream service/API2 projects, merge module, loader, and wrapper MSI.
+- `scripts/PresentMonVcpkg.props` — isolated MSBuild compatibility shim that imports the pinned vcpkg targets without modifying upstream projects.
 - `scripts/verify-runtime.ps1` — records installed service, registry, pipe, and artifact evidence.
 - `scripts/collect-artifacts.ps1` — calculates actual artifact sizes and SHA-256 values for the report.
 - `installer/` — minimal WiX wrapper that consumes `PresentMonSharedService.msm`.
