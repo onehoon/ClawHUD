@@ -172,6 +172,8 @@ private:
     void ReleaseCommittedProductionTarget(const wchar_t* reason);
     void ReevaluateProductionGameDetection();
     void HandleProductionForegroundChanged(HWND window, DWORD processId);
+    void HandleProductionWindowEvent(
+        const clawhud::ProductionWindowEvent& event);
     void HandleMicrosoftGameEvidence(
         const clawhud::MicrosoftGameTriggerEvidence& evidence);
     void HandleGameDetectionTransition(
@@ -205,6 +207,7 @@ private:
     bool RequestHudOnUiThread(bool visible, const HudVisibilityState* restore, DWORD timeoutMs);
     void DiscardPendingHudVisibilityRequests();
     void DiscardPendingMicrosoftGameEvidence();
+    void DiscardPendingProductionWindowEvents();
     void DiscardPendingGameRenderVerifierEvents();
 
     HINSTANCE instance_{};

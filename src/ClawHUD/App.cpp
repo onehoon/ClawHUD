@@ -33,6 +33,7 @@ constexpr UINT kHudVisibilityRequest = WM_APP + 3;
 constexpr UINT kSteamRunningAppIdChanged = WM_APP + 5;
 constexpr UINT kMicrosoftGameEvidence = WM_APP + 6;
 constexpr UINT kGameRenderVerifierUpdate = WM_APP + 7;
+constexpr UINT kProductionWindowEvent = WM_APP + 8;
 constexpr UINT kUsageSamplingIntervalMs = 1000;
 constexpr UINT kBatteryHudTimerIntervalMs = 5000;
 constexpr UINT kGraphicsApiRetryIntervalMs = 500;
@@ -55,6 +56,11 @@ struct HudVisibilityRequest
 struct MicrosoftGameEvidenceUpdate
 {
     clawhud::MicrosoftGameTriggerEvidence evidence;
+};
+
+struct ProductionWindowEventUpdate
+{
+    clawhud::ProductionWindowEvent event;
 };
 
 struct GameRenderVerifierUpdate
@@ -155,6 +161,7 @@ App::~App()
     steamRunningAppIdSource_.Stop();
     DiscardPendingGameRenderVerifierEvents();
     DiscardPendingMicrosoftGameEvidence();
+    DiscardPendingProductionWindowEvents();
     vrrDiagnostic_.reset();
     if (hudHotkeyRegistered_ && tray_.Window())
         UnregisterHotKey(tray_.Window(), kHudToggleHotkeyId);
@@ -200,6 +207,11 @@ int App::Run()
     if (!productionGameWindowSource_.Start(
         [this](const clawhud::ProductionWindowEvent& event)
         {
+            auto* windowUpdate = new ProductionWindowEventUpdate{event};
+            if (!PostMessageW(tray_.Window(), kProductionWindowEvent,
+                reinterpret_cast<WPARAM>(windowUpdate), 0))
+                delete windowUpdate;
+
             if (const auto evidence = microsoftGameTrigger_.InspectWindowEvent(event))
             {
                 clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info,
@@ -500,6 +512,7 @@ void App::HandleSystemSuspend()
     PauseProductionSamplingForSuspend();
     DiscardPendingGameRenderVerifierEvents();
     DiscardPendingMicrosoftGameEvidence();
+    DiscardPendingProductionWindowEvents();
     Log(L"System suspend detected");
 }
 
@@ -514,6 +527,7 @@ void App::HandleSystemResume()
             hudPresentation_->Hide();
         PauseProductionSamplingForSuspend();
         DiscardPendingGameRenderVerifierEvents();
+        DiscardPendingProductionWindowEvents();
         DiscardPendingMicrosoftGameEvidence();
         Log(L"Suspend notification was missed; resume fallback prepared");
     }
@@ -1487,6 +1501,45 @@ void App::HandleMicrosoftGameEvidence(
         evidence.window, evidence.processId);
 }
 
+void App::HandleProductionWindowEvent(
+    const clawhud::ProductionWindowEvent& event)
+{
+    if (event.type != clawhud::ProductionWindowEventType::Create &&
+        event.type != clawhud::ProductionWindowEventType::Show)
+        return;
+    if (!clawhud::ShouldConsiderForegroundProductionTarget(
+        mockHudEnabled_, DiagnosticRunning(), suspended_))
+        return;
+
+    const auto& context = gameDetectionCoordinator_.Context();
+    if (context.state != clawhud::GameDetectionState::Armed ||
+        context.steamAppId == 0 || !event.immediateTopLevel ||
+        event.processId == 0 || event.processId == GetCurrentProcessId())
+        return;
+    if (!clawhud::InspectProductionTargetProcess(event.processId) ||
+        !ProcessAlive(event.processId))
+        return;
+
+    const DWORD previousProcessId = context.candidateProcessId;
+    const auto previousGeneration = context.generation;
+    const auto transition = gameDetectionCoordinator_.ObserveWake({
+        clawhud::GameDetectionTrigger::SteamRunningAppId,
+        event.processId, event.window, context.steamAppId, false});
+    if (transition.transition == clawhud::GameDetectionTransition::None)
+        return;
+
+    const wchar_t* eventName = event.type ==
+        clawhud::ProductionWindowEventType::Create ? L"Create" : L"Show";
+    clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
+        L"[GameDetection] steam.window-candidate pid=" +
+        std::to_wstring(event.processId) + L" hwnd=" + HwndText(event.window) +
+        L" appId=" + std::to_wstring(context.steamAppId) +
+        L" event=" + eventName);
+    HandleGameDetectionTransition(transition,
+        clawhud::GameDetectionTrigger::SteamRunningAppId,
+        previousProcessId, previousGeneration);
+}
+
 void App::ApplyProductionEvidence(clawhud::GameDetectionTrigger trigger,
     HWND window, DWORD processId)
 {
@@ -1908,6 +1961,14 @@ void App::DiscardPendingMicrosoftGameEvidence()
         delete reinterpret_cast<MicrosoftGameEvidenceUpdate*>(message.wParam);
 }
 
+void App::DiscardPendingProductionWindowEvents()
+{
+    MSG message{};
+    while (PeekMessageW(&message, tray_.Window(), kProductionWindowEvent,
+        kProductionWindowEvent, PM_REMOVE))
+        delete reinterpret_cast<ProductionWindowEventUpdate*>(message.wParam);
+}
+
 void App::ReconcileHudVisibility()
 {
     if (!hudPresentation_)
@@ -2176,6 +2237,7 @@ void App::Exit()
     if (igclDiagnostic_) igclDiagnostic_->Stop();
     StopProductionPresentMonSampling(L"app-shutdown", true);
     DiscardPendingHudVisibilityRequests();
+    DiscardPendingProductionWindowEvents();
     DiscardPendingMicrosoftGameEvidence();
     DiscardPendingGameRenderVerifierEvents();
     if (hudHotkeyRegistered_ && tray_.Window())
@@ -2230,6 +2292,16 @@ int App::ProcessMessages()
             if (update)
             {
                 HandleGameRenderVerifierEvent(update->event);
+                delete update;
+            }
+            continue;
+        }
+        if (message.message == kProductionWindowEvent)
+        {
+            auto* update = reinterpret_cast<ProductionWindowEventUpdate*>(message.wParam);
+            if (update)
+            {
+                HandleProductionWindowEvent(update->event);
                 delete update;
             }
             continue;
