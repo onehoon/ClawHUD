@@ -7,7 +7,6 @@
 #include "HudSize.h"
 #include "UninstallCleanup.h"
 #include "RuntimeLogger.h"
-#include "WindowsMemoryTelemetry.h"
 #include "Version.h"
 #include "ProductionTargetPolicy.h"
 #include "SuspendResumePolicy.h"
@@ -15,7 +14,6 @@
 #include "Win32Format.h"
 #include "ProcessLiveness.h"
 #include "HudSettingsStore.h"
-#include "HudTelemetryAggregator.h"
 
 #include <Velopack.hpp>
 
@@ -39,11 +37,6 @@ constexpr UINT kMicrosoftGameEvidence = WM_APP + 6;
 constexpr UINT kGameRenderVerifierUpdate = WM_APP + 7;
 constexpr UINT kProductionWindowEvent = WM_APP + 8;
 constexpr UINT kProductionProcessExit = WM_APP + 9;
-constexpr UINT kUsageSamplingIntervalMs = 1000;
-constexpr UINT kBatteryHudTimerIntervalMs = 5000;
-constexpr UINT kPresentMonFpsSamplingIntervalMs = 500;
-constexpr UINT kGraphicsApiRetryIntervalMs = 500;
-constexpr unsigned kGraphicsApiMaxAttempts = 5;
 constexpr wchar_t kInstanceMutexName[] = L"Local\\ClawHUD.SingleInstance";
 
 struct MicrosoftGameEvidenceUpdate
@@ -85,6 +78,7 @@ App::App(HINSTANCE instance) : instance_(instance), tray_(*this),
     wchar_t path[MAX_PATH]{}; const DWORD length = GetModuleFileNameW(instance_, path, ARRAYSIZE(path));
     executablePath_.assign(path, length);
     LoadHudSettings();
+    productionTelemetry_.SyncVisibilityMode(hudOptions_.visibilityMode);
     clawhud::RuntimeLogger::SetDebugLogging(debugLoggingEnabled_);
     Log(L"ClawHUD started version=" CLAWHUD_VERSION L" pid=" +
         std::to_wstring(GetCurrentProcessId()));
@@ -99,7 +93,7 @@ App::~App()
     Log(L"ClawHUD exiting");
     CancelResumeRecovery();
     StopProductionSampling(false, L"app-shutdown");
-    StopGraphicsApiProbe();
+    productionTelemetry_.StopGraphicsApiProbe();
     productionGameWindowSource_.Stop();
     productionProcessLifetimeWatcher_.Disarm();
     foregroundTracker_.Stop();
@@ -152,6 +146,7 @@ int App::Run()
             L"Tray initialization failed");
         return 1;
     }
+    productionTelemetry_.Bind(tray_.Window(), [this] { RenderProductionHud(); });
     if (!productionGameWindowSource_.Start(
         [this](const clawhud::ProductionWindowEvent& event)
         {
@@ -224,19 +219,7 @@ int App::Run()
         },
         [this](HWND window, DWORD processId)
         {
-            if (alwaysFpsTarget_.SetForegroundProcess(processId) &&
-                hudOptions_.visibilityMode == clawhud::HudVisibilityMode::Always)
-            {
-                // Foreground PID changed: the previous PID's FPS is invalid
-                // immediately, never leaking across the target change, and the
-                // same-PID stale hold must not carry it either. No extra render
-                // here; the normal visibility/sampling path performs the HUD
-                // update.
-                latestProcessFps_.reset();
-                fpsStaleHold_.Reset();
-                Log(L"[PresentMonFPS] mode=Always foregroundPid=" +
-                    std::to_wstring(processId) + L" fps-invalidated");
-            }
+            productionTelemetry_.OnForegroundProcessChanged(processId);
             ReconcileHudVisibility();
             if (debugLoggingEnabled_)
             {
@@ -371,9 +354,9 @@ void App::TryResumeRecovery()
     }
 
     if (processAlive)
-        StartGraphicsApiProbe(processId);
+        productionTelemetry_.StartGraphicsApiProbe(processId);
     else
-        StopGraphicsApiProbe();
+        productionTelemetry_.StopGraphicsApiProbe();
 
     bool freshFrameReady = !expectedVisible || hudPresentation_ != nullptr;
     if (expectedVisible && hudPresentation_)
@@ -467,10 +450,10 @@ void App::StopHud()
     hudEnabled_ = false;
     manualHudVisibilityOverride_.reset();
     StopProductionSampling(true, L"hud-disabled");
-    StopGraphicsApiProbe();
+    productionTelemetry_.StopGraphicsApiProbe();
     if (gameDetectionCoordinator_.Context().state != clawhud::GameDetectionState::Committed)
         ClearProductionCandidate(L"hud-disabled");
-    StopProductionFpsSampling();
+    productionTelemetry_.StopFpsSampling();
     ReconcileHudVisibility();
     if (hudPresentation_)
     {
@@ -667,97 +650,6 @@ void App::RefreshHud()
         RenderProductionHud();
 }
 
-clawhud::MsiEcHudTelemetry App::ReadHudEcTelemetry()
-{
-    clawhud::MsiEcHudTelemetry result{};
-    if (!ecHudClient_)
-        ecHudClient_ = std::make_unique<EcHelperClient>();
-
-    const auto abortAfterFailure = [this]()
-    {
-        return clawhud::ShouldAbortEcTelemetrySample(
-            ecHudClient_->LastStage());
-    };
-
-    std::vector<std::uint8_t> payload;
-    if (ecHudClient_->ReadTemperature(payload))
-        result.cpuTempC = clawhud::DecodeCpuTempC(payload);
-    else if (abortAfterFailure())
-    {
-        ecHudClient_->Close();
-        return result;
-    }
-
-    payload.clear();
-    if (ecHudClient_->ReadFan(payload))
-    {
-        if (const auto fans = clawhud::DecodeFanTelemetry(payload))
-        {
-            result.fan1Rpm = fans->fan1Rpm;
-            result.fan2Rpm = fans->fan2Rpm;
-        }
-    }
-    else if (abortAfterFailure())
-    {
-        ecHudClient_->Close();
-        return result;
-    }
-
-    payload.clear();
-    if (ecHudClient_->ReadData(221, payload))
-        result.cpuPackagePowerW = clawhud::DecodeCpuPackagePowerW(payload);
-    else if (abortAfterFailure())
-    {
-        ecHudClient_->Close();
-        return result;
-    }
-
-    if (!latestPowerTelemetry_ || !latestPowerTelemetry_->onBattery.value_or(false))
-        return result;
-
-    std::vector<std::uint8_t> currentLow;
-    std::vector<std::uint8_t> currentHigh;
-    std::vector<std::uint8_t> voltageLow;
-    std::vector<std::uint8_t> voltageHigh;
-    const bool c0 = ecHudClient_->ReadData(70, currentLow);
-    if (!c0 || currentLow.empty())
-    {
-        if (abortAfterFailure())
-            ecHudClient_->Close();
-        return result;
-    }
-    const bool c1 = ecHudClient_->ReadData(71, currentHigh);
-    if (!c1 || currentHigh.empty())
-    {
-        if (abortAfterFailure())
-            ecHudClient_->Close();
-        return result;
-    }
-    const bool v0 = ecHudClient_->ReadData(74, voltageLow);
-    if (!v0 || voltageLow.empty())
-    {
-        if (abortAfterFailure())
-            ecHudClient_->Close();
-        return result;
-    }
-    const bool v1 = ecHudClient_->ReadData(75, voltageHigh);
-    if (!v1 || voltageHigh.empty())
-    {
-        if (abortAfterFailure())
-            ecHudClient_->Close();
-        return result;
-    }
-    if (c0 && c1 && v0 && v1 && !currentLow.empty() && !currentHigh.empty() &&
-        !voltageLow.empty() && !voltageHigh.empty())
-    {
-        const auto battery = clawhud::DecodeBatteryPower(
-            currentLow[0], currentHigh[0], voltageLow[0], voltageHigh[0]);
-        if (battery)
-            result.batteryDischargePowerW = battery->powerW;
-    }
-    return result;
-}
-
 void App::RenderProductionHud(bool allowHidden)
 {
     if (!hudEnabled_ || !hudPresentation_ ||
@@ -765,16 +657,7 @@ void App::RenderProductionHud(bool allowHidden)
         return;
 
     clawhud::HudTelemetrySnapshot snapshot{};
-    telemetryAggregator_.FillSnapshot(snapshot);
-    snapshot.graphicsApi = latestGraphicsApi_;
-    snapshot.presentMonDisplayedFps = latestProcessFps_;
-    if (latestPowerTelemetry_)
-    {
-        snapshot.batteryPercent = latestPowerTelemetry_->batteryPercent;
-        snapshot.onBattery = latestPowerTelemetry_->onBattery.value_or(false);
-        if (snapshot.onBattery)
-            snapshot.remainingMinutes = latestPowerTelemetry_->remainingMinutes;
-    }
+    productionTelemetry_.FillSnapshot(snapshot);
 
     const auto options = BuildHudRenderOptions();
     const HRESULT hr = hudPresentation_->Render(snapshot, options);
@@ -793,232 +676,38 @@ void App::SampleProductionTelemetry()
 {
     if (suspended_ || !hudEnabled_ || !hudPresentation_ || !hudPresentation_->Visible())
         return;
-    if (graphicsApiProcessId_ && !ProcessAlive(graphicsApiProcessId_))
-        StopGraphicsApiProbe();
-    const auto freshEcTelemetry = ReadHudEcTelemetry();
-    const bool onBattery = latestPowerTelemetry_ &&
-        latestPowerTelemetry_->onBattery.value_or(false);
-    const auto historyBefore = batteryPowerEstimator_.SampleCount();
-    if (onBattery && !batteryEcOnDc_)
-    {
-        batteryEcReadyLogged_ = false;
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
-            L"[BatteryEC] DC sampling started");
-    }
-    if (!onBattery && batteryEcOnDc_)
-    {
-        batteryEcReadyLogged_ = false;
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
-            L"[BatteryEC] history reset reason=ac-connected");
-    }
-    if (onBattery && historyBefore != 0 &&
-        !freshEcTelemetry.batteryDischargePowerW)
-    {
-        batteryPowerEstimator_.Reset();
-        batteryEcReadyLogged_ = false;
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
-            L"[BatteryEC] history reset reason=invalid-sample");
-    }
-    else
-        batteryPowerEstimator_.Observe(onBattery, freshEcTelemetry.batteryDischargePowerW,
-            clawhud::BatteryPowerEstimator::Clock::now());
-    if (batteryPowerEstimator_.Ready() && !batteryEcReadyLogged_)
-    {
-        batteryEcReadyLogged_ = true;
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
-            L"[BatteryEC] estimator ready");
-    }
-    batteryEcOnDc_ = onBattery;
-    telemetryAggregator_.IngestEc(freshEcTelemetry);
-    const auto system = presentMonTelemetryProvider_.ReadSystem();
-    const std::optional<double> missingDouble;
-    const std::optional<std::uint64_t> missingBytes;
-    clawhud::HudSystemTelemetryInput systemInput;
-    systemInput.cpuUsagePercent = system ? system->cpuUsagePercent : missingDouble;
-    systemInput.gpuUsagePercent = system ? system->gpuUsagePercent : missingDouble;
-    systemInput.gpuClockMHz = system ? system->gpuClockMHz : missingDouble;
-    systemInput.gpuMemoryUsedBytes = system ? system->gpuMemoryUsedBytes : missingBytes;
-    systemInput.systemMemoryUsedBytes = clawhud::ReadSystemMemoryUsedBytes();
-    telemetryAggregator_.IngestSystem(systemInput);
-    RenderProductionHud();
+    productionTelemetry_.SampleSystemEc();
 }
 
 void App::SampleProductionBatteryTelemetry()
 {
     if (suspended_ || !hudEnabled_ || !hudPresentation_ || !hudPresentation_->Visible())
         return;
-    latestPowerTelemetry_ = clawhud::ReadWindowsPowerTelemetry();
-    if (!latestPowerTelemetry_)
-    {
-        batteryPowerEstimator_.Reset();
-    }
-    else
-    {
-        const auto ecEstimate = batteryPowerEstimator_.EstimateRemainingMinutes(
-            latestPowerTelemetry_->remainingCapacityMWh);
-        latestPowerTelemetry_->remainingMinutes = ecEstimate;
-        std::wostringstream batteryLog;
-        batteryLog << L"[BatteryEC] source="
-            << (ecEstimate ? L"EC" : L"none")
-            << L" history=" << batteryPowerEstimator_.SampleCount()
-            << L" averageW=";
-        if (const auto average = batteryPowerEstimator_.AveragePowerW())
-            batteryLog << std::fixed << std::setprecision(2) << *average;
-        else
-            batteryLog << L"unavailable";
-        batteryLog << L" remainingCapacityMWh="
-            << latestPowerTelemetry_->remainingCapacityMWh.value_or(0)
-            << L" remainingMinutes="
-            << latestPowerTelemetry_->remainingMinutes.value_or(0);
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug, batteryLog.str());
-    }
-    RenderProductionHud();
+    productionTelemetry_.SampleBattery();
 }
 
 void App::StartProductionSampling()
 {
     if (suspended_ || !HudVisible())
         return;
-    if (!productionSamplingActive_)
-    {
-        productionSamplingActive_ = true;
-        Log(L"Production telemetry sampling started");
-        SampleProductionTelemetry();
-        SetTimer(tray_.Window(), kEcHudTimerId, kUsageSamplingIntervalMs, nullptr);
-        SampleProductionBatteryTelemetry();
-        SetTimer(tray_.Window(), kBatteryHudTimerId, kBatteryHudTimerIntervalMs, nullptr);
-    }
+    productionTelemetry_.StartBaseSampling();
     StartGameRenderVerification();
-    StartProductionFpsSampling();
+    productionTelemetry_.StartFpsSampling();
 }
 
 void App::SampleProductionFpsTelemetry()
 {
     if (suspended_ || !hudEnabled_ || !HudVisible())
         return;
-    const auto& context = gameDetectionCoordinator_.Context();
-    const bool committed = context.state == clawhud::GameDetectionState::Committed;
-    const bool alwaysMode =
-        hudOptions_.visibilityMode == clawhud::HudVisibilityMode::Always;
-    const DWORD processId = clawhud::ResolveProductionFpsTargetPid(
-        hudOptions_.visibilityMode, alwaysFpsTarget_.TargetProcessId(),
-        committed ? context.candidateProcessId : 0);
-    const auto now = GetTickCount64();
-    if (!processId)
-    {
-        if (latestProcessFps_)
-            Log(L"[PresentMonFPS] target-cleared");
-        latestProcessFps_.reset();
-        fpsStaleHold_.Reset();
-        presentMonTelemetryProvider_.ReadProcess(0);
-        return;
-    }
-    const auto snapshot = presentMonTelemetryProvider_.ReadProcess(processId);
-    const std::optional<double> freshFps =
-        snapshot ? snapshot->displayedFps : std::nullopt;
-    std::optional<double> targetFps;
-    if (alwaysMode)
-    {
-        // Reject a result that no longer belongs to the current foreground PID
-        // and never fall back to a background/committed PID.
-        alwaysFpsTarget_.AcceptSample(processId, freshFps);
-        targetFps = alwaysFpsTarget_.DisplayedFps();
-    }
-    else
-    {
-        targetFps = freshFps;
-    }
-    // Retain the last valid FPS across brief same-PID misses; PID changes and
-    // holds older than 2 s are discarded inside the stale hold.
-    const bool wasHeld = latestProcessFps_ && !targetFps;
-    latestProcessFps_ = fpsStaleHold_.Observe(processId, targetFps, now);
-    if (wasHeld && !latestProcessFps_)
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
-            L"[PresentMonFPS] pid=" + std::to_wstring(processId) +
-            L" stale-expired");
-    if (now - lastFpsCompareLogTick_ >= 1000)
-    {
-        lastFpsCompareLogTick_ = now;
-        const auto fpsText = [](const std::optional<double>& value)
-        {
-            if (!value)
-                return std::wstring(L"NA");
-            std::wostringstream stream;
-            stream << std::fixed << std::setprecision(2) << *value;
-            return stream.str();
-        };
-        std::wstring line = L"[PresentMonFPS] pid=" + std::to_wstring(processId);
-        if (snapshot && snapshot->swapChainAddress)
-        {
-            wchar_t address[19]{};
-            swprintf_s(address, L"0x%016llX",
-                static_cast<unsigned long long>(*snapshot->swapChainAddress));
-            line += L" swap=" + std::wstring(address);
-        }
-        const std::optional<double> displayed =
-            snapshot ? snapshot->displayedFps : std::nullopt;
-        const std::optional<double> presented =
-            snapshot ? snapshot->presentedFps : std::nullopt;
-        line += L" displayed=" + fpsText(displayed) +
-            L" presented=" + fpsText(presented);
-        if (displayed && presented)
-        {
-            std::wostringstream delta;
-            delta << std::fixed << std::setprecision(2)
-                << (*displayed - *presented);
-            line += L" delta=" + delta.str();
-        }
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug, line);
-    }
-    RenderProductionHud();
-}
-
-void App::StartProductionFpsSampling()
-{
-    if (!presentMonTelemetryProvider_.Ready() ||
-        !presentMonTelemetryProvider_.ProcessReady())
-    {
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
-            L"[PresentMonFPS] provider-unavailable");
-        return;
-    }
-    SampleProductionFpsTelemetry();
-    SetTimer(tray_.Window(), kPresentMonFpsTimerId,
-        kPresentMonFpsSamplingIntervalMs, nullptr);
-}
-
-void App::StopProductionFpsSampling(bool clearTarget)
-{
-    KillTimer(tray_.Window(), kPresentMonFpsTimerId);
-    if (clearTarget)
-    {
-        (void)presentMonTelemetryProvider_.ReadProcess(0);
-        latestProcessFps_.reset();
-        fpsStaleHold_.Reset();
-    }
+    productionTelemetry_.SampleFps();
 }
 
 void App::PauseProductionSamplingForSuspend()
 {
-    const bool wasActive = productionSamplingActive_;
-    KillTimer(tray_.Window(), kEcHudTimerId);
-    KillTimer(tray_.Window(), kBatteryHudTimerId);
-    StopProductionFpsSampling();
+    productionTelemetry_.StopSamplingTimersAndFps();
     StopGameRenderVerification(L"suspend", false);
-    StopGraphicsApiProbe();
-    if (ecHudClient_)
-    {
-        ecHudClient_->Close();
-        ecHudClient_.reset();
-    }
-    telemetryAggregator_.Reset();
-    latestPowerTelemetry_.reset();
-    batteryPowerEstimator_.Reset();
-    batteryEcOnDc_ = false;
-    batteryEcReadyLogged_ = false;
-    productionSamplingActive_ = false;
-    if (wasActive)
-        Log(L"Production telemetry sampling stopped reason=suspend");
+    productionTelemetry_.StopGraphicsApiProbe();
+    productionTelemetry_.ResetSamplingState(L"suspend");
 }
 
 void App::ReleaseCommittedProductionTarget(const wchar_t* reason)
@@ -1028,6 +717,7 @@ void App::ReleaseCommittedProductionTarget(const wchar_t* reason)
     const auto generation = context.generation;
     if (!processId)
         return;
+    productionTelemetry_.ClearCommittedProcess();
     const auto release = clawhud::PlanCommittedTargetRelease();
     clawhud::CommittedTargetReleaseOps ops;
     ops.stopRenderVerification = [this, reason]
@@ -1036,7 +726,7 @@ void App::ReleaseCommittedProductionTarget(const wchar_t* reason)
     };
     ops.stopGraphicsApiProbe = [this]
     {
-        StopGraphicsApiProbe();
+        productionTelemetry_.StopGraphicsApiProbe();
     };
     ops.clearTrackedProcess = [this]
     {
@@ -1069,25 +759,10 @@ void App::CancelResumeRecovery()
 
 void App::StopProductionSampling(bool stopRenderVerification, const wchar_t* reason)
 {
-    const bool wasActive = productionSamplingActive_;
-    KillTimer(tray_.Window(), kEcHudTimerId);
-    KillTimer(tray_.Window(), kBatteryHudTimerId);
-    StopProductionFpsSampling();
+    productionTelemetry_.StopSamplingTimersAndFps();
     if (stopRenderVerification)
         StopGameRenderVerification();
-    if (ecHudClient_)
-    {
-        ecHudClient_->Close();
-        ecHudClient_.reset();
-    }
-    telemetryAggregator_.Reset();
-    latestPowerTelemetry_.reset();
-    batteryPowerEstimator_.Reset();
-    batteryEcOnDc_ = false;
-    batteryEcReadyLogged_ = false;
-    productionSamplingActive_ = false;
-    if (wasActive)
-        Log(L"Production telemetry sampling stopped reason=" + std::wstring(reason));
+    productionTelemetry_.ResetSamplingState(reason);
 }
 
 void App::StartGameRenderVerification()
@@ -1153,48 +828,12 @@ void App::StopGameRenderVerification(const wchar_t* reason, bool clearLatestFps)
         gameRenderVerifier_.Stop();
     }
     if (clearLatestFps)
-        StopProductionFpsSampling();
-}
-
-void App::StartGraphicsApiProbe(DWORD processId)
-{
-    StopGraphicsApiProbe();
-    graphicsApiProcessId_ = processId;
-    TryGraphicsApiProbe();
-}
-
-void App::StopGraphicsApiProbe()
-{
-    KillTimer(tray_.Window(), kGraphicsApiRetryTimerId);
-    graphicsApiProbe_.Reset();
-    graphicsApiProcessId_ = 0;
-    graphicsApiAttempts_ = 0;
-    latestGraphicsApi_.reset();
+        productionTelemetry_.StopFpsSampling();
 }
 
 void App::TryGraphicsApiProbe()
 {
-    if (!graphicsApiProcessId_ || !ProcessAlive(graphicsApiProcessId_))
-    {
-        StopGraphicsApiProbe();
-        return;
-    }
-    ++graphicsApiAttempts_;
-    latestGraphicsApi_ = graphicsApiProbe_.Query(graphicsApiProcessId_);
-    if (latestGraphicsApi_ || graphicsApiAttempts_ >= kGraphicsApiMaxAttempts)
-    {
-        KillTimer(tray_.Window(), kGraphicsApiRetryTimerId);
-        graphicsApiProbe_.Reset();
-        if (!latestGraphicsApi_)
-            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
-                L"IGCL Graphics API unresolved after bounded retries");
-        else
-            Log(L"Graphics API resolved api=" + *latestGraphicsApi_);
-        RenderProductionHud();
-        return;
-    }
-    SetTimer(tray_.Window(), kGraphicsApiRetryTimerId,
-        kGraphicsApiRetryIntervalMs, nullptr);
+    productionTelemetry_.TryGraphicsApiProbe();
 }
 
 void App::HandleGameRenderVerifierEvent(
@@ -1253,8 +892,7 @@ void App::HandleProductionForegroundChanged(HWND window, DWORD processId)
     {
         if (ProcessAlive(context.candidateProcessId))
         {
-            if (graphicsApiProcessId_ != context.candidateProcessId)
-                StartGraphicsApiProbe(context.candidateProcessId);
+            productionTelemetry_.EnsureGraphicsApiProbe(context.candidateProcessId);
             StartGameRenderVerification();
             return;
         }
@@ -1368,7 +1006,7 @@ void App::HandleGameDetectionTransition(
     case clawhud::GameDetectionTransition::CandidateStarted:
         ArmProductionProcessLifetime(transition.processId,
             transition.generation);
-        StopProductionFpsSampling();
+        productionTelemetry_.StopFpsSampling();
         Log(L"[GameDetection] candidate.start trigger=" +
             std::wstring(clawhud::GameDetectionTriggerName(trigger)) +
             L" pid=" + std::to_wstring(transition.processId) + L" gen=" +
@@ -1411,7 +1049,7 @@ void App::HandleGameDetectionTransition(
         ArmProductionProcessLifetime(transition.processId,
             transition.generation);
         StopGameRenderVerification(L"candidate-replaced", true);
-        StopGraphicsApiProbe();
+        productionTelemetry_.StopGraphicsApiProbe();
         Log(L"[GameDetection] candidate.replace oldPid=" +
             std::to_wstring(previousProcessId) + L" newPid=" +
             std::to_wstring(transition.processId) + L" trigger=" +
@@ -1536,7 +1174,8 @@ bool App::TryCommitReadyCandidateFromForeground(HWND,
     if (!gameDetectionCoordinator_.CommitCandidate(processId, generation))
         return false;
     foregroundTracker_.SetTrackedProcessId(processId);
-    StartGraphicsApiProbe(processId);
+    productionTelemetry_.StartGraphicsApiProbe(processId);
+    productionTelemetry_.SetCommittedProcess(processId);
     StartProductionSampling();
     HandleGameDetectionTransition({
         clawhud::GameDetectionTransition::Committed, generation, processId});
@@ -1550,8 +1189,7 @@ void App::ReleaseProductionGameCandidate(const wchar_t* reason)
     if (!context.candidateProcessId)
         return;
     StopGameRenderVerification(reason, true);
-    if (graphicsApiProcessId_ == context.candidateProcessId)
-        StopGraphicsApiProbe();
+    productionTelemetry_.StopGraphicsApiProbeIfTarget(context.candidateProcessId);
     ClearProductionCandidate(reason);
 }
 
@@ -1574,21 +1212,16 @@ void App::SetHudVisibilityMode(clawhud::HudVisibilityMode mode)
     manualHudVisibilityOverride_.reset();
     if (mode != previousMode)
     {
-        // Mode switching only changes FPS target authority; it never creates or
-        // destroys the shared PresentMon API2 provider path.
-        alwaysFpsTarget_.Release();
-        latestProcessFps_.reset();
-        fpsStaleHold_.Reset();
+        DWORD foregroundProcessId{};
         if (mode == clawhud::HudVisibilityMode::Always)
         {
             // Adopt the currently known foreground PID immediately instead of
             // waiting for the next foreground-change event.
             HWND foreground = GetForegroundWindow();
-            DWORD foregroundProcessId{};
             if (foreground)
                 GetWindowThreadProcessId(foreground, &foregroundProcessId);
-            alwaysFpsTarget_.SetForegroundProcess(foregroundProcessId);
         }
+        productionTelemetry_.SetVisibilityMode(mode, foregroundProcessId);
         SampleProductionFpsTelemetry();
     }
     SaveHudSettings();
@@ -1608,7 +1241,7 @@ void App::HandleHudToggleHotkey()
         hudEnabled_ = true;
         ReevaluateProductionGameDetection();
         if (const DWORD processId = foregroundTracker_.TrackedProcessId())
-            StartGraphicsApiProbe(processId);
+            productionTelemetry_.StartGraphicsApiProbe(processId);
     }
     manualHudVisibilityOverride_ = !HudVisible();
     ReconcileHudVisibility();
@@ -1660,8 +1293,7 @@ void App::ReconcileHudVisibility()
         gameDetectionCoordinator_.Context().candidateProcessId &&
         !ProcessAlive(gameDetectionCoordinator_.Context().candidateProcessId))
         ReleaseCommittedProductionTarget(L"game-exited");
-    if (graphicsApiProcessId_ && !ProcessAlive(graphicsApiProcessId_))
-        StopGraphicsApiProbe();
+    productionTelemetry_.ReconcileGraphicsApiTargetLiveness();
     const bool legacyForegroundActive = foregroundTracker_.ForegroundIsTrackedProcess();
     const bool resolvedShow = clawhud::ResolveHudVisible(hudEnabled_,
         manualHudVisibilityOverride_, hudOptions_.visibilityMode,
@@ -1838,7 +1470,7 @@ void App::Exit()
     exiting_ = true;
     CancelResumeRecovery();
     StopProductionSampling(false, L"app-shutdown");
-    StopGraphicsApiProbe();
+    productionTelemetry_.StopGraphicsApiProbe();
     productionGameWindowSource_.Stop();
     productionProcessLifetimeWatcher_.Disarm();
     foregroundTracker_.Stop();
