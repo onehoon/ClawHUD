@@ -1,6 +1,6 @@
 # ClawHUD Production Refactor Plan
 
-Status: **ACTIVE — R0 (#178), R1 (#180), R2 (#182) merged; R3 (#184) open; R4 is next**  
+Status: **ACTIVE — R0 (#178), R1 (#180), R2 (#182), R3 (#184) merged; R4 is next** (R3 hardware smoke still pending)  
 Re-baseline commit: `c0a2dcbd598ad7a31fa7dd28fec09cbd9c29e1f2` (after PR #175 / #176)  
 Date: 2026-08-31  
 Repository: `onehoon/ClawHUD`
@@ -1695,8 +1695,10 @@ Those extractions remain valid and are retained in the new architecture.
     PR; the behavior inventory is the compensating artifact and CI re-verifies the
     build.
 
-- **R3 (extract `HudController`)** — PR #184, branch
-  `refactor/r3-hud-controller`. Ownership relocation; the production HUD
+- **R3 (extract `HudController`)** — PR #184, merged `ed1d769` (code review
+  found no material defect; **hardware smoke still pending** — the dev machine
+  cannot run the app, so the §41 Claw-hardware / VRR gate is owed as a follow-up
+  before R3 is considered fully validated). Ownership relocation; the production HUD
   presentation contract is frozen (`HudPresentation.*` /
   `HudPresentationContract.*` / `HudPresentationLifecycle.*` / `HudRenderer.*`:
   **zero diff**).
