@@ -62,6 +62,7 @@ bool PresentMonTelemetryProvider::Initialize()
         processTelemetry_.Initialize(client_, capabilities_);
     systemTelemetry_.Initialize(client_, capabilities_);
     frameTelemetry_.Initialize(client_, capabilities_);
+    debugFrameTelemetry_.Initialize(client_, capabilities_);
     return true;
 }
 void PresentMonTelemetryProvider::Shutdown() noexcept
@@ -71,6 +72,7 @@ void PresentMonTelemetryProvider::Shutdown() noexcept
 }
 void PresentMonTelemetryProvider::ShutdownUnlocked() noexcept
 {
+    debugFrameTelemetry_.Shutdown(client_);
     frameTelemetry_.Shutdown(client_);
     processTelemetry_.Shutdown(client_);
     systemTelemetry_.Shutdown(client_);
@@ -96,6 +98,21 @@ PresentMonProcessLease PresentMonTelemetryProvider::AcquireProcess(std::uint32_t
         return {};
     return PresentMonProcessLease(this, processId);
 }
+PresentMonProcessLease PresentMonTelemetryProvider::BeginGameRenderVerification(
+    std::uint32_t processId)
+{
+    std::scoped_lock lock(apiMutex_);
+    if (!ready_ || !frameTelemetry_.Ready() || processId == 0)
+        return {};
+    if (client_.StartTrackingProcess(processId) != PM_STATUS_SUCCESS)
+        return {};
+    if (!frameTelemetry_.BeginVerification(client_, processId))
+    {
+        client_.StopTrackingProcess(processId);
+        return {};
+    }
+    return PresentMonProcessLease(this, processId);
+}
 void PresentMonTelemetryProvider::ReleaseProcess(std::uint32_t processId) noexcept
 {
     std::scoped_lock lock(apiMutex_);
@@ -111,6 +128,13 @@ std::optional<bool> PresentMonTelemetryProvider::PollGameRenderDisplayedFrame(
 }
 bool PresentMonTelemetryProvider::FrameReady() const noexcept
 { std::scoped_lock lock(apiMutex_); return ready_ && frameTelemetry_.Ready(); }
+std::optional<PresentMonDebugFrame> PresentMonTelemetryProvider::ReadDebugFrameActivity(
+    std::uint32_t processId)
+{
+    std::scoped_lock lock(apiMutex_);
+    return ready_ ? debugFrameTelemetry_.ReadLatest(client_, processId)
+                  : std::nullopt;
+}
 std::optional<PresentMonSystemSnapshot> PresentMonTelemetryProvider::ReadSystem()
 {
     std::scoped_lock lock(apiMutex_);

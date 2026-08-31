@@ -30,14 +30,7 @@ file(DOWNLOAD
 file(ARCHIVE_EXTRACT INPUT "${VELOPACK_ARCHIVE}" DESTINATION "${VELOPACK_ROOT}")
 
 set(PRESENTMON_VERSION "2.5.1")
-set(PRESENTMON_EXE "${CMAKE_BINARY_DIR}/_deps/PresentMon-${PRESENTMON_VERSION}-x64.exe")
-set(PRESENTMON_LICENSE "${CMAKE_SOURCE_DIR}/third_party/PresentMon-LICENSE.txt")
 set(PRESENTMON_API2_ROOT "${CMAKE_SOURCE_DIR}/third_party/presentmon/2.5.1")
-file(DOWNLOAD
-    "https://github.com/GameTechDev/PresentMon/releases/download/v${PRESENTMON_VERSION}/PresentMon-${PRESENTMON_VERSION}-x64.exe"
-    "${PRESENTMON_EXE}"
-    EXPECTED_HASH SHA256=9BEC3083069F58F911E6A512F4806DB51A27BD096103087BC1D05EF54C80A191
-    TLS_VERIFY OFF)
 
 add_library(ClawHUD.Velopack SHARED IMPORTED GLOBAL)
 set_target_properties(ClawHUD.Velopack PROPERTIES
@@ -71,6 +64,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/PresentMonApi2Client.cpp
     src/ClawHUD/PresentMonTelemetryProvider.cpp
     src/ClawHUD/PresentMonProcessTelemetry.cpp
+    src/ClawHUD/PresentMonDebugFrameTelemetry.cpp
     src/ClawHUD/AlwaysModeFpsTarget.cpp
     src/ClawHUD/FpsStaleHold.cpp
     src/ClawHUD/PresentMonSystemTelemetry.cpp
@@ -132,15 +126,8 @@ target_include_directories(ClawHUD.EcHelper PRIVATE src/ClawHUD.EcHelper src/sha
 target_link_libraries(ClawHUD.EcHelper PRIVATE wbemuuid ole32 oleaut32)
 set_target_properties(ClawHUD.EcHelper PROPERTIES CXX_EXTENSIONS OFF)
 add_custom_command(TARGET ClawHUD POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:ClawHUD>/tools"
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:ClawHUD>/fonts"
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:ClawHUD>/runtime"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${PRESENTMON_EXE}"
-        "$<TARGET_FILE_DIR:ClawHUD>/tools/PresentMon.exe"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${PRESENTMON_LICENSE}"
-        "$<TARGET_FILE_DIR:ClawHUD>/tools/PresentMon-LICENSE.txt"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${PRESENTMON_API2_ROOT}/PresentMonAPI2Loader.dll"
         "$<TARGET_FILE_DIR:ClawHUD>/PresentMonAPI2Loader.dll"
@@ -507,6 +494,7 @@ if(BUILD_TESTING)
         src/ClawHUD/GameDetection/WindowsGameIdentityProbe.cpp
         src/ClawHUD/PresentMonTelemetryProvider.cpp
         src/ClawHUD/PresentMonFrameTelemetry.cpp
+        src/ClawHUD/PresentMonDebugFrameTelemetry.cpp
         src/ClawHUD/PresentMonProcessTelemetry.cpp
         src/ClawHUD/PresentMonSystemTelemetry.cpp
         src/ClawHUD/PresentMonApi2Client.cpp
@@ -570,6 +558,7 @@ if(BUILD_TESTING)
         src/ClawHUD/GameDetection/GameDetectionCoordinator.cpp
         src/ClawHUD/PresentMonTelemetryProvider.cpp
         src/ClawHUD/PresentMonFrameTelemetry.cpp
+        src/ClawHUD/PresentMonDebugFrameTelemetry.cpp
         src/ClawHUD/PresentMonProcessTelemetry.cpp
         src/ClawHUD/PresentMonSystemTelemetry.cpp
         src/ClawHUD/PresentMonApi2Client.cpp
@@ -601,6 +590,12 @@ if(BUILD_TESTING)
     add_executable(ClawHUD.PresentActivitySourceTests
         tests/PresentActivitySourceTests.cpp
         src/ClawHUD/GameDetection/PresentActivitySource.cpp
+        src/ClawHUD/PresentMonTelemetryProvider.cpp
+        src/ClawHUD/PresentMonFrameTelemetry.cpp
+        src/ClawHUD/PresentMonDebugFrameTelemetry.cpp
+        src/ClawHUD/PresentMonProcessTelemetry.cpp
+        src/ClawHUD/PresentMonSystemTelemetry.cpp
+        src/ClawHUD/PresentMonApi2Client.cpp
         src/ClawHUD/RuntimeLogger.cpp)
     target_compile_features(ClawHUD.PresentActivitySourceTests PRIVATE cxx_std_20)
     target_compile_definitions(ClawHUD.PresentActivitySourceTests PRIVATE
@@ -609,6 +604,17 @@ if(BUILD_TESTING)
     target_link_libraries(ClawHUD.PresentActivitySourceTests PRIVATE advapi32 shell32 ole32)
     set_target_properties(ClawHUD.PresentActivitySourceTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.PresentActivitySourceTests COMMAND ClawHUD.PresentActivitySourceTests)
+
+    add_executable(ClawHUD.PresentMonDebugFrameTelemetryTests
+        tests/PresentMonDebugFrameTelemetryTests.cpp
+        src/ClawHUD/PresentMonDebugFrameTelemetry.cpp
+        src/ClawHUD/PresentMonApi2Client.cpp)
+    target_compile_features(ClawHUD.PresentMonDebugFrameTelemetryTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.PresentMonDebugFrameTelemetryTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.PresentMonDebugFrameTelemetryTests PRIVATE src/ClawHUD)
+    set_target_properties(ClawHUD.PresentMonDebugFrameTelemetryTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.PresentMonDebugFrameTelemetryTests COMMAND ClawHUD.PresentMonDebugFrameTelemetryTests)
 
     add_executable(ClawHUD.WindowLifecycleSourceTests
         tests/WindowLifecycleSourceTests.cpp
@@ -690,6 +696,7 @@ if(BUILD_TESTING)
         src/ClawHUD/PresentMonProcessTelemetry.cpp
         src/ClawHUD/PresentMonSystemTelemetry.cpp
         src/ClawHUD/PresentMonFrameTelemetry.cpp
+        src/ClawHUD/PresentMonDebugFrameTelemetry.cpp
         src/ClawHUD/PresentMonApi2Client.cpp
         src/ClawHUD/RuntimeLogger.cpp)
     target_compile_features(ClawHUD.PresentMonTelemetryProviderTests PRIVATE cxx_std_20)

@@ -83,7 +83,7 @@ public:
     PM_STATUS FreeIntrospectionRoot(const PM_INTROSPECTION_ROOT* root);
     PM_STATUS SetTelemetryPollingPeriod(std::uint32_t reserved, std::uint32_t periodMs);
     PM_STATUS SetEtwFlushPeriod(std::uint32_t periodMs);
-    PM_STATUS FlushFrames(std::uint32_t processId);
+    virtual PM_STATUS FlushFrames(std::uint32_t processId);
 
     virtual PM_STATUS RegisterDynamicQuery(PM_DYNAMIC_QUERY_HANDLE* query,
         PM_QUERY_ELEMENT* elements, std::uint64_t elementCount,
@@ -93,12 +93,12 @@ public:
         std::uint32_t processId, std::uint8_t* blob, std::uint32_t* swapChainCount);
     PM_STATUS PollStaticQuery(const PM_QUERY_ELEMENT* element,
         std::uint32_t processId, std::uint8_t* blob);
-    PM_STATUS RegisterFrameQuery(PM_FRAME_QUERY_HANDLE* query,
+    virtual PM_STATUS RegisterFrameQuery(PM_FRAME_QUERY_HANDLE* query,
         PM_QUERY_ELEMENT* elements, std::uint64_t elementCount,
         std::uint32_t* blobSize);
-    PM_STATUS ConsumeFrames(PM_FRAME_QUERY_HANDLE query,
+    virtual PM_STATUS ConsumeFrames(PM_FRAME_QUERY_HANDLE query,
         std::uint32_t processId, std::uint8_t* blob, std::uint32_t* frameCount);
-    PM_STATUS FreeFrameQuery(PM_FRAME_QUERY_HANDLE query);
+    virtual PM_STATUS FreeFrameQuery(PM_FRAME_QUERY_HANDLE query);
 
 private:
     struct Endpoints;

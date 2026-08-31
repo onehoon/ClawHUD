@@ -200,11 +200,7 @@ int App::Run()
         if (!windowLifecycleSource_.Start())
             clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
                 L"Window lifecycle diagnostic source failed to start; continuing");
-        const auto executable = std::filesystem::path(executablePath_).parent_path() /
-            L"tools" / L"PresentMon.exe";
-        if (!presentActivitySource_.Start(executable.wstring()))
-            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
-                L"Present activity diagnostic source failed to start; continuing");
+        presentActivitySource_.Start(presentMonTelemetryProvider_);
     }
     hudHotkeyRegistered_ = RegisterHotKey(tray_.Window(), kHudToggleHotkeyId,
         MOD_NOREPEAT, VK_F8) != FALSE;
@@ -245,7 +241,10 @@ int App::Run()
             }
             ReconcileHudVisibility();
             if (debugLoggingEnabled_)
+            {
                 windowsGameIdentitySource_.QueueInspect(window, processId);
+                presentActivitySource_.Watch(processId);
+            }
             if (mockHudEnabled_ && !DiagnosticRunning())
                 HandleProductionForegroundChanged(window, processId);
         }))
@@ -292,11 +291,7 @@ void App::SetDebugLoggingEnabled(bool enabled)
         if (!windowLifecycleSource_.Start())
             clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
                 L"Window lifecycle diagnostic source failed to start; continuing");
-        const auto executable = std::filesystem::path(executablePath_).parent_path() /
-            L"tools" / L"PresentMon.exe";
-        if (!presentActivitySource_.Start(executable.wstring()))
-            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
-                L"Present activity diagnostic source failed to start; continuing");
+        presentActivitySource_.Start(presentMonTelemetryProvider_);
     }
     else
     {

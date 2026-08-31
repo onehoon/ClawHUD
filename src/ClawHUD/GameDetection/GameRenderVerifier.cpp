@@ -36,7 +36,7 @@ bool GameRenderVerifier::Start(DWORD processId, std::uint64_t generation,
     if (processId == 0 || generation == 0 || !callback)
         return false;
 
-    PresentMonProcessLease lease = provider_.AcquireProcess(processId);
+    PresentMonProcessLease lease = provider_.BeginGameRenderVerification(processId);
     if (!lease)
         return false;
 

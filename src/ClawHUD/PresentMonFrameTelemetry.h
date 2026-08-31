@@ -68,10 +68,16 @@ public:
 
     bool Ready() const noexcept { return ready_; }
 
-    // Consumes queued frames for `processId` and returns true once the first
-    // displayed frame has been observed for the current detection target.
-    // `processId` transitions reset the first-frame latch. Returns nullopt on a
-    // consume failure (the caller keeps polling / the app stays running).
+    // Arms a fresh verification attempt for `processId`: re-arms the first-frame
+    // latch (even for a repeated numeric PID under a new generation, or a reused
+    // PID) and flushes any already-queued frames so historical evidence cannot
+    // satisfy the new attempt. Must be called before PollDisplayedFrame.
+    bool BeginVerification(PresentMonApi2Client& client, std::uint32_t processId);
+
+    // Consumes queued frames for the armed target and returns true once the
+    // first displayed frame of this attempt has been observed. Returns nullopt
+    // when not armed for `processId` or on a consume failure (the caller keeps
+    // polling / the app stays running).
     std::optional<bool> PollDisplayedFrame(
         PresentMonApi2Client& client, std::uint32_t processId);
 
@@ -80,7 +86,7 @@ private:
     PM_FRAME_QUERY_HANDLE query_{};
     std::vector<PM_QUERY_ELEMENT> queryElements_;
     std::uint32_t blobSize_{};
-    std::uint32_t targetProcessId_{};
+    std::uint32_t armedProcessId_{};
     PresentMonDisplayedFrameDetector detector_;
     bool ready_{};
 };

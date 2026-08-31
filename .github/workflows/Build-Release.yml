@@ -96,7 +96,6 @@ jobs:
         run: |
           $stage = Join-Path $pwd 'stage'
           Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force -Path (Join-Path $stage 'tools') | Out-Null
           New-Item -ItemType Directory -Force -Path (Join-Path $stage 'fonts') | Out-Null
           New-Item -ItemType Directory -Force -Path (Join-Path $stage 'runtime') | Out-Null
 
@@ -108,8 +107,6 @@ jobs:
           Copy-Item (Join-Path $release 'PresentMonAPI2Loader.dll') $stage
           Copy-Item (Join-Path $release 'runtime\ClawHUD.PresentMonRuntime.msi') (Join-Path $stage 'runtime')
           Copy-Item (Join-Path $pwd 'THIRD-PARTY-NOTICES.md') $stage
-          Copy-Item (Join-Path $release 'tools\PresentMon.exe') (Join-Path $stage 'tools')
-          Copy-Item (Join-Path $release 'tools\PresentMon-LICENSE.txt') (Join-Path $stage 'tools')
           Copy-Item (Join-Path $release 'fonts\Unispace.otf') (Join-Path $stage 'fonts')
           Copy-Item (Join-Path $release 'fonts\Unispace-LICENSE.txt') (Join-Path $stage 'fonts')
 
@@ -121,8 +118,6 @@ jobs:
             'PresentMonAPI2Loader.dll',
             'runtime\ClawHUD.PresentMonRuntime.msi',
             'THIRD-PARTY-NOTICES.md',
-            'tools\PresentMon.exe',
-            'tools\PresentMon-LICENSE.txt',
             'fonts\Unispace.otf',
             'fonts\Unispace-LICENSE.txt'
           )

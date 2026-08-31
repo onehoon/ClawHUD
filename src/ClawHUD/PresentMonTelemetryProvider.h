@@ -1,6 +1,7 @@
 #pragma once
 #include "PresentMonApi2Client.h"
 #include "PresentMonTelemetryTypes.h"
+#include "PresentMonDebugFrameTelemetry.h"
 #include "PresentMonFrameTelemetry.h"
 #include "PresentMonProcessTelemetry.h"
 #include "PresentMonSystemTelemetry.h"
@@ -57,11 +58,21 @@ public:
     // empty lease means tracking could not be started.
     PresentMonProcessLease AcquireProcess(std::uint32_t processId);
 
-    // Game-render verification: true once the target PID has produced at least
-    // one displayed frame (PM_METRIC_BETWEEN_DISPLAY_CHANGE > 0). nullopt on a
-    // transient consume miss. A PID change resets the first-frame latch.
+    // Verifier-specific acquire: fails atomically (empty lease) unless the
+    // shared frame query is usable, and arms a fresh first-frame attempt for
+    // `processId`. Prevents GameRenderVerifier from "starting" into an endless
+    // no-op poll when frame telemetry is unavailable.
+    PresentMonProcessLease BeginGameRenderVerification(std::uint32_t processId);
+
+    // Consumes queued frames for the armed verification target and returns true
+    // once its first displayed frame (PM_METRIC_BETWEEN_DISPLAY_CHANGE > 0) is
+    // observed. nullopt on a transient consume miss or when not armed.
     std::optional<bool> PollGameRenderDisplayedFrame(std::uint32_t processId);
     bool FrameReady() const noexcept;
+
+    // Debug-only: newest per-frame evidence for `processId` from the shared
+    // session. Used by PresentActivitySource when Debug Logging is on.
+    std::optional<PresentMonDebugFrame> ReadDebugFrameActivity(std::uint32_t processId);
     const PresentMonTelemetryCapabilities& Capabilities() const noexcept { return capabilities_; }
     const PresentMonMetricCapability* FindMetric(PM_METRIC metric) const noexcept;
     const PresentMonDeviceCapability* FindDevice(std::uint32_t id) const noexcept;
@@ -77,6 +88,7 @@ private:
     PresentMonProcessTelemetry processTelemetry_;
     PresentMonSystemTelemetry systemTelemetry_;
     PresentMonFrameTelemetry frameTelemetry_;
+    PresentMonDebugFrameTelemetry debugFrameTelemetry_;
     PresentMonTelemetryCapabilities capabilities_;
     mutable std::mutex apiMutex_;
     bool ready_{};

@@ -129,22 +129,30 @@ void PresentMonFrameTelemetry::Shutdown(PresentMonApi2Client& client) noexcept
     plan_ = {};
     queryElements_.clear();
     blobSize_ = 0;
-    targetProcessId_ = 0;
+    armedProcessId_ = 0;
     detector_.Reset();
     ready_ = false;
+}
+
+bool PresentMonFrameTelemetry::BeginVerification(
+    PresentMonApi2Client& client, std::uint32_t processId)
+{
+    if (!ready_ || query_ == nullptr || processId == 0)
+        return false;
+    armedProcessId_ = processId;
+    detector_.Reset();
+    // Drop frames queued before this attempt so a previous verification (same
+    // numeric PID, earlier generation, or PID reuse) cannot satisfy it.
+    client.FlushFrames(processId);
+    return true;
 }
 
 std::optional<bool> PresentMonFrameTelemetry::PollDisplayedFrame(
     PresentMonApi2Client& client, std::uint32_t processId)
 {
-    if (!ready_ || query_ == nullptr || processId == 0)
+    if (!ready_ || query_ == nullptr || processId == 0 ||
+        processId != armedProcessId_)
         return std::nullopt;
-    if (processId != targetProcessId_)
-    {
-        targetProcessId_ = processId;
-        detector_.Reset();
-        client.FlushFrames(processId);
-    }
     if (detector_.DisplayedFrameSeen())
         return true;
 
