@@ -51,6 +51,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/HudTelemetryAggregator.cpp
     src/ClawHUD/GameDetection/ProcessLifecycleSource.cpp
     src/ClawHUD/GameDetection/GameSessionController.cpp
+    src/ClawHUD/GameDetection/DebugObservationController.cpp
     src/ClawHUD/GameDetection/PresentActivitySource.cpp
     src/ClawHUD/GameDetection/WindowLifecycleSource.cpp
     src/ClawHUD/GameDetection/ProductionGameWindowSource.cpp
