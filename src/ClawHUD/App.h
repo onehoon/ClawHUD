@@ -24,16 +24,9 @@
 #include "GameDetection/ProductionProcessLifetime.h"
 #include "GameDetection/SteamRunningAppTrigger.h"
 #include "PresentMonTelemetryProvider.h"
-#include "AlwaysModeFpsTarget.h"
-#include "FpsStaleHold.h"
-#include "EcHelperClient.h"
+#include "ProductionTelemetryController.h"
 #include "HudSettingsStore.h"
-#include "HudTelemetryAggregator.h"
-#include "MsiEcHudTelemetry.h"
-#include "WindowsPowerTelemetry.h"
-#include "BatteryPowerEstimator.h"
 #include "SteamRunningAppIdSource.h"
-#include "IntelGraphicsApiProbe.h"
 #include "Tweaks/TweakStartupCoordinator.h"
 #include "Tweaks/IntelVrr/IntelVrrRunResult.h"
 
@@ -41,11 +34,10 @@ class SettingsWindow;
 namespace clawhud { class HudPresentation; struct HudRenderOptions; }
 
 constexpr int kHudToggleHotkeyId = 1;
-constexpr UINT_PTR kEcHudTimerId = 2;
-constexpr UINT_PTR kBatteryHudTimerId = 3;
-constexpr UINT_PTR kGraphicsApiRetryTimerId = 4;
 constexpr UINT_PTR kResumeRecoveryTimerId = 5;
-constexpr UINT_PTR kPresentMonFpsTimerId = 6;
+// The production telemetry timer ids (2, 3, 4, 6) live in
+// ProductionTelemetryController.h; the numeric values stay globally distinct
+// because they all target the one application message window.
 
 class App
 {
@@ -126,7 +118,6 @@ private:
     void ClearProductionCandidate(const wchar_t* reason);
     void ApplyProductionEvidence(clawhud::GameDetectionTrigger trigger,
         HWND window, DWORD processId);
-    clawhud::MsiEcHudTelemetry ReadHudEcTelemetry();
     void StartProductionSampling();
     void PauseProductionSamplingForSuspend();
     void CancelResumeRecovery();
@@ -135,10 +126,6 @@ private:
     void StartGameRenderVerification();
     void StopGameRenderVerification(const wchar_t* reason = L"explicit-reset",
         bool clearLatestFps = false);
-    void StartProductionFpsSampling();
-    void StopProductionFpsSampling(bool clearTarget = true);
-    void StartGraphicsApiProbe(DWORD processId);
-    void StopGraphicsApiProbe();
     void DiscardPendingMicrosoftGameEvidence();
     void DiscardPendingProductionWindowEvents();
     void DiscardPendingProductionProcessExitEvents();
@@ -149,25 +136,12 @@ private:
     clawhud::HudSettingsStore hudSettingsStore_;
     TrayIcon tray_;
     std::unique_ptr<clawhud::HudPresentation> hudPresentation_;
-    std::unique_ptr<EcHelperClient> ecHudClient_;
-    clawhud::HudTelemetryAggregator telemetryAggregator_;
     clawhud::PresentMonTelemetryProvider presentMonTelemetryProvider_;
-    std::optional<double> latestProcessFps_;
-    // Retains the last valid FPS across short same-PID API2 misses (2 s window).
-    clawhud::FpsStaleHold fpsStaleHold_;
-    // Rate limiter for the once-per-second Displayed vs Presented FPS debug log.
-    std::uint64_t lastFpsCompareLogTick_{};
-    // Always mode: FPS target authority is the current foreground PID only,
-    // fully decoupled from game detection. In-Game Only is unaffected.
-    clawhud::AlwaysModeFpsTarget alwaysFpsTarget_;
-    std::optional<clawhud::WindowsPowerTelemetry> latestPowerTelemetry_;
-    clawhud::BatteryPowerEstimator batteryPowerEstimator_;
-    bool batteryEcOnDc_{};
-    bool batteryEcReadyLogged_{};
-    clawhud::IntelGraphicsApiProbe graphicsApiProbe_;
-    std::optional<std::wstring> latestGraphicsApi_;
-    DWORD graphicsApiProcessId_{};
-    unsigned graphicsApiAttempts_{};
+    // Owns EC / system / battery / FPS / graphics-API telemetry, retention,
+    // target state, and the sampling timer lifecycle. Holds a non-owning
+    // reference to the shared provider above.
+    clawhud::ProductionTelemetryController productionTelemetry_{
+        presentMonTelemetryProvider_};
     ForegroundTracker foregroundTracker_;
     clawhud::WindowsGameIdentitySource windowsGameIdentitySource_;
     clawhud::HudLayoutOptions hudOptions_{};
@@ -179,7 +153,6 @@ private:
     std::wstring executablePath_;
     int hudSizeOffset_{};
     bool hudHotkeyRegistered_{};
-    bool productionSamplingActive_{};
     bool hudInitializedLogged_{};
     bool hudRenderFailureLogged_{};
     bool hudShowFailureLogged_{};

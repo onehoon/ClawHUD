@@ -1,14 +1,16 @@
 # ClawHUD Production Refactor Plan
 
-Status: **ACTIVE — R0 (PR #178) and R1 (PR #180) complete; R2 is next**  
+Status: **ACTIVE — R0 (#178), R1 (#180), R2 (#182) complete; R3 is next**  
 Re-baseline commit: `c0a2dcbd598ad7a31fa7dd28fec09cbd9c29e1f2` (after PR #175 / #176)  
 Date: 2026-08-31  
 Repository: `onehoon/ClawHUD`
 
 Phase progress lives in §18. In short: #177 removed the Diagnostics tab; **R0**
-(PR #178) normalized production naming and removed dead `App` surface; **R1**
-(PR #180) moved the suspend/resume pure policy into `SuspendResumePolicy.h`. Both
-mechanical. **R2** (`ProductionTelemetryController`) has not started.
+(#178) normalized production naming; **R1** (#180) moved the suspend/resume pure
+policy into `SuspendResumePolicy.h`; **R2** (#182) extracted
+`ProductionTelemetryController` (EC / system / battery / FPS / graphics-API
+telemetry + sampling lifecycle) out of `App`. **R3** (`HudController`) has not
+started.
 
 This document is the continuation artifact for the production-code refactor. It is
 intentionally detailed so a later ChatGPT/Codex session can continue without needing the
@@ -1632,11 +1634,74 @@ Those extractions remain valid and are retained in the new architecture.
   - CTest: 46/46 pass locally (VS 2022 BuildTools, Ninja, Release). No hardware
     smoke (pure constexpr relocation, identical call sites).
 
+- **R2 (extract `ProductionTelemetryController`)** — PR #182, branch
+  `refactor/r2-production-telemetry-controller`. Behavior-preserving state move.
+  - New `src/ClawHUD/ProductionTelemetryController.{h,cpp}` (concrete class,
+    `namespace clawhud`). Owns, moved out of `App`: `EcHelperClient` (as
+    `ecClient_`), `HudTelemetryAggregator`, `WindowsPowerTelemetry` snapshot,
+    `BatteryPowerEstimator` + its two flags, latest FPS + `FpsStaleHold` +
+    `AlwaysModeFpsTarget` + the compare-log tick, `IntelGraphicsApiProbe` + its
+    latest/pid/attempts, and `productionSamplingActive_`.
+  - Moved verbatim: `ReadHudEcTelemetry` → `ReadEcTelemetry`; the bodies of
+    `SampleProductionTelemetry` → `SampleSystemEc`, `SampleProductionBatteryTelemetry`
+    → `SampleBattery`, `SampleProductionFpsTelemetry` → `SampleFps`,
+    `StartProductionFpsSampling` → `StartFpsSampling`, `StopProductionFpsSampling`
+    → `StopFpsSampling`, `Start/Stop/TryGraphicsApiProbe`, and the snapshot
+    assembly out of `RenderProductionHud` → `FillSnapshot`.
+  - **Shared provider stays App-owned.** `presentMonTelemetryProvider_` remains an
+    `App` member; the controller holds `PresentMonTelemetryProvider&`. One
+    production API2 session, unchanged. `GameRenderVerifier` and
+    `GameDetectionCoordinator` are NOT injected into the controller.
+  - FPS target authority is now explicit: the controller caches `visibilityMode_`
+    and `committedProcessId_`. App calls `SyncVisibilityMode` (startup),
+    `SetVisibilityMode(mode, fgPid)` (mode change), `OnForegroundProcessChanged`
+    (foreground callback), `SetCommittedProcess` (on commit, before sampling),
+    `ClearCommittedProcess` (in `ReleaseCommittedProductionTarget`). The old
+    `SampleProductionFpsTelemetry` read `GameDetectionCoordinator::Context()` for
+    the committed PID; the new `SampleFps` uses `committedProcessId_ != 0` — the
+    single non-verbatim mapping, exercised end-to-end by the existing
+    game-detection scenario tests (green).
+  - Sampling lifecycle: `App::StartProductionSampling` /
+    `StopProductionSampling` / `PauseProductionSamplingForSuspend` stay in `App`
+    as thin orchestration that interleaves `StopGameRenderVerification` between
+    the controller's `StopSamplingTimersAndFps()` and `ResetSamplingState()` —
+    the exact old insertion point. Verifier ownership stays in `App` (R4).
+  - Timer ids 2/3/4/6 + their interval constants moved to the controller header;
+    `TrayIcon::WindowProc` now uses `clawhud::kEcHudTimerId` etc. `App` keeps
+    `SampleProductionTelemetry` / `SampleProductionBatteryTelemetry` /
+    `SampleProductionFpsTelemetry` / `TryGraphicsApiProbe` as guarded thin
+    forwarders (TrayIcon still calls them). **Deferred:** `App::HandleTimer(id)`
+    dispatch consolidation (§26) — TrayIcon keeps per-id dispatch. State
+    ownership (the mandatory part) is complete.
+  - `App.h` telemetry includes dropped (AlwaysModeFpsTarget / FpsStaleHold /
+    EcHelperClient / HudTelemetryAggregator / MsiEcHudTelemetry /
+    WindowsPowerTelemetry / BatteryPowerEstimator / IntelGraphicsApiProbe),
+    replaced by `ProductionTelemetryController.h`.
+  - `App::SetHudVisibilityMode`: `GetForegroundWindow()` (a pure OS query) is now
+    read before the `alwaysFpsTarget_.Release()` / FPS resets instead of after —
+    no state-visible reorder.
+  - `HudPresentation.*` / `HudPresentationContract.*` / `HudPresentationLifecycle.*`:
+    zero diff. `RenderProductionHud` stays in `App`; the controller never calls
+    `HudPresentation`.
+  - No new test target: the moved logic is covered by the existing green
+    telemetry unit tests (`HudTelemetryAggregatorTests`, `AlwaysModeFpsTargetTests`,
+    `FpsStaleHoldTests`, `IntelGraphicsApiProbeTests`, `WindowsPowerTelemetryTests`,
+    `MsiEcHudTelemetryTests`, `TelemetryRetentionTests`, PresentMon provider tests);
+    the one new mapping reduces to `ResolveProductionFpsTargetPid` +
+    `AlwaysModeFpsTarget`, both already unit-tested. Behavior inventory in the PR.
+  - CTest: 46/46 pass locally (VS 2022 BuildTools, Ninja, Release). Clean build
+    (no warnings). **Hardware smoke: not performed** — the app cannot run on this
+    dev machine (unsupported hardware). This is a real gap for a medium/high-risk
+    PR; the behavior inventory is the compensating artifact and CI re-verifies the
+    build.
+
 ### Next work
 
-**R2 — Extract `ProductionTelemetryController`** (§8.2, §9). Re-read those
-sections and `docs/APP_REFACTOR_BEHAVIOR_INVENTORY_TEMPLATE.md` first. After each
-merged PR, update this progress log with:
+**R3 — Extract `HudController`** (§8.1, §9). Re-read those sections,
+`docs/APP_REFACTOR_BEHAVIOR_INVENTORY_TEMPLATE.md`, and
+`docs/HUD_PRESENTATION_REFACTOR_GUARDRAIL.md` first (R3 is the presentation-
+lifecycle move — hardware smoke becomes mandatory). After each merged PR, update
+this progress log with:
 
 ```text
 PR number
