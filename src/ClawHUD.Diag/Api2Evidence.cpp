@@ -4,6 +4,7 @@
 #include "DiagPresentMonApi2Client.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <memory>
 #include <sstream>
@@ -16,7 +17,6 @@ struct Api2Evidence::State
     PM_DYNAMIC_QUERY_HANDLE query{};
     std::vector<std::uint8_t> blob;
     std::unordered_set<DWORD> tracked;
-    std::unordered_set<DWORD> newlyTracked;
 };
 
 namespace
@@ -47,13 +47,24 @@ bool Available(const PM_INTROSPECTION_METRIC* metric, PM_METRIC wanted,
     }
     return false;
 }
-
-std::string Number(const std::uint8_t* blob, const PM_QUERY_ELEMENT& element)
-{
-    if (element.dataSize == sizeof(double)) { double value{}; std::memcpy(&value, blob + element.dataOffset, sizeof(value)); return std::to_string(value); }
-    if (element.dataSize == sizeof(std::uint64_t)) { std::uint64_t value{}; std::memcpy(&value, blob + element.dataOffset, sizeof(value)); return std::to_string(value); }
-    return "null";
 }
+
+std::string Api2DecodeValue(const std::uint8_t* blob, const PM_QUERY_ELEMENT& element)
+{
+    if (!blob) return "null";
+    if (element.metric == PM_METRIC_SWAP_CHAIN_ADDRESS)
+    {
+        if (element.dataSize != sizeof(std::uint64_t)) return "null";
+        std::uint64_t value{}; std::memcpy(&value, blob + element.dataOffset, sizeof(value));
+        return value ? std::to_string(value) : "null";
+    }
+    if (element.metric == PM_METRIC_DISPLAYED_FPS || element.metric == PM_METRIC_PRESENTED_FPS)
+    {
+        if (element.dataSize != sizeof(double)) return "null";
+        double value{}; std::memcpy(&value, blob + element.dataOffset, sizeof(value));
+        return std::isfinite(value) ? std::to_string(value) : "null";
+    }
+    return "null";
 }
 
 bool Api2Evidence::Start(std::string& detail) noexcept
@@ -120,9 +131,9 @@ std::string Api2Evidence::Sample(DWORD processId) noexcept
         if (status != PM_STATUS_SUCCESS) return "\"pollStatus\":\"QUERY_FAILED\",\"swapChainCount\":null,\"swapChainAddress\":null,\"displayedFps\":null,\"presentedFps\":null";
         std::string address = "null", displayed = "null", presented = "null";
         for (const auto& element : state_->elements)
-            if (element.metric == PM_METRIC_SWAP_CHAIN_ADDRESS) address = Number(state_->blob.data(), element);
-            else if (element.metric == PM_METRIC_DISPLAYED_FPS) displayed = Number(state_->blob.data(), element);
-            else if (element.metric == PM_METRIC_PRESENTED_FPS) presented = Number(state_->blob.data(), element);
+            if (element.metric == PM_METRIC_SWAP_CHAIN_ADDRESS) address = Api2DecodeValue(state_->blob.data(), element);
+            else if (element.metric == PM_METRIC_DISPLAYED_FPS) displayed = Api2DecodeValue(state_->blob.data(), element);
+            else if (element.metric == PM_METRIC_PRESENTED_FPS) presented = Api2DecodeValue(state_->blob.data(), element);
         return "\"trackStatus\":\"" + trackStatus + "\",\"pollStatus\":\"SUCCESS\",\"swapChainCount\":" + std::to_string(swaps) + ",\"rendererActive\":" + (swaps ? "true" : "false") + ",\"swapChainAddress\":" + address + ",\"displayedFps\":" + displayed + ",\"presentedFps\":" + presented;
     }
     catch (...) { return "\"pollStatus\":\"EXCEPTION\",\"swapChainCount\":null,\"swapChainAddress\":null,\"displayedFps\":null,\"presentedFps\":null"; }

@@ -6,12 +6,15 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <mutex>
 #include <thread>
 #include <unordered_map>
 #include <vector>
 
 #include "Api2Evidence.h"
+
+std::wstring DiagnosticQueryProcessImagePath(HANDLE process);
 
 class DiagnosticSession
 {
@@ -24,8 +27,10 @@ public:
 
 private:
     static void CALLBACK WinEventProc(HWINEVENTHOOK, DWORD, HWND, LONG, LONG, DWORD, DWORD);
+    bool StartWinEventThread();
+    void StopWinEventThread() noexcept;
     void RecordWinEvent(DWORD event, HWND hwnd, LONG objectId, LONG childId) noexcept;
-    void SampleLoop() noexcept;
+    void SampleApi2ObservedPids() noexcept;
     void WatchSteamRunningAppId() noexcept;
     void SampleTopGpu() noexcept;
     void WriteRecord(std::string type, std::string fields) noexcept;
@@ -35,19 +40,24 @@ private:
     void ObserveProcess(DWORD processId, std::string_view reason) noexcept;
     void WriteSummary() noexcept;
     std::vector<DWORD> ObservedPids() noexcept;
+    bool IsObserved(DWORD processId) noexcept;
     void MarkFirst(DWORD processId, std::string_view milestone) noexcept;
 
     std::filesystem::path path_;
+    std::filesystem::path summaryPath_;
     std::ofstream log_;
     std::chrono::steady_clock::time_point startedAt_;
     std::mutex logMutex_;
-    std::jthread sampler_;
+    std::jthread api2Sampler_;
+    std::jthread pdhSampler_;
     std::jthread steamWatcher_;
+    std::jthread winEventThread_;
+    std::atomic<DWORD> winEventThreadId_{};
     HWINEVENTHOOK foregroundHook_{};
     HWINEVENTHOOK windowHooks_[5]{};
     std::atomic_bool running_{};
     std::uint64_t sequence_{};
-    std::uint32_t previousSteamAppId_{};
+    std::atomic_uint32_t previousSteamAppId_{};
     std::mutex observedMutex_;
     struct PidTimeline
     {
@@ -75,7 +85,6 @@ private:
     std::unordered_map<DWORD, PidTimeline> timelines_;
     std::unordered_map<HWND, CachedWindow> windowCache_;
     Api2Evidence api2_;
-    std::chrono::steady_clock::time_point nextApi2Sample_{};
     static std::atomic<DiagnosticSession*> active_;
     HWND previousForeground_{};
     DWORD previousForegroundPid_{};

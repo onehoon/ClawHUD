@@ -2,8 +2,13 @@
 
 #include <windows.h>
 
+#include "PresentMonApi2Api.h"
+
+#include <cstdint>
 #include <string>
 #include <vector>
+
+std::string Api2DecodeValue(const std::uint8_t* blob, const PM_QUERY_ELEMENT& element);
 
 class Api2Evidence
 {
