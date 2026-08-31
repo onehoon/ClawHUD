@@ -4,15 +4,31 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <string>
 
 int main()
 {
     Api2Evidence evidence;
-    // The standalone EXE intentionally has no bundled loader.  Before a
-    // manually copied loader is available, raw API2 fields must remain null.
-    const auto record = evidence.Sample(1234);
-    assert(record == "\"pollStatus\":\"UNAVAILABLE\",\"swapChainCount\":null,\"swapChainAddress\":null,\"displayedFps\":null,\"presentedFps\":null");
+    // The standalone EXE intentionally has no bundled loader. Before a manually
+    // copied loader is available, raw API2 fields must remain null.
+    const auto unavailable = evidence.Sample(1234);
+    assert(unavailable ==
+        "\"trackStatus\":null,\"trackStatusCode\":null,\"pollStatus\":\"UNAVAILABLE\","
+        "\"pollStatusCode\":null,\"swapChainCount\":null,\"rendererActive\":null,"
+        "\"swapChainAddress\":null,\"displayedFps\":null,\"presentedFps\":null,\"swapChains\":null");
+    evidence.Stop();
 
+    // PresentMon 2.5.1 rejects a zero input swap-chain capacity, so the poll
+    // must always advertise a real capacity.
+    static_assert(Api2Evidence::kSwapChainCapacity > 0);
+
+    // Raw PM_STATUS values are preserved, not collapsed into local labels.
+    assert(Api2StatusName(PM_STATUS_SUCCESS) == "PM_STATUS_SUCCESS");
+    assert(Api2StatusName(PM_STATUS_BAD_ARGUMENT) == "PM_STATUS_BAD_ARGUMENT");
+    assert(Api2StatusName(PM_STATUS_INVALID_PID) == "PM_STATUS_INVALID_PID");
+    assert(Api2StatusName(static_cast<PM_STATUS>(9999)) == "PM_STATUS_UNKNOWN");
+
+    // SWAP_CHAIN_ADDRESS decodes as uint64, not double.
     std::uint8_t blob[sizeof(std::uint64_t)]{};
     const std::uint64_t address = 0x1234abcd5678ef90ull;
     std::memcpy(blob, &address, sizeof(address));
@@ -26,5 +42,25 @@ int main()
     const double invalid = std::numeric_limits<double>::infinity();
     std::memcpy(blob, &invalid, sizeof(invalid));
     assert(Api2DecodeValue(blob, element) == "null");
-    evidence.Stop();
+
+    // A failed poll records the raw status and null renderer evidence.
+    const auto failed = Api2ComposeSample(PM_STATUS_BAD_ARGUMENT, 0, {}, "null", "null");
+    assert(failed.find("\"pollStatus\":\"PM_STATUS_BAD_ARGUMENT\"") != std::string::npos);
+    assert(failed.find("\"pollStatusCode\":2") != std::string::npos);
+    assert(failed.find("\"swapChains\":null") != std::string::npos);
+
+    // A multi-row success preserves per-swap-chain evidence and mirrors row 0
+    // into the top-level fields.
+    const std::vector<Api2SwapChainRow> rows{
+        { "111", "60.000000", "60.000000" },
+        { "222", "30.000000", "45.000000" } };
+    const auto ok = Api2ComposeSample(PM_STATUS_SUCCESS, 2, rows,
+        "\"PM_STATUS_SUCCESS\"", "0");
+    assert(ok.find("\"pollStatus\":\"PM_STATUS_SUCCESS\"") != std::string::npos);
+    assert(ok.find("\"swapChainCount\":2") != std::string::npos);
+    assert(ok.find("\"rendererActive\":true") != std::string::npos);
+    assert(ok.find("\"swapChainAddress\":111,") != std::string::npos);
+    assert(ok.find("\"swapChains\":[{\"swapChainAddress\":111,\"displayedFps\":60.000000,"
+        "\"presentedFps\":60.000000},{\"swapChainAddress\":222,\"displayedFps\":30.000000,"
+        "\"presentedFps\":45.000000}]") != std::string::npos);
 }

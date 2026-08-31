@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <unordered_set>
 
@@ -15,6 +16,7 @@ struct Api2Evidence::State
     DiagPresentMonApi2Client client;
     std::vector<PM_QUERY_ELEMENT> elements;
     PM_DYNAMIC_QUERY_HANDLE query{};
+    std::size_t rowBytes{};
     std::vector<std::uint8_t> blob;
     std::unordered_set<DWORD> tracked;
 };
@@ -47,6 +49,46 @@ bool Available(const PM_INTROSPECTION_METRIC* metric, PM_METRIC wanted,
     }
     return false;
 }
+
+std::string RowValue(const std::uint8_t* row, const std::vector<PM_QUERY_ELEMENT>& elements,
+    PM_METRIC wanted)
+{
+    for (const auto& element : elements)
+        if (element.metric == wanted) return Api2DecodeValue(row, element);
+    return "null";
+}
+}
+
+std::string_view Api2StatusName(PM_STATUS status) noexcept
+{
+    switch (status)
+    {
+    case PM_STATUS_SUCCESS: return "PM_STATUS_SUCCESS";
+    case PM_STATUS_FAILURE: return "PM_STATUS_FAILURE";
+    case PM_STATUS_BAD_ARGUMENT: return "PM_STATUS_BAD_ARGUMENT";
+    case PM_STATUS_BAD_HANDLE: return "PM_STATUS_BAD_HANDLE";
+    case PM_STATUS_SERVICE_ERROR: return "PM_STATUS_SERVICE_ERROR";
+    case PM_STATUS_INVALID_ETL_FILE: return "PM_STATUS_INVALID_ETL_FILE";
+    case PM_STATUS_INVALID_PID: return "PM_STATUS_INVALID_PID";
+    case PM_STATUS_ALREADY_TRACKING_PROCESS: return "PM_STATUS_ALREADY_TRACKING_PROCESS";
+    case PM_STATUS_UNABLE_TO_CREATE_NSM: return "PM_STATUS_UNABLE_TO_CREATE_NSM";
+    case PM_STATUS_INVALID_ADAPTER_ID: return "PM_STATUS_INVALID_ADAPTER_ID";
+    case PM_STATUS_OUT_OF_RANGE: return "PM_STATUS_OUT_OF_RANGE";
+    case PM_STATUS_INSUFFICIENT_BUFFER: return "PM_STATUS_INSUFFICIENT_BUFFER";
+    case PM_STATUS_PIPE_ERROR: return "PM_STATUS_PIPE_ERROR";
+    case PM_STATUS_SESSION_NOT_OPEN: return "PM_STATUS_SESSION_NOT_OPEN";
+    case PM_STATUS_MIDDLEWARE_MISSING_PATH: return "PM_STATUS_MIDDLEWARE_MISSING_PATH";
+    case PM_STATUS_NONEXISTENT_FILE_PATH: return "PM_STATUS_NONEXISTENT_FILE_PATH";
+    case PM_STATUS_MIDDLEWARE_INVALID_SIGNATURE: return "PM_STATUS_MIDDLEWARE_INVALID_SIGNATURE";
+    case PM_STATUS_MIDDLEWARE_MISSING_ENDPOINT: return "PM_STATUS_MIDDLEWARE_MISSING_ENDPOINT";
+    case PM_STATUS_MIDDLEWARE_VERSION_LOW: return "PM_STATUS_MIDDLEWARE_VERSION_LOW";
+    case PM_STATUS_MIDDLEWARE_VERSION_HIGH: return "PM_STATUS_MIDDLEWARE_VERSION_HIGH";
+    case PM_STATUS_MIDDLEWARE_SERVICE_MISMATCH: return "PM_STATUS_MIDDLEWARE_SERVICE_MISMATCH";
+    case PM_STATUS_QUERY_MALFORMED: return "PM_STATUS_QUERY_MALFORMED";
+    case PM_STATUS_MODE_MISMATCH: return "PM_STATUS_MODE_MISMATCH";
+    case PM_STATUS_FEATURE_DISABLED: return "PM_STATUS_FEATURE_DISABLED";
+    }
+    return "PM_STATUS_UNKNOWN";
 }
 
 std::string Api2DecodeValue(const std::uint8_t* blob, const PM_QUERY_ELEMENT& element)
@@ -65,6 +107,34 @@ std::string Api2DecodeValue(const std::uint8_t* blob, const PM_QUERY_ELEMENT& el
         return std::isfinite(value) ? std::to_string(value) : "null";
     }
     return "null";
+}
+
+std::string Api2ComposeSample(PM_STATUS pollStatus, std::uint32_t swapChainCount,
+    const std::vector<Api2SwapChainRow>& rows, std::string trackStatusJson,
+    std::string trackStatusCodeJson)
+{
+    std::string body = "\"trackStatus\":" + trackStatusJson +
+        ",\"trackStatusCode\":" + trackStatusCodeJson +
+        ",\"pollStatus\":\"" + std::string(Api2StatusName(pollStatus)) +
+        "\",\"pollStatusCode\":" + std::to_string(static_cast<int>(pollStatus));
+    if (pollStatus != PM_STATUS_SUCCESS)
+        return body + ",\"swapChainCount\":null,\"rendererActive\":null,\"swapChainAddress\":null,"
+            "\"displayedFps\":null,\"presentedFps\":null,\"swapChains\":null";
+    const auto& first = rows.empty() ? Api2SwapChainRow{} : rows.front();
+    body += ",\"swapChainCount\":" + std::to_string(swapChainCount) +
+        ",\"rendererActive\":" + (swapChainCount ? "true" : "false") +
+        ",\"swapChainAddress\":" + first.address +
+        ",\"displayedFps\":" + first.displayedFps +
+        ",\"presentedFps\":" + first.presentedFps + ",\"swapChains\":[";
+    for (size_t index = 0; index < rows.size(); ++index)
+    {
+        if (index) body += ',';
+        body += "{\"swapChainAddress\":" + rows[index].address +
+            ",\"displayedFps\":" + rows[index].displayedFps +
+            ",\"presentedFps\":" + rows[index].presentedFps + "}";
+    }
+    body += ']';
+    return body;
 }
 
 bool Api2Evidence::Start(std::string& detail) noexcept
@@ -91,7 +161,10 @@ bool Api2Evidence::Start(std::string& detail) noexcept
             state->elements.data(), state->elements.size(), 1000, 0) != PM_STATUS_SUCCESS || !state->query)
         { detail = "query_unavailable"; return false; }
         std::uint64_t bytes{}; for (const auto& element : state->elements) bytes = std::max(bytes, element.dataOffset + element.dataSize);
-        state->blob.resize(static_cast<size_t>(std::max<std::uint64_t>(bytes, 1)));
+        state->rowBytes = static_cast<size_t>(std::max<std::uint64_t>(bytes, 1));
+        // PresentMon rejects a zero input capacity, so the blob must hold
+        // kSwapChainCapacity result rows and Sample() passes that count in.
+        state->blob.assign(state->rowBytes * kSwapChainCapacity, std::uint8_t{});
         const auto version = state->client.ApiVersion();
         state_ = state.release(); detail = "ready_" + std::to_string(version.major) + "." + std::to_string(version.minor) + "." + std::to_string(version.patch); return true;
     }
@@ -114,27 +187,52 @@ void Api2Evidence::Retire(DWORD processId) noexcept
 
 std::string Api2Evidence::Sample(DWORD processId) noexcept
 {
-    if (!state_ || !processId) return "\"pollStatus\":\"UNAVAILABLE\",\"swapChainCount\":null,\"swapChainAddress\":null,\"displayedFps\":null,\"presentedFps\":null";
+    if (!state_ || !processId)
+        return "\"trackStatus\":null,\"trackStatusCode\":null,\"pollStatus\":\"UNAVAILABLE\","
+            "\"pollStatusCode\":null,\"swapChainCount\":null,\"rendererActive\":null,"
+            "\"swapChainAddress\":null,\"displayedFps\":null,\"presentedFps\":null,\"swapChains\":null";
     try
     {
-        std::string trackStatus = "ALREADY_TRACKING";
+        std::optional<PM_STATUS> startStatus;
         if (!state_->tracked.contains(processId))
         {
-            const auto start = state_->client.StartTrackingProcess(processId);
-            if (start != PM_STATUS_SUCCESS && start != PM_STATUS_ALREADY_TRACKING_PROCESS)
-                return "\"pollStatus\":\"START_TRACKING_FAILED\",\"swapChainCount\":null,\"swapChainAddress\":null,\"displayedFps\":null,\"presentedFps\":null";
+            const auto status = state_->client.StartTrackingProcess(processId);
+            startStatus = status;
+            if (status != PM_STATUS_SUCCESS && status != PM_STATUS_ALREADY_TRACKING_PROCESS)
+                return "\"trackStatus\":\"" + std::string(Api2StatusName(status)) +
+                    "\",\"trackStatusCode\":" + std::to_string(static_cast<int>(status)) +
+                    ",\"pollStatus\":null,\"pollStatusCode\":null,\"swapChainCount\":null,"
+                    "\"rendererActive\":null,\"swapChainAddress\":null,\"displayedFps\":null,"
+                    "\"presentedFps\":null,\"swapChains\":null";
             state_->tracked.insert(processId);
-            trackStatus = start == PM_STATUS_SUCCESS ? "SUCCESS" : "ALREADY_TRACKING_PROCESS";
         }
-        std::uint32_t swaps{};
-        const auto status = state_->client.PollDynamicQuery(state_->query, processId, state_->blob.data(), &swaps);
-        if (status != PM_STATUS_SUCCESS) return "\"pollStatus\":\"QUERY_FAILED\",\"swapChainCount\":null,\"swapChainAddress\":null,\"displayedFps\":null,\"presentedFps\":null";
-        std::string address = "null", displayed = "null", presented = "null";
-        for (const auto& element : state_->elements)
-            if (element.metric == PM_METRIC_SWAP_CHAIN_ADDRESS) address = Api2DecodeValue(state_->blob.data(), element);
-            else if (element.metric == PM_METRIC_DISPLAYED_FPS) displayed = Api2DecodeValue(state_->blob.data(), element);
-            else if (element.metric == PM_METRIC_PRESENTED_FPS) presented = Api2DecodeValue(state_->blob.data(), element);
-        return "\"trackStatus\":\"" + trackStatus + "\",\"pollStatus\":\"SUCCESS\",\"swapChainCount\":" + std::to_string(swaps) + ",\"rendererActive\":" + (swaps ? "true" : "false") + ",\"swapChainAddress\":" + address + ",\"displayedFps\":" + displayed + ",\"presentedFps\":" + presented;
+        // Input value = caller-provided capacity; PresentMon 2.5.1 fails a zero.
+        std::uint32_t swaps = kSwapChainCapacity;
+        const auto poll = state_->client.PollDynamicQuery(state_->query, processId,
+            state_->blob.data(), &swaps);
+        const std::string trackJson = startStatus
+            ? "\"" + std::string(Api2StatusName(*startStatus)) + "\"" : "null";
+        const std::string trackCodeJson = startStatus
+            ? std::to_string(static_cast<int>(*startStatus)) : "null";
+        std::vector<Api2SwapChainRow> rows;
+        if (poll == PM_STATUS_SUCCESS)
+        {
+            const std::uint32_t count = std::min(swaps, kSwapChainCapacity);
+            for (std::uint32_t index = 0; index < count; ++index)
+            {
+                const std::uint8_t* row = state_->blob.data() + state_->rowBytes * index;
+                rows.push_back({ RowValue(row, state_->elements, PM_METRIC_SWAP_CHAIN_ADDRESS),
+                    RowValue(row, state_->elements, PM_METRIC_DISPLAYED_FPS),
+                    RowValue(row, state_->elements, PM_METRIC_PRESENTED_FPS) });
+            }
+        }
+        return Api2ComposeSample(poll, poll == PM_STATUS_SUCCESS ? swaps : 0, rows,
+            trackJson, trackCodeJson);
     }
-    catch (...) { return "\"pollStatus\":\"EXCEPTION\",\"swapChainCount\":null,\"swapChainAddress\":null,\"displayedFps\":null,\"presentedFps\":null"; }
+    catch (...)
+    {
+        return "\"trackStatus\":null,\"trackStatusCode\":null,\"pollStatus\":\"EXCEPTION\","
+            "\"pollStatusCode\":null,\"swapChainCount\":null,\"rendererActive\":null,"
+            "\"swapChainAddress\":null,\"displayedFps\":null,\"presentedFps\":null,\"swapChains\":null";
+    }
 }

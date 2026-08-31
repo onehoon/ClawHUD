@@ -90,6 +90,39 @@ std::wstring QueryProcessImagePathInternal(HANDLE process)
     return path;
 }
 
+std::uint64_t QueryProcessStartFileTimeInternal(HANDLE process)
+{
+    FILETIME creation{}, exit{}, kernel{}, user{};
+    if (!process || !GetProcessTimes(process, &creation, &exit, &kernel, &user)) return 0;
+    ULARGE_INTEGER value{};
+    value.LowPart = creation.dwLowDateTime;
+    value.HighPart = creation.dwHighDateTime;
+    return value.QuadPart;
+}
+
+// GetVersionEx is manifest-gated and reports Windows 8 (6.2) for an
+// unmanifested exe like ClawHUD.Diag. RtlGetVersion returns the real build.
+std::string ActualOsVersion()
+{
+    struct RtlOsVersionInfo
+    {
+        ULONG size{ sizeof(RtlOsVersionInfo) };
+        ULONG major{};
+        ULONG minor{};
+        ULONG build{};
+        ULONG platform{};
+        WCHAR servicePack[128]{};
+    };
+    using RtlGetVersionFn = LONG(WINAPI*)(RtlOsVersionInfo*);
+    const HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+    const auto rtlGetVersion = reinterpret_cast<RtlGetVersionFn>(
+        ntdll ? GetProcAddress(ntdll, "RtlGetVersion") : nullptr);
+    RtlOsVersionInfo version{};
+    if (!rtlGetVersion || rtlGetVersion(&version) < 0) return "unavailable";
+    return std::to_string(version.major) + "." + std::to_string(version.minor) + "." +
+        std::to_string(version.build);
+}
+
 struct CandidateWindow { HWND hwnd{}; std::wstring title; };
 BOOL CALLBACK CollectCandidateWindow(HWND hwnd, LPARAM parameter)
 {
@@ -224,6 +257,11 @@ std::wstring DiagnosticQueryProcessImagePath(HANDLE process)
     return QueryProcessImagePathInternal(process);
 }
 
+std::uint64_t DiagnosticQueryProcessStartFileTime(HANDLE process)
+{
+    return QueryProcessStartFileTimeInternal(process);
+}
+
 DiagnosticSession::~DiagnosticSession() { Stop(); }
 
 bool DiagnosticSession::Start()
@@ -232,6 +270,7 @@ bool DiagnosticSession::Start()
     {
         std::lock_guard lock(observedMutex_);
         timelines_.clear();
+        identityByPid_.clear();
         windowCache_.clear();
     }
     {
@@ -257,9 +296,8 @@ bool DiagnosticSession::Start()
     running_ = true;
     std::string api2Detail;
     api2_.Start(api2Detail);
-    TIME_ZONE_INFORMATION timezone{}; const DWORD timezoneId = GetTimeZoneInformation(&timezone);
-    OSVERSIONINFOW version{ sizeof(version) }; GetVersionExW(&version);
-    WriteRecord("session_header", "\"schemaVersion\":1,\"api2Loader\":\"manual beside exe\",\"api2State\":\"" + api2Detail + "\",\"osVersion\":\"" + std::to_string(version.dwMajorVersion) + "." + std::to_string(version.dwMinorVersion) + "." + std::to_string(version.dwBuildNumber) + "\",\"timezoneBiasMinutes\":" + std::to_string(-timezone.Bias) + ",\"api2IntervalMs\":250,\"pdhIntervalMs\":500,\"pdhDeltaWindowMs\":100,\"presentMonBlocklistCommit\":\"f57eb474371c635ff2be620c04ca47400ca1b81a\"");
+    TIME_ZONE_INFORMATION timezone{}; GetTimeZoneInformation(&timezone);
+    WriteRecord("session_header", "\"schemaVersion\":1,\"api2Loader\":\"manual beside exe\",\"api2State\":\"" + api2Detail + "\",\"api2SwapChainCapacity\":" + std::to_string(Api2Evidence::kSwapChainCapacity) + ",\"osVersion\":\"" + ActualOsVersion() + "\",\"timezoneBiasMinutes\":" + std::to_string(-timezone.Bias) + ",\"api2IntervalMs\":250,\"pdhIntervalMs\":500,\"pdhDeltaWindowMs\":100,\"presentMonBlocklistCommit\":\"f57eb474371c635ff2be620c04ca47400ca1b81a\"");
     WriteRecord("steam_running_app_id", "\"oldAppId\":null,\"appId\":" + std::to_string(previousSteamAppId_.load()));
     api2Sampler_ = std::jthread([this](std::stop_token stop) {
         while (!stop.stop_requested() && running_)
@@ -403,16 +441,13 @@ void DiagnosticSession::SampleApi2ObservedPids() noexcept
         HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
         if (!process)
         {
-            api2_.Retire(pid);
-            bool firstExit = false;
-            { std::lock_guard lock(observedMutex_); auto found = timelines_.find(pid); if (found != timelines_.end() && !found->second.processExited) { found->second.processExited = true; firstExit = true; } }
-            if (firstExit) WriteRecord("process_exit", "\"pid\":" + std::to_string(pid));
+            MarkExited(pid);
             continue;
         }
         CloseHandle(process);
         const auto api2 = api2_.Sample(pid);
         WriteRecord("api2", "\"pid\":" + std::to_string(pid) + "," + api2);
-        if (api2.find("\"pollStatus\":\"SUCCESS\"") != std::string::npos)
+        if (api2.find("\"pollStatus\":\"PM_STATUS_SUCCESS\"") != std::string::npos)
         {
             if (api2.find("\"swapChainCount\":0") == std::string::npos) { MarkFirst(pid, "api2_swapchain"); MarkFirst(pid, "swapchain"); }
             if (api2.find("\"displayedFps\":0") == std::string::npos && api2.find("\"displayedFps\":null") == std::string::npos) MarkFirst(pid, "displayed_fps");
@@ -426,23 +461,34 @@ void DiagnosticSession::ObserveProcess(DWORD processId, std::string_view reason)
     if (!processId || processId == GetCurrentProcessId()) return;
     try
     {
+        HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
+        const std::uint64_t processStartFileTime =
+            process ? DiagnosticQueryProcessStartFileTime(process) : 0;
+        const DiagProcessKey key{ processId, processStartFileTime };
+
         std::lock_guard lock(observedMutex_);
-        if (timelines_.contains(processId)) return;
+        if (const auto current = identityByPid_.find(processId);
+            current != identityByPid_.end() && current->second == key &&
+            timelines_.contains(key))
+        {
+            if (process) CloseHandle(process);
+            return;
+        }
+        // Numeric PID now refers to a new process generation; force the API2
+        // lifecycle to follow it and start a fresh timeline.
+        api2_.Retire(processId);
+        identityByPid_[processId] = key;
         const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - startedAt_).count();
-        timelines_.emplace(processId, PidTimeline{ .firstSeenMs = elapsed });
-        HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
+        timelines_.try_emplace(key, PidTimeline{ .firstSeenMs = elapsed });
+
         std::wstring image, aumid, packageFull, packageFamily;
-        std::uint64_t processStartFileTime{};
         if (process)
         {
             image = DiagnosticQueryProcessImagePath(process);
             UINT32 size{}; if (GetApplicationUserModelId(process, &size, nullptr) == ERROR_INSUFFICIENT_BUFFER) { aumid.resize(size); if (GetApplicationUserModelId(process, &size, aumid.data()) == ERROR_SUCCESS) aumid.resize(size ? size - 1 : 0); else aumid.clear(); }
             size = 0; if (GetPackageFullName(process, &size, nullptr) == ERROR_INSUFFICIENT_BUFFER) { packageFull.resize(size); if (GetPackageFullName(process, &size, packageFull.data()) == ERROR_SUCCESS) packageFull.resize(size ? size - 1 : 0); else packageFull.clear(); }
             size = 0; if (GetPackageFamilyName(process, &size, nullptr) == ERROR_INSUFFICIENT_BUFFER) { packageFamily.resize(size); if (GetPackageFamilyName(process, &size, packageFamily.data()) == ERROR_SUCCESS) packageFamily.resize(size ? size - 1 : 0); else packageFamily.clear(); }
-            FILETIME creation{}, exit{}, kernel{}, user{};
-            if (GetProcessTimes(process, &creation, &exit, &kernel, &user))
-            { ULARGE_INTEGER value{}; value.LowPart = creation.dwLowDateTime; value.HighPart = creation.dwHighDateTime; processStartFileTime = value.QuadPart; }
             CloseHandle(process);
         }
         const auto gameConfig = ProbeMicrosoftGameConfig(image, packageFull);
@@ -455,7 +501,7 @@ void DiagnosticSession::ObserveProcess(DWORD processId, std::string_view reason)
             initialWindows += "\"" + Hex(windows.windows[index]) + "\"";
         }
         initialWindows += ']';
-        auto& timeline = timelines_.at(processId);
+        auto& timeline = timelines_.at(key);
         timeline.exe = Json(std::filesystem::path(image).filename().wstring());
         timeline.imagePath = Json(image);
         timeline.processStartFileTime = processStartFileTime;
@@ -479,10 +525,11 @@ void DiagnosticSession::WriteSummary() noexcept
     {
         std::lock_guard lock(observedMutex_);
         std::ofstream summary(summaryPath_, std::ios::binary | std::ios::trunc);
-        for (const auto& [pid, timeline] : timelines_)
+        for (const auto& [key, timeline] : timelines_)
         {
+            const DWORD pid = key.pid;
             if (summary)
-                summary << "PID " << pid << " " << timeline.exe << "\n"
+                summary << "PID " << pid << " (start " << timeline.processStartFileTime << ") " << timeline.exe << "\n"
                     << "firstSeenMs=" << timeline.firstSeenMs << " firstWindowCreateMs=" << timeline.firstWindowCreateMs
                     << " firstWindowShowMs=" << timeline.firstWindowShowMs << " firstTopGpuMs=" << timeline.firstTopGpuMs
                     << " firstApi2SwapchainMs=" << timeline.firstApi2SwapchainMs << " firstPresentedFpsMs=" << timeline.firstPresentedFpsMs
@@ -560,22 +607,48 @@ std::vector<DWORD> DiagnosticSession::ObservedPids() noexcept
 {
     std::lock_guard lock(observedMutex_);
     std::vector<DWORD> result;
-    result.reserve(timelines_.size());
-    for (const auto& [pid, _] : timelines_) result.push_back(pid);
+    result.reserve(identityByPid_.size());
+    for (const auto& [pid, _] : identityByPid_) result.push_back(pid);
     return result;
 }
 
 bool DiagnosticSession::IsObserved(DWORD processId) noexcept
 {
     std::lock_guard lock(observedMutex_);
-    return timelines_.contains(processId);
+    return identityByPid_.contains(processId);
+}
+
+void DiagnosticSession::MarkExited(DWORD processId) noexcept
+{
+    api2_.Retire(processId);
+    bool firstExit = false;
+    std::uint64_t startFileTime{};
+    {
+        std::lock_guard lock(observedMutex_);
+        const auto identity = identityByPid_.find(processId);
+        if (identity == identityByPid_.end()) return;
+        startFileTime = identity->second.startFileTime;
+        if (const auto timeline = timelines_.find(identity->second);
+            timeline != timelines_.end() && !timeline->second.processExited)
+        {
+            timeline->second.processExited = true;
+            firstExit = true;
+        }
+        // Drop the live index so a reused numeric PID starts fresh.
+        identityByPid_.erase(identity);
+    }
+    if (firstExit)
+        WriteRecord("process_exit", "\"pid\":" + std::to_string(processId) +
+            ",\"processStartFileTime\":" + std::to_string(startFileTime));
 }
 
 void DiagnosticSession::MarkFirst(DWORD processId, std::string_view milestone) noexcept
 {
     if (!processId) return;
     std::lock_guard lock(observedMutex_);
-    const auto found = timelines_.find(processId);
+    const auto identity = identityByPid_.find(processId);
+    if (identity == identityByPid_.end()) return;
+    const auto found = timelines_.find(identity->second);
     if (found == timelines_.end()) return;
     const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - startedAt_).count();

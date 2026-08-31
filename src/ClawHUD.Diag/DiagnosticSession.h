@@ -4,8 +4,10 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <future>
 #include <mutex>
 #include <thread>
@@ -15,6 +17,26 @@
 #include "Api2Evidence.h"
 
 std::wstring DiagnosticQueryProcessImagePath(HANDLE process);
+std::uint64_t DiagnosticQueryProcessStartFileTime(HANDLE process);
+
+// Diagnostic process identity: a numeric PID is reused by Windows, so the
+// Observed PID Pool is keyed by (pid, creation FILETIME) to keep two process
+// generations that happen to share a PID on separate evidence timelines.
+struct DiagProcessKey
+{
+    DWORD pid{};
+    std::uint64_t startFileTime{};
+    bool operator==(const DiagProcessKey&) const = default;
+};
+
+struct DiagProcessKeyHash
+{
+    std::size_t operator()(const DiagProcessKey& value) const noexcept
+    {
+        return std::hash<std::uint64_t>{}(
+            (static_cast<std::uint64_t>(value.pid) << 32) ^ value.startFileTime);
+    }
+};
 
 class DiagnosticSession
 {
@@ -42,6 +64,7 @@ private:
     std::vector<DWORD> ObservedPids() noexcept;
     bool IsObserved(DWORD processId) noexcept;
     void MarkFirst(DWORD processId, std::string_view milestone) noexcept;
+    void MarkExited(DWORD processId) noexcept;
 
     std::filesystem::path path_;
     std::filesystem::path summaryPath_;
@@ -82,7 +105,11 @@ private:
         std::uint64_t processStartFileTime{};
     };
     struct CachedWindow { DWORD processId{}; std::string fields; };
-    std::unordered_map<DWORD, PidTimeline> timelines_;
+    // Permanent per-generation evidence timelines, keyed by (pid, start time).
+    std::unordered_map<DiagProcessKey, PidTimeline, DiagProcessKeyHash> timelines_;
+    // Live numeric PID -> its current generation key. Entries are dropped when
+    // the process exits so a reused PID starts a fresh generation.
+    std::unordered_map<DWORD, DiagProcessKey> identityByPid_;
     std::unordered_map<HWND, CachedWindow> windowCache_;
     Api2Evidence api2_;
     static std::atomic<DiagnosticSession*> active_;
