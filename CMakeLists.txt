@@ -58,6 +58,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/RuntimeLogger.cpp
     src/ClawHUD/Win32Format.cpp
     src/ClawHUD/ProcessLiveness.cpp
+    src/ClawHUD/HudSettingsStore.cpp
     src/ClawHUD/GameDetection/ProcessLifecycleSource.cpp
     src/ClawHUD/GameDetection/PresentActivitySource.cpp
     src/ClawHUD/GameDetection/WindowLifecycleSource.cpp
@@ -259,6 +260,20 @@ if(BUILD_TESTING)
     target_include_directories(ClawHUD.ProcessLivenessTests PRIVATE src/ClawHUD)
     set_target_properties(ClawHUD.ProcessLivenessTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.ProcessLivenessTests COMMAND ClawHUD.ProcessLivenessTests)
+
+    add_executable(ClawHUD.HudSettingsStoreTests
+        tests/HudSettingsStoreTests.cpp
+        src/ClawHUD/HudSettingsStore.cpp
+        src/ClawHUD/HudSize.cpp
+        src/ClawHUD/HudModel.cpp
+        src/ClawHUD/RuntimeLogger.cpp)
+    target_compile_features(ClawHUD.HudSettingsStoreTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.HudSettingsStoreTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX CLAWHUD_RUNTIME_LOGGER_TESTS)
+    target_include_directories(ClawHUD.HudSettingsStoreTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.HudSettingsStoreTests PRIVATE shell32 ole32 user32)
+    set_target_properties(ClawHUD.HudSettingsStoreTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.HudSettingsStoreTests COMMAND ClawHUD.HudSettingsStoreTests)
 
     add_executable(ClawHUD.AlwaysModeFpsTargetTests
         tests/AlwaysModeFpsTargetTests.cpp

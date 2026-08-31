@@ -29,6 +29,7 @@
 #include "AlwaysModeFpsTarget.h"
 #include "FpsStaleHold.h"
 #include "EcHelperClient.h"
+#include "HudSettingsStore.h"
 #include "MsiEcHudTelemetry.h"
 #include "WindowsPowerTelemetry.h"
 #include "BatteryPowerEstimator.h"
@@ -231,6 +232,7 @@ private:
 
     HINSTANCE instance_{};
     HANDLE instanceMutex_{};
+    clawhud::HudSettingsStore hudSettingsStore_;
     TrayIcon tray_;
     std::unique_ptr<EcDiagnostic> ecDiagnostic_;
     std::unique_ptr<clawhud::IgclTelemetryDiagnostic> igclDiagnostic_;
