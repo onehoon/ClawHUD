@@ -14,12 +14,11 @@ public:
 
     bool Show(HINSTANCE instance);
     HWND Window() const { return window_; }
-    void RequestClose() { if (window_) PostMessageW(window_, WM_CLOSE, 0, 0); }
-    void UpdateGeneralControls();
     void UpdateHudControls();
 
 private:
     static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
+    void UpdateGeneralControls();
     void CreateTabs();
     void CreateSettingsControls();
     void CreateTweaksControls();

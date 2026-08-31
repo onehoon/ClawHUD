@@ -40,11 +40,19 @@ explicit user request to open Settings
     -> App::OpenSettings()
     -> create SettingsWindow lazily only when settings_ is null
 
-Settings window destroyed
+Settings window destroyed (SettingsWindow WM_NCDESTROY)
+    -> App::PostSettingsDestroyed()          # posts a private App message; ASYNCHRONOUS
+    -> App message pump receives it
     -> App::SettingsDestroyed()
     -> settings_.reset()
     -> release the SettingsWindow object and its UI/control ownership
 ```
+
+The destruction notification MUST stay asynchronous: `WM_NCDESTROY` posts an App
+message and returns; `settings_.reset()` runs later on the App message pump, never
+as a direct call from inside the `SettingsWindow` window procedure (which would
+delete the object while its own `WndProc` is still on the stack). `App` hides the
+raw message HWND / message id behind `App::PostSettingsDestroyed()`.
 
 The application may continue to consume memory for the tray/message window, production
 runtime services, game-detection sources, PresentMon API2, HUD state/presentation when HUD
@@ -73,6 +81,8 @@ controller construction/wiring, or final `App` shell cleanup, verify all of the 
 - [ ] no Settings tab/window/control tree is eagerly created by a controller or startup path.
 - [ ] `App::OpenSettings()` remains the lazy construction boundary (or an exactly equivalent explicit-user-action boundary if later renamed).
 - [ ] closing/destroying Settings releases the owned `SettingsWindow` object (`settings_.reset()` or exactly equivalent ownership release).
+- [ ] the destruction notification stays asynchronous (posted App message → pump → `settings_.reset()`), never a synchronous `settings_.reset()` from inside `SettingsWindow`'s `WM_NCDESTROY`.
+- [ ] `SettingsWindow` does not know `App`'s raw message HWND or the private destruction message id (it calls `App::PostSettingsDestroyed()`).
 - [ ] R2 telemetry extraction does not introduce any Settings/UI dependency.
 - [ ] R3 `HudController` extraction does not instantiate Settings UI or make SettingsWindow a long-lived controller-owned object.
 - [ ] R7 final `App` shell cleanup preserves tray-only startup and lazy Settings UI creation.

@@ -3,9 +3,6 @@
 #include <windows.h>
 
 #include <memory>
-#include <atomic>
-#include <cstddef>
-#include <cstdint>
 #include <optional>
 #include <string>
 
@@ -27,10 +24,10 @@ class DebugObservationController;
 }
 
 constexpr int kHudToggleHotkeyId = 1;
-constexpr UINT_PTR kResumeRecoveryTimerId = 5;
 // The production telemetry timer ids (2, 3, 4, 6) live in
-// ProductionTelemetryController.h; the numeric values stay globally distinct
-// because they all target the one application message window.
+// ProductionTelemetryController.h and the resume-recovery timer id (5) is
+// App-internal in App.cpp; the numeric values stay globally distinct because
+// they all target the one application message window.
 
 class App
 {
@@ -39,23 +36,21 @@ public:
     ~App();
 
     int Run();
+
+    // Tray shell entry points.
     void OpenSettings();
     void Exit();
-    void SettingsDestroyed();
-    bool StartWithWindows() const noexcept { return startWithWindows_; }
-    void SetStartWithWindows(bool enabled);
-    HWND MessageWindow() const { return tray_.Window(); }
-    const std::wstring& ExecutablePath() const { return executablePath_; }
     void HandleSystemSuspend();
     void HandleSystemResume();
-    void TryResumeRecovery();
-    void StopHud();
-    void SampleProductionTelemetry();
-    void SampleProductionBatteryTelemetry();
-    void SampleProductionFpsTelemetry();
-    void RenderProductionHud(bool allowHidden = false);
-    void TryGraphicsApiProbe();
-    bool HudVisible() const noexcept { return hudController_.Visible(); }
+    void HandleTimer(UINT_PTR timerId);
+    void HandleHudToggleHotkey();
+
+    // Asynchronous notification that the lazy SettingsWindow's HWND is gone.
+    void PostSettingsDestroyed();
+
+    // SettingsWindow facade.
+    bool StartWithWindows() const noexcept { return startWithWindows_; }
+    void SetStartWithWindows(bool enabled);
     bool HudEnabled() const noexcept { return hudController_.Enabled(); }
     int HudSizeOffset() const noexcept { return hudController_.SizeOffset(); }
     bool SetHudEnabled(bool enabled);
@@ -67,7 +62,6 @@ public:
     bool SetHudOpacity(float opacity, bool persist = true);
     void SetHudSizeOffset(int offset);
     void SetHudVisibilityMode(clawhud::HudVisibilityMode mode);
-    void HandleHudToggleHotkey();
     bool IntelVrrRangeFixEnabled() const noexcept { return intelVrrRangeFixEnabled_; }
     void SetIntelVrrRangeFixEnabled(bool enabled);
     std::optional<clawhud::IntelVrrRunResult> IntelVrrLastResult() const;
@@ -87,6 +81,14 @@ private:
     void CancelResumeRecovery();
     void StopProductionSampling(bool stopRenderVerification = true,
         const wchar_t* reason = L"explicit-reset");
+    // Shared runtime-source stop sequence for ~App() and Exit(). Same effective
+    // order both callers used inline before R7.
+    void StopRuntimeSources();
+    void SettingsDestroyed();
+    void TryResumeRecovery();
+    void StopHud();
+    void RenderProductionHud(bool allowHidden = false);
+    bool HudVisible() const noexcept { return hudController_.Visible(); }
 
     HINSTANCE instance_{};
     HANDLE instanceMutex_{};
