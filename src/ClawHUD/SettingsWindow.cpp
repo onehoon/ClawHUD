@@ -25,10 +25,7 @@ using settings_internal::kBackgroundFull;
 using settings_internal::kDebugLoggingToggle;
 using settings_internal::kDefaultWindowHeightDip;
 using settings_internal::kDefaultWindowWidthDip;
-using settings_internal::kDiagnosticsEcHeading;
-using settings_internal::kDiagnosticsIgclHeading;
 using settings_internal::kDiagnosticsApi2Heading;
-using settings_internal::kDiagnosticsVrrHeading;
 using settings_internal::kEnableHud;
 using settings_internal::kFontSegoeUiVariable;
 using settings_internal::kFontUnispace;
@@ -41,13 +38,9 @@ using settings_internal::kMinimumWindowHeightDip;
 using settings_internal::kMinimumWindowWidthDip;
 using settings_internal::kOpenLogs;
 using settings_internal::kSettingsClassName;
-using settings_internal::kStartEc;
-using settings_internal::kStartIgcl;
 using settings_internal::kStartApi2;
 using settings_internal::kStopApi2;
-using settings_internal::kStartVrr;
 using settings_internal::kStartWithWindows;
-using settings_internal::kStopVrr;
 using settings_internal::kTabAbout;
 using settings_internal::kTabCount;
 using settings_internal::kTabDiagnostics;
@@ -111,8 +104,7 @@ bool SettingsWindow::Show(HINSTANCE instance)
     UpdateWindow(window_);
     SetForegroundWindow(window_);
     UpdateHudControls();
-    SetDiagnosticStatus(app_.PresentMonApi2Status() != L"Idle" ? app_.PresentMonApi2Status() :
-        (app_.IgclStatus() == L"Idle" ? app_.EcStatus() : app_.IgclStatus())); SetVrrStatus(app_.VrrStatus());
+    SetDiagnosticStatus(app_.PresentMonApi2Status());
     UpdateTweaksControls();
     return true;
 }
@@ -188,9 +180,6 @@ void SettingsWindow::ApplyHeadingFont()
     apply(tweaksPanel_, kTweaksHeading);
     apply(aboutPanel_, kAboutTitle);
     apply(aboutPanel_, kAboutHowToUse);
-    apply(diagnosticsPanel_, kDiagnosticsVrrHeading);
-    apply(diagnosticsPanel_, kDiagnosticsEcHeading);
-    apply(diagnosticsPanel_, kDiagnosticsIgclHeading);
     apply(diagnosticsPanel_, kDiagnosticsApi2Heading);
 }
 
@@ -250,7 +239,7 @@ int SettingsWindow::ContentHeightForTab(int tab) const noexcept
     case kTabSettings: return 454;
     case kTabTweaks: return 230;
     case kTabAbout: return 260;
-    case kTabDiagnostics: return 676;
+    case kTabDiagnostics: return 230;
     default: return 0;
     }
 }
@@ -500,15 +489,6 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
         self->UpdateHudControls();
         return 0;
     }
-    if (message == WM_COMMAND && LOWORD(wParam) == kStartEc)
-    {
-        if (self->app_.StartEcDiagnostic()) self->SetDiagnosticStatus(L"Running"); return 0;
-    }
-    if (message == WM_COMMAND && LOWORD(wParam) == kStartIgcl)
-    {
-        if (self->app_.StartIgclDiagnostic()) self->SetDiagnosticStatus(L"Waiting 5 seconds...");
-        return 0;
-    }
     if (message == WM_COMMAND && LOWORD(wParam) == kStartApi2)
     {
         if (self->app_.StartPresentMonApi2Diagnostic())
@@ -520,18 +500,6 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
         self->app_.StopPresentMonApi2Diagnostic();
         self->SetDiagnosticStatus(L"Stopped");
         return 0;
-    }
-    if (message == WM_COMMAND && LOWORD(wParam) == kStartVrr)
-    {
-        if (self->app_.StartVrrDiagnostic())
-            self->SetVrrStatus(L"Waiting for F8");
-        else
-            self->SetVrrStatus(self->app_.VrrStatus().c_str());
-        return 0;
-    }
-    if (message == WM_COMMAND && LOWORD(wParam) == kStopVrr)
-    {
-        self->app_.StopVrrDiagnostic(); return 0;
     }
     if (message == WM_COMMAND && LOWORD(wParam) == kOpenLogs)
     {
