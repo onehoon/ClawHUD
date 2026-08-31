@@ -154,20 +154,6 @@ bool ShouldRetainCommittedProductionTarget(DWORD committedProcessId,
     return committedProcessId != 0 && processAlive;
 }
 
-bool ShouldRetryProductionPresentMon(DWORD retryProcessId,
-    unsigned retryAttempts, DWORD processId) noexcept
-{
-    return processId != 0 && (retryProcessId != processId || retryAttempts == 0);
-}
-
-bool ShouldAllowProductionPresentMonStart(DWORD committedProcessId,
-    DWORD processId, DWORD retryProcessId, unsigned retryAttempts,
-    bool recoveryStart) noexcept
-{
-    return committedProcessId != processId || recoveryStart ||
-        ShouldRetryProductionPresentMon(retryProcessId, retryAttempts, processId);
-}
-
 bool ShouldReevaluateForegroundAfterResume(bool hudEnabled,
     bool recoveryCompleted) noexcept
 {

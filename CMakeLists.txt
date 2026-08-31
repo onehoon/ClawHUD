@@ -77,7 +77,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/PresentMonRuntimeBootstrap.cpp
     src/ClawHUD/EcHelperClient.cpp
     src/ClawHUD/MsiEcHudTelemetry.cpp
-    src/ClawHUD/PresentMonHudTelemetry.cpp
+    src/ClawHUD/PresentMonFrameTelemetry.cpp
     src/ClawHUD/WindowsPowerTelemetry.cpp
     src/ClawHUD/BatteryPowerEstimator.cpp
     src/ClawHUD/WindowsMemoryTelemetry.cpp
@@ -339,16 +339,15 @@ if(BUILD_TESTING)
     set_target_properties(ClawHUD.MsiEcHudTelemetryTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.MsiEcHudTelemetryTests COMMAND ClawHUD.MsiEcHudTelemetryTests)
 
-    add_executable(ClawHUD.PresentMonHudTelemetryTests
-        tests/PresentMonHudTelemetryTests.cpp
-        src/ClawHUD/PresentMonHudTelemetry.cpp
-        src/ClawHUD/RuntimeLogger.cpp)
-    target_compile_features(ClawHUD.PresentMonHudTelemetryTests PRIVATE cxx_std_20)
-    target_compile_definitions(ClawHUD.PresentMonHudTelemetryTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-    target_include_directories(ClawHUD.PresentMonHudTelemetryTests PRIVATE src/ClawHUD)
-    target_link_libraries(ClawHUD.PresentMonHudTelemetryTests PRIVATE advapi32 shell32 ole32)
-    set_target_properties(ClawHUD.PresentMonHudTelemetryTests PROPERTIES CXX_EXTENSIONS OFF)
-    add_test(NAME ClawHUD.PresentMonHudTelemetryTests COMMAND ClawHUD.PresentMonHudTelemetryTests)
+    add_executable(ClawHUD.PresentMonFrameTelemetryTests
+        tests/PresentMonFrameTelemetryTests.cpp
+        src/ClawHUD/PresentMonFrameTelemetry.cpp
+        src/ClawHUD/PresentMonApi2Client.cpp)
+    target_compile_features(ClawHUD.PresentMonFrameTelemetryTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.PresentMonFrameTelemetryTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.PresentMonFrameTelemetryTests PRIVATE src/ClawHUD)
+    set_target_properties(ClawHUD.PresentMonFrameTelemetryTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.PresentMonFrameTelemetryTests COMMAND ClawHUD.PresentMonFrameTelemetryTests)
 
     add_executable(ClawHUD.WindowsPowerTelemetryTests
         tests/WindowsPowerTelemetryTests.cpp
@@ -506,7 +505,11 @@ if(BUILD_TESTING)
         src/ClawHUD/GameDetection/MicrosoftGameTrigger.cpp
         src/ClawHUD/GameDetection/SteamRunningAppTrigger.cpp
         src/ClawHUD/GameDetection/WindowsGameIdentityProbe.cpp
-        src/ClawHUD/PresentMonHudTelemetry.cpp
+        src/ClawHUD/PresentMonTelemetryProvider.cpp
+        src/ClawHUD/PresentMonFrameTelemetry.cpp
+        src/ClawHUD/PresentMonProcessTelemetry.cpp
+        src/ClawHUD/PresentMonSystemTelemetry.cpp
+        src/ClawHUD/PresentMonApi2Client.cpp
         src/ClawHUD/ProductionTargetPolicy.cpp
         src/ClawHUD/RuntimeLogger.cpp)
     target_compile_features(ClawHUD.ProductionGameDetectionScenarioTests PRIVATE cxx_std_20)
@@ -565,7 +568,11 @@ if(BUILD_TESTING)
         tests/GameRenderVerifierTests.cpp
         src/ClawHUD/GameDetection/GameRenderVerifier.cpp
         src/ClawHUD/GameDetection/GameDetectionCoordinator.cpp
-        src/ClawHUD/PresentMonHudTelemetry.cpp
+        src/ClawHUD/PresentMonTelemetryProvider.cpp
+        src/ClawHUD/PresentMonFrameTelemetry.cpp
+        src/ClawHUD/PresentMonProcessTelemetry.cpp
+        src/ClawHUD/PresentMonSystemTelemetry.cpp
+        src/ClawHUD/PresentMonApi2Client.cpp
         src/ClawHUD/RuntimeLogger.cpp)
     target_compile_features(ClawHUD.GameRenderVerifierTests PRIVATE cxx_std_20)
     target_compile_definitions(ClawHUD.GameRenderVerifierTests PRIVATE
@@ -682,6 +689,7 @@ if(BUILD_TESTING)
         src/ClawHUD/PresentMonTelemetryProvider.cpp
         src/ClawHUD/PresentMonProcessTelemetry.cpp
         src/ClawHUD/PresentMonSystemTelemetry.cpp
+        src/ClawHUD/PresentMonFrameTelemetry.cpp
         src/ClawHUD/PresentMonApi2Client.cpp
         src/ClawHUD/RuntimeLogger.cpp)
     target_compile_features(ClawHUD.PresentMonTelemetryProviderTests PRIVATE cxx_std_20)

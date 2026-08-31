@@ -188,10 +188,10 @@ private:
     void StartProductionEcSampling();
     void PauseProductionSamplingForSuspend();
     void CancelResumeRecovery();
-    void StopProductionEcSampling(bool stopPresentMon = true,
+    void StopProductionEcSampling(bool stopRenderVerification = true,
         const wchar_t* reason = L"explicit-reset");
-    void StartProductionPresentMonSampling(bool recoveryStart = false);
-    void StopProductionPresentMonSampling(const wchar_t* reason = L"explicit-reset",
+    void StartGameRenderVerification();
+    void StopGameRenderVerification(const wchar_t* reason = L"explicit-reset",
         bool clearLatestFps = false);
     void StartProductionFpsSampling();
     void StopProductionFpsSampling(bool clearTarget = true);
@@ -219,8 +219,6 @@ private:
     // Always mode: FPS target authority is the current foreground PID only,
     // fully decoupled from game detection. In-Game Only is unaffected.
     clawhud::AlwaysModeFpsTarget alwaysFpsTarget_;
-    DWORD presentMonRestartPid_{};
-    unsigned presentMonRestartAttempts_{};
     std::optional<clawhud::WindowsPowerTelemetry> latestPowerTelemetry_;
     clawhud::BatteryPowerEstimator batteryPowerEstimator_;
     bool batteryEcOnDc_{};
@@ -263,7 +261,7 @@ private:
     clawhud::MicrosoftGameTrigger microsoftGameTrigger_;
     clawhud::ProductionGameWindowSource productionGameWindowSource_;
     clawhud::ProductionProcessLifetimeWatcher productionProcessLifetimeWatcher_;
-    clawhud::GameRenderVerifier gameRenderVerifier_;
+    clawhud::GameRenderVerifier gameRenderVerifier_{presentMonTelemetryProvider_};
     SteamRunningAppIdSource steamRunningAppIdSource_;
     std::uint32_t steamRunningAppId_{};
 };

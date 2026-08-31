@@ -362,6 +362,42 @@ void CheckStaleValueProtection(bool& ok)
         "tracking follows the new PID");
 }
 
+void CheckSharedTracking(bool& ok)
+{
+    ProcessTrackingRefCounts refs;
+    ok &= Check(refs.Acquire(100),
+        "the first consumer of a PID fires the start endpoint");
+    ok &= Check(!refs.Acquire(100) && refs.Count(100) == 2,
+        "a second consumer of the same PID does not re-fire the start endpoint");
+    ok &= Check(!refs.Release(100) && refs.Count(100) == 1,
+        "releasing one of two holders keeps tracking alive for the other");
+    ok &= Check(refs.Release(100) && refs.Count(100) == 0,
+        "releasing the last holder fires the stop endpoint");
+    ok &= Check(!refs.Release(100),
+        "releasing an untracked PID fires nothing");
+
+    ok &= Check(refs.Acquire(7) && refs.Count(7) == 1, "acquire a fresh PID");
+    refs.AbortAcquire(7);
+    ok &= Check(refs.Count(7) == 0,
+        "AbortAcquire unwinds a first acquire whose endpoint start failed");
+    refs.Acquire(9);
+    refs.Acquire(9);
+    refs.AbortAcquire(9);
+    ok &= Check(refs.Count(9) == 1,
+        "AbortAcquire on a shared PID only drops the failed holder");
+
+    PresentMonTelemetryProvider provider;
+    auto lease = provider.AcquireProcess(1234);
+    ok &= Check(!lease && lease.ProcessId() == 0,
+        "AcquireProcess on an unready provider yields an empty lease");
+    PresentMonProcessLease moved = std::move(lease);
+    ok &= Check(!moved, "moving an empty lease is safe");
+    moved.Release();
+    ok &= Check(!provider.PollGameRenderDisplayedFrame(1234) &&
+        !provider.FrameReady(),
+        "an unready provider reports no game-render frame evidence");
+}
+
 void CheckSystemTelemetry(bool& ok)
 {
     ok &= Check(SupportsPresentMonDynamicQuery(PM_METRIC_TYPE_DYNAMIC),
@@ -440,6 +476,7 @@ int main()
     CheckDecoding(ok);
     CheckProcessLifecycle(ok);
     CheckStaleValueProtection(ok);
+    CheckSharedTracking(ok);
     CheckSystemTelemetry(ok);
     return ok ? 0 : 1;
 }

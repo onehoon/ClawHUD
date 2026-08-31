@@ -1053,7 +1053,12 @@ Do not attempt to solve Xbox detection only with a growing blacklist; the Micros
 
 ## 14. GameRenderVerifier
 
-The common verifier should wrap the existing PID-filtered production PresentMon path.
+The common verifier drives the shared production PresentMon **API2** frame query
+(`PresentMonFrameTelemetry`, owned by `PresentMonTelemetryProvider`). It no
+longer launches a `PresentMon.exe` child process, parses CSV, or manages an ETW
+session. Process tracking on the shared session is reference counted
+(`PresentMonProcessLease` / `ProcessTrackingRefCounts`), so the verifier and the
+FPS path can hold the same PID without one releasing it from under the other.
 
 It must not use the global diagnostic PresentActivity source.
 
@@ -1069,24 +1074,29 @@ Then continue to provide normal FPS telemetry after the candidate is committed.
 
 ### 14.2 Separate renderer proof from FPS aggregation
 
-The verifier callback carries renderer proof and stream lifecycle events only.
-Production FPS is supplied separately by the PID-bound PresentMon API2 provider.
+The verifier callback carries renderer proof only. Production FPS is supplied
+separately by the PID-bound PresentMon API2 process telemetry. There is no
+stream-lifecycle event: game-process exit is owned by
+`ProductionProcessLifetimeWatcher`.
 
-One possible API:
+Current API:
 
 ```cpp
-enum class PresentMonHudEventType
+enum class GameRenderVerifierEventType
 {
     FirstDisplayedFrame,
-    StreamEnded,
 };
 
-struct PresentMonHudEvent
+struct GameRenderVerifierEvent
 {
-    PresentMonHudEventType type{};
-    std::optional<double> displayedFps;
+    DWORD processId{};
+    std::uint64_t generation{};
+    GameRenderVerifierEventType type{};
 };
 ```
+
+The first-displayed-frame test is `PM_METRIC_BETWEEN_DISPLAY_CHANGE > 0`,
+consumed via `pmConsumeFrames` on the shared session.
 
 Semantics:
 

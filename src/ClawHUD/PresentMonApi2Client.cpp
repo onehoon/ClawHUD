@@ -199,14 +199,63 @@ void PresentMonApi2Client::CloseSession() noexcept
     if (session_ && endpoints_ && endpoints_->closeSession)
         endpoints_->closeSession(session_);
     session_ = nullptr;
+    trackingRefs_.Clear();
 }
 
 PM_STATUS PresentMonApi2Client::OpenSession()
 { return endpoints_ && endpoints_->openSession ? endpoints_->openSession(&session_) : PM_STATUS_FAILURE; }
+bool ProcessTrackingRefCounts::Acquire(std::uint32_t processId)
+{
+    return ++counts_[processId] == 1;
+}
+void ProcessTrackingRefCounts::AbortAcquire(std::uint32_t processId)
+{
+    const auto it = counts_.find(processId);
+    if (it == counts_.end())
+        return;
+    if (it->second <= 1)
+        counts_.erase(it);
+    else
+        --it->second;
+}
+bool ProcessTrackingRefCounts::Release(std::uint32_t processId)
+{
+    const auto it = counts_.find(processId);
+    if (it == counts_.end())
+        return false;
+    if (it->second > 1)
+    {
+        --it->second;
+        return false;
+    }
+    counts_.erase(it);
+    return true;
+}
+unsigned ProcessTrackingRefCounts::Count(std::uint32_t processId) const
+{
+    const auto it = counts_.find(processId);
+    return it == counts_.end() ? 0u : it->second;
+}
+
 PM_STATUS PresentMonApi2Client::StartTrackingProcess(std::uint32_t pid)
-{ return session_ && endpoints_ ? endpoints_->startTracking(session_, pid) : PM_STATUS_SESSION_NOT_OPEN; }
+{
+    if (!session_ || !endpoints_)
+        return PM_STATUS_SESSION_NOT_OPEN;
+    if (!trackingRefs_.Acquire(pid))
+        return PM_STATUS_SUCCESS;
+    const PM_STATUS status = endpoints_->startTracking(session_, pid);
+    if (status != PM_STATUS_SUCCESS)
+        trackingRefs_.AbortAcquire(pid);
+    return status;
+}
 PM_STATUS PresentMonApi2Client::StopTrackingProcess(std::uint32_t pid)
-{ return session_ && endpoints_ ? endpoints_->stopTracking(session_, pid) : PM_STATUS_SESSION_NOT_OPEN; }
+{
+    if (!session_ || !endpoints_)
+        return PM_STATUS_SESSION_NOT_OPEN;
+    if (!trackingRefs_.Release(pid))
+        return PM_STATUS_SUCCESS;
+    return endpoints_->stopTracking(session_, pid);
+}
 PM_STATUS PresentMonApi2Client::GetIntrospectionRoot(const PM_INTROSPECTION_ROOT** root)
 { return session_ && endpoints_ ? endpoints_->getRoot(session_, root) : PM_STATUS_SESSION_NOT_OPEN; }
 PM_STATUS PresentMonApi2Client::FreeIntrospectionRoot(const PM_INTROSPECTION_ROOT* root)

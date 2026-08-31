@@ -1,5 +1,7 @@
 #include "GameDetection/GameRenderVerifier.h"
 
+#include "PresentMonTelemetryProvider.h"
+
 #include <iostream>
 
 using namespace clawhud;
@@ -13,10 +15,10 @@ bool Check(bool condition, const char* message)
     return false;
 }
 
-GameRenderVerifierEvent Event(DWORD processId, std::uint64_t generation,
-    PresentMonHudEventType type, std::optional<double> fps = {})
+GameRenderVerifierEvent Event(DWORD processId, std::uint64_t generation)
 {
-    return StampPresentMonHudEvent(processId, generation, {type, fps});
+    return MakeGameRenderVerifierEvent(processId, generation,
+        GameRenderVerifierEventType::FirstDisplayedFrame);
 }
 
 GameDetectionCoordinator Candidate(DWORD processId, HWND window = nullptr)
@@ -31,45 +33,32 @@ GameDetectionCoordinator Candidate(DWORD processId, HWND window = nullptr)
 int main()
 {
     bool ok = true;
-    const auto first = Event(6008, 7,
-        PresentMonHudEventType::FirstDisplayedFrame);
-    ok &= Check(first.processId == 6008 && first.generation == 7 &&
-        first.event.type == PresentMonHudEventType::FirstDisplayedFrame,
-        "FirstDisplayedFrame keeps PID and generation");
 
-    const auto ended = Event(6008, 7, PresentMonHudEventType::StreamEnded);
-    ok &= Check(ended.processId == 6008 && ended.generation == 7 &&
-        ended.event.type == PresentMonHudEventType::StreamEnded,
-        "StreamEnded keeps PID and generation");
+    const auto first = Event(6008, 7);
+    ok &= Check(first.processId == 6008 && first.generation == 7 &&
+        first.type == GameRenderVerifierEventType::FirstDisplayedFrame,
+        "FirstDisplayedFrame keeps PID and generation");
 
     auto ready = Candidate(6008);
     const auto generation = ready.Context().generation;
     ok &= Check(GameRenderVerifier::ApplyRendererEvidence(
-        ready, Event(6008, generation, PresentMonHudEventType::FirstDisplayedFrame)) &&
+        ready, Event(6008, generation)) &&
         ready.Context().state == GameDetectionState::Ready &&
         ready.Context().rendererObserved &&
         ready.Context().state != GameDetectionState::Committed,
         "valid renderer evidence reaches Ready without commit");
 
-    auto streamEnded = Candidate(6008);
-    const auto endedGeneration = streamEnded.Context().generation;
-    ok &= Check(!GameRenderVerifier::ApplyRendererEvidence(streamEnded,
-        Event(6008, endedGeneration, PresentMonHudEventType::StreamEnded)) &&
-        streamEnded.Context().state == GameDetectionState::Verifying,
-        "StreamEnded does not mark Ready");
-
     auto wrongPid = Candidate(6008);
     const auto wrongPidGeneration = wrongPid.Context().generation;
     ok &= Check(!GameRenderVerifier::ApplyRendererEvidence(wrongPid,
-        Event(7000, wrongPidGeneration, PresentMonHudEventType::FirstDisplayedFrame)) &&
+        Event(7000, wrongPidGeneration)) &&
         wrongPid.Context().state == GameDetectionState::Verifying,
         "wrong PID is rejected");
 
     auto wrongGeneration = Candidate(6008);
     const auto currentGeneration = wrongGeneration.Context().generation;
     ok &= Check(!GameRenderVerifier::ApplyRendererEvidence(wrongGeneration,
-        Event(6008, currentGeneration + 1,
-            PresentMonHudEventType::FirstDisplayedFrame)) &&
+        Event(6008, currentGeneration + 1)) &&
         wrongGeneration.Context().state == GameDetectionState::Verifying,
         "wrong generation is rejected");
 
@@ -78,7 +67,7 @@ int main()
     replaced.ReplaceCandidate(11532, nullptr,
         GameDetectionTrigger::GenericForeground);
     ok &= Check(!GameRenderVerifier::ApplyRendererEvidence(replaced,
-        Event(6008, oldGeneration, PresentMonHudEventType::FirstDisplayedFrame)) &&
+        Event(6008, oldGeneration)) &&
         replaced.Context().candidateProcessId == 11532 &&
         replaced.Context().state == GameDetectionState::Verifying,
         "old PID and generation after replacement are rejected");
@@ -90,25 +79,28 @@ int main()
         GameDetectionTrigger::GenericForeground);
     ok &= Check(reusedPid.Context().generation != reusedOldGeneration &&
         !GameRenderVerifier::ApplyRendererEvidence(reusedPid,
-            Event(6008, reusedOldGeneration,
-                PresentMonHudEventType::FirstDisplayedFrame)) &&
+            Event(6008, reusedOldGeneration)) &&
         reusedPid.Context().state == GameDetectionState::Verifying,
         "same PID with a newer generation rejects old evidence");
 
     auto duplicate = Candidate(6008);
     const auto duplicateGeneration = duplicate.Context().generation;
-    const auto duplicateEvent = Event(6008, duplicateGeneration,
-        PresentMonHudEventType::FirstDisplayedFrame);
+    const auto duplicateEvent = Event(6008, duplicateGeneration);
     ok &= Check(GameRenderVerifier::ApplyRendererEvidence(duplicate, duplicateEvent) &&
         GameRenderVerifier::ApplyRendererEvidence(duplicate, duplicateEvent) &&
         duplicate.Context().state == GameDetectionState::Ready &&
         duplicate.Context().generation == duplicateGeneration,
         "duplicate renderer evidence is idempotent");
 
-    GameRenderVerifier verifier;
-    ok &= Check(!verifier.Start({}, 0, 0, {}) && !verifier.Running() &&
+    // An uninitialized provider cannot lease the target, so Start fails cleanly.
+    PresentMonTelemetryProvider provider;
+    GameRenderVerifier verifier(provider);
+    ok &= Check(!verifier.Start(0, 0, {}) && !verifier.Running() &&
         verifier.ProcessId() == 0 && verifier.Generation() == 0,
-        "invalid start leaves verifier stopped");
+        "invalid start leaves the verifier stopped");
+    ok &= Check(!verifier.Start(1234, 9,
+        [](const GameRenderVerifierEvent&) {}) && !verifier.Running(),
+        "start fails when the shared session cannot lease the process");
     verifier.Stop();
     ok &= Check(!verifier.Running() && verifier.ProcessId() == 0 &&
         verifier.Generation() == 0, "repeated stop is safe");

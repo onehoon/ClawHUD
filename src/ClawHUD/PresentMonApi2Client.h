@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <map>
 
 namespace clawhud
 {
@@ -30,6 +31,25 @@ const char* PresentMonApi2InitFailureName(PresentMonApi2InitFailure failure) noe
 std::filesystem::path PresentMonApi2AppLocalLoaderPath(
     const std::filesystem::path& modulePath);
 
+// Decides when the pmStartTrackingProcess / pmStopTrackingProcess endpoint must
+// actually fire as independent production consumers (FPS telemetry, game-render
+// frame verification) share the same target PID.
+class ProcessTrackingRefCounts
+{
+public:
+    // True when this is the first holder for `processId` (fire the start endpoint).
+    bool Acquire(std::uint32_t processId);
+    // Undo an Acquire whose endpoint start then failed.
+    void AbortAcquire(std::uint32_t processId);
+    // True when the last holder released `processId` (fire the stop endpoint).
+    bool Release(std::uint32_t processId);
+    unsigned Count(std::uint32_t processId) const;
+    void Clear() noexcept { counts_.clear(); }
+
+private:
+    std::map<std::uint32_t, unsigned> counts_;
+};
+
 class PresentMonApi2Client
 {
 public:
@@ -52,6 +72,11 @@ public:
     void CloseSession() noexcept;
     bool SessionOpen() const noexcept { return session_ != nullptr; }
 
+    // Reference counted per PID: multiple production consumers (FPS telemetry,
+    // game-render frame verification) can independently hold the same target
+    // without one releasing it while another still needs it. The underlying
+    // pmStartTrackingProcess / pmStopTrackingProcess endpoint fires only on the
+    // 0->1 and 1->0 transitions.
     virtual PM_STATUS StartTrackingProcess(std::uint32_t processId);
     virtual PM_STATUS StopTrackingProcess(std::uint32_t processId);
     PM_STATUS GetIntrospectionRoot(const PM_INTROSPECTION_ROOT** root);
@@ -84,6 +109,7 @@ private:
     PresentMonApi2InitStatus initStatus_{};
     std::filesystem::path loaderPath_;
     DWORD loaderError_{};
+    ProcessTrackingRefCounts trackingRefs_;
     bool initialized_{};
 };
 }

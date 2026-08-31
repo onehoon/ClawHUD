@@ -79,17 +79,6 @@ int main()
     ok &= Check(clawhud::ShouldRetainCommittedProductionTarget(100, true) &&
         !clawhud::ShouldRetainCommittedProductionTarget(100, false),
         "committed target sampling follows process lifetime, not foreground");
-    ok &= Check(clawhud::ShouldRetryProductionPresentMon(0, 0, 100) &&
-        clawhud::ShouldRetryProductionPresentMon(100, 1, 200) &&
-        !clawhud::ShouldRetryProductionPresentMon(100, 1, 100),
-        "PresentMon recovery is limited to one retry per PID");
-    ok &= Check(clawhud::ShouldAllowProductionPresentMonStart(
-        100, 100, 100, 1, true) &&
-        !clawhud::ShouldAllowProductionPresentMonStart(
-            100, 100, 100, 1, false) &&
-        clawhud::ShouldAllowProductionPresentMonStart(
-            100, 100, 100, 0, false),
-        "explicit recovery consumes exactly one retry before normal starts are blocked");
     ok &= Check(clawhud::ShouldReevaluateForegroundAfterResume(true, true) &&
         !clawhud::ShouldReevaluateForegroundAfterResume(false, true) &&
         !clawhud::ShouldReevaluateForegroundAfterResume(true, false),

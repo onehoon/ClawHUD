@@ -94,11 +94,6 @@ bool ShouldCommitReadyCandidate(
     DWORD foregroundProcessId, bool candidateProcessAlive) noexcept;
 bool ShouldRetainCommittedProductionTarget(DWORD committedProcessId,
     bool processAlive) noexcept;
-bool ShouldRetryProductionPresentMon(DWORD retryProcessId,
-    unsigned retryAttempts, DWORD processId) noexcept;
-bool ShouldAllowProductionPresentMonStart(DWORD committedProcessId,
-    DWORD processId, DWORD retryProcessId, unsigned retryAttempts,
-    bool recoveryStart) noexcept;
 bool ShouldReevaluateForegroundAfterResume(bool hudEnabled,
     bool recoveryCompleted) noexcept;
 bool ShouldReevaluateForegroundAfterDiagnostic(bool hudEnabled,
