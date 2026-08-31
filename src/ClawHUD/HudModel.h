@@ -96,6 +96,12 @@ struct HudTextRun
 };
 
 bool ShouldShowHud(HudVisibilityMode mode, bool foregroundGameActive) noexcept;
+// The mock/production HUD visibility decision used by App::ReconcileHudVisibility
+// after its suspended / resume-recovery early-out: a manual override (F8 toggle,
+// a diagnostic request) wins, otherwise the configured mode and the
+// foreground-tracked-process state decide. Always hidden when the HUD is off.
+bool ResolveHudVisible(bool mockHudEnabled, std::optional<bool> manualOverride,
+    HudVisibilityMode mode, bool foregroundActive) noexcept;
 std::uint8_t HudOpacityByte(float opacityPercent) noexcept;
 bool ShouldSampleProductionTelemetry(bool resolvedShow, bool diagnosticMode,
     bool suspended) noexcept;

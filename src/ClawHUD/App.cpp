@@ -2251,12 +2251,10 @@ void App::ReconcileHudVisibility()
         ReleaseCommittedProductionTarget(L"game-exited");
     if (graphicsApiProcessId_ && !ProcessAlive(graphicsApiProcessId_))
         StopGraphicsApiProbe();
-    const bool rendererForegroundActive = false;
     const bool legacyForegroundActive = foregroundTracker_.ForegroundIsTrackedProcess();
-    const bool resolvedShow = mockHudEnabled_ && (manualHudVisibilityOverride_.has_value()
-        ? *manualHudVisibilityOverride_
-        : hudOptions_.visibilityMode == clawhud::HudVisibilityMode::Always ||
-            rendererForegroundActive || legacyForegroundActive);
+    const bool resolvedShow = clawhud::ResolveHudVisible(mockHudEnabled_,
+        manualHudVisibilityOverride_, hudOptions_.visibilityMode,
+        legacyForegroundActive);
     if (resolvedShow)
     {
         const bool wasVisible = hudPresentation_->Visible();
