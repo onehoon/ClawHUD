@@ -284,14 +284,13 @@ void App::TryResumeRecovery()
         (manualOverride.has_value()
             ? *manualOverride
             : visibilityMode == clawhud::HudVisibilityMode::Always ||
-                rendererForegroundActive ||
-                gameSession_.ForegroundIsTrackedProcess());
+                rendererForegroundActive);
     const bool visibilityUsesForeground = !manualOverride.has_value() &&
         visibilityMode == clawhud::HudVisibilityMode::InGameOnly;
     gameSession_.DiscardPendingRenderVerifierEvents();
     if (clawhud::ResumeRecoveryShouldWaitForForeground(
         hudEnabled, visibilityUsesForeground, processAlive,
-        gameSession_.ForegroundIsTrackedProcess(), resumeRecoveryAttempts_))
+        rendererForegroundActive, resumeRecoveryAttempts_))
     {
         SetTimer(tray_.Window(), kResumeRecoveryTimerId,
             clawhud::kResumeRecoveryIntervalMs, nullptr);
