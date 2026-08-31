@@ -1589,8 +1589,8 @@ Those extractions remain valid and are retained in the new architecture.
 
 ### Refactor phase progress
 
-- **R0 (naming / dead-surface normalization)** — PR #178, branch
-  `refactor/r0-naming-cleanup`. Mechanical rename only, no behavior change.
+- **R0 (naming / dead-surface normalization)** — PR #178, merged `2bc6f9c`.
+  Mechanical rename only, no behavior change.
   - Renames: `mockHudEnabled_`->`hudEnabled_`, `EnsureMockHud`->`EnsureHud`,
     `StopMockHud`->`StopHud`, `RefreshMockHud`->`RefreshHud`,
     `MockHudVisible`->`HudVisible`, `MockHudEnabled`->`HudEnabled`,
@@ -1610,8 +1610,8 @@ Those extractions remain valid and are retained in the new architecture.
   - CTest: 46/46 pass locally (VS 2022 BuildTools, Ninja, Release). No hardware
     smoke (diff is purely mechanical).
 
-- **R1 (suspend/resume pure policy out of `App.h`)** — PR #180, branch
-  `refactor/r1-suspend-resume-policy`. Pure relocation, no behavior change.
+- **R1 (suspend/resume pure policy out of `App.h`)** — PR #180, merged `f0e0964`.
+  Pure relocation, no behavior change.
   - New header `src/ClawHUD/SuspendResumePolicy.h` (header-only, `namespace
     clawhud`) now owns `kResumeRecoveryIntervalMs` (500), `kResumeRecoveryMaxAttempts`
     (6), and the seven `ResumeRecovery*` constexpr predicates. Those definitions
