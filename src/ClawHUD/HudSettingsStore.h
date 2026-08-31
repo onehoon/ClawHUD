@@ -16,9 +16,9 @@ struct HudSettings
     bool startWithWindows = true;
     bool intelVrrRangeFixEnabled = true;
     HudAlignment alignment = HudAlignment::Center;
-    HudFont font = HudFont::Unispace;
-    HudBackgroundMode backgroundMode = HudBackgroundMode::FullWidth;
-    HudVisibilityMode visibilityMode = HudVisibilityMode::InGameOnly;
+    HudFont font = HudFont::SegoeUiVariable;
+    HudBackgroundMode backgroundMode = HudBackgroundMode::ContentWidth;
+    HudVisibilityMode visibilityMode = HudVisibilityMode::Always;
     float backgroundOpacity = 0.7f;
     int sizeOffset = 0;
 };

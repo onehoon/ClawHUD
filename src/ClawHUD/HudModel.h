@@ -35,9 +35,9 @@ enum class HudBackgroundMode
 
 struct HudLayoutOptions
 {
-    HudVisibilityMode visibilityMode{HudVisibilityMode::InGameOnly};
+    HudVisibilityMode visibilityMode{HudVisibilityMode::Always};
     HudAlignment alignment{HudAlignment::Center};
-    HudBackgroundMode backgroundMode{HudBackgroundMode::FullWidth};
+    HudBackgroundMode backgroundMode{HudBackgroundMode::ContentWidth};
     float backgroundOpacity{0.7f};
 };
 
