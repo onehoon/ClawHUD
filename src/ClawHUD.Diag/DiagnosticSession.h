@@ -9,6 +9,7 @@
 #include <mutex>
 #include <thread>
 #include <unordered_map>
+#include <vector>
 
 #include "Api2Evidence.h"
 
@@ -33,6 +34,8 @@ private:
     static std::string Hex(HWND hwnd) noexcept;
     void ObserveProcess(DWORD processId, std::string_view reason) noexcept;
     void WriteSummary() noexcept;
+    std::vector<DWORD> ObservedPids() noexcept;
+    void MarkFirst(DWORD processId, std::string_view milestone) noexcept;
 
     std::filesystem::path path_;
     std::ofstream log_;
@@ -46,8 +49,34 @@ private:
     std::uint64_t sequence_{};
     std::uint32_t previousSteamAppId_{};
     std::mutex observedMutex_;
-    std::unordered_map<DWORD, std::int64_t> firstSeenMs_;
+    struct PidTimeline
+    {
+        std::int64_t firstSeenMs{-1};
+        std::int64_t firstWindowCreateMs{-1};
+        std::int64_t firstWindowShowMs{-1};
+        std::int64_t firstForegroundMs{-1};
+        std::int64_t firstTopGpuMs{-1};
+        std::int64_t firstApi2SwapchainMs{-1};
+        std::int64_t firstSwapchainMs{-1};
+        std::int64_t firstDisplayedFpsMs{-1};
+        std::int64_t firstPresentedFpsMs{-1};
+        std::int64_t lastForegroundMs{-1};
+        std::int64_t lastRendererEvidenceMs{-1};
+        std::int64_t lastWindowHideMs{-1};
+        std::int64_t lastWindowDestroyMs{-1};
+        std::uint32_t steamAppIdAtFirstSeen{};
+        bool microsoftGameIdentity{};
+        bool processExited{};
+        std::string exe;
+        std::string imagePath;
+        std::uint64_t processStartFileTime{};
+    };
+    struct CachedWindow { DWORD processId{}; std::string fields; };
+    std::unordered_map<DWORD, PidTimeline> timelines_;
+    std::unordered_map<HWND, CachedWindow> windowCache_;
     Api2Evidence api2_;
     std::chrono::steady_clock::time_point nextApi2Sample_{};
-    static DiagnosticSession* active_;
+    static std::atomic<DiagnosticSession*> active_;
+    HWND previousForeground_{};
+    DWORD previousForegroundPid_{};
 };

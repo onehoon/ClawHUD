@@ -1,4 +1,5 @@
 #include "DiagnosticSession.h"
+#include "DiagBlocklist.h"
 
 #include <dwmapi.h>
 #include <appmodel.h>
@@ -6,11 +7,15 @@
 #include <pdhmsg.h>
 
 #include <array>
+#include <cstring>
 #include <iomanip>
 #include <sstream>
 #include <unordered_map>
+#include <unordered_set>
+#include <fstream>
+#include <regex>
 
-DiagnosticSession* DiagnosticSession::active_ = nullptr;
+std::atomic<DiagnosticSession*> DiagnosticSession::active_ = nullptr;
 
 namespace
 {
@@ -37,6 +42,17 @@ std::uint32_t ReadSteamAppId() noexcept
     return result == ERROR_SUCCESS && type == REG_DWORD && size == sizeof(value) ? value : 0;
 }
 
+HKEY OpenSteamWatchKey() noexcept
+{
+    for (const wchar_t* path : { L"Software\\Valve\\Steam", L"Software\\Valve", L"Software" })
+    {
+        HKEY key{};
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, path, 0, KEY_NOTIFY | KEY_QUERY_VALUE, &key) == ERROR_SUCCESS)
+            return key;
+    }
+    return nullptr;
+}
+
 std::string Utf8(std::wstring_view value) noexcept
 {
     const int size = WideCharToMultiByte(CP_UTF8, 0, value.data(),
@@ -53,18 +69,138 @@ bool Is3dPath(std::wstring_view path, DWORD& pid)
     if (open == std::wstring_view::npos || end == std::wstring_view::npos || path.find(L"_engtype_3D") == std::wstring_view::npos) return false;
     try { pid = static_cast<DWORD>(std::stoul(std::wstring(path.substr(open + 4, end - open - 4)))); return pid != 0; } catch (...) { return false; }
 }
+
+std::wstring ProcessExe(DWORD pid)
+{
+    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (!process) return {};
+    wchar_t path[32768]{}; DWORD length = static_cast<DWORD>(std::size(path));
+    const bool ok = QueryFullProcessImageNameW(process, 0, path, &length) != FALSE;
+    CloseHandle(process);
+    return ok ? std::filesystem::path(std::wstring(path, length)).filename().wstring() : std::wstring{};
+}
+
+struct CandidateWindow { HWND hwnd{}; std::wstring title; };
+BOOL CALLBACK CollectCandidateWindow(HWND hwnd, LPARAM parameter)
+{
+    if (!IsWindowVisible(hwnd) || GetWindow(hwnd, GW_OWNER) || GetAncestor(hwnd, GA_ROOT) != hwnd) return TRUE;
+    DWORD pid{}; GetWindowThreadProcessId(hwnd, &pid);
+    if (!pid) return TRUE;
+    wchar_t title[1024]{}; GetWindowTextW(hwnd, title, static_cast<int>(std::size(title)));
+    reinterpret_cast<std::unordered_map<DWORD, CandidateWindow>*>(parameter)->try_emplace(pid, CandidateWindow{ hwnd, title });
+    return TRUE;
+}
+
+struct WindowListQuery { DWORD processId{}; std::vector<HWND> windows; };
+BOOL CALLBACK CollectTopLevelWindows(HWND hwnd, LPARAM parameter)
+{
+    auto& query = *reinterpret_cast<WindowListQuery*>(parameter);
+    DWORD pid{}; GetWindowThreadProcessId(hwnd, &pid);
+    if (pid == query.processId && GetAncestor(hwnd, GA_ROOT) == hwnd)
+        query.windows.push_back(hwnd);
+    return TRUE;
+}
+
+bool IsBlocked(std::wstring_view executable)
+{
+    std::wstring lower(executable);
+    for (auto& value : lower) value = static_cast<wchar_t>(towlower(value));
+    const std::string utf8 = Utf8(lower);
+    const std::string_view list = kDiagPresentMonBlocklist;
+    size_t begin{};
+    while (begin < list.size())
+    {
+        const size_t end = list.find('\n', begin);
+        std::string_view line = list.substr(begin, (end == std::string_view::npos ? list.size() : end) - begin);
+        if (!line.empty() && line.back() == '\r') line.remove_suffix(1);
+        if (line == utf8) return true;
+        begin = end == std::string_view::npos ? list.size() : end + 1;
+    }
+    return false;
+}
+
+struct MicrosoftConfigEvidence { bool exists{}; bool readable{}; bool executableMatch{}; };
+
+std::wstring ReadConfigText(const std::filesystem::path& path, bool& readable)
+{
+    std::ifstream input(path, std::ios::binary);
+    if (!input) return {};
+    const std::string bytes((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    if (bytes.size() >= 2 && static_cast<unsigned char>(bytes[0]) == 0xff && static_cast<unsigned char>(bytes[1]) == 0xfe)
+    {
+        if ((bytes.size() - 2) % sizeof(wchar_t) != 0) return {};
+        std::wstring result((bytes.size() - 2) / sizeof(wchar_t), L'\0');
+        std::memcpy(result.data(), bytes.data() + 2, bytes.size() - 2);
+        readable = true;
+        return result;
+    }
+    const int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, bytes.data(), static_cast<int>(bytes.size()), nullptr, 0);
+    if (!bytes.empty() && !length) return {};
+    std::wstring result(length, L'\0');
+    if (length) MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, bytes.data(), static_cast<int>(bytes.size()), result.data(), length);
+    readable = true;
+    return result;
+}
+
+MicrosoftConfigEvidence ProbeMicrosoftGameConfig(const std::wstring& image, const std::wstring& packageFull)
+{
+    std::vector<std::filesystem::path> roots;
+    if (!image.empty()) roots.push_back(std::filesystem::path(image).parent_path());
+    if (!packageFull.empty())
+    {
+        using QueryPath = LONG(WINAPI*)(PCWSTR, PackagePathType, UINT32*, PWSTR);
+        const auto query = reinterpret_cast<QueryPath>(GetProcAddress(GetModuleHandleW(L"kernelbase.dll"), "GetPackagePathByFullName2"));
+        if (query) for (const auto type : { PackagePathType_Install, PackagePathType_Effective, PackagePathType_Mutable, PackagePathType_MachineExternal, PackagePathType_UserExternal, PackagePathType_EffectiveExternal })
+        {
+            UINT32 length{};
+            if (query(packageFull.c_str(), type, &length, nullptr) != ERROR_INSUFFICIENT_BUFFER) continue;
+            std::wstring root(length, L'\0');
+            if (query(packageFull.c_str(), type, &length, root.data()) == ERROR_SUCCESS)
+            {
+                if (!root.empty() && root.back() == L'\0') root.pop_back();
+                if (!root.empty()) roots.emplace_back(root);
+            }
+        }
+    }
+    MicrosoftConfigEvidence result;
+    const std::wstring executable = std::filesystem::path(image).filename().wstring();
+    for (const auto& root : roots)
+    {
+        const auto config = root / L"MicrosoftGame.config";
+        std::error_code error;
+        if (!std::filesystem::exists(config, error) || error) continue;
+        result.exists = true;
+        bool readable{};
+        const auto xml = ReadConfigText(config, readable);
+        result.readable = result.readable || readable;
+        if (!readable) continue;
+        std::wregex executableTag(L"<\\s*(?:[A-Za-z0-9_.-]+:)?Executable\\b([^>]*)>([^<]*)<\\s*/\\s*(?:[A-Za-z0-9_.-]+:)?Executable\\s*>", std::regex_constants::icase);
+        std::wregex selfClosing(L"<\\s*(?:[A-Za-z0-9_.-]+:)?Executable\\b([^>]*)/\\s*>", std::regex_constants::icase);
+        std::wregex name(L"Name\\s*=\\s*(?:\\\"([^\\\"]*)\\\"|'([^']*)')", std::regex_constants::icase);
+        const auto matches = [&](const std::wsmatch& tag, const std::wstring& text) {
+            const std::wstring attributes = tag[1].str();
+            std::wsmatch attribute; std::wstring configured = std::regex_search(attributes, attribute, name) ? (attribute[1].matched ? attribute[1].str() : attribute[2].str()) : text;
+            return !configured.empty() && _wcsicmp(std::filesystem::path(configured).filename().c_str(), executable.c_str()) == 0;
+        };
+        for (std::wsregex_iterator it(xml.begin(), xml.end(), executableTag), end; it != end; ++it)
+            if (matches(*it, (*it)[2].str())) result.executableMatch = true;
+        for (std::wsregex_iterator it(xml.begin(), xml.end(), selfClosing), end; it != end; ++it)
+            if (matches(*it, L"")) result.executableMatch = true;
+    }
+    return result;
+}
 }
 
 DiagnosticSession::~DiagnosticSession() { Stop(); }
 
 bool DiagnosticSession::Start()
 {
-    if (running_ || active_) return false;
+    if (running_ || active_.load()) return false;
     path_ = OutputPath();
     log_.open(path_, std::ios::binary | std::ios::trunc);
     if (!log_) return false;
     startedAt_ = std::chrono::steady_clock::now();
-    active_ = this;
+    active_.store(this);
     foregroundHook_ = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND,
         nullptr, WinEventProc, 0, 0, WINEVENT_OUTOFCONTEXT);
     constexpr std::array<DWORD, 5> events{ EVENT_OBJECT_CREATE, EVENT_OBJECT_SHOW,
@@ -80,8 +216,10 @@ bool DiagnosticSession::Start()
     previousSteamAppId_ = ReadSteamAppId();
     running_ = true;
     std::string api2Detail;
-    const bool api2Ready = api2_.Start(api2Detail);
-    WriteRecord("session_header", "\"schemaVersion\":1,\"api2Loader\":\"manual beside exe\",\"api2State\":\"" + api2Detail + "\"");
+    api2_.Start(api2Detail);
+    TIME_ZONE_INFORMATION timezone{}; const DWORD timezoneId = GetTimeZoneInformation(&timezone);
+    OSVERSIONINFOW version{ sizeof(version) }; GetVersionExW(&version);
+    WriteRecord("session_header", "\"schemaVersion\":1,\"api2Loader\":\"manual beside exe\",\"api2State\":\"" + api2Detail + "\",\"osVersion\":\"" + std::to_string(version.dwMajorVersion) + "." + std::to_string(version.dwMinorVersion) + "." + std::to_string(version.dwBuildNumber) + "\",\"timezoneBiasMinutes\":" + std::to_string(-timezone.Bias) + ",\"api2IntervalMs\":250,\"pdhIntervalMs\":500,\"pdhDeltaWindowMs\":100,\"presentMonBlocklistCommit\":\"f57eb474371c635ff2be620c04ca47400ca1b81a\"");
     WriteRecord("steam_running_app_id", "\"oldAppId\":null,\"appId\":" + std::to_string(previousSteamAppId_));
     nextApi2Sample_ = startedAt_;
     sampler_ = std::jthread([this] { SampleLoop(); });
@@ -97,7 +235,7 @@ void DiagnosticSession::Stop() noexcept
     if (foregroundHook_) UnhookWinEvent(foregroundHook_);
     foregroundHook_ = nullptr;
     for (auto& hook : windowHooks_) { if (hook) UnhookWinEvent(hook); hook = nullptr; }
-    if (active_ == this) active_ = nullptr;
+    if (active_.load() == this) active_.store(nullptr);
     api2_.Stop();
     WriteSummary();
     if (log_) { WriteRecord("session_stop", ""); log_.close(); }
@@ -108,7 +246,7 @@ std::filesystem::path DiagnosticSession::LogPath() const { return path_; }
 void CALLBACK DiagnosticSession::WinEventProc(HWINEVENTHOOK, DWORD event, HWND hwnd,
     LONG objectId, LONG childId, DWORD, DWORD)
 {
-    if (active_) active_->RecordWinEvent(event, hwnd, objectId, childId);
+    if (auto* session = active_.load()) session->RecordWinEvent(event, hwnd, objectId, childId);
 }
 
 void DiagnosticSession::RecordWinEvent(DWORD event, HWND hwnd, LONG objectId, LONG childId) noexcept
@@ -119,8 +257,38 @@ void DiagnosticSession::RecordWinEvent(DWORD event, HWND hwnd, LONG objectId, LO
         event == EVENT_OBJECT_CREATE ? "window_create" : event == EVENT_OBJECT_SHOW ? "window_show" :
         event == EVENT_OBJECT_HIDE ? "window_hide" : event == EVENT_OBJECT_DESTROY ? "window_destroy" : "window_name_change";
     DWORD pid{};
-    WriteRecord(type, WindowFields(hwnd, &pid));
-    ObserveProcess(pid, type);
+    std::string fields;
+    if (event == EVENT_OBJECT_DESTROY && !IsWindow(hwnd))
+    {
+        std::lock_guard lock(observedMutex_);
+        const auto cached = windowCache_.find(hwnd);
+        fields = cached == windowCache_.end() ? "\"hwnd\":\"" + Hex(hwnd) + "\",\"metadataSource\":\"partial\"" : cached->second.fields + ",\"metadataSource\":\"cached\"";
+        if (cached != windowCache_.end()) pid = cached->second.processId;
+        if (cached != windowCache_.end()) windowCache_.erase(cached);
+    }
+    else
+    {
+        fields = WindowFields(hwnd, &pid);
+        std::lock_guard lock(observedMutex_);
+        windowCache_[hwnd] = { pid, fields };
+    }
+    if (event == EVENT_SYSTEM_FOREGROUND)
+        fields = "\"oldHwnd\":\"" + Hex(previousForeground_) + "\",\"oldPid\":" + std::to_string(previousForegroundPid_) + "," + fields;
+    WriteRecord(type, fields);
+    const bool usefulTopLevel = event == EVENT_SYSTEM_FOREGROUND ||
+        (GetAncestor(hwnd, GA_ROOT) == hwnd && ((IsWindowVisible(hwnd) && !GetWindow(hwnd, GW_OWNER)) ||
+         ((event == EVENT_OBJECT_CREATE || event == EVENT_OBJECT_SHOW) && previousSteamAppId_ != 0)));
+    if (usefulTopLevel) ObserveProcess(pid, type);
+    if (event == EVENT_SYSTEM_FOREGROUND)
+    {
+        MarkFirst(pid, "foreground");
+        previousForeground_ = hwnd;
+        previousForegroundPid_ = pid;
+    }
+    else if (event == EVENT_OBJECT_CREATE) MarkFirst(pid, "window_create");
+    else if (event == EVENT_OBJECT_SHOW) MarkFirst(pid, "window_show");
+    else if (event == EVENT_OBJECT_HIDE) MarkFirst(pid, "window_hide");
+    else if (event == EVENT_OBJECT_DESTROY) MarkFirst(pid, "window_destroy");
 }
 
 void DiagnosticSession::SampleLoop() noexcept
@@ -131,8 +299,33 @@ void DiagnosticSession::SampleLoop() noexcept
         if (now >= nextApi2Sample_)
         {
             const HWND foreground = GetForegroundWindow();
-            DWORD pid{}; if (foreground) GetWindowThreadProcessId(foreground, &pid);
-            if (pid) { ObserveProcess(pid, "foreground_sample"); WriteRecord("api2", "\"pid\":" + std::to_string(pid) + "," + api2_.Sample(pid)); }
+            DWORD foregroundPid{}; if (foreground) GetWindowThreadProcessId(foreground, &foregroundPid);
+            if (foregroundPid) ObserveProcess(foregroundPid, "foreground_sample");
+            for (const auto pid : ObservedPids())
+            {
+                HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+                if (!process)
+                {
+                    api2_.Retire(pid);
+                    bool firstExit = false;
+                    { std::lock_guard lock(observedMutex_); auto found = timelines_.find(pid); if (found != timelines_.end() && !found->second.processExited) { found->second.processExited = true; firstExit = true; } }
+                    if (firstExit) WriteRecord("process_exit", "\"pid\":" + std::to_string(pid));
+                    continue;
+                }
+                CloseHandle(process);
+                const auto api2 = api2_.Sample(pid);
+                WriteRecord("api2", "\"pid\":" + std::to_string(pid) + "," + api2);
+                if (api2.find("\"pollStatus\":\"SUCCESS\"") != std::string::npos)
+                {
+                    if (api2.find("\"swapChainCount\":0") == std::string::npos)
+                    {
+                        MarkFirst(pid, "api2_swapchain");
+                        MarkFirst(pid, "swapchain");
+                    }
+                    if (api2.find("\"displayedFps\":0") == std::string::npos && api2.find("\"displayedFps\":null") == std::string::npos) MarkFirst(pid, "displayed_fps");
+                    if (api2.find("\"presentedFps\":0") == std::string::npos && api2.find("\"presentedFps\":null") == std::string::npos) MarkFirst(pid, "presented_fps");
+                }
+            }
             nextApi2Sample_ = now + std::chrono::milliseconds(250);
         }
         SampleTopGpu();
@@ -146,12 +339,13 @@ void DiagnosticSession::ObserveProcess(DWORD processId, std::string_view reason)
     try
     {
         std::lock_guard lock(observedMutex_);
-        if (firstSeenMs_.contains(processId)) return;
+        if (timelines_.contains(processId)) return;
         const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - startedAt_).count();
-        firstSeenMs_.emplace(processId, elapsed);
+        timelines_.emplace(processId, PidTimeline{ .firstSeenMs = elapsed });
         HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
         std::wstring image, aumid, packageFull, packageFamily;
+        std::uint64_t processStartFileTime{};
         if (process)
         {
             DWORD imageLength = 0; QueryFullProcessImageNameW(process, 0, nullptr, &imageLength);
@@ -159,13 +353,35 @@ void DiagnosticSession::ObserveProcess(DWORD processId, std::string_view reason)
             UINT32 size{}; if (GetApplicationUserModelId(process, &size, nullptr) == ERROR_INSUFFICIENT_BUFFER) { aumid.resize(size); if (GetApplicationUserModelId(process, &size, aumid.data()) == ERROR_SUCCESS) aumid.resize(size ? size - 1 : 0); else aumid.clear(); }
             size = 0; if (GetPackageFullName(process, &size, nullptr) == ERROR_INSUFFICIENT_BUFFER) { packageFull.resize(size); if (GetPackageFullName(process, &size, packageFull.data()) == ERROR_SUCCESS) packageFull.resize(size ? size - 1 : 0); else packageFull.clear(); }
             size = 0; if (GetPackageFamilyName(process, &size, nullptr) == ERROR_INSUFFICIENT_BUFFER) { packageFamily.resize(size); if (GetPackageFamilyName(process, &size, packageFamily.data()) == ERROR_SUCCESS) packageFamily.resize(size ? size - 1 : 0); else packageFamily.clear(); }
+            FILETIME creation{}, exit{}, kernel{}, user{};
+            if (GetProcessTimes(process, &creation, &exit, &kernel, &user))
+            { ULARGE_INTEGER value{}; value.LowPart = creation.dwLowDateTime; value.HighPart = creation.dwHighDateTime; processStartFileTime = value.QuadPart; }
             CloseHandle(process);
         }
-        const bool gameConfig = !image.empty() && std::filesystem::exists(std::filesystem::path(image).parent_path() / L"MicrosoftGame.config");
+        const auto gameConfig = ProbeMicrosoftGameConfig(image, packageFull);
+        WindowListQuery windows{ processId };
+        EnumWindows(CollectTopLevelWindows, reinterpret_cast<LPARAM>(&windows));
+        std::string initialWindows = "[";
+        for (size_t index = 0; index < windows.windows.size(); ++index)
+        {
+            if (index) initialWindows += ',';
+            initialWindows += "\"" + Hex(windows.windows[index]) + "\"";
+        }
+        initialWindows += ']';
+        auto& timeline = timelines_.at(processId);
+        timeline.exe = Json(std::filesystem::path(image).filename().wstring());
+        timeline.imagePath = Json(image);
+        timeline.processStartFileTime = processStartFileTime;
+        timeline.steamAppIdAtFirstSeen = previousSteamAppId_;
+        timeline.microsoftGameIdentity = gameConfig.exists && gameConfig.executableMatch;
         WriteRecord("pid_observed", "\"pid\":" + std::to_string(processId) + ",\"reason\":\"" + std::string(reason) +
-            "\",\"imagePath\":\"" + Json(image) + "\",\"aumid\":\"" + Json(aumid) +
+            "\",\"exe\":\"" + Json(std::filesystem::path(image).filename().wstring()) + "\",\"imagePath\":\"" + Json(image) + "\",\"aumid\":\"" + Json(aumid) +
+            "\",\"processStartFileTime\":" + std::to_string(processStartFileTime) +
+            ",\"initialTopLevelHwnds\":" + initialWindows +
             "\",\"packageFullName\":\"" + Json(packageFull) + "\",\"packageFamilyName\":\"" + Json(packageFamily) +
-            "\",\"microsoftGameConfigExists\":" + (gameConfig ? "true" : "false"));
+            "\",\"microsoftGameConfigExists\":" + (gameConfig.exists ? "true" : "false") +
+            ",\"microsoftGameConfigReadable\":" + (gameConfig.readable ? "true" : "false") +
+            ",\"microsoftGameExecutableMatch\":" + (gameConfig.executableMatch ? "true" : "false"));
     }
     catch (...) {}
 }
@@ -175,8 +391,26 @@ void DiagnosticSession::WriteSummary() noexcept
     try
     {
         std::lock_guard lock(observedMutex_);
-        for (const auto& [pid, firstSeen] : firstSeenMs_)
-            WriteRecord("pid_summary", "\"pid\":" + std::to_string(pid) + ",\"firstSeenMs\":" + std::to_string(firstSeen));
+        for (const auto& [pid, timeline] : timelines_)
+            WriteRecord("pid_summary", "\"pid\":" + std::to_string(pid) +
+                ",\"firstSeenMs\":" + std::to_string(timeline.firstSeenMs) +
+                ",\"firstWindowCreateMs\":" + std::to_string(timeline.firstWindowCreateMs) +
+                ",\"firstWindowShowMs\":" + std::to_string(timeline.firstWindowShowMs) +
+                ",\"firstForegroundMs\":" + std::to_string(timeline.firstForegroundMs) +
+                ",\"firstTopGpuMs\":" + std::to_string(timeline.firstTopGpuMs) +
+                ",\"firstApi2SwapchainMs\":" + std::to_string(timeline.firstApi2SwapchainMs) +
+                ",\"firstSwapchainMs\":" + std::to_string(timeline.firstSwapchainMs) +
+                ",\"firstDisplayedFpsMs\":" + std::to_string(timeline.firstDisplayedFpsMs) +
+                ",\"firstPresentedFpsMs\":" + std::to_string(timeline.firstPresentedFpsMs) +
+                ",\"lastForegroundMs\":" + std::to_string(timeline.lastForegroundMs) +
+                ",\"lastRendererEvidenceMs\":" + std::to_string(timeline.lastRendererEvidenceMs) +
+                ",\"lastWindowHideMs\":" + std::to_string(timeline.lastWindowHideMs) +
+                ",\"lastWindowDestroyMs\":" + std::to_string(timeline.lastWindowDestroyMs) +
+                ",\"steamAppIdAtFirstSeen\":" + std::to_string(timeline.steamAppIdAtFirstSeen) +
+                ",\"microsoftGameIdentity\":" + (timeline.microsoftGameIdentity ? "true" : "false") +
+                ",\"processExitObserved\":" + (timeline.processExited ? "true" : "false") +
+                ",\"processStartFileTime\":" + std::to_string(timeline.processStartFileTime) +
+                ",\"exe\":\"" + timeline.exe + "\",\"imagePath\":\"" + timeline.imagePath + "\"");
     }
     catch (...) {}
 }
@@ -201,29 +435,72 @@ void DiagnosticSession::SampleTopGpu() noexcept
     std::unordered_map<DWORD, double> totals;
     for (const auto& counter : counters) { PDH_FMT_COUNTERVALUE value{}; if (counter.valid && PdhGetFormattedCounterValue(counter.counter, PDH_FMT_DOUBLE, nullptr, &value) == ERROR_SUCCESS && value.doubleValue > counter.first) totals[counter.pid] += value.doubleValue - counter.first; }
     PdhCloseQuery(query);
-    std::vector<std::pair<DWORD, double>> ranked(totals.begin(), totals.end());
-    std::sort(ranked.begin(), ranked.end(), [](const auto& left, const auto& right) { return left.second > right.second; });
+    std::unordered_map<DWORD, CandidateWindow> windows;
+    EnumWindows(CollectCandidateWindow, reinterpret_cast<LPARAM>(&windows));
+    struct Ranked { DWORD pid{}; double delta{}; CandidateWindow window; std::wstring exe; };
+    std::vector<Ranked> ranked;
+    for (const auto& [pid, delta] : totals)
+        if (const auto window = windows.find(pid); window != windows.end()) ranked.push_back({ pid, delta, window->second, ProcessExe(pid) });
+    std::sort(ranked.begin(), ranked.end(), [](const auto& left, const auto& right) { return left.delta > right.delta; });
     for (size_t rank = 0; rank < std::min<size_t>(ranked.size(), 5); ++rank)
     {
-        ObserveProcess(ranked[rank].first, "top_gpu");
-        WriteRecord("top_gpu", "\"mode\":\"Raw\",\"rank\":" + std::to_string(rank + 1) + ",\"pid\":" + std::to_string(ranked[rank].first) + ",\"gpu3dDelta\":" + std::to_string(ranked[rank].second));
+        ObserveProcess(ranked[rank].pid, "top_gpu");
+        MarkFirst(ranked[rank].pid, "top_gpu");
+        WriteRecord("top_gpu", "\"mode\":\"Raw\",\"rank\":" + std::to_string(rank + 1) + ",\"pid\":" + std::to_string(ranked[rank].pid) + ",\"exe\":\"" + Json(ranked[rank].exe) + "\",\"hwnd\":\"" + Hex(ranked[rank].window.hwnd) + "\",\"title\":\"" + Json(ranked[rank].window.title) + "\",\"gpu3dDelta\":" + std::to_string(ranked[rank].delta));
     }
+    size_t parityRank{};
+    for (const auto& candidate : ranked)
+    {
+        if (IsBlocked(candidate.exe)) continue;
+        WriteRecord("top_gpu", "\"mode\":\"PresentMonParity\",\"rank\":" + std::to_string(++parityRank) + ",\"pid\":" + std::to_string(candidate.pid) + ",\"exe\":\"" + Json(candidate.exe) + "\",\"hwnd\":\"" + Hex(candidate.window.hwnd) + "\",\"title\":\"" + Json(candidate.window.title) + "\",\"gpu3dDelta\":" + std::to_string(candidate.delta));
+        if (parityRank == 5) break;
+    }
+}
+
+std::vector<DWORD> DiagnosticSession::ObservedPids() noexcept
+{
+    std::lock_guard lock(observedMutex_);
+    std::vector<DWORD> result;
+    result.reserve(timelines_.size());
+    for (const auto& [pid, _] : timelines_) result.push_back(pid);
+    return result;
+}
+
+void DiagnosticSession::MarkFirst(DWORD processId, std::string_view milestone) noexcept
+{
+    if (!processId) return;
+    std::lock_guard lock(observedMutex_);
+    const auto found = timelines_.find(processId);
+    if (found == timelines_.end()) return;
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - startedAt_).count();
+    auto& timeline = found->second;
+    auto set = [elapsed](std::int64_t& value) { if (value < 0) value = elapsed; };
+    if (milestone == "window_create") set(timeline.firstWindowCreateMs);
+    else if (milestone == "window_show") set(timeline.firstWindowShowMs);
+    else if (milestone == "foreground") { set(timeline.firstForegroundMs); timeline.lastForegroundMs = elapsed; }
+    else if (milestone == "top_gpu") set(timeline.firstTopGpuMs);
+    else if (milestone == "api2_swapchain") { set(timeline.firstApi2SwapchainMs); timeline.lastRendererEvidenceMs = elapsed; }
+    else if (milestone == "swapchain") set(timeline.firstSwapchainMs);
+    else if (milestone == "displayed_fps") { set(timeline.firstDisplayedFpsMs); timeline.lastRendererEvidenceMs = elapsed; }
+    else if (milestone == "presented_fps") { set(timeline.firstPresentedFpsMs); timeline.lastRendererEvidenceMs = elapsed; }
+    else if (milestone == "window_hide") timeline.lastWindowHideMs = elapsed;
+    else if (milestone == "window_destroy") timeline.lastWindowDestroyMs = elapsed;
 }
 
 void DiagnosticSession::WatchSteamRunningAppId() noexcept
 {
-    HKEY key{};
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Valve\\Steam", 0,
-        KEY_NOTIFY | KEY_QUERY_VALUE, &key) != ERROR_SUCCESS)
-        return;
     HANDLE changed = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-    if (!changed) { RegCloseKey(key); return; }
+    if (!changed) return;
     while (running_)
     {
+        HKEY key = OpenSteamWatchKey();
+        if (!key) { Sleep(250); continue; }
         if (RegNotifyChangeKeyValue(key, FALSE, REG_NOTIFY_CHANGE_LAST_SET,
             changed, TRUE) != ERROR_SUCCESS)
-            break;
+        { RegCloseKey(key); break; }
         while (running_ && WaitForSingleObject(changed, 100) == WAIT_TIMEOUT) {}
+        RegCloseKey(key);
         if (!running_) break;
         const auto appId = ReadSteamAppId();
         if (appId != previousSteamAppId_)
@@ -234,7 +511,6 @@ void DiagnosticSession::WatchSteamRunningAppId() noexcept
         }
     }
     CloseHandle(changed);
-    RegCloseKey(key);
 }
 
 void DiagnosticSession::WriteRecord(std::string type, std::string fields) noexcept
@@ -246,8 +522,14 @@ void DiagnosticSession::WriteRecord(std::string type, std::string fields) noexce
         const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - startedAt_).count();
         SYSTEMTIME now{}; GetLocalTime(&now);
-        char time[48]{}; sprintf_s(time, "%04u-%02u-%02uT%02u:%02u:%02u.%03u",
-            now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond, now.wMilliseconds);
+        TIME_ZONE_INFORMATION timezone{};
+        const DWORD zone = GetTimeZoneInformation(&timezone);
+        const LONG bias = timezone.Bias + (zone == TIME_ZONE_ID_DAYLIGHT ? timezone.DaylightBias :
+            zone == TIME_ZONE_ID_STANDARD ? timezone.StandardBias : 0);
+        const LONG offset = -bias;
+        char time[48]{}; sprintf_s(time, "%04u-%02u-%02uT%02u:%02u:%02u.%03u%c%02ld:%02ld",
+            now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond, now.wMilliseconds,
+            offset < 0 ? '-' : '+', std::abs(offset) / 60, std::abs(offset) % 60);
         log_ << "{\"wallTime\":\"" << time << "\",\"elapsedMs\":" << elapsed
              << ",\"sequence\":" << ++sequence_ << ",\"type\":\"" << type << "\"";
         if (!fields.empty()) log_ << ',' << fields;
@@ -263,13 +545,22 @@ std::string DiagnosticSession::WindowFields(HWND hwnd, DWORD* processId) noexcep
     wchar_t title[1024]{}, className[256]{}; GetWindowTextW(hwnd, title, 1024); GetClassNameW(hwnd, className, 256);
     RECT rect{}; const bool rectAvailable = SUCCEEDED(DwmGetWindowAttribute(hwnd,
         DWMWA_EXTENDED_FRAME_BOUNDS, &rect, sizeof(rect))) || GetWindowRect(hwnd, &rect);
+    MONITORINFO monitor{ sizeof(monitor) }; const HMONITOR handle = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+    const bool monitorAvailable = handle && GetMonitorInfoW(handle, &monitor);
     DWORD cloaked{}; const bool cloakedAvailable = SUCCEEDED(DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, &cloaked, sizeof(cloaked)));
     std::ostringstream fields;
     fields << "\"pid\":" << pid << ",\"hwnd\":\"" << Hex(hwnd) << "\",\"title\":\"" << Json(title)
            << "\",\"class\":\"" << Json(className) << "\",\"visible\":" << (IsWindowVisible(hwnd) ? "true" : "false")
-           << ",\"minimized\":" << (IsIconic(hwnd) ? "true" : "false") << ",\"owner\":\"" << Hex(GetWindow(hwnd, GW_OWNER)) << "\"";
+           << ",\"minimized\":" << (IsIconic(hwnd) ? "true" : "false") << ",\"owner\":\"" << Hex(GetWindow(hwnd, GW_OWNER)) << "\""
+           << ",\"style\":\"0x" << std::hex << GetWindowLongPtrW(hwnd, GWL_STYLE) << std::dec << "\",\"exStyle\":\"0x" << std::hex << GetWindowLongPtrW(hwnd, GWL_EXSTYLE) << std::dec << "\"";
     if (cloakedAvailable) fields << ",\"cloaked\":" << (cloaked ? "true" : "false");
     if (rectAvailable) fields << ",\"rect\":\"" << rect.left << ',' << rect.top << ',' << rect.right << ',' << rect.bottom << "\"";
+    if (monitorAvailable)
+    {
+        const auto same = [](LONG left, LONG right) { return std::abs(left - right) <= 2; };
+        const bool fullscreen = rectAvailable && same(rect.left, monitor.rcMonitor.left) && same(rect.top, monitor.rcMonitor.top) && same(rect.right, monitor.rcMonitor.right) && same(rect.bottom, monitor.rcMonitor.bottom);
+        fields << ",\"monitorRect\":\"" << monitor.rcMonitor.left << ',' << monitor.rcMonitor.top << ',' << monitor.rcMonitor.right << ',' << monitor.rcMonitor.bottom << "\",\"monitorWorkRect\":\"" << monitor.rcWork.left << ',' << monitor.rcWork.top << ',' << monitor.rcWork.right << ',' << monitor.rcWork.bottom << "\",\"fullscreenLike\":" << (fullscreen ? "true" : "false");
+    }
     return fields.str();
 }
 

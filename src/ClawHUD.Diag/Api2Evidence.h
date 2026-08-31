@@ -10,6 +10,7 @@ class Api2Evidence
 public:
     bool Start(std::string& detail) noexcept;
     void Stop() noexcept;
+    void Retire(DWORD processId) noexcept;
     std::string Sample(DWORD processId) noexcept;
 
 private:
