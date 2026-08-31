@@ -24,6 +24,10 @@ int main()
     ok &= Check(PositiveCounterDelta(100.0, 107.0) == 7.0 &&
         PositiveCounterDelta(107.0, 100.0) == 0.0,
         "PDH ranking uses positive two-sample deltas");
+    ok &= Check(PositiveCounterDelta(false, 0.0, true, 107.0) == 0.0 &&
+        PositiveCounterDelta(true, 100.0, false, 107.0) == 0.0 &&
+        PositiveCounterDelta(true, 100.0, true, 107.0) == 7.0,
+        "invalid measured samples cannot become absolute-value deltas");
     ok &= Check(!ParseGpuEngineProcessId(L"malformed"), "malformed instance is rejected");
     ok &= Check(IsPresentMonCandidateWindow(true, nullptr) &&
         !IsPresentMonCandidateWindow(false, nullptr) &&

@@ -33,6 +33,8 @@ std::optional<DWORD> ParseGpuEngineProcessId(std::wstring_view instance) noexcep
 bool IsGpuEngine3DInstance(std::wstring_view instance) noexcept;
 bool IsPresentMonCandidateWindow(bool visible, HWND owner) noexcept;
 double PositiveCounterDelta(double first, double second) noexcept;
+double PositiveCounterDelta(bool firstValid, double first,
+    bool secondValid, double second) noexcept;
 std::vector<GameDetectionCandidate> RankGpuCandidates(
     const std::vector<GameDetectionEngineDelta>& engines,
     const std::vector<GameDetectionCandidate>& windows);

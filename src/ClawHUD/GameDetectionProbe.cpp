@@ -117,6 +117,9 @@ bool IsPresentMonCandidateWindow(bool visible, HWND owner) noexcept
 { return visible && owner == nullptr; }
 double PositiveCounterDelta(double first, double second) noexcept
 { return second > first ? second - first : 0.0; }
+double PositiveCounterDelta(bool firstValid, double first,
+    bool secondValid, double second) noexcept
+{ return firstValid && secondValid ? PositiveCounterDelta(first, second) : 0.0; }
 std::vector<GameDetectionCandidate> RankGpuCandidates(
     const std::vector<GameDetectionEngineDelta>& engines,
     const std::vector<GameDetectionCandidate>& windows)
@@ -291,7 +294,13 @@ void GameDetectionProbe::LogPdhCandidates()
     std::vector<GameDetectionEngineDelta> engines; std::vector<GameDetectionCandidate> candidates;
     HQUERY rawQuery{}; status = PdhOpenQueryW(nullptr, 0, &rawQuery);
     PdhQueryHandle query(rawQuery);
-    struct CounterSample { DWORD processId{}; HCOUNTER counter{}; double first{}; };
+    struct CounterSample
+    {
+        DWORD processId{};
+        HCOUNTER counter{};
+        double first{};
+        bool firstValid{};
+    };
     std::vector<CounterSample> counters;
     if (status == ERROR_SUCCESS)
     {
@@ -306,14 +315,22 @@ void GameDetectionProbe::LogPdhCandidates()
             if (PdhAddCounterW(query.get(), path.c_str(), 0, &counter) == ERROR_SUCCESS)
                 counters.push_back({ *pid, counter });
         }
+        // Match PresentMon's GetTopGpuProcess sequence: prime once before
+        // either measured point, then measure A and B 100 ms apart.
         status = PdhCollectQueryData(query.get());
+        if (status == ERROR_SUCCESS)
+            status = PdhCollectQueryData(query.get());
         if (status == ERROR_SUCCESS)
             for (auto& sample : counters)
             {
                 PDH_FMT_COUNTERVALUE value{};
                 const auto read = PdhGetFormattedCounterValue(
                     sample.counter, PDH_FMT_DOUBLE, nullptr, &value);
-                if (read == ERROR_SUCCESS) sample.first = value.doubleValue;
+                if (read == ERROR_SUCCESS)
+                {
+                    sample.first = value.doubleValue;
+                    sample.firstValid = true;
+                }
                 else log_ << "[GameDetectProbe][PDH][Error] operation=PdhGetFormattedCounterValueFirst pid="
                     << sample.processId << " status=0x" << std::hex << read << std::dec << '\n';
             }
@@ -326,7 +343,8 @@ void GameDetectionProbe::LogPdhCandidates()
                     PDH_FMT_DOUBLE, nullptr, &value);
                 if (read == ERROR_SUCCESS)
                 {
-                    const auto delta = PositiveCounterDelta(sample.first, value.doubleValue);
+                    const auto delta = PositiveCounterDelta(sample.firstValid,
+                        sample.first, true, value.doubleValue);
                     if (delta > 0.0) engines.push_back({ sample.processId, delta });
                 }
                 else log_ << "[GameDetectProbe][PDH][Error] operation=PdhGetFormattedCounterValue pid="
