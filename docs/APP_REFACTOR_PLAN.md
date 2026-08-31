@@ -1,13 +1,14 @@
 # ClawHUD Production Refactor Plan
 
-Status: **ACTIVE — R0 complete (PR #178); R1 is next**  
+Status: **ACTIVE — R0 (PR #178) and R1 (PR #180) complete; R2 is next**  
 Re-baseline commit: `c0a2dcbd598ad7a31fa7dd28fec09cbd9c29e1f2` (after PR #175 / #176)  
 Date: 2026-08-31  
 Repository: `onehoon/ClawHUD`
 
 Phase progress lives in §18. In short: #177 removed the Diagnostics tab; **R0**
-(PR #178) normalized production naming and removed dead `App` surface — mechanical
-only. **R1** (suspend/resume pure policy out of `App.h`) has not started.
+(PR #178) normalized production naming and removed dead `App` surface; **R1**
+(PR #180) moved the suspend/resume pure policy into `SuspendResumePolicy.h`. Both
+mechanical. **R2** (`ProductionTelemetryController`) has not started.
 
 This document is the continuation artifact for the production-code refactor. It is
 intentionally detailed so a later ChatGPT/Codex session can continue without needing the
@@ -1609,9 +1610,33 @@ Those extractions remain valid and are retained in the new architecture.
   - CTest: 46/46 pass locally (VS 2022 BuildTools, Ninja, Release). No hardware
     smoke (diff is purely mechanical).
 
+- **R1 (suspend/resume pure policy out of `App.h`)** — PR #180, branch
+  `refactor/r1-suspend-resume-policy`. Pure relocation, no behavior change.
+  - New header `src/ClawHUD/SuspendResumePolicy.h` (header-only, `namespace
+    clawhud`) now owns `kResumeRecoveryIntervalMs` (500), `kResumeRecoveryMaxAttempts`
+    (6), and the seven `ResumeRecovery*` constexpr predicates. Those definitions
+    are gone from `App.h`.
+  - `App.cpp` includes the new header and qualifies the calls with `clawhud::`;
+    `App.h` does **not** include it (no `App` declaration needs the policy).
+  - `ShouldRestorePersistedHud(bool)` (an identity wrapper) removed; the one call
+    site now checks `hudEnabled_` directly; its two test assertions deleted.
+  - `SuspendResumeRecoveryTests.cpp` now includes `SuspendResumePolicy.h` instead
+    of `App.h` — no longer compiles against `App`/`TrayIcon`/PresentMon/etc.
+  - `kResumeRecoveryTimerId` and the other Win32 timer/hotkey ids stay in `App.h`
+    (message-loop wiring, not policy). `suspended_` / `resumeRecoveryActive_` /
+    `resumeRecoveryAttempts_` and `HandleSystemSuspend/Resume` / `TryResumeRecovery`
+    / `CancelResumeRecovery` stay in `App`.
+  - `TryResumeRecovery` body: only `clawhud::` qualification, no logic/order change.
+  - No CMake change (the test target already compiled a single `.cpp` with
+    `src/ClawHUD` on the include path; headers are not enumerated).
+  - CTest: 46/46 pass locally (VS 2022 BuildTools, Ninja, Release). No hardware
+    smoke (pure constexpr relocation, identical call sites).
+
 ### Next work
 
-Continue with **R1** from §9. After each merged PR, update this progress log with:
+**R2 — Extract `ProductionTelemetryController`** (§8.2, §9). Re-read those
+sections and `docs/APP_REFACTOR_BEHAVIOR_INVENTORY_TEMPLATE.md` first. After each
+merged PR, update this progress log with:
 
 ```text
 PR number

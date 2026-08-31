@@ -10,6 +10,7 @@
 #include "WindowsMemoryTelemetry.h"
 #include "Version.h"
 #include "ProductionTargetPolicy.h"
+#include "SuspendResumePolicy.h"
 #include "GameDetection/GameDetectionTrace.h"
 #include "Win32Format.h"
 #include "ProcessLiveness.h"
@@ -250,7 +251,7 @@ int App::Run()
             L"Foreground tracker initialization failed");
         return 1;
     }
-    if (ShouldRestorePersistedHud(hudEnabled_))
+    if (hudEnabled_)
     {
         if (!EnsureHud())
         {
@@ -318,9 +319,9 @@ void App::HandleSystemSuspend()
 
 void App::HandleSystemResume()
 {
-    if (!ResumeRecoveryShouldStart(resumeRecoveryActive_))
+    if (!clawhud::ResumeRecoveryShouldStart(resumeRecoveryActive_))
         return;
-    if (ResumeRecoveryNeedsSuspendFallback(suspended_))
+    if (clawhud::ResumeRecoveryNeedsSuspendFallback(suspended_))
     {
         if (hudPresentation_ && hudPresentation_->Visible())
             hudPresentation_->Hide();
@@ -334,7 +335,7 @@ void App::HandleSystemResume()
     resumeRecoveryActive_ = true;
     resumeRecoveryAttempts_ = 0;
     SetTimer(tray_.Window(), kResumeRecoveryTimerId,
-        kResumeRecoveryIntervalMs, nullptr);
+        clawhud::kResumeRecoveryIntervalMs, nullptr);
     Log(L"System resume detected");
     Log(L"HUD resume recovery started");
 }
@@ -348,7 +349,7 @@ void App::TryResumeRecovery()
     foregroundTracker_.Reconcile();
     const DWORD processId = foregroundTracker_.TrackedProcessId();
     const bool processAlive = processId && ProcessAlive(processId);
-    const bool retainVerifier = ResumeRecoveryCanRetainVerifier(
+    const bool retainVerifier = clawhud::ResumeRecoveryCanRetainVerifier(
         processId, gameRenderVerifier_.ProcessId(), gameRenderVerifier_.Running());
     const bool rendererForegroundActive = foregroundTracker_.ForegroundIsTrackedProcess();
     const bool expectedVisible = hudEnabled_ &&
@@ -360,12 +361,12 @@ void App::TryResumeRecovery()
     const bool visibilityUsesForeground = !manualHudVisibilityOverride_.has_value() &&
         hudOptions_.visibilityMode == clawhud::HudVisibilityMode::InGameOnly;
     DiscardPendingGameRenderVerifierEvents();
-    if (ResumeRecoveryShouldWaitForForeground(
+    if (clawhud::ResumeRecoveryShouldWaitForForeground(
         hudEnabled_, visibilityUsesForeground, processAlive,
         foregroundTracker_.ForegroundIsTrackedProcess(), resumeRecoveryAttempts_))
     {
         SetTimer(tray_.Window(), kResumeRecoveryTimerId,
-            kResumeRecoveryIntervalMs, nullptr);
+            clawhud::kResumeRecoveryIntervalMs, nullptr);
         return;
     }
 
@@ -379,14 +380,14 @@ void App::TryResumeRecovery()
     {
         const HRESULT clearHr = hudPresentation_->Render(
             clawhud::HudTelemetrySnapshot{}, BuildHudRenderOptions());
-        freshFrameReady = ResumeRecoveryFrameWasPresented(clearHr);
+        freshFrameReady = clawhud::ResumeRecoveryFrameWasPresented(clearHr);
         if (!freshFrameReady && clearHr != S_FALSE && resumeRecoveryAttempts_ == 1)
             freshFrameReady = RecreateHudPresentation(false);
     }
-    if (!ResumeRecoveryMayShowHud(expectedVisible, freshFrameReady))
+    if (!clawhud::ResumeRecoveryMayShowHud(expectedVisible, freshFrameReady))
     {
         resumeRecoveryActive_ = true;
-        if (!ResumeRecoveryHasAttemptsRemaining(resumeRecoveryAttempts_))
+        if (!clawhud::ResumeRecoveryHasAttemptsRemaining(resumeRecoveryAttempts_))
         {
             CancelResumeRecovery();
             clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
@@ -394,7 +395,7 @@ void App::TryResumeRecovery()
             return;
         }
         SetTimer(tray_.Window(), kResumeRecoveryTimerId,
-            kResumeRecoveryIntervalMs, nullptr);
+            clawhud::kResumeRecoveryIntervalMs, nullptr);
         return;
     }
 
@@ -428,7 +429,7 @@ void App::TryResumeRecovery()
     }
 
     resumeRecoveryActive_ = true;
-    if (!ResumeRecoveryHasAttemptsRemaining(resumeRecoveryAttempts_))
+    if (!clawhud::ResumeRecoveryHasAttemptsRemaining(resumeRecoveryAttempts_))
     {
         CancelResumeRecovery();
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
@@ -436,7 +437,7 @@ void App::TryResumeRecovery()
         return;
     }
     SetTimer(tray_.Window(), kResumeRecoveryTimerId,
-        kResumeRecoveryIntervalMs, nullptr);
+        clawhud::kResumeRecoveryIntervalMs, nullptr);
 }
 
 bool App::EnsureHud()

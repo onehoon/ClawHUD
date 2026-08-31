@@ -46,52 +46,6 @@ constexpr UINT_PTR kBatteryHudTimerId = 3;
 constexpr UINT_PTR kGraphicsApiRetryTimerId = 4;
 constexpr UINT_PTR kResumeRecoveryTimerId = 5;
 constexpr UINT_PTR kPresentMonFpsTimerId = 6;
-constexpr UINT kResumeRecoveryIntervalMs = 500;
-constexpr unsigned kResumeRecoveryMaxAttempts = 6;
-
-constexpr bool ShouldRestorePersistedHud(bool enabled) noexcept
-{
-    return enabled;
-}
-
-constexpr bool ResumeRecoveryShouldStart(bool active) noexcept
-{
-    return !active;
-}
-
-constexpr bool ResumeRecoveryNeedsSuspendFallback(bool suspended) noexcept
-{
-    return !suspended;
-}
-
-constexpr bool ResumeRecoveryHasAttemptsRemaining(unsigned attempts) noexcept
-{
-    return attempts < kResumeRecoveryMaxAttempts;
-}
-
-constexpr bool ResumeRecoveryCanRetainVerifier(
-    DWORD trackedProcessId, DWORD verifierProcessId, bool running) noexcept
-{
-    return trackedProcessId != 0 && trackedProcessId == verifierProcessId && running;
-}
-
-constexpr bool ResumeRecoveryShouldWaitForForeground(
-    bool hudEnabled, bool visibilityUsesForeground, bool processAlive,
-    bool foregroundMatches, unsigned attempts) noexcept
-{
-    return hudEnabled && visibilityUsesForeground && processAlive &&
-        !foregroundMatches && ResumeRecoveryHasAttemptsRemaining(attempts);
-}
-
-constexpr bool ResumeRecoveryMayShowHud(bool expectedVisible, bool freshFrameReady) noexcept
-{
-    return !expectedVisible || freshFrameReady;
-}
-
-constexpr bool ResumeRecoveryFrameWasPresented(HRESULT renderResult) noexcept
-{
-    return renderResult == S_OK;
-}
 
 class App
 {
