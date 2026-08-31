@@ -16,31 +16,57 @@ struct Api2Evidence::State
     std::size_t rowBytes{};
     std::vector<std::uint8_t> blob;
     std::unordered_set<DWORD> tracked;
+    bool pidValidationAvailable{};  // PM_METRIC_PROCESS_ID made it into the query
 };
 
 namespace
 {
+bool IsIdentityMetric(PM_METRIC metric) noexcept
+{
+    return metric == PM_METRIC_SWAP_CHAIN_ADDRESS || metric == PM_METRIC_PROCESS_ID;
+}
+
+PM_STAT PreferredStat(PM_METRIC metric) noexcept
+{
+    return IsIdentityMetric(metric) ? PM_STAT_NEWEST_POINT : PM_STAT_AVG;
+}
+
 bool Available(const PM_INTROSPECTION_METRIC* metric, PM_METRIC wanted,
     PM_QUERY_ELEMENT& element)
 {
-    if (!metric || metric->id != wanted || metric->type != PM_METRIC_TYPE_DYNAMIC ||
+    if (!metric || metric->id != wanted ||
         !metric->pDeviceMetricInfo || metric->pDeviceMetricInfo->size == 0)
         return false;
-    const PM_STAT preferred = wanted == PM_METRIC_SWAP_CHAIN_ADDRESS ? PM_STAT_NEWEST_POINT : PM_STAT_AVG;
+    // FPS / swap-chain address are dynamic; PROCESS_ID is a static identity
+    // metric that a dynamic query still carries as a constant per row.
+    if (metric->type != PM_METRIC_TYPE_DYNAMIC && wanted != PM_METRIC_PROCESS_ID)
+        return false;
+    PM_STAT stat = PreferredStat(wanted);
     bool supportsPreferred = false;
+    PM_STAT firstStat = stat;
+    bool haveAnyStat = false;
     if (metric->pStatInfo) for (size_t index = 0; index < metric->pStatInfo->size; ++index)
     {
         const auto* info = static_cast<const PM_INTROSPECTION_STAT_INFO*>(metric->pStatInfo->pData[index]);
-        supportsPreferred = supportsPreferred || (info && info->stat == preferred);
+        if (!info) continue;
+        if (!haveAnyStat) { firstStat = info->stat; haveAnyStat = true; }
+        supportsPreferred = supportsPreferred || info->stat == stat;
     }
-    if (!supportsPreferred) return false;
+    if (!supportsPreferred)
+    {
+        // Identity metrics: fall back to whatever statistic introspection lists
+        // rather than assuming the FPS AVG. Non-identity metrics still require
+        // their preferred stat.
+        if (!IsIdentityMetric(wanted)) return false;
+        if (haveAnyStat) stat = firstStat;
+    }
     for (size_t index = 0; index < metric->pDeviceMetricInfo->size; ++index)
     {
         const auto* info = static_cast<const PM_INTROSPECTION_DEVICE_METRIC_INFO*>(
             metric->pDeviceMetricInfo->pData[index]);
         if (info && info->availability == PM_METRIC_AVAILABILITY_AVAILABLE)
         {
-            element = { wanted, preferred, info->deviceId, 0, 0, 0 };
+            element = { wanted, stat, info->deviceId, 0, 0, 0 };
             return true;
         }
     }
@@ -58,6 +84,8 @@ Api2SwapChainRow DecodeRow(const std::uint8_t* row, const std::vector<PM_QUERY_E
             decoded.displayedFps = Api2DecodeFps(row, element);
         else if (element.metric == PM_METRIC_PRESENTED_FPS)
             decoded.presentedFps = Api2DecodeFps(row, element);
+        else if (element.metric == PM_METRIC_PROCESS_ID)
+            decoded.processId = Api2DecodeProcessId(row, element);
     }
     return decoded;
 }
@@ -72,14 +100,16 @@ std::string NumberOrNull(std::optional<double> value)
     return value ? std::to_string(*value) : "null";
 }
 
-constexpr const char* kUnavailableBody =
-    "\"trackStatus\":null,\"trackStatusCode\":null,\"pollStatus\":\"UNAVAILABLE\","
-    "\"pollStatusCode\":null,\"pollRowCount\":null,\"swapChainCount\":null,\"rendererActive\":null,"
+constexpr const char* kNullRendererTail =
+    ",\"pollRowCount\":null,\"swapChainCount\":null,\"rendererActive\":null,"
+    "\"pidValidationAvailable\":null,\"returnedPid\":null,\"pidMatches\":null,"
     "\"swapChainAddress\":null,\"displayedFps\":null,\"presentedFps\":null,\"swapChains\":null";
-constexpr const char* kExceptionBody =
-    "\"trackStatus\":null,\"trackStatusCode\":null,\"pollStatus\":\"EXCEPTION\","
-    "\"pollStatusCode\":null,\"pollRowCount\":null,\"swapChainCount\":null,\"rendererActive\":null,"
-    "\"swapChainAddress\":null,\"displayedFps\":null,\"presentedFps\":null,\"swapChains\":null";
+const std::string kUnavailableBody =
+    std::string("\"trackStatus\":null,\"trackStatusCode\":null,\"pollStatus\":\"UNAVAILABLE\","
+        "\"pollStatusCode\":null") + kNullRendererTail;
+const std::string kExceptionBody =
+    std::string("\"trackStatus\":null,\"trackStatusCode\":null,\"pollStatus\":\"EXCEPTION\","
+        "\"pollStatusCode\":null") + kNullRendererTail;
 }
 
 std::size_t Api2AlignedRowBytes(const std::vector<PM_QUERY_ELEMENT>& elements) noexcept
@@ -143,6 +173,24 @@ std::optional<double> Api2DecodeFps(const std::uint8_t* row, const PM_QUERY_ELEM
     return std::isfinite(value) ? std::optional<double>(value) : std::nullopt;
 }
 
+std::optional<DWORD> Api2DecodeProcessId(const std::uint8_t* row, const PM_QUERY_ELEMENT& element) noexcept
+{
+    if (!row || element.metric != PM_METRIC_PROCESS_ID) return std::nullopt;
+    if (element.dataSize == sizeof(std::uint32_t))
+    {
+        std::uint32_t value{};
+        std::memcpy(&value, row + element.dataOffset, sizeof(value));
+        return value ? std::optional<DWORD>(value) : std::nullopt;
+    }
+    if (element.dataSize == sizeof(std::uint64_t))
+    {
+        std::uint64_t value{};
+        std::memcpy(&value, row + element.dataOffset, sizeof(value));
+        return value && value <= MAXDWORD ? std::optional<DWORD>(static_cast<DWORD>(value)) : std::nullopt;
+    }
+    return std::nullopt;
+}
+
 std::string Api2DecodeValue(const std::uint8_t* blob, const PM_QUERY_ELEMENT& element)
 {
     if (element.metric == PM_METRIC_SWAP_CHAIN_ADDRESS)
@@ -152,11 +200,14 @@ std::string Api2DecodeValue(const std::uint8_t* blob, const PM_QUERY_ELEMENT& el
     return "null";
 }
 
-Api2RowAggregate Api2AggregateRows(const std::vector<Api2SwapChainRow>& rows) noexcept
+Api2RowAggregate Api2AggregateRows(const std::vector<Api2SwapChainRow>& rows, DWORD requestedPid) noexcept
 {
     Api2RowAggregate aggregate;
     for (const auto& row : rows)
     {
+        // A row whose returned PID is a different process is not this PID's
+        // renderer/FPS evidence.
+        if (row.processId && *row.processId != requestedPid) continue;
         if (row.address.has_value()) ++aggregate.swapChainCount;
         aggregate.anyDisplayedFpsPositive = aggregate.anyDisplayedFpsPositive || row.displayedFps.value_or(0.0) > 0.0;
         aggregate.anyPresentedFpsPositive = aggregate.anyPresentedFpsPositive || row.presentedFps.value_or(0.0) > 0.0;
@@ -164,9 +215,18 @@ Api2RowAggregate Api2AggregateRows(const std::vector<Api2SwapChainRow>& rows) no
     return aggregate;
 }
 
+namespace
+{
+std::string PidOrNull(std::optional<DWORD> value)
+{
+    return value ? std::to_string(*value) : "null";
+}
+}
+
 std::string Api2ComposeSample(PM_STATUS pollStatus, std::uint32_t pollRowCount,
     std::uint32_t swapChainCount, const std::vector<Api2SwapChainRow>& rows,
-    std::string trackStatusJson, std::string trackStatusCodeJson)
+    bool pidValidationAvailable, std::string trackStatusJson,
+    std::string trackStatusCodeJson)
 {
     std::string body = "\"trackStatus\":" + trackStatusJson +
         ",\"trackStatusCode\":" + trackStatusCodeJson +
@@ -174,21 +234,32 @@ std::string Api2ComposeSample(PM_STATUS pollStatus, std::uint32_t pollRowCount,
         "\",\"pollStatusCode\":" + std::to_string(static_cast<int>(pollStatus));
     if (pollStatus != PM_STATUS_SUCCESS)
         return body + ",\"pollRowCount\":null,\"swapChainCount\":null,\"rendererActive\":null,"
+            "\"pidValidationAvailable\":null,\"returnedPid\":null,\"pidMatches\":null,"
             "\"swapChainAddress\":null,\"displayedFps\":null,\"presentedFps\":null,\"swapChains\":null";
     // pollRowCount is the raw API2 count; PresentMon returns one null-address
     // row before it has observed a real swap chain, so renderer evidence is
     // driven by swapChainCount (rows carrying an actual SWAP_CHAIN_ADDRESS).
     const Api2SwapChainRow first = rows.empty() ? Api2SwapChainRow{} : rows.front();
+    bool anyMismatch = false;
+    for (const auto& row : rows)
+        anyMismatch = anyMismatch || row.pidMismatch;
+    const std::string pidMatchesJson = !pidValidationAvailable ? "null"
+        : (anyMismatch ? "false" : "true");
     body += ",\"pollRowCount\":" + std::to_string(pollRowCount) +
         ",\"swapChainCount\":" + std::to_string(swapChainCount) +
         ",\"rendererActive\":" + (swapChainCount ? "true" : "false") +
+        ",\"pidValidationAvailable\":" + (pidValidationAvailable ? "true" : "false") +
+        ",\"returnedPid\":" + PidOrNull(first.processId) +
+        ",\"pidMatches\":" + pidMatchesJson +
         ",\"swapChainAddress\":" + NumberOrNull(first.address) +
         ",\"displayedFps\":" + NumberOrNull(first.displayedFps) +
         ",\"presentedFps\":" + NumberOrNull(first.presentedFps) + ",\"swapChains\":[";
     for (size_t index = 0; index < rows.size(); ++index)
     {
         if (index) body += ',';
-        body += "{\"swapChainAddress\":" + NumberOrNull(rows[index].address) +
+        body += "{\"returnedPid\":" + PidOrNull(rows[index].processId) +
+            ",\"pidMatches\":" + (!rows[index].processId ? "null" : (rows[index].pidMismatch ? "false" : "true")) +
+            ",\"swapChainAddress\":" + NumberOrNull(rows[index].address) +
             ",\"displayedFps\":" + NumberOrNull(rows[index].displayedFps) +
             ",\"presentedFps\":" + NumberOrNull(rows[index].presentedFps) + "}";
     }
@@ -214,13 +285,16 @@ bool Api2Evidence::Start(std::string& detail) noexcept
         for (size_t i = 0; i < root->pMetrics->size; ++i)
         {
             const auto* metric = static_cast<const PM_INTROSPECTION_METRIC*>(root->pMetrics->pData[i]);
-            for (const auto wanted : { PM_METRIC_SWAP_CHAIN_ADDRESS, PM_METRIC_DISPLAYED_FPS, PM_METRIC_PRESENTED_FPS })
+            for (const auto wanted : { PM_METRIC_SWAP_CHAIN_ADDRESS, PM_METRIC_DISPLAYED_FPS,
+                PM_METRIC_PRESENTED_FPS, PM_METRIC_PROCESS_ID })
             {
                 PM_QUERY_ELEMENT element{};
                 if (Available(metric, wanted, element) && std::none_of(state->elements.begin(), state->elements.end(), [wanted](const auto& value) { return value.metric == wanted; })) state->elements.push_back(element);
             }
         }
         state->client.FreeIntrospectionRoot(root);
+        state->pidValidationAvailable = std::any_of(state->elements.begin(), state->elements.end(),
+            [](const auto& element) { return element.metric == PM_METRIC_PROCESS_ID; });
         if (state->elements.empty() || state->client.RegisterDynamicQuery(&state->query,
             state->elements.data(), state->elements.size(), 1000, 0) != PM_STATUS_SUCCESS || !state->query)
         { detail = "query_unavailable"; return false; }
@@ -277,7 +351,8 @@ Api2SampleResult Api2Evidence::Sample(DWORD processId) noexcept
                 result.json = "\"trackStatus\":\"" + std::string(Api2StatusName(status)) +
                     "\",\"trackStatusCode\":" + std::to_string(static_cast<int>(status)) +
                     ",\"pollStatus\":null,\"pollStatusCode\":null,\"pollRowCount\":null,"
-                    "\"swapChainCount\":null,\"rendererActive\":null,\"swapChainAddress\":null,"
+                    "\"swapChainCount\":null,\"rendererActive\":null,\"pidValidationAvailable\":null,"
+                    "\"returnedPid\":null,\"pidMatches\":null,\"swapChainAddress\":null,"
                     "\"displayedFps\":null,\"presentedFps\":null,\"swapChains\":null";
                 return result;
             }
@@ -296,17 +371,21 @@ Api2SampleResult Api2Evidence::Sample(DWORD processId) noexcept
         {
             const std::uint32_t count = std::min(swaps, kSwapChainCapacity);
             for (std::uint32_t index = 0; index < count; ++index)
-                rows.push_back(DecodeRow(state_->blob.data() + state_->rowBytes * index, state_->elements));
+            {
+                auto row = DecodeRow(state_->blob.data() + state_->rowBytes * index, state_->elements);
+                row.pidMismatch = row.processId.has_value() && *row.processId != processId;
+                rows.push_back(row);
+            }
             result.pollSucceeded = true;
             result.pollRowCount = swaps;
-            const auto aggregate = Api2AggregateRows(rows);
+            const auto aggregate = Api2AggregateRows(rows, processId);
             result.swapChainCount = aggregate.swapChainCount;
             result.anySwapChainAddress = aggregate.swapChainCount != 0;
             result.anyDisplayedFpsPositive = aggregate.anyDisplayedFpsPositive;
             result.anyPresentedFpsPositive = aggregate.anyPresentedFpsPositive;
         }
         result.json = Api2ComposeSample(poll, result.pollRowCount, result.swapChainCount,
-            rows, trackJson, trackCodeJson);
+            rows, state_->pidValidationAvailable, trackJson, trackCodeJson);
         return result;
     }
     catch (...)

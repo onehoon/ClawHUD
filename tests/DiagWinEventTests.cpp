@@ -92,10 +92,14 @@ int main(int argc, char** argv)
     assert(content.find("\"topLevel\":true") != std::string::npos);
     assert(content.find("\"windowWidth\":") != std::string::npos);
     assert(content.find("\"monitorWidth\":") != std::string::npos);
+    // DPI evidence is recorded so the coordinate space is provable.
+    assert(content.find("\"processDpiAwareness\":") != std::string::npos);
+    assert(content.find("\"windowDpi\":") != std::string::npos);
     // The in-process child control never reaches the top-level stream.
     assert(content.find(HwndToken(child)) == std::string::npos);
 
-    // The helper PID's summary has both lifecycle milestones, create before show.
+    // The helper PID's summary has the lifecycle milestones, create before show,
+    // and a visible-ownerless milestone once it is shown.
     std::string helperSummary;
     std::istringstream lines(content);
     for (std::string line; std::getline(lines, line);)
@@ -105,8 +109,10 @@ int main(int argc, char** argv)
     assert(!helperSummary.empty());
     const auto created = SummaryField(helperSummary, "firstWindowCreateMs");
     const auto shown = SummaryField(helperSummary, "firstWindowShowMs");
+    const auto visibleOwnerless = SummaryField(helperSummary, "firstVisibleOwnerlessMs");
     assert(created >= 0 && shown >= 0);
     assert(created <= shown);
+    assert(visibleOwnerless >= 0 && visibleOwnerless >= created);
 
     auto summary = log;
     summary.replace_filename(log.stem().wstring() + L"-summary.txt");

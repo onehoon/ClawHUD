@@ -128,6 +128,23 @@ std::string ActualOsVersion()
 std::string MsJson(std::int64_t value) { return value >= 0 ? std::to_string(value) : "null"; }
 std::string MsText(std::int64_t value) { return value >= 0 ? std::to_string(value) : "n/a"; }
 
+// Prove the coordinate space window/monitor geometry was captured in.
+std::string ProcessDpiAwareness() noexcept
+{
+    const auto context = GetThreadDpiAwarenessContext();
+    if (AreDpiAwarenessContextsEqual(context, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2))
+        return "per_monitor_v2";
+    switch (GetAwarenessFromDpiAwarenessContext(context))
+    {
+    case DPI_AWARENESS_PER_MONITOR_AWARE: return "per_monitor";
+    case DPI_AWARENESS_SYSTEM_AWARE: return "system";
+    case DPI_AWARENESS_UNAWARE: return "unaware";
+    default: return "unknown";
+    }
+}
+
+UINT WindowDpi(HWND hwnd) noexcept { return hwnd ? GetDpiForWindow(hwnd) : 0; }
+
 struct CandidateWindow { HWND hwnd{}; std::wstring title; };
 BOOL CALLBACK CollectCandidateWindow(HWND hwnd, LPARAM parameter)
 {
@@ -302,7 +319,7 @@ bool DiagnosticSession::Start()
     std::string api2Detail;
     api2_.Start(api2Detail);
     TIME_ZONE_INFORMATION timezone{}; GetTimeZoneInformation(&timezone);
-    WriteRecord("session_header", "\"schemaVersion\":1,\"api2Loader\":\"manual beside exe\",\"api2State\":\"" + api2Detail + "\",\"api2SwapChainCapacity\":" + std::to_string(Api2Evidence::kSwapChainCapacity) + ",\"osVersion\":\"" + ActualOsVersion() + "\",\"timezoneBiasMinutes\":" + std::to_string(-timezone.Bias) + ",\"api2IntervalMs\":250,\"pdhIntervalMs\":500,\"pdhDeltaWindowMs\":100,\"presentMonBlocklistSource\":\"archive/diagnostics/presentmon-api2/assets/PresentMonAutoTargetBlockList.txt\",\"presentMonBlocklistCommit\":\"f57eb474371c635ff2be620c04ca47400ca1b81a\"");
+    WriteRecord("session_header", "\"schemaVersion\":1,\"api2Loader\":\"manual beside exe\",\"api2State\":\"" + api2Detail + "\",\"api2SwapChainCapacity\":" + std::to_string(Api2Evidence::kSwapChainCapacity) + ",\"osVersion\":\"" + ActualOsVersion() + "\",\"processDpiAwareness\":\"" + ProcessDpiAwareness() + "\",\"systemDpi\":" + std::to_string(GetDpiForSystem()) + ",\"timezoneBiasMinutes\":" + std::to_string(-timezone.Bias) + ",\"api2IntervalMs\":250,\"pdhIntervalMs\":500,\"pdhDeltaWindowMs\":100,\"presentMonBlocklistSource\":\"archive/diagnostics/presentmon-api2/assets/PresentMonAutoTargetBlockList.txt\",\"presentMonBlocklistCommit\":\"f57eb474371c635ff2be620c04ca47400ca1b81a\"");
     WriteRecord("steam_running_app_id", "\"oldAppId\":null,\"appId\":" + std::to_string(previousSteamAppId_.load()));
     api2Sampler_ = std::jthread([this](std::stop_token stop) {
         while (!stop.stop_requested() && running_)
@@ -351,8 +368,9 @@ bool DiagnosticSession::StartWinEventThread()
             MSG seed{}; PeekMessageW(&seed, nullptr, WM_USER, WM_USER, PM_NOREMOVE);
             foregroundHook_ = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND,
                 nullptr, WinEventProc, 0, 0, WINEVENT_OUTOFCONTEXT);
-            constexpr std::array<DWORD, 5> events{ EVENT_OBJECT_CREATE, EVENT_OBJECT_SHOW,
-                EVENT_OBJECT_HIDE, EVENT_OBJECT_DESTROY, EVENT_OBJECT_NAMECHANGE };
+            constexpr std::array<DWORD, 6> events{ EVENT_OBJECT_CREATE, EVENT_OBJECT_SHOW,
+                EVENT_OBJECT_HIDE, EVENT_OBJECT_DESTROY, EVENT_OBJECT_NAMECHANGE,
+                EVENT_OBJECT_LOCATIONCHANGE };
             for (size_t index = 0; index < events.size(); ++index)
                 windowHooks_[index] = SetWinEventHook(events[index], events[index], nullptr,
                     WinEventProc, 0, 0, WINEVENT_OUTOFCONTEXT);
@@ -399,7 +417,11 @@ void DiagnosticSession::RecordWinEvent(DWORD event, HWND hwnd, LONG objectId, LO
     if (!destroying && GetAncestor(hwnd, GA_ROOT) != hwnd) return;
     const char* type = event == EVENT_SYSTEM_FOREGROUND ? "foreground_change" :
         event == EVENT_OBJECT_CREATE ? "window_create" : event == EVENT_OBJECT_SHOW ? "window_show" :
-        event == EVENT_OBJECT_HIDE ? "window_hide" : event == EVENT_OBJECT_DESTROY ? "window_destroy" : "window_name_change";
+        event == EVENT_OBJECT_HIDE ? "window_hide" : event == EVENT_OBJECT_DESTROY ? "window_destroy" :
+        event == EVENT_OBJECT_LOCATIONCHANGE ? "window_location_change" : "window_name_change";
+    // A candidate-quality window: top-level, visible, ownerless, not minimized.
+    const bool visibleOwnerless = !destroying && GetAncestor(hwnd, GA_ROOT) == hwnd &&
+        IsWindowVisible(hwnd) && !GetWindow(hwnd, GW_OWNER) && !IsIconic(hwnd);
     DWORD pid{};
     std::string fields;
     if (destroying)
@@ -422,6 +444,7 @@ void DiagnosticSession::RecordWinEvent(DWORD event, HWND hwnd, LONG objectId, LO
             cached.fields = live;
             if (event == EVENT_OBJECT_CREATE && cached.firstCreateMs < 0) cached.firstCreateMs = elapsed;
             if (event == EVENT_OBJECT_SHOW && cached.firstShowMs < 0) cached.firstShowMs = elapsed;
+            if (visibleOwnerless && cached.firstVisibleOwnerlessMs < 0) cached.firstVisibleOwnerlessMs = elapsed;
         }
         fields = live + ",\"metadataSource\":\"live\"";
     }
@@ -446,6 +469,7 @@ void DiagnosticSession::RecordWinEvent(DWORD event, HWND hwnd, LONG objectId, LO
     else if (event == EVENT_OBJECT_SHOW) MarkFirst(pid, "window_show");
     else if (event == EVENT_OBJECT_HIDE) MarkFirst(pid, "window_hide");
     else if (event == EVENT_OBJECT_DESTROY) MarkFirst(pid, "window_destroy");
+    if (visibleOwnerless) MarkFirst(pid, "visible_ownerless_window");
 }
 
 void DiagnosticSession::SampleApi2ObservedPids() noexcept
@@ -507,12 +531,12 @@ void DiagnosticSession::ObserveProcess(DWORD processId, std::string_view reason)
         for (const auto& [wnd, cached] : windowCache_)
         {
             if (cached.processId != processId) continue;
-            if (cached.firstCreateMs >= 0 && (timeline.firstWindowCreateMs < 0 ||
-                cached.firstCreateMs < timeline.firstWindowCreateMs))
-                timeline.firstWindowCreateMs = cached.firstCreateMs;
-            if (cached.firstShowMs >= 0 && (timeline.firstWindowShowMs < 0 ||
-                cached.firstShowMs < timeline.firstWindowShowMs))
-                timeline.firstWindowShowMs = cached.firstShowMs;
+            const auto earliest = [](std::int64_t& target, std::int64_t candidate) {
+                if (candidate >= 0 && (target < 0 || candidate < target)) target = candidate;
+            };
+            earliest(timeline.firstWindowCreateMs, cached.firstCreateMs);
+            earliest(timeline.firstWindowShowMs, cached.firstShowMs);
+            earliest(timeline.firstVisibleOwnerlessMs, cached.firstVisibleOwnerlessMs);
         }
 
         std::wstring image, aumid, packageFull, packageFamily;
@@ -563,7 +587,8 @@ void DiagnosticSession::WriteSummary() noexcept
             if (summary)
                 summary << "PID " << pid << " (start " << timeline.processStartFileTime << ") " << timeline.exe << "\n"
                     << "firstSeenMs=" << MsText(timeline.firstSeenMs) << " firstWindowCreateMs=" << MsText(timeline.firstWindowCreateMs)
-                    << " firstWindowShowMs=" << MsText(timeline.firstWindowShowMs) << " firstTopGpuMs=" << MsText(timeline.firstTopGpuMs)
+                    << " firstWindowShowMs=" << MsText(timeline.firstWindowShowMs) << " firstVisibleOwnerlessMs=" << MsText(timeline.firstVisibleOwnerlessMs)
+                    << " firstTopGpuMs=" << MsText(timeline.firstTopGpuMs)
                     << " firstApi2SwapchainMs=" << MsText(timeline.firstApi2SwapchainMs) << " firstPresentedFpsMs=" << MsText(timeline.firstPresentedFpsMs)
                     << " firstDisplayedFpsMs=" << MsText(timeline.firstDisplayedFpsMs) << " firstForegroundMs=" << MsText(timeline.firstForegroundMs) << "\n"
                     << "steamAppIdAtFirstSeen=" << timeline.steamAppIdAtFirstSeen << " microsoftGameIdentity="
@@ -573,6 +598,7 @@ void DiagnosticSession::WriteSummary() noexcept
                 ",\"firstSeenMs\":" + MsJson(timeline.firstSeenMs) +
                 ",\"firstWindowCreateMs\":" + MsJson(timeline.firstWindowCreateMs) +
                 ",\"firstWindowShowMs\":" + MsJson(timeline.firstWindowShowMs) +
+                ",\"firstVisibleOwnerlessMs\":" + MsJson(timeline.firstVisibleOwnerlessMs) +
                 ",\"firstForegroundMs\":" + MsJson(timeline.firstForegroundMs) +
                 ",\"firstTopGpuMs\":" + MsJson(timeline.firstTopGpuMs) +
                 ",\"firstApi2SwapchainMs\":" + MsJson(timeline.firstApi2SwapchainMs) +
@@ -696,6 +722,7 @@ void DiagnosticSession::MarkFirst(DWORD processId, std::string_view milestone) n
     auto set = [elapsed](std::int64_t& value) { if (value < 0) value = elapsed; };
     if (milestone == "window_create") set(timeline.firstWindowCreateMs);
     else if (milestone == "window_show") set(timeline.firstWindowShowMs);
+    else if (milestone == "visible_ownerless_window") set(timeline.firstVisibleOwnerlessMs);
     else if (milestone == "foreground") { set(timeline.firstForegroundMs); timeline.lastForegroundMs = elapsed; }
     else if (milestone == "top_gpu") set(timeline.firstTopGpuMs);
     else if (milestone == "api2_swapchain") { set(timeline.firstApi2SwapchainMs); timeline.lastRendererEvidenceMs = elapsed; }
@@ -780,6 +807,7 @@ std::string DiagnosticSession::WindowFields(HWND hwnd, DWORD* processId) noexcep
     std::ostringstream fields;
     fields << "\"pid\":" << pid << ",\"hwnd\":\"" << Hex(hwnd) << "\",\"exe\":\"" << Json(exe)
            << "\",\"imagePath\":\"" << Json(imagePath) << "\",\"topLevel\":" << (GetAncestor(hwnd, GA_ROOT) == hwnd ? "true" : "false")
+           << ",\"windowDpi\":" << WindowDpi(hwnd) << ",\"systemDpi\":" << GetDpiForSystem()
            << ",\"title\":\"" << Json(title)
            << "\",\"class\":\"" << Json(className) << "\",\"visible\":" << (IsWindowVisible(hwnd) ? "true" : "false")
            << ",\"minimized\":" << (IsIconic(hwnd) ? "true" : "false") << ",\"owner\":\"" << Hex(GetWindow(hwnd, GW_OWNER)) << "\""

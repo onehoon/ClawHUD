@@ -25,46 +25,50 @@ std::size_t Api2AlignedRowBytes(const std::vector<PM_QUERY_ELEMENT>& elements) n
 // Typed decode of one blob row. Nullopt = field absent / not finite / zero addr.
 std::optional<std::uint64_t> Api2DecodeAddress(const std::uint8_t* row, const PM_QUERY_ELEMENT& element);
 std::optional<double> Api2DecodeFps(const std::uint8_t* row, const PM_QUERY_ELEMENT& element);
+std::optional<DWORD> Api2DecodeProcessId(const std::uint8_t* row, const PM_QUERY_ELEMENT& element) noexcept;
 // String form (decimal or "null"), used for the raw JSON and decode tests.
 std::string Api2DecodeValue(const std::uint8_t* blob, const PM_QUERY_ELEMENT& element);
 
 // One decoded swap-chain row.
 struct Api2SwapChainRow
 {
+    std::optional<DWORD> processId;   // PM_METRIC_PROCESS_ID, when the query carries it
+    bool pidMismatch{};               // returned PID != the PID we polled for
     std::optional<std::uint64_t> address;
     std::optional<double> displayedFps;
     std::optional<double> presentedFps;
 };
 
-// Derived milestone signals for a poll's rows. swapChainCount only counts rows
-// that carry a non-null SWAP_CHAIN_ADDRESS: PresentMon 2.5.1 returns one
-// null-address probe row before it has observed a real swap chain, and that
-// row is not renderer evidence.
+// Derived milestone signals for a poll's rows. Rows whose returned PID does not
+// match the polled PID are excluded. swapChainCount only counts rows carrying a
+// non-null SWAP_CHAIN_ADDRESS: PresentMon 2.5.1 returns one null-address probe
+// row before it has observed a real swap chain, and that row is not evidence.
 struct Api2RowAggregate
 {
     std::uint32_t swapChainCount{};
     bool anyDisplayedFpsPositive{};
     bool anyPresentedFpsPositive{};
 };
-Api2RowAggregate Api2AggregateRows(const std::vector<Api2SwapChainRow>& rows) noexcept;
+Api2RowAggregate Api2AggregateRows(const std::vector<Api2SwapChainRow>& rows, DWORD requestedPid) noexcept;
 
 // Compose the api2 record body from a completed poll. Split out so the
 // in/out capacity + status contract can be unit-tested without a live loader.
-// pollRowCount = raw *numSwapChains from API2; swapChainCount = rows that
-// actually carry a non-null SWAP_CHAIN_ADDRESS.
+// pollRowCount = raw *numSwapChains from API2; swapChainCount = matched rows
+// that carry a non-null SWAP_CHAIN_ADDRESS.
 std::string Api2ComposeSample(PM_STATUS pollStatus, std::uint32_t pollRowCount,
     std::uint32_t swapChainCount, const std::vector<Api2SwapChainRow>& rows,
-    std::string trackStatusJson, std::string trackStatusCodeJson);
+    bool pidValidationAvailable, std::string trackStatusJson,
+    std::string trackStatusCodeJson);
 
 // Structured sample: JSONL body plus the derived milestone signals, aggregated
-// across every swap-chain row so the per-PID summary stays correct for a
-// multi-swap-chain process (the caller never reparses the serialized JSON).
+// across every matched swap-chain row so the per-PID summary stays correct for
+// a multi-swap-chain process (the caller never reparses the serialized JSON).
 struct Api2SampleResult
 {
     std::string json;
     bool pollSucceeded{};
     std::uint32_t pollRowCount{};    // raw *numSwapChains returned by API2
-    std::uint32_t swapChainCount{};  // rows with a non-null SWAP_CHAIN_ADDRESS
+    std::uint32_t swapChainCount{};  // matched rows with a non-null SWAP_CHAIN_ADDRESS
     bool anySwapChainAddress{};
     bool anyDisplayedFpsPositive{};
     bool anyPresentedFpsPositive{};

@@ -1,9 +1,17 @@
+#include <windows.h>
+
 #include "DiagnosticSession.h"
 
 #include <iostream>
 
 int main()
 {
+    // All window / monitor geometry must be captured in one physical coordinate
+    // space; without this the diagnostic mixes DPI-virtualized and real pixels.
+    if (!SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2))
+        std::cerr << "Warning: failed to enable Per-Monitor-V2 DPI awareness, error="
+                  << GetLastError() << '\n';
+
     DiagnosticSession session;
     for (;;)
     {

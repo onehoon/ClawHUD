@@ -78,7 +78,7 @@ private:
     std::jthread winEventThread_;
     std::atomic<DWORD> winEventThreadId_{};
     HWINEVENTHOOK foregroundHook_{};
-    HWINEVENTHOOK windowHooks_[5]{};
+    HWINEVENTHOOK windowHooks_[6]{};
     std::atomic_bool running_{};
     std::uint64_t sequence_{};
     std::atomic_uint32_t previousSteamAppId_{};
@@ -86,8 +86,9 @@ private:
     struct PidTimeline
     {
         std::int64_t firstSeenMs{-1};
-        std::int64_t firstWindowCreateMs{-1};
+        std::int64_t firstWindowCreateMs{-1};       // any top-level HWND (raw)
         std::int64_t firstWindowShowMs{-1};
+        std::int64_t firstVisibleOwnerlessMs{-1};   // first candidate-quality window
         std::int64_t firstForegroundMs{-1};
         std::int64_t firstTopGpuMs{-1};
         std::int64_t firstApi2SwapchainMs{-1};
@@ -114,6 +115,7 @@ private:
         std::string fields;
         std::int64_t firstCreateMs{-1};
         std::int64_t firstShowMs{-1};
+        std::int64_t firstVisibleOwnerlessMs{-1};
     };
     // Permanent per-generation evidence timelines, keyed by (pid, start time).
     std::unordered_map<DiagProcessKey, PidTimeline, DiagProcessKeyHash> timelines_;
