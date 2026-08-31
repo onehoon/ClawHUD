@@ -6,9 +6,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-#include <memory>
-#include <optional>
-#include <sstream>
 #include <unordered_set>
 
 struct Api2Evidence::State
@@ -50,13 +47,39 @@ bool Available(const PM_INTROSPECTION_METRIC* metric, PM_METRIC wanted,
     return false;
 }
 
-std::string RowValue(const std::uint8_t* row, const std::vector<PM_QUERY_ELEMENT>& elements,
-    PM_METRIC wanted)
+Api2SwapChainRow DecodeRow(const std::uint8_t* row, const std::vector<PM_QUERY_ELEMENT>& elements)
 {
+    Api2SwapChainRow decoded;
     for (const auto& element : elements)
-        if (element.metric == wanted) return Api2DecodeValue(row, element);
-    return "null";
+    {
+        if (element.metric == PM_METRIC_SWAP_CHAIN_ADDRESS)
+            decoded.address = Api2DecodeAddress(row, element);
+        else if (element.metric == PM_METRIC_DISPLAYED_FPS)
+            decoded.displayedFps = Api2DecodeFps(row, element);
+        else if (element.metric == PM_METRIC_PRESENTED_FPS)
+            decoded.presentedFps = Api2DecodeFps(row, element);
+    }
+    return decoded;
 }
+
+std::string NumberOrNull(std::optional<std::uint64_t> value)
+{
+    return value ? std::to_string(*value) : "null";
+}
+
+std::string NumberOrNull(std::optional<double> value)
+{
+    return value ? std::to_string(*value) : "null";
+}
+
+constexpr const char* kUnavailableBody =
+    "\"trackStatus\":null,\"trackStatusCode\":null,\"pollStatus\":\"UNAVAILABLE\","
+    "\"pollStatusCode\":null,\"swapChainCount\":null,\"rendererActive\":null,"
+    "\"swapChainAddress\":null,\"displayedFps\":null,\"presentedFps\":null,\"swapChains\":null";
+constexpr const char* kExceptionBody =
+    "\"trackStatus\":null,\"trackStatusCode\":null,\"pollStatus\":\"EXCEPTION\","
+    "\"pollStatusCode\":null,\"swapChainCount\":null,\"rendererActive\":null,"
+    "\"swapChainAddress\":null,\"displayedFps\":null,\"presentedFps\":null,\"swapChains\":null";
 }
 
 std::string_view Api2StatusName(PM_STATUS status) noexcept
@@ -91,21 +114,30 @@ std::string_view Api2StatusName(PM_STATUS status) noexcept
     return "PM_STATUS_UNKNOWN";
 }
 
+std::optional<std::uint64_t> Api2DecodeAddress(const std::uint8_t* row, const PM_QUERY_ELEMENT& element)
+{
+    if (!row || element.metric != PM_METRIC_SWAP_CHAIN_ADDRESS ||
+        element.dataSize != sizeof(std::uint64_t))
+        return std::nullopt;
+    std::uint64_t value{};
+    std::memcpy(&value, row + element.dataOffset, sizeof(value));
+    return value ? std::optional<std::uint64_t>(value) : std::nullopt;
+}
+
+std::optional<double> Api2DecodeFps(const std::uint8_t* row, const PM_QUERY_ELEMENT& element)
+{
+    if (!row || element.dataSize != sizeof(double)) return std::nullopt;
+    double value{};
+    std::memcpy(&value, row + element.dataOffset, sizeof(value));
+    return std::isfinite(value) ? std::optional<double>(value) : std::nullopt;
+}
+
 std::string Api2DecodeValue(const std::uint8_t* blob, const PM_QUERY_ELEMENT& element)
 {
-    if (!blob) return "null";
     if (element.metric == PM_METRIC_SWAP_CHAIN_ADDRESS)
-    {
-        if (element.dataSize != sizeof(std::uint64_t)) return "null";
-        std::uint64_t value{}; std::memcpy(&value, blob + element.dataOffset, sizeof(value));
-        return value ? std::to_string(value) : "null";
-    }
+        return NumberOrNull(Api2DecodeAddress(blob, element));
     if (element.metric == PM_METRIC_DISPLAYED_FPS || element.metric == PM_METRIC_PRESENTED_FPS)
-    {
-        if (element.dataSize != sizeof(double)) return "null";
-        double value{}; std::memcpy(&value, blob + element.dataOffset, sizeof(value));
-        return std::isfinite(value) ? std::to_string(value) : "null";
-    }
+        return NumberOrNull(Api2DecodeFps(blob, element));
     return "null";
 }
 
@@ -120,26 +152,31 @@ std::string Api2ComposeSample(PM_STATUS pollStatus, std::uint32_t swapChainCount
     if (pollStatus != PM_STATUS_SUCCESS)
         return body + ",\"swapChainCount\":null,\"rendererActive\":null,\"swapChainAddress\":null,"
             "\"displayedFps\":null,\"presentedFps\":null,\"swapChains\":null";
-    const auto& first = rows.empty() ? Api2SwapChainRow{} : rows.front();
+    const Api2SwapChainRow first = rows.empty() ? Api2SwapChainRow{} : rows.front();
     body += ",\"swapChainCount\":" + std::to_string(swapChainCount) +
         ",\"rendererActive\":" + (swapChainCount ? "true" : "false") +
-        ",\"swapChainAddress\":" + first.address +
-        ",\"displayedFps\":" + first.displayedFps +
-        ",\"presentedFps\":" + first.presentedFps + ",\"swapChains\":[";
+        ",\"swapChainAddress\":" + NumberOrNull(first.address) +
+        ",\"displayedFps\":" + NumberOrNull(first.displayedFps) +
+        ",\"presentedFps\":" + NumberOrNull(first.presentedFps) + ",\"swapChains\":[";
     for (size_t index = 0; index < rows.size(); ++index)
     {
         if (index) body += ',';
-        body += "{\"swapChainAddress\":" + rows[index].address +
-            ",\"displayedFps\":" + rows[index].displayedFps +
-            ",\"presentedFps\":" + rows[index].presentedFps + "}";
+        body += "{\"swapChainAddress\":" + NumberOrNull(rows[index].address) +
+            ",\"displayedFps\":" + NumberOrNull(rows[index].displayedFps) +
+            ",\"presentedFps\":" + NumberOrNull(rows[index].presentedFps) + "}";
     }
     body += ']';
     return body;
 }
 
+Api2Evidence::Api2Evidence() noexcept = default;
+
+Api2Evidence::~Api2Evidence() { Stop(); }
+
 bool Api2Evidence::Start(std::string& detail) noexcept
 {
-    Stop();
+    std::scoped_lock lock(mutex_);
+    StopLocked();
     try
     {
         auto state = std::make_unique<State>();
@@ -166,31 +203,40 @@ bool Api2Evidence::Start(std::string& detail) noexcept
         // kSwapChainCapacity result rows and Sample() passes that count in.
         state->blob.assign(state->rowBytes * kSwapChainCapacity, std::uint8_t{});
         const auto version = state->client.ApiVersion();
-        state_ = state.release(); detail = "ready_" + std::to_string(version.major) + "." + std::to_string(version.minor) + "." + std::to_string(version.patch); return true;
+        state_ = std::move(state);
+        detail = "ready_" + std::to_string(version.major) + "." + std::to_string(version.minor) + "." + std::to_string(version.patch);
+        return true;
     }
     catch (...) { detail = "api2_exception"; return false; }
 }
 
 void Api2Evidence::Stop() noexcept
 {
+    std::scoped_lock lock(mutex_);
+    StopLocked();
+}
+
+void Api2Evidence::StopLocked() noexcept
+{
     if (!state_) return;
     for (const auto pid : state_->tracked) state_->client.StopTrackingProcess(pid);
     if (state_->query) state_->client.FreeDynamicQuery(state_->query);
-    state_->client.Shutdown(); delete state_; state_ = nullptr;
+    state_->client.Shutdown();
+    state_.reset();
 }
 
 void Api2Evidence::Retire(DWORD processId) noexcept
 {
+    std::scoped_lock lock(mutex_);
     if (!state_ || !state_->tracked.erase(processId)) return;
     state_->client.StopTrackingProcess(processId);
 }
 
-std::string Api2Evidence::Sample(DWORD processId) noexcept
+Api2SampleResult Api2Evidence::Sample(DWORD processId) noexcept
 {
-    if (!state_ || !processId)
-        return "\"trackStatus\":null,\"trackStatusCode\":null,\"pollStatus\":\"UNAVAILABLE\","
-            "\"pollStatusCode\":null,\"swapChainCount\":null,\"rendererActive\":null,"
-            "\"swapChainAddress\":null,\"displayedFps\":null,\"presentedFps\":null,\"swapChains\":null";
+    std::scoped_lock lock(mutex_);
+    Api2SampleResult result;
+    if (!state_ || !processId) { result.json = kUnavailableBody; return result; }
     try
     {
         std::optional<PM_STATUS> startStatus;
@@ -199,11 +245,14 @@ std::string Api2Evidence::Sample(DWORD processId) noexcept
             const auto status = state_->client.StartTrackingProcess(processId);
             startStatus = status;
             if (status != PM_STATUS_SUCCESS && status != PM_STATUS_ALREADY_TRACKING_PROCESS)
-                return "\"trackStatus\":\"" + std::string(Api2StatusName(status)) +
+            {
+                result.json = "\"trackStatus\":\"" + std::string(Api2StatusName(status)) +
                     "\",\"trackStatusCode\":" + std::to_string(static_cast<int>(status)) +
                     ",\"pollStatus\":null,\"pollStatusCode\":null,\"swapChainCount\":null,"
                     "\"rendererActive\":null,\"swapChainAddress\":null,\"displayedFps\":null,"
                     "\"presentedFps\":null,\"swapChains\":null";
+                return result;
+            }
             state_->tracked.insert(processId);
         }
         // Input value = caller-provided capacity; PresentMon 2.5.1 fails a zero.
@@ -219,20 +268,23 @@ std::string Api2Evidence::Sample(DWORD processId) noexcept
         {
             const std::uint32_t count = std::min(swaps, kSwapChainCapacity);
             for (std::uint32_t index = 0; index < count; ++index)
+                rows.push_back(DecodeRow(state_->blob.data() + state_->rowBytes * index, state_->elements));
+            result.pollSucceeded = true;
+            result.swapChainCount = swaps;
+            for (const auto& row : rows)
             {
-                const std::uint8_t* row = state_->blob.data() + state_->rowBytes * index;
-                rows.push_back({ RowValue(row, state_->elements, PM_METRIC_SWAP_CHAIN_ADDRESS),
-                    RowValue(row, state_->elements, PM_METRIC_DISPLAYED_FPS),
-                    RowValue(row, state_->elements, PM_METRIC_PRESENTED_FPS) });
+                result.anySwapChainAddress = result.anySwapChainAddress || row.address.has_value();
+                result.anyDisplayedFpsPositive = result.anyDisplayedFpsPositive || row.displayedFps.value_or(0.0) > 0.0;
+                result.anyPresentedFpsPositive = result.anyPresentedFpsPositive || row.presentedFps.value_or(0.0) > 0.0;
             }
         }
-        return Api2ComposeSample(poll, poll == PM_STATUS_SUCCESS ? swaps : 0, rows,
-            trackJson, trackCodeJson);
+        result.json = Api2ComposeSample(poll, result.swapChainCount, rows, trackJson, trackCodeJson);
+        return result;
     }
     catch (...)
     {
-        return "\"trackStatus\":null,\"trackStatusCode\":null,\"pollStatus\":\"EXCEPTION\","
-            "\"pollStatusCode\":null,\"swapChainCount\":null,\"rendererActive\":null,"
-            "\"swapChainAddress\":null,\"displayedFps\":null,\"presentedFps\":null,\"swapChains\":null";
+        result = {};
+        result.json = kExceptionBody;
+        return result;
     }
 }

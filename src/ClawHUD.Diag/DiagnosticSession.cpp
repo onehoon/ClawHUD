@@ -387,26 +387,33 @@ void CALLBACK DiagnosticSession::WinEventProc(HWINEVENTHOOK, DWORD event, HWND h
 
 void DiagnosticSession::RecordWinEvent(DWORD event, HWND hwnd, LONG objectId, LONG childId) noexcept
 {
-    if (!running_ || !hwnd || (event != EVENT_SYSTEM_FOREGROUND &&
-        (objectId != OBJID_WINDOW || childId != CHILDID_SELF))) return;
+    if (!running_ || !hwnd || objectId != OBJID_WINDOW || childId != CHILDID_SELF) return;
+    // The foreground / window-lifecycle stream is a top-level-window stream.
+    // DESTROY is emitted only when pre-destroy top-level metadata was cached.
+    const bool destroying = event == EVENT_OBJECT_DESTROY;
+    if (!destroying && GetAncestor(hwnd, GA_ROOT) != hwnd) return;
     const char* type = event == EVENT_SYSTEM_FOREGROUND ? "foreground_change" :
         event == EVENT_OBJECT_CREATE ? "window_create" : event == EVENT_OBJECT_SHOW ? "window_show" :
         event == EVENT_OBJECT_HIDE ? "window_hide" : event == EVENT_OBJECT_DESTROY ? "window_destroy" : "window_name_change";
     DWORD pid{};
     std::string fields;
-    if (event == EVENT_OBJECT_DESTROY && !IsWindow(hwnd))
+    if (destroying)
     {
         std::lock_guard lock(observedMutex_);
         const auto cached = windowCache_.find(hwnd);
-        fields = cached == windowCache_.end() ? "\"hwnd\":\"" + Hex(hwnd) + "\",\"metadataSource\":\"partial\"" : cached->second.fields + ",\"metadataSource\":\"cached\"";
-        if (cached != windowCache_.end()) pid = cached->second.processId;
-        if (cached != windowCache_.end()) windowCache_.erase(cached);
+        if (cached == windowCache_.end()) return;
+        fields = cached->second.fields + ",\"metadataSource\":\"cached\"";
+        pid = cached->second.processId;
+        windowCache_.erase(cached);
     }
     else
     {
-        fields = WindowFields(hwnd, &pid);
-        std::lock_guard lock(observedMutex_);
-        windowCache_[hwnd] = { pid, fields };
+        const std::string live = WindowFields(hwnd, &pid);
+        {
+            std::lock_guard lock(observedMutex_);
+            windowCache_[hwnd] = { pid, live };
+        }
+        fields = live + ",\"metadataSource\":\"live\"";
     }
     if (event == EVENT_SYSTEM_FOREGROUND)
         fields = "\"oldHwnd\":\"" + Hex(previousForeground_) + "\",\"oldPid\":" + std::to_string(previousForegroundPid_) + "," + fields;
@@ -445,13 +452,16 @@ void DiagnosticSession::SampleApi2ObservedPids() noexcept
             continue;
         }
         CloseHandle(process);
-        const auto api2 = api2_.Sample(pid);
-        WriteRecord("api2", "\"pid\":" + std::to_string(pid) + "," + api2);
-        if (api2.find("\"pollStatus\":\"PM_STATUS_SUCCESS\"") != std::string::npos)
+        const auto sample = api2_.Sample(pid);
+        WriteRecord("api2", "\"pid\":" + std::to_string(pid) + "," + sample.json);
+        // Milestones come from the structured result aggregated across every
+        // swap-chain row, never from reparsing sample.json.
+        if (sample.pollSucceeded)
         {
-            if (api2.find("\"swapChainCount\":0") == std::string::npos) { MarkFirst(pid, "api2_swapchain"); MarkFirst(pid, "swapchain"); }
-            if (api2.find("\"displayedFps\":0") == std::string::npos && api2.find("\"displayedFps\":null") == std::string::npos) MarkFirst(pid, "displayed_fps");
-            if (api2.find("\"presentedFps\":0") == std::string::npos && api2.find("\"presentedFps\":null") == std::string::npos) MarkFirst(pid, "presented_fps");
+            if (sample.swapChainCount > 0 || sample.anySwapChainAddress)
+            { MarkFirst(pid, "api2_swapchain"); MarkFirst(pid, "swapchain"); }
+            if (sample.anyDisplayedFpsPositive) MarkFirst(pid, "displayed_fps");
+            if (sample.anyPresentedFpsPositive) MarkFirst(pid, "presented_fps");
         }
     }
 }
@@ -720,6 +730,17 @@ void DiagnosticSession::WriteRecord(std::string type, std::string fields) noexce
 std::string DiagnosticSession::WindowFields(HWND hwnd, DWORD* processId) noexcept
 {
     DWORD pid{}; GetWindowThreadProcessId(hwnd, &pid); if (processId) *processId = pid;
+    std::wstring imagePath, exe;
+    if (pid)
+    {
+        HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+        if (process)
+        {
+            imagePath = DiagnosticQueryProcessImagePath(process);
+            CloseHandle(process);
+            if (!imagePath.empty()) exe = std::filesystem::path(imagePath).filename().wstring();
+        }
+    }
     wchar_t title[1024]{}, className[256]{}; GetWindowTextW(hwnd, title, 1024); GetClassNameW(hwnd, className, 256);
     RECT rect{}; const bool rectAvailable = SUCCEEDED(DwmGetWindowAttribute(hwnd,
         DWMWA_EXTENDED_FRAME_BOUNDS, &rect, sizeof(rect))) || GetWindowRect(hwnd, &rect);
@@ -727,18 +748,26 @@ std::string DiagnosticSession::WindowFields(HWND hwnd, DWORD* processId) noexcep
     const bool monitorAvailable = handle && GetMonitorInfoW(handle, &monitor);
     DWORD cloaked{}; const bool cloakedAvailable = SUCCEEDED(DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, &cloaked, sizeof(cloaked)));
     std::ostringstream fields;
-    fields << "\"pid\":" << pid << ",\"hwnd\":\"" << Hex(hwnd) << "\",\"title\":\"" << Json(title)
+    fields << "\"pid\":" << pid << ",\"hwnd\":\"" << Hex(hwnd) << "\",\"exe\":\"" << Json(exe)
+           << "\",\"imagePath\":\"" << Json(imagePath) << "\",\"topLevel\":" << (GetAncestor(hwnd, GA_ROOT) == hwnd ? "true" : "false")
+           << ",\"title\":\"" << Json(title)
            << "\",\"class\":\"" << Json(className) << "\",\"visible\":" << (IsWindowVisible(hwnd) ? "true" : "false")
            << ",\"minimized\":" << (IsIconic(hwnd) ? "true" : "false") << ",\"owner\":\"" << Hex(GetWindow(hwnd, GW_OWNER)) << "\""
            << ",\"style\":\"0x" << std::hex << GetWindowLongPtrW(hwnd, GWL_STYLE) << std::dec << "\",\"exStyle\":\"0x" << std::hex << GetWindowLongPtrW(hwnd, GWL_EXSTYLE) << std::dec << "\"";
-    if (cloakedAvailable) fields << ",\"cloaked\":" << (cloaked ? "true" : "false");
-    if (rectAvailable) fields << ",\"rect\":\"" << rect.left << ',' << rect.top << ',' << rect.right << ',' << rect.bottom << "\"";
+    fields << ",\"cloaked\":" << (cloakedAvailable ? (cloaked ? "true" : "false") : "null");
+    if (rectAvailable)
+        fields << ",\"rect\":\"" << rect.left << ',' << rect.top << ',' << rect.right << ',' << rect.bottom << "\""
+               << ",\"windowWidth\":" << (rect.right - rect.left) << ",\"windowHeight\":" << (rect.bottom - rect.top);
+    else
+        fields << ",\"rect\":null,\"windowWidth\":null,\"windowHeight\":null";
     if (monitorAvailable)
     {
         const auto same = [](LONG left, LONG right) { return std::abs(left - right) <= 2; };
         const bool fullscreen = rectAvailable && same(rect.left, monitor.rcMonitor.left) && same(rect.top, monitor.rcMonitor.top) && same(rect.right, monitor.rcMonitor.right) && same(rect.bottom, monitor.rcMonitor.bottom);
         fields << ",\"monitorRect\":\"" << monitor.rcMonitor.left << ',' << monitor.rcMonitor.top << ',' << monitor.rcMonitor.right << ',' << monitor.rcMonitor.bottom << "\",\"monitorWorkRect\":\"" << monitor.rcWork.left << ',' << monitor.rcWork.top << ',' << monitor.rcWork.right << ',' << monitor.rcWork.bottom << "\",\"fullscreenLike\":" << (fullscreen ? "true" : "false");
     }
+    else
+        fields << ",\"monitorRect\":null,\"monitorWorkRect\":null,\"fullscreenLike\":null";
     return fields.str();
 }
 
