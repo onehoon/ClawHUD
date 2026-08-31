@@ -2,6 +2,11 @@ name: Build Diagnostic
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/Build-Diag.yml'
+      - 'src/ClawHUD.Diag/**'
+      - 'CMakeLists.txt'
 
 permissions:
   contents: read
