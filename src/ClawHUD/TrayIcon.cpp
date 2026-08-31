@@ -148,16 +148,7 @@ LRESULT CALLBACK TrayIcon::WindowProc(HWND window, UINT message, WPARAM wParam, 
     }
     if (message == WM_TIMER)
     {
-        if (wParam == clawhud::kEcHudTimerId)
-            self->app_.SampleProductionTelemetry();
-        else if (wParam == clawhud::kBatteryHudTimerId)
-            self->app_.SampleProductionBatteryTelemetry();
-        else if (wParam == clawhud::kGraphicsApiRetryTimerId)
-            self->app_.TryGraphicsApiProbe();
-        else if (wParam == kResumeRecoveryTimerId)
-            self->app_.TryResumeRecovery();
-        else if (wParam == clawhud::kPresentMonFpsTimerId)
-            self->app_.SampleProductionFpsTelemetry();
+        self->app_.HandleTimer(static_cast<UINT_PTR>(wParam));
         return 0;
     }
     if (message == kTrayMessage && lParam == WM_LBUTTONUP)

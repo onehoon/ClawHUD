@@ -1,6 +1,6 @@
 # ClawHUD Production Refactor Plan
 
-Status: **ACTIVE — R0 (#178), R1 (#180), R2 (#182), R3 (#184), R4 (#187), R5 (#189), R6 (#192) merged; R7 is next** (R3 / R4 / R6 hardware smoke still pending)  
+Status: **CORE REFACTOR COMPLETE AT R7 — R0 (#178), R1 (#180), R2 (#182), R3 (#184), R4 (#187), R5 (#189), R6 (#192), R7 (#194) merged; R8 optional** (R3 / R4 / R6 / R7 hardware smoke still pending, non-blocking)  
 Re-baseline commit: `c0a2dcbd598ad7a31fa7dd28fec09cbd9c29e1f2` (after PR #175 / #176)  
 Date: 2026-08-31  
 Repository: `onehoon/ClawHUD`
@@ -1891,16 +1891,76 @@ Those extractions remain valid and are retained in the new architecture.
     `DebugLog` OFF (no debug logs / no identity worker) and ON (all debug logs
     present, detection still production-authoritative) on hardware.
 
+- **R7 (final `App` shell cleanup)** — PR #194, branch
+  `refactor/r7-app-shell-cleanup`. Shell cleanup only; **no new abstraction**.
+  `App` stays the composition root / mediator.
+  - **Part A — shared shutdown helper.** `~App()` and `Exit()` shared an
+    identical runtime-stop block; extracted to `private void
+    StopRuntimeSources()` — exact same order (`CancelResumeRecovery` →
+    `StopProductionSampling(false,"app-shutdown")` →
+    `productionTelemetry_.StopGraphicsApiProbe` → `gameSession_.StopSources` →
+    `if(debugObservation_) Stop` → `UnregisterHotKey(F8)` if registered →
+    `hudHotkeyRegistered_=false`). The two callers stay distinct: `~App()` also
+    does `DestroyPresentation → settings_.reset → tray_.Destroy → mutex
+    release`; `Exit()` does `settings_.reset → tray_.Destroy → PostQuitMessage`.
+    No new shutdown flag. (`Exit()` previously set `hudHotkeyRegistered_=false`
+    only inside the `if`; now unconditional as in `~App()` — a no-op difference.)
+  - **Part B — timer dispatch.** `TrayIcon::WindowProc(WM_TIMER)` no longer
+    branches on individual timer ids — it calls one `public void
+    HandleTimer(UINT_PTR)`. `HandleTimer` preserves the per-timer guards
+    exactly: EC / battery / FPS share `!suspended_ && Enabled() && HudVisible()`;
+    graphics-API retry has **no** guard; `kResumeRecoveryTimerId → TryResumeRecovery()`;
+    unknown id → no-op. The four `App::Sample*` / `App::TryGraphicsApiProbe`
+    forwarders are **deleted** (the one internal FPS-sample caller in
+    `SetHudVisibilityMode` inlines the same guard). `kResumeRecoveryTimerId = 5`
+    moved from `App.h` → anon namespace in `App.cpp` (value unchanged);
+    `TryResumeRecovery()` is now private.
+  - **Part C — Settings destruction facade.** `SettingsWindow::WM_NCDESTROY`
+    calls `App::PostSettingsDestroyed()` instead of
+    `PostMessageW(app_.MessageWindow(), WM_APP+1, …)`. Still **asynchronous**
+    (posts private `kSettingsDestroyed` → pump → `SettingsDestroyed()` →
+    `settings_.reset()`). `kSettingsDestroyed` stays App-private; no new public
+    message constant.
+  - **Part D — facade audit.** Removed: `App::MessageWindow()`,
+    `App::ExecutablePath()` (member kept — `ApplyStartupRegistration` uses it),
+    the four timer forwarders, `SettingsWindow::RequestClose()` (all dead in
+    active code). Privatized: `App::SettingsDestroyed`, `TryResumeRecovery`,
+    `StopHud`, `RenderProductionHud`, `HudVisible`;
+    `SettingsWindow::UpdateGeneralControls`. Public `App` surface is now only
+    real tray/Settings entry points + user settings ops.
+  - **Parts E/F.** `Run()` startup order and `ProcessMessages()` structure
+    **unchanged** (no `StartupCoordinator` / `MessageDispatcher`). Dropped three
+    now-unused std includes from `App.h` (`<atomic>`, `<cstddef>`, `<cstdint>`);
+    `ProductionTargetPolicy.h` / `UninstallCleanup.h` kept (still used).
+  - Frozen (**zero diff**): `HudPresentation.*` / `HudPresentationContract.*` /
+    `HudPresentationLifecycle.*` / `HudRenderer.*` / `HudController.*`, all of
+    `GameDetection/*`. **Zero behavioral diff** in
+    `ProductionTelemetryController.*` and `SuspendResumePolicy.h` (comment-only:
+    both said the resume-recovery timer id lives in `App.h`; it moved to
+    `App.cpp`). One shared App-owned PresentMon provider; lazy Settings;
+    suspend/resume state; game-detection policy — all unchanged.
+  - No new test target (imperative dispatch helper). CTest 46/46 local, clean
+    build, no new warnings. Line counts are roughly flat (`App.cpp` 725 → 735,
+    `App.h` 132 → 134 — the `HandleTimer` switch + `StopRuntimeSources`
+    signature cost slightly more than the deleted forwarders); R7's value is a
+    narrower public surface and no duplicated shutdown block, not fewer lines.
+  - `APP_REFACTOR_BEHAVIOR_INVENTORY_TEMPLATE.md`: lazy-Settings section updated
+    to the async `PostSettingsDestroyed` flow + two new checklist items.
+  - **Hardware smoke: deferred** — app unsupported on this dev machine; per the
+    R7 work order §37 not itself a merge blocker.
+
+**Core runtime refactor: COMPLETE at R7.** The four controllers
+(`HudController`, `ProductionTelemetryController`, `GameSessionController`,
+`DebugObservationController`) are extracted, `App` is a clean composition
+root / mediator, and every runtime state domain has one clear owner. R8 below
+is **optional** and not required for runtime-architecture completion.
+
 ### Next work
 
-**R7 — Final `App` shell cleanup** (see the "R7 — Final `App` shell cleanup"
-section above). With the four controllers extracted: centralize the duplicated
-runtime stop steps shared by `Exit()` and `~App()`, simplify `Run()` to
-startup/wiring and `ProcessMessages()` to controller + Settings dispatch, remove
-obsolete forwarding methods no UI caller needs, and keep the public `App` facade
-that `SettingsWindow` / `TrayIcon` require. No new shell class unless `App` still
-has a real ownership problem. Re-read that section first. After each merged PR,
-update this progress log with:
+**R8 — Optional `CMakeLists.txt` / test-target organization** (see the "R8 —
+Optional build-file organization" section above). Not required; do it only if
+the explicit per-test-target declarations become a real maintenance problem.
+After each merged PR, update this progress log with:
 
 ```text
 PR number

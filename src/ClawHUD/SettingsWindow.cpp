@@ -526,7 +526,7 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
         }
         self->window_ = nullptr;
         self->tabs_ = nullptr;
-        PostMessageW(self->app_.MessageWindow(), WM_APP + 1, 0, 0);
+        self->app_.PostSettingsDestroyed();
     }
     return DefWindowProcW(window, message, wParam, lParam);
 }
