@@ -1584,7 +1584,7 @@ Those extractions remain valid and are retained in the new architecture.
 
 ### Refactor phase progress
 
-- **R0 (naming / dead-surface normalization)** — branch
+- **R0 (naming / dead-surface normalization)** — PR #178, branch
   `refactor/r0-naming-cleanup`. Mechanical rename only, no behavior change.
   - Renames: `mockHudEnabled_`->`hudEnabled_`, `EnsureMockHud`->`EnsureHud`,
     `StopMockHud`->`StopHud`, `RefreshMockHud`->`RefreshHud`,
