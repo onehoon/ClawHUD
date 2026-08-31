@@ -22,7 +22,6 @@ using settings_internal::kAlignmentLeft;
 using settings_internal::kAlignmentRight;
 using settings_internal::kBackgroundContent;
 using settings_internal::kBackgroundFull;
-using settings_internal::kDebugLoggingToggle;
 using settings_internal::kDefaultWindowHeightDip;
 using settings_internal::kDefaultWindowWidthDip;
 using settings_internal::kEnableHud;
@@ -35,12 +34,10 @@ using settings_internal::kHudSizePlus;
 using settings_internal::kIntelVrrToggle;
 using settings_internal::kMinimumWindowHeightDip;
 using settings_internal::kMinimumWindowWidthDip;
-using settings_internal::kOpenLogs;
 using settings_internal::kSettingsClassName;
 using settings_internal::kStartWithWindows;
 using settings_internal::kTabAbout;
 using settings_internal::kTabCount;
-using settings_internal::kTabDiagnostics;
 using settings_internal::kTabSettings;
 using settings_internal::kTabTweaks;
 using settings_internal::kTweaksHeading;
@@ -101,7 +98,6 @@ bool SettingsWindow::Show(HINSTANCE instance)
     UpdateWindow(window_);
     SetForegroundWindow(window_);
     UpdateHudControls();
-    UpdateDiagnosticButtons();
     UpdateTweaksControls();
     return true;
 }
@@ -225,7 +221,7 @@ void SettingsWindow::NormalizeWindowToWorkArea()
 int SettingsWindow::ActiveTab() const noexcept
 {
     const int tab = tabs_ ? TabCtrl_GetCurSel(tabs_) : kTabSettings;
-    return tab >= kTabSettings && tab <= kTabDiagnostics ? tab : kTabSettings;
+    return tab >= kTabSettings && tab <= kTabAbout ? tab : kTabSettings;
 }
 
 int SettingsWindow::ContentHeightForTab(int tab) const noexcept
@@ -235,7 +231,6 @@ int SettingsWindow::ContentHeightForTab(int tab) const noexcept
     case kTabSettings: return 454;
     case kTabTweaks: return 230;
     case kTabAbout: return 260;
-    case kTabDiagnostics: return 96;
     default: return 0;
     }
 }
@@ -256,7 +251,6 @@ int& SettingsWindow::ScrollOffsetForTab(int tab) noexcept
     {
     case kTabTweaks: return tweaksScrollY_;
     case kTabAbout: return aboutScrollY_;
-    case kTabDiagnostics: return diagnosticsScrollY_;
     case kTabSettings:
     default: return settingsScrollY_;
     }
@@ -264,7 +258,7 @@ int& SettingsWindow::ScrollOffsetForTab(int tab) noexcept
 
 void SettingsWindow::ClampScrollOffsets()
 {
-    for (int tab = kTabSettings; tab <= kTabDiagnostics; ++tab)
+    for (int tab = kTabSettings; tab <= kTabAbout; ++tab)
     {
         int& offset = ScrollOffsetForTab(tab);
         const int maxScroll = std::max(0,
@@ -287,7 +281,6 @@ void SettingsWindow::ApplyScrollPosition()
     LayoutSettings();
     LayoutTweaks();
     LayoutAbout();
-    LayoutDiagnostics();
 }
 
 void SettingsWindow::CreateTabs()
@@ -295,9 +288,8 @@ void SettingsWindow::CreateTabs()
     tabs_ = CreateWindowExW(0, WC_TABCONTROLW, L"",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_CLIPSIBLINGS, 0, 0, 0, 0,
         window_, nullptr, instance_, nullptr);
-    const wchar_t* labels[kTabCount] = { L"Settings", L"Tweaks", L"About", L"Diagnostics" };
-    const int tabCount = app_.DiagnosticsTabEnabled() ? kTabCount : kTabCount - 1;
-    for (int i = 0; i < tabCount; ++i)
+    const wchar_t* labels[kTabCount] = { L"Settings", L"Tweaks", L"About" };
+    for (int i = 0; i < kTabCount; ++i)
     {
         TCITEMW item{};
         item.mask = TCIF_TEXT;
@@ -307,8 +299,6 @@ void SettingsWindow::CreateTabs()
     CreateSettingsControls();
     CreateTweaksControls();
     CreateAboutControls();
-    if (app_.DiagnosticsTabEnabled())
-        CreateDiagnosticsControls();
     ShowTab(kTabSettings);
     UpdateGeneralControls();
     UpdateHudControls();
@@ -334,8 +324,6 @@ void SettingsWindow::Layout()
     MoveWindow(settingsPanel_, panelX, panelY, panelWidth, panelHeight, TRUE);
     MoveWindow(tweaksPanel_, panelX, panelY, panelWidth, panelHeight, TRUE);
     MoveWindow(aboutPanel_, panelX, panelY, panelWidth, panelHeight, TRUE);
-    if (diagnosticsPanel_)
-        MoveWindow(diagnosticsPanel_, panelX, panelY, panelWidth, panelHeight, TRUE);
     ClampScrollOffsets();
     ApplyScrollPosition();
 }
@@ -345,7 +333,6 @@ void SettingsWindow::ShowTab(int index)
     if (settingsPanel_) ShowWindow(settingsPanel_, index == kTabSettings ? SW_SHOW : SW_HIDE);
     if (tweaksPanel_) ShowWindow(tweaksPanel_, index == kTabTweaks ? SW_SHOW : SW_HIDE);
     if (aboutPanel_) ShowWindow(aboutPanel_, index == kTabAbout ? SW_SHOW : SW_HIDE);
-    if (diagnosticsPanel_) ShowWindow(diagnosticsPanel_, index == kTabDiagnostics ? SW_SHOW : SW_HIDE);
 }
 
 LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
@@ -464,10 +451,6 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
             self->UpdateHudControls();
             return 0;
         case kIntelVrrToggle: self->app_.SetIntelVrrRangeFixEnabled(SendMessageW(self->intelVrrToggle_, BM_GETCHECK, 0, 0) == BST_CHECKED); return 0;
-        case kDebugLoggingToggle:
-            self->app_.SetDebugLoggingEnabled(SendMessageW(self->debugLoggingToggle_,
-                BM_GETCHECK, 0, 0) == BST_CHECKED);
-            return 0;
         default: break;
         }
     }
@@ -484,10 +467,6 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
         self->app_.SetHudOpacity(position / 100.0f, persist);
         self->UpdateHudControls();
         return 0;
-    }
-    if (message == WM_COMMAND && LOWORD(wParam) == kOpenLogs)
-    {
-        self->app_.OpenDiagnosticLogFolder(); return 0;
     }
     if (message == WM_NOTIFY && reinterpret_cast<NMHDR*>(lParam)->code == TCN_SELCHANGE)
     {

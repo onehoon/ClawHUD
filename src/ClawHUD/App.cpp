@@ -23,7 +23,6 @@
 #include <filesystem>
 #include <iomanip>
 #include <memory>
-#include <shellapi.h>
 #include <shobjidl.h>
 #include <shlobj.h>
 #include <cwctype>
@@ -275,33 +274,6 @@ void App::SetIntelVrrRangeFixEnabled(bool enabled)
     hudSettingsStore_.SaveIntelVrrRangeFixEnabled(enabled);
 }
 
-void App::SetDebugLoggingEnabled(bool enabled)
-{
-    if (debugLoggingEnabled_ == enabled)
-        return;
-    debugLoggingEnabled_ = enabled;
-    clawhud::RuntimeLogger::SetDebugLogging(enabled);
-    if (enabled)
-    {
-        if (!processLifecycleSource_.Start())
-            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
-                L"Process lifecycle diagnostic source failed to start; continuing");
-        if (!windowLifecycleSource_.Start())
-            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
-                L"Window lifecycle diagnostic source failed to start; continuing");
-        presentActivitySource_.Start(presentMonTelemetryProvider_);
-    }
-    else
-    {
-        windowLifecycleSource_.Stop();
-        presentActivitySource_.Stop();
-        processLifecycleSource_.Stop();
-    }
-    SaveHudSettings();
-    clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info,
-        enabled ? L"Debug logging enabled" : L"Debug logging disabled");
-}
-
 std::optional<clawhud::IntelVrrRunResult> App::IntelVrrLastResult() const
 {
     return clawhud::IntelVrrResultStore::Load();
@@ -323,16 +295,6 @@ void App::SetStartWithWindows(bool enabled)
     SaveHudSettings();
 }
 
-void App::OpenDiagnosticLogFolder()
-{
-    try
-    {
-        const auto path = clawhud::LogDirectory();
-        if (!path.empty())
-            ShellExecuteW(nullptr, L"open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-    }
-    catch (...) {}
-}
 void App::HandleSystemSuspend()
 {
     if (suspended_)
@@ -1781,7 +1743,6 @@ void App::LoadHudSettings()
 {
     const auto settings = hudSettingsStore_.Load();
     mockHudEnabled_ = settings.hudEnabled;
-    diagnosticsTabEnabled_ = settings.diagnosticsTabEnabled;
     debugLoggingEnabled_ = settings.debugLoggingEnabled;
     startWithWindows_ = settings.startWithWindows;
     hudOptions_.alignment = settings.alignment;
@@ -1803,7 +1764,6 @@ void App::SaveHudSettings() const
     settings.backgroundOpacity = hudOptions_.backgroundOpacity;
     settings.sizeOffset = hudSizeOffset_;
     settings.startWithWindows = startWithWindows_;
-    settings.debugLoggingEnabled = debugLoggingEnabled_;
     hudSettingsStore_.Save(settings);
 }
 

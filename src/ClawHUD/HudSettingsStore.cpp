@@ -4,6 +4,7 @@
 #include <shlobj.h>
 
 #include <cstdlib>
+#include <cwchar>
 
 #include "HudSize.h"
 #include "RuntimeLogger.h"
@@ -47,6 +48,8 @@ bool HudSettingsStore::ReadBool(const wchar_t* section, const wchar_t* key, bool
     wchar_t value[16]{};
     GetPrivateProfileStringW(section, key, fallback ? L"1" : L"0", value, ARRAYSIZE(value),
         path_.c_str());
+    if (_wcsicmp(value, L"true") == 0) return true;
+    if (_wcsicmp(value, L"false") == 0) return false;
     return wcstol(value, nullptr, 10) != 0;
 }
 
@@ -57,8 +60,7 @@ HudSettings HudSettingsStore::Load() const
         return settings;
 
     settings.hudEnabled = ReadBool(L"HUD", L"Enabled", true);
-    settings.diagnosticsTabEnabled = ReadBool(L"Developer", L"DiagnosticsTabEnabled", false);
-    settings.debugLoggingEnabled = ReadBool(L"Developer", L"DebugLoggingEnabled", false);
+    settings.debugLoggingEnabled = ReadBool(L"Developer", L"DebugLog", false);
     wchar_t startup[8]{};
     GetPrivateProfileStringW(L"General", L"StartWithWindows", L"1", startup,
         ARRAYSIZE(startup), path_.c_str());
@@ -107,8 +109,6 @@ void HudSettingsStore::Save(const HudSettings& settings) const
     saved = WritePrivateProfileStringW(L"HUD", L"Size", size, path_.c_str()) != FALSE && saved;
     saved = WritePrivateProfileStringW(L"General", L"StartWithWindows",
         settings.startWithWindows ? L"1" : L"0", path_.c_str()) != FALSE && saved;
-    saved = WritePrivateProfileStringW(L"Developer", L"DebugLoggingEnabled",
-        settings.debugLoggingEnabled ? L"1" : L"0", path_.c_str()) != FALSE && saved;
     if (!saved)
         RuntimeLogger::Log(RuntimeLogLevel::Error, L"Settings save failed");
 }
