@@ -1,6 +1,6 @@
 # ClawHUD Production Refactor Plan
 
-Status: **ACTIVE — R0 (#178), R1 (#180), R2 (#182), R3 (#184), R4 (#187), R5 (#189) merged; R6 is next** (R3 + R4 hardware smoke still pending)  
+Status: **ACTIVE — R0 (#178), R1 (#180), R2 (#182), R3 (#184), R4 (#187), R5 (#189), R6 (#192) merged; R7 is next** (R3 / R4 / R6 hardware smoke still pending)  
 Re-baseline commit: `c0a2dcbd598ad7a31fa7dd28fec09cbd9c29e1f2` (after PR #175 / #176)  
 Date: 2026-08-31  
 Repository: `onehoon/ClawHUD`
@@ -1849,7 +1849,7 @@ Those extractions remain valid and are retained in the new architecture.
     R5 work order §28 not itself a merge blocker.
 
 - **R6 (extract `DebugObservationController`; make debug sources lazy)** — PR
-  #192, branch `refactor/r6-debug-observation`. Ownership relocation + one
+  #192, merged `1472c0d` (code review + CI green). Ownership relocation + one
   intentional resource improvement.
   - New `src/ClawHUD/GameDetection/DebugObservationController.{h,cpp}` (concrete
     class, `namespace clawhud`). Owns the four debug-only sources moved out of
