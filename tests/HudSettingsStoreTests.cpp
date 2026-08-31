@@ -58,7 +58,6 @@ void LoadDefaultsWhenUnavailable(bool& ok)
 {
     const auto s = HudSettingsStore(L"").Load();
     ok &= Check(s.hudEnabled, "default hudEnabled is true");
-    ok &= Check(!s.diagnosticsTabEnabled, "default diagnosticsTabEnabled is false");
     ok &= Check(!s.debugLoggingEnabled, "default debugLoggingEnabled is false");
     ok &= Check(s.startWithWindows, "default startWithWindows is true");
     ok &= Check(s.intelVrrRangeFixEnabled, "default intelVrrRangeFixEnabled is true");
@@ -93,7 +92,6 @@ void SaveThenLoadRoundTrips(bool& ok)
     out.backgroundOpacity = HudOpacityFractionFromPercent(85);
     out.sizeOffset = 2;
     out.startWithWindows = false;
-    out.debugLoggingEnabled = true;
     store.Save(out);
 
     const auto in = store.Load();
@@ -104,22 +102,34 @@ void SaveThenLoadRoundTrips(bool& ok)
     ok &= Check(HudOpacityPercentFromFraction(in.backgroundOpacity) == 85, "opacity round-trips");
     ok &= Check(in.sizeOffset == 2, "size offset round-trips");
     ok &= Check(!in.startWithWindows, "startWithWindows round-trips");
-    ok &= Check(in.debugLoggingEnabled, "debugLoggingEnabled round-trips");
 }
 
-void SaveDoesNotTouchEnabledOrDiagnosticsTab(bool& ok)
+void SaveDoesNotTouchEnabledOrDebugLog(bool& ok)
 {
     TempIni ini;
     HudSettingsStore store(ini.path());
     ini.writeRaw(L"HUD", L"Enabled", L"0");
-    ini.writeRaw(L"Developer", L"DiagnosticsTabEnabled", L"1");
+    ini.writeRaw(L"Developer", L"DebugLog", L"true");
 
     HudSettings out;
+    out.debugLoggingEnabled = false; // Save() must not write this back
     store.Save(out);
 
     const auto in = store.Load();
     ok &= Check(!in.hudEnabled, "Save() leaves HUD/Enabled untouched");
-    ok &= Check(in.diagnosticsTabEnabled, "Save() leaves Developer/DiagnosticsTabEnabled untouched");
+    ok &= Check(in.debugLoggingEnabled, "Save() leaves Developer/DebugLog untouched");
+}
+
+void DebugLogAcceptsTrueFalseText(bool& ok)
+{
+    TempIni ini;
+    HudSettingsStore store(ini.path());
+    ini.writeRaw(L"Developer", L"DebugLog", L"true");
+    ok &= Check(store.Load().debugLoggingEnabled, "DebugLog=true (text) reads true");
+    ini.writeRaw(L"Developer", L"DebugLog", L"FALSE");
+    ok &= Check(!store.Load().debugLoggingEnabled, "DebugLog=FALSE (text) reads false");
+    ini.writeRaw(L"Developer", L"DebugLog", L"1");
+    ok &= Check(store.Load().debugLoggingEnabled, "DebugLog=1 still reads true");
 }
 
 void SaveEnabledWritesOnlyEnabled(bool& ok)
@@ -160,16 +170,14 @@ void ReadsExplicitKeys(bool& ok)
     TempIni ini;
     HudSettingsStore store(ini.path());
     ini.writeRaw(L"HUD", L"Enabled", L"0");
-    ini.writeRaw(L"Developer", L"DiagnosticsTabEnabled", L"1");
-    ini.writeRaw(L"Developer", L"DebugLoggingEnabled", L"1");
+    ini.writeRaw(L"Developer", L"DebugLog", L"1");
     ini.writeRaw(L"General", L"StartWithWindows", L"0");
     ini.writeRaw(L"Tweaks", L"IntelVrrRangeFixEnabled", L"0");
     ini.writeRaw(L"HUD", L"Alignment", L"Left");
 
     const auto s = store.Load();
     ok &= Check(!s.hudEnabled, "Enabled=0 read");
-    ok &= Check(s.diagnosticsTabEnabled, "DiagnosticsTabEnabled=1 read");
-    ok &= Check(s.debugLoggingEnabled, "DebugLoggingEnabled=1 read");
+    ok &= Check(s.debugLoggingEnabled, "DebugLog=1 read");
     ok &= Check(!s.startWithWindows, "StartWithWindows=0 read");
     ok &= Check(!s.intelVrrRangeFixEnabled, "IntelVrrRangeFixEnabled=0 read");
     ok &= Check(s.alignment == HudAlignment::Left, "Alignment=Left read");
@@ -183,7 +191,8 @@ int main()
     LoadDefaultsWhenUnavailable(ok);
     LoadDefaultsWhenFileMissing(ok);
     SaveThenLoadRoundTrips(ok);
-    SaveDoesNotTouchEnabledOrDiagnosticsTab(ok);
+    SaveDoesNotTouchEnabledOrDebugLog(ok);
+    DebugLogAcceptsTrueFalseText(ok);
     SaveEnabledWritesOnlyEnabled(ok);
     SaveIntelVrrRangeFixPersists(ok);
     LegacyOpacityKeyIsHonored(ok);

@@ -104,11 +104,9 @@ public:
     void Exit();
     void SettingsDestroyed();
     bool StartWithWindows() const noexcept { return startWithWindows_; }
-    bool DiagnosticsTabEnabled() const noexcept { return diagnosticsTabEnabled_; }
     void SetStartWithWindows(bool enabled);
     HWND MessageWindow() const { return tray_.Window(); }
     const std::wstring& ExecutablePath() const { return executablePath_; }
-    void OpenDiagnosticLogFolder();
     void HandleSystemSuspend();
     void HandleSystemResume();
     void TryResumeRecovery();
@@ -134,8 +132,6 @@ public:
     void HandleHudToggleHotkey();
     bool IntelVrrRangeFixEnabled() const noexcept { return intelVrrRangeFixEnabled_; }
     void SetIntelVrrRangeFixEnabled(bool enabled);
-    bool DebugLoggingEnabled() const noexcept { return debugLoggingEnabled_; }
-    void SetDebugLoggingEnabled(bool enabled);
     std::optional<clawhud::IntelVrrRunResult> IntelVrrLastResult() const;
 
 private:
@@ -241,7 +237,8 @@ private:
     unsigned resumeRecoveryAttempts_{};
     clawhud::TweakStartupCoordinator tweakStartupCoordinator_;
     bool startWithWindows_{true};
-    bool diagnosticsTabEnabled_{};
+    // Developer-only. Read once from [Developer] DebugLog in settings.ini at
+    // startup; never written by the app and never toggled at runtime.
     bool debugLoggingEnabled_{};
     clawhud::ProcessLifecycleSource processLifecycleSource_;
     clawhud::PresentActivitySource presentActivitySource_;

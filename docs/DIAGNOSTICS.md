@@ -1,14 +1,23 @@
 # Diagnostics
 
-The Settings > Diagnostics tab contains only:
+There is no Diagnostics tab and no diagnostic UI. Settings has only the General,
+HUD, Tweaks, and About tabs.
 
-- **Enable debug logging**
-- **Open Log Folder**
+## Debug logging (developer-only)
 
-**Enable debug logging** toggles verbose `RuntimeLogger` output (including the
-API2-backed `[PresentActivity]` per-frame lines for the foreground process).
-**Open Log Folder** opens `%LOCALAPPDATA%\ClawHUD\logs`, the shared directory for
-runtime, EC, and Intel VRR Range Fix logs.
+Verbose `RuntimeLogger` output — including the API2-backed `[PresentActivity]`
+per-frame lines and the process/window lifecycle sources — is gated by a single
+manual switch in `%LOCALAPPDATA%\ClawHUD\settings.ini`:
+
+```ini
+[Developer]
+DebugLog=true
+```
+
+`DebugLog` defaults to `false`, accepts `true`/`false` (case-insensitive) or
+`1`/`0`, is read once at startup, and is never written by the app. Change it and
+restart ClawHUD to take effect. Logs are written to `%LOCALAPPDATA%\ClawHUD\logs`,
+the shared directory for runtime, EC, and Intel VRR Range Fix logs.
 
 There is no in-app developer diagnostic. Production PresentMon usage
 (`PresentMonApi2Client`, `PresentMonTelemetryProvider`, FPS / system / frame /
