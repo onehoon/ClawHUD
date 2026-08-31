@@ -1634,8 +1634,8 @@ Those extractions remain valid and are retained in the new architecture.
   - CTest: 46/46 pass locally (VS 2022 BuildTools, Ninja, Release). No hardware
     smoke (pure constexpr relocation, identical call sites).
 
-- **R2 (extract `ProductionTelemetryController`)** — PR #182, branch
-  `refactor/r2-production-telemetry-controller`. Behavior-preserving state move.
+- **R2 (extract `ProductionTelemetryController`)** — PR #182, merged `6f002d8`.
+  Behavior-preserving state move.
   - New `src/ClawHUD/ProductionTelemetryController.{h,cpp}` (concrete class,
     `namespace clawhud`). Owns, moved out of `App`: `EcHelperClient` (as
     `ecClient_`), `HudTelemetryAggregator`, `WindowsPowerTelemetry` snapshot,
