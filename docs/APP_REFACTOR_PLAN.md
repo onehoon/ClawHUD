@@ -1,6 +1,6 @@
 # ClawHUD Production Refactor Plan
 
-Status: **ACTIVE — R0 (#178), R1 (#180), R2 (#182), R3 (#184) merged; R4 is next** (R3 hardware smoke still pending)  
+Status: **ACTIVE — R0 (#178), R1 (#180), R2 (#182), R3 (#184), R4 (#187) merged; R5 is next** (R3 + R4 hardware smoke still pending)  
 Re-baseline commit: `c0a2dcbd598ad7a31fa7dd28fec09cbd9c29e1f2` (after PR #175 / #176)  
 Date: 2026-08-31  
 Repository: `onehoon/ClawHUD`
@@ -1769,9 +1769,11 @@ Those extractions remain valid and are retained in the new architecture.
     token-level move verification + full CTest + the frozen presentation contract
     are the interim evidence.
 
-- **R4 (extract `GameSessionController`)** — PR #187, branch
-  `refactor/r4-game-session-controller`. Ownership + message-plumbing
-  relocation; no game-detection redesign.
+- **R4 (extract `GameSessionController`)** — PR #187, merged `7519960` (code
+  review + CI green; **hardware smoke still pending** — the dev machine cannot
+  run the app, so the §64 Claw trigger-matrix / VRR gate is owed as a follow-up,
+  but per the R4 work order §63 this is not itself a merge blocker). Ownership +
+  message-plumbing relocation; no game-detection redesign.
   - New `src/ClawHUD/GameDetection/GameSessionController.{h,cpp}` (concrete
     class, `namespace clawhud`). Owns, moved out of `App`: `ForegroundTracker`,
     `GameDetectionCoordinator`, the three production triggers,
