@@ -1,9 +1,13 @@
 # ClawHUD Production Refactor Plan
 
-Status: **ACTIVE — re-baselined after PR #175 and PR #176**  
-Baseline commit: `c0a2dcbd598ad7a31fa7dd28fec09cbd9c29e1f2`  
+Status: **ACTIVE — R0 complete (PR #178); R1 is next**  
+Re-baseline commit: `c0a2dcbd598ad7a31fa7dd28fec09cbd9c29e1f2` (after PR #175 / #176)  
 Date: 2026-08-31  
 Repository: `onehoon/ClawHUD`
+
+Phase progress lives in §18. In short: #177 removed the Diagnostics tab; **R0**
+(PR #178) normalized production naming and removed dead `App` surface — mechanical
+only. **R1** (suspend/resume pure policy out of `App.h`) has not started.
 
 This document is the continuation artifact for the production-code refactor. It is
 intentionally detailed so a later ChatGPT/Codex session can continue without needing the
