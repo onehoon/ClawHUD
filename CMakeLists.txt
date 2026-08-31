@@ -59,8 +59,6 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/SettingsWindow.Settings.cpp
     src/ClawHUD/SettingsWindowInternal.cpp
     src/ClawHUD/SettingsWindowGeometry.cpp
-    src/ClawHUD/PresentMonApi2Diagnostic.cpp
-    src/ClawHUD/GameDetectionProbe.cpp
     src/ClawHUD/PresentMonApi2Client.cpp
     src/ClawHUD/PresentMonTelemetryProvider.cpp
     src/ClawHUD/PresentMonProcessTelemetry.cpp
@@ -108,13 +106,9 @@ target_compile_definitions(ClawHUD PRIVATE
     UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX
     CLAWHUD_UPDATE_REPOSITORY=\"https://github.com/onehoon/ClawHUD\")
 target_include_directories(ClawHUD PRIVATE src/ClawHUD src/resources "${CMAKE_BINARY_DIR}/generated")
-target_link_libraries(ClawHUD PRIVATE ClawHUD.Velopack comctl32 shell32 user32 winmm dwmapi pdh delayimp d3d11 dxgi dcomp d2d1 dwrite powrprof advapi32 wbemuuid ole32 oleaut32 propsys)
+target_link_libraries(ClawHUD PRIVATE ClawHUD.Velopack comctl32 shell32 user32 winmm dwmapi delayimp d3d11 dxgi dcomp d2d1 dwrite powrprof advapi32 wbemuuid ole32 oleaut32 propsys)
 target_link_options(ClawHUD PRIVATE "/DELAYLOAD:velopack_libc.dll")
 set_target_properties(ClawHUD PROPERTIES CXX_EXTENSIONS OFF)
-add_custom_command(TARGET ClawHUD POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_SOURCE_DIR}/src/ClawHUD/PresentMonAutoTargetBlockList.txt"
-        "$<TARGET_FILE_DIR:ClawHUD>/PresentMonAutoTargetBlockList.txt")
 
 add_executable(ClawHUD.EcHelper WIN32
     src/ClawHUD.EcHelper/main.cpp
@@ -653,31 +647,6 @@ if(BUILD_TESTING)
         wbemuuid ole32 oleaut32 shell32)
     set_target_properties(ClawHUD.ProcessLifecycleSourceTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.ProcessLifecycleSourceTests COMMAND ClawHUD.ProcessLifecycleSourceTests)
-
-    add_executable(ClawHUD.PresentMonApi2DiagnosticTests
-        tests/PresentMonApi2DiagnosticTests.cpp
-        src/ClawHUD/PresentMonApi2Diagnostic.cpp
-        src/ClawHUD/GameDetectionProbe.cpp
-        src/ClawHUD/PresentMonApi2Client.cpp
-        src/ClawHUD/RuntimeLogger.cpp
-        src/ClawHUD/ProductionTargetPolicy.cpp)
-    target_compile_features(ClawHUD.PresentMonApi2DiagnosticTests PRIVATE cxx_std_20)
-    target_compile_definitions(ClawHUD.PresentMonApi2DiagnosticTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-    target_include_directories(ClawHUD.PresentMonApi2DiagnosticTests PRIVATE src/ClawHUD "${CMAKE_BINARY_DIR}/generated")
-    target_link_libraries(ClawHUD.PresentMonApi2DiagnosticTests PRIVATE shell32 user32 winmm advapi32 pdh dwmapi)
-    set_target_properties(ClawHUD.PresentMonApi2DiagnosticTests PROPERTIES CXX_EXTENSIONS OFF)
-    add_test(NAME ClawHUD.PresentMonApi2DiagnosticTests COMMAND ClawHUD.PresentMonApi2DiagnosticTests)
-
-    add_executable(ClawHUD.GameDetectionProbeTests
-        tests/GameDetectionProbeTests.cpp
-        src/ClawHUD/GameDetectionProbe.cpp
-        src/ClawHUD/ProductionTargetPolicy.cpp)
-    target_compile_features(ClawHUD.GameDetectionProbeTests PRIVATE cxx_std_20)
-    target_compile_definitions(ClawHUD.GameDetectionProbeTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-    target_include_directories(ClawHUD.GameDetectionProbeTests PRIVATE src/ClawHUD)
-    target_link_libraries(ClawHUD.GameDetectionProbeTests PRIVATE user32 pdh dwmapi)
-    set_target_properties(ClawHUD.GameDetectionProbeTests PROPERTIES CXX_EXTENSIONS OFF)
-    add_test(NAME ClawHUD.GameDetectionProbeTests COMMAND ClawHUD.GameDetectionProbeTests)
 
     add_executable(ClawHUD.PresentMonApi2ClientTests
         tests/PresentMonApi2ClientTests.cpp

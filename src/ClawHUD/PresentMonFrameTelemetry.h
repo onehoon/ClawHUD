@@ -17,8 +17,7 @@ namespace clawhud
 //
 // The frame query is PID-independent and registered once against the shared
 // production session. ConsumeFrames() is driven per target PID. This is not a
-// general diagnostic framework: the diagnostic frame survey remains in
-// PresentMonApi2Diagnostic.
+// general diagnostic framework.
 
 struct PresentMonFrameQueryPlan
 {

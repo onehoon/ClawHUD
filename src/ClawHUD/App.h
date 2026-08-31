@@ -34,7 +34,6 @@
 #include "BatteryPowerEstimator.h"
 #include "SteamRunningAppIdSource.h"
 #include "IntelGraphicsApiProbe.h"
-#include "PresentMonApi2Diagnostic.h"
 #include "Tweaks/TweakStartupCoordinator.h"
 #include "Tweaks/IntelVrr/IntelVrrRunResult.h"
 
@@ -110,12 +109,6 @@ public:
     HWND MessageWindow() const { return tray_.Window(); }
     const std::wstring& ExecutablePath() const { return executablePath_; }
     void OpenDiagnosticLogFolder();
-    bool DiagnosticRunning() const;
-    bool StartPresentMonApi2Diagnostic();
-    void StopPresentMonApi2Diagnostic();
-    bool PresentMonApi2DiagnosticRunning() const;
-    const std::wstring& PresentMonApi2Status() const noexcept { return presentMonApi2Status_; }
-    void StopDiagnostic();
     void HandleSystemSuspend();
     void HandleSystemResume();
     void TryResumeRecovery();
@@ -206,7 +199,6 @@ private:
     HANDLE instanceMutex_{};
     clawhud::HudSettingsStore hudSettingsStore_;
     TrayIcon tray_;
-    std::unique_ptr<clawhud::PresentMonApi2Diagnostic> presentMonApi2Diagnostic_;
     std::unique_ptr<clawhud::HudPresentation> hudPresentation_;
     std::unique_ptr<EcHelperClient> ecHudClient_;
     clawhud::HudTelemetryAggregator telemetryAggregator_;
@@ -235,7 +227,6 @@ private:
     bool mockHudEnabled_{};
     std::unique_ptr<SettingsWindow> settings_;
     bool exiting_{};
-    std::wstring presentMonApi2Status_{ L"Idle" };
     std::wstring executablePath_;
     int hudSizeOffset_{};
     bool hudHotkeyRegistered_{};

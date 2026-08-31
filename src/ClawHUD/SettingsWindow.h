@@ -17,7 +17,6 @@ public:
     void RequestClose() { if (window_) PostMessageW(window_, WM_CLOSE, 0, 0); }
     void UpdateGeneralControls();
     void UpdateHudControls();
-    void SetDiagnosticStatus(const std::wstring& status);
 
 private:
     static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
@@ -77,10 +76,7 @@ private:
     HWND hudSizePlus_{};
     HWND fontUnispace_{};
     HWND fontSegoeUiVariable_{};
-    HWND startApi2Button_{};
-    HWND stopApi2Button_{};
     HWND openLogsButton_{};
-    HWND diagnosticStatus_{};
     HWND aboutPanel_{};
     HWND aboutIcon_{};
     int settingsScrollY_{};

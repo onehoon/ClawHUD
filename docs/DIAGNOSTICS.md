@@ -1,34 +1,33 @@
 # Diagnostics
 
-The Settings > Diagnostics tab contains:
+The Settings > Diagnostics tab contains only:
 
-- **PresentMon API2 Read-only Capability Test** (Start / Stop)
 - **Enable debug logging**
 - **Open Log Folder**
 
-## PresentMon API2 Read-only Capability Test
-
-Requires the installed PresentMon API2 SDK/runtime. **Start API2 Test** closes
-Settings, waits five seconds, selects the current foreground PID, then records a
-fixed-target metric survey for approximately 15 seconds
-(`api2-YYYYMMDD-HHMMSS.txt` / `-frames.csv` under `%LOCALAPPDATA%\ClawHUD\logs`).
-A game-detection research probe continues until **Stop**. The survey is
-read-only: no PresentMon control calls, no HUD telemetry effect. Starting it
-pauses production EC / PresentMon / graphics-API sampling for its duration, as
-before.
-
-## Debug logging / Open Log Folder
-
-**Enable debug logging** toggles verbose `RuntimeLogger` output.
+**Enable debug logging** toggles verbose `RuntimeLogger` output (including the
+API2-backed `[PresentActivity]` per-frame lines for the foreground process).
 **Open Log Folder** opens `%LOCALAPPDATA%\ClawHUD\logs`, the shared directory for
 runtime, EC, and Intel VRR Range Fix logs.
 
+There is no in-app developer diagnostic. Production PresentMon usage
+(`PresentMonApi2Client`, `PresentMonTelemetryProvider`, FPS / system / frame /
+debug-frame telemetry, `PresentMonRuntimeBootstrap`) is the only PresentMon
+code in `ClawHUD.exe`.
+
 ## Retired diagnostics
 
-The **MSI EC Read Test**, **IGCL Read-only Capability Test**, and the legacy
-**VRR / Presentation Test** (which launched `PresentMon.exe` and compared
-HUD-OFF vs HUD-DYNAMIC CSV phases) were removed after their hardware/research
-validation completed. Reference copies live under
-`archive/diagnostics/` and are not part of the build. Production EC telemetry
-(`ClawHUD.EcHelper`, `MsiEcHudTelemetry`, EC HUD sampling) and the Intel VRR
-Range Fix tweak are unrelated and unchanged.
+Removed after their hardware/research validation completed; reference copies
+live under `archive/diagnostics/` and are not part of the build:
+
+- **MSI EC Read Test**, **IGCL Read-only Capability Test**, legacy
+  **VRR / Presentation Test** (`PresentMon.exe` CSV phase comparison) —
+  `archive/diagnostics/{ec,igcl,legacy-vrr-presentmon}/`.
+- **PresentMon API2 Read-only Capability Test** and the `GameDetectionProbe`
+  game-detection research — `archive/diagnostics/presentmon-api2/`. API2 itself
+  is validated; developer diagnostics should not be coupled to `App`, Settings,
+  the HUD, or production sampling.
+
+A future standalone `ClawHUD.Diag.exe` console tool will be designed separately.
+Production EC telemetry (`ClawHUD.EcHelper`, `MsiEcHudTelemetry`, EC HUD
+sampling) and the Intel VRR Range Fix tweak are unrelated and unchanged.
