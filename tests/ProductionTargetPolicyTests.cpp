@@ -83,20 +83,15 @@ int main()
         !clawhud::ShouldReevaluateForegroundAfterResume(false, true) &&
         !clawhud::ShouldReevaluateForegroundAfterResume(true, false),
         "completed resume recovery re-adopts the current foreground");
-    ok &= Check(clawhud::ShouldReevaluateForegroundAfterDiagnostic(true, false, false) &&
-        !clawhud::ShouldReevaluateForegroundAfterDiagnostic(true, true, false) &&
-        !clawhud::ShouldReevaluateForegroundAfterDiagnostic(true, false, true) &&
-        !clawhud::ShouldReevaluateForegroundAfterDiagnostic(false, false, false),
-        "diagnostic stop re-adopts only when production lifecycle is available");
     ok &= Check(clawhud::ShouldRestartGraphicsApiProbe(0, 100) &&
         clawhud::ShouldRestartGraphicsApiProbe(200, 100) &&
         !clawhud::ShouldRestartGraphicsApiProbe(100, 100) &&
         !clawhud::ShouldRestartGraphicsApiProbe(0, 0),
         "committed target re-entry restarts a missing or stale graphics API probe");
-    ok &= Check(!clawhud::ShouldConsiderForegroundProductionTarget(true, true, false) &&
-        !clawhud::ShouldConsiderForegroundProductionTarget(true, false, true) &&
-        clawhud::ShouldConsiderForegroundProductionTarget(true, false, false),
-        "diagnostic and suspend states block adoption");
+    ok &= Check(!clawhud::ShouldConsiderForegroundProductionTarget(false, false) &&
+        !clawhud::ShouldConsiderForegroundProductionTarget(true, true) &&
+        clawhud::ShouldConsiderForegroundProductionTarget(true, false),
+        "the HUD-off and suspended states block foreground adoption");
 
     clawhud::GameDetectionCoordinator genericA;
     genericA.ObserveCandidate(100, nullptr,

@@ -160,21 +160,15 @@ bool ShouldReevaluateForegroundAfterResume(bool hudEnabled,
     return hudEnabled && recoveryCompleted;
 }
 
-bool ShouldReevaluateForegroundAfterDiagnostic(bool hudEnabled,
-    bool diagnosticRunning, bool suspended) noexcept
-{
-    return hudEnabled && !diagnosticRunning && !suspended;
-}
-
 bool ShouldRestartGraphicsApiProbe(DWORD probedProcessId,
     DWORD committedProcessId) noexcept
 {
     return committedProcessId != 0 && probedProcessId != committedProcessId;
 }
 
-bool ShouldConsiderForegroundProductionTarget(bool hudEnabled, bool diagnosticRunning,
+bool ShouldConsiderForegroundProductionTarget(bool hudEnabled,
     bool suspended) noexcept
 {
-    return hudEnabled && !diagnosticRunning && !suspended;
+    return hudEnabled && !suspended;
 }
 }

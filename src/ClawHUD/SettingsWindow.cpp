@@ -25,7 +25,6 @@ using settings_internal::kBackgroundFull;
 using settings_internal::kDebugLoggingToggle;
 using settings_internal::kDefaultWindowHeightDip;
 using settings_internal::kDefaultWindowWidthDip;
-using settings_internal::kDiagnosticsApi2Heading;
 using settings_internal::kEnableHud;
 using settings_internal::kFontSegoeUiVariable;
 using settings_internal::kFontUnispace;
@@ -38,8 +37,6 @@ using settings_internal::kMinimumWindowHeightDip;
 using settings_internal::kMinimumWindowWidthDip;
 using settings_internal::kOpenLogs;
 using settings_internal::kSettingsClassName;
-using settings_internal::kStartApi2;
-using settings_internal::kStopApi2;
 using settings_internal::kStartWithWindows;
 using settings_internal::kTabAbout;
 using settings_internal::kTabCount;
@@ -104,7 +101,7 @@ bool SettingsWindow::Show(HINSTANCE instance)
     UpdateWindow(window_);
     SetForegroundWindow(window_);
     UpdateHudControls();
-    SetDiagnosticStatus(app_.PresentMonApi2Status());
+    UpdateDiagnosticButtons();
     UpdateTweaksControls();
     return true;
 }
@@ -180,7 +177,6 @@ void SettingsWindow::ApplyHeadingFont()
     apply(tweaksPanel_, kTweaksHeading);
     apply(aboutPanel_, kAboutTitle);
     apply(aboutPanel_, kAboutHowToUse);
-    apply(diagnosticsPanel_, kDiagnosticsApi2Heading);
 }
 
 int SettingsWindow::Scale(int value) const noexcept
@@ -239,7 +235,7 @@ int SettingsWindow::ContentHeightForTab(int tab) const noexcept
     case kTabSettings: return 454;
     case kTabTweaks: return 230;
     case kTabAbout: return 260;
-    case kTabDiagnostics: return 230;
+    case kTabDiagnostics: return 96;
     default: return 0;
     }
 }
@@ -487,18 +483,6 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
         const bool persist = LOWORD(wParam) != TB_THUMBTRACK;
         self->app_.SetHudOpacity(position / 100.0f, persist);
         self->UpdateHudControls();
-        return 0;
-    }
-    if (message == WM_COMMAND && LOWORD(wParam) == kStartApi2)
-    {
-        if (self->app_.StartPresentMonApi2Diagnostic())
-            self->SetDiagnosticStatus(L"Waiting 5 seconds...");
-        return 0;
-    }
-    if (message == WM_COMMAND && LOWORD(wParam) == kStopApi2)
-    {
-        self->app_.StopPresentMonApi2Diagnostic();
-        self->SetDiagnosticStatus(L"Stopped");
         return 0;
     }
     if (message == WM_COMMAND && LOWORD(wParam) == kOpenLogs)

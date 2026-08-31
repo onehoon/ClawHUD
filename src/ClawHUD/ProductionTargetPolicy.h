@@ -96,10 +96,8 @@ bool ShouldRetainCommittedProductionTarget(DWORD committedProcessId,
     bool processAlive) noexcept;
 bool ShouldReevaluateForegroundAfterResume(bool hudEnabled,
     bool recoveryCompleted) noexcept;
-bool ShouldReevaluateForegroundAfterDiagnostic(bool hudEnabled,
-    bool diagnosticRunning, bool suspended) noexcept;
 bool ShouldRestartGraphicsApiProbe(DWORD probedProcessId,
     DWORD committedProcessId) noexcept;
-bool ShouldConsiderForegroundProductionTarget(bool hudEnabled, bool diagnosticRunning,
+bool ShouldConsiderForegroundProductionTarget(bool hudEnabled,
     bool suspended) noexcept;
 }
