@@ -11,10 +11,10 @@
 #include "Version.h"
 #include "ProductionTargetPolicy.h"
 #include "GameDetection/GameDetectionTrace.h"
-#include "TelemetryRetention.h"
 #include "Win32Format.h"
 #include "ProcessLiveness.h"
 #include "HudSettingsStore.h"
+#include "HudTelemetryAggregator.h"
 
 #include <Velopack.hpp>
 
@@ -32,8 +32,6 @@
 
 namespace
 {
-constexpr unsigned kEcTelemetryMissingThreshold = 3;
-constexpr unsigned kSystemTelemetryMissingThreshold = 3;
 constexpr UINT kSettingsDestroyed = WM_APP + 1;
 constexpr UINT kForegroundChanged = WM_APP + 2;
 constexpr UINT kHudVisibilityRequest = WM_APP + 3;
@@ -1079,18 +1077,9 @@ void App::RenderProductionHud(bool allowHidden)
         return;
 
     clawhud::HudTelemetrySnapshot snapshot{};
-    snapshot.cpuTemperatureC = ecHudTelemetry_.cpuTempC;
-    snapshot.cpuPackagePowerW = ecHudTelemetry_.cpuPackagePowerW
-        ? std::optional<double>(*ecHudTelemetry_.cpuPackagePowerW) : std::nullopt;
-    snapshot.fan1Rpm = ecHudTelemetry_.fan1Rpm;
-    snapshot.fan2Rpm = ecHudTelemetry_.fan2Rpm;
+    telemetryAggregator_.FillSnapshot(snapshot);
     snapshot.graphicsApi = latestGraphicsApi_;
     snapshot.presentMonDisplayedFps = latestProcessFps_;
-    snapshot.cpuUsagePercent = latestCpuUsagePercent_;
-    snapshot.systemMemoryUsedBytes = latestSystemMemoryUsedBytes_;
-    snapshot.gpuMemoryUsedBytes = latestGpuMemoryUsedBytes_;
-    snapshot.gpuUsagePercent = latestGpuUsagePercent_;
-    snapshot.gpuClockMHz = latestGpuClockMHz_;
     if (latestPowerTelemetry_)
     {
         snapshot.batteryPercent = latestPowerTelemetry_->batteryPercent;
@@ -1153,37 +1142,17 @@ void App::SampleProductionTelemetry()
             L"[BatteryEC] estimator ready");
     }
     batteryEcOnDc_ = onBattery;
-    clawhud::UpdateRetainedTelemetryField(
-        ecHudTelemetry_.cpuTempC, freshEcTelemetry.cpuTempC,
-        ecCpuTempMissingCount_, kEcTelemetryMissingThreshold);
-    clawhud::UpdateRetainedTelemetryField(
-        ecHudTelemetry_.fan1Rpm, freshEcTelemetry.fan1Rpm,
-        ecFan1MissingCount_, kEcTelemetryMissingThreshold);
-    clawhud::UpdateRetainedTelemetryField(
-        ecHudTelemetry_.fan2Rpm, freshEcTelemetry.fan2Rpm,
-        ecFan2MissingCount_, kEcTelemetryMissingThreshold);
-    clawhud::UpdateRetainedTelemetryField(
-        ecHudTelemetry_.cpuPackagePowerW, freshEcTelemetry.cpuPackagePowerW,
-        ecTdpMissingCount_, kEcTelemetryMissingThreshold);
+    telemetryAggregator_.IngestEc(freshEcTelemetry);
     const auto system = presentMonTelemetryProvider_.ReadSystem();
     const std::optional<double> missingDouble;
     const std::optional<std::uint64_t> missingBytes;
-    clawhud::UpdateRetainedTelemetryField(
-        latestCpuUsagePercent_, system ? system->cpuUsagePercent : missingDouble,
-        cpuUsageMissingCount_, kSystemTelemetryMissingThreshold);
-    clawhud::UpdateRetainedTelemetryField(
-        latestGpuUsagePercent_, system ? system->gpuUsagePercent : missingDouble,
-        gpuUsageMissingCount_, kSystemTelemetryMissingThreshold);
-    clawhud::UpdateRetainedTelemetryField(
-        latestGpuClockMHz_, system ? system->gpuClockMHz : missingDouble,
-        gpuClockMissingCount_, kSystemTelemetryMissingThreshold);
-    clawhud::UpdateRetainedTelemetryField(
-        latestGpuMemoryUsedBytes_, system ? system->gpuMemoryUsedBytes : missingBytes,
-        gpuMemoryMissingCount_, kSystemTelemetryMissingThreshold);
-    const auto memoryUsed = clawhud::ReadSystemMemoryUsedBytes();
-    clawhud::UpdateRetainedTelemetryField(
-        latestSystemMemoryUsedBytes_, memoryUsed, systemMemoryMissingCount_,
-        kSystemTelemetryMissingThreshold);
+    clawhud::HudSystemTelemetryInput systemInput;
+    systemInput.cpuUsagePercent = system ? system->cpuUsagePercent : missingDouble;
+    systemInput.gpuUsagePercent = system ? system->gpuUsagePercent : missingDouble;
+    systemInput.gpuClockMHz = system ? system->gpuClockMHz : missingDouble;
+    systemInput.gpuMemoryUsedBytes = system ? system->gpuMemoryUsedBytes : missingBytes;
+    systemInput.systemMemoryUsedBytes = clawhud::ReadSystemMemoryUsedBytes();
+    telemetryAggregator_.IngestSystem(systemInput);
     RenderProductionHud();
 }
 
@@ -1356,25 +1325,11 @@ void App::PauseProductionSamplingForSuspend()
         ecHudClient_->Close();
         ecHudClient_.reset();
     }
-    ecHudTelemetry_ = {};
-    ecCpuTempMissingCount_ = 0;
-    ecFan1MissingCount_ = 0;
-    ecFan2MissingCount_ = 0;
-    ecTdpMissingCount_ = 0;
+    telemetryAggregator_.Reset();
     latestPowerTelemetry_.reset();
     batteryPowerEstimator_.Reset();
     batteryEcOnDc_ = false;
     batteryEcReadyLogged_ = false;
-    latestCpuUsagePercent_.reset();
-    latestGpuUsagePercent_.reset();
-    latestGpuClockMHz_.reset();
-    latestGpuMemoryUsedBytes_.reset();
-    latestSystemMemoryUsedBytes_.reset();
-    cpuUsageMissingCount_ = 0;
-    gpuUsageMissingCount_ = 0;
-    gpuClockMissingCount_ = 0;
-    gpuMemoryMissingCount_ = 0;
-    systemMemoryMissingCount_ = 0;
     ecHudSamplingActive_ = false;
     if (wasActive)
         Log(L"Production telemetry sampling stopped reason=suspend");
@@ -1441,25 +1396,11 @@ void App::StopProductionEcSampling(bool stopPresentMon, const wchar_t* reason)
         ecHudClient_->Close();
         ecHudClient_.reset();
     }
-    ecHudTelemetry_ = {};
-    ecCpuTempMissingCount_ = 0;
-    ecFan1MissingCount_ = 0;
-    ecFan2MissingCount_ = 0;
-    ecTdpMissingCount_ = 0;
+    telemetryAggregator_.Reset();
     latestPowerTelemetry_.reset();
     batteryPowerEstimator_.Reset();
     batteryEcOnDc_ = false;
     batteryEcReadyLogged_ = false;
-    latestCpuUsagePercent_.reset();
-    latestGpuUsagePercent_.reset();
-    latestGpuClockMHz_.reset();
-    latestGpuMemoryUsedBytes_.reset();
-    latestSystemMemoryUsedBytes_.reset();
-    cpuUsageMissingCount_ = 0;
-    gpuUsageMissingCount_ = 0;
-    gpuClockMissingCount_ = 0;
-    gpuMemoryMissingCount_ = 0;
-    systemMemoryMissingCount_ = 0;
     ecHudSamplingActive_ = false;
     if (wasActive)
         Log(L"Production telemetry sampling stopped reason=" + std::wstring(reason));
@@ -1680,16 +1621,7 @@ void App::TrackMockGameWindow(HWND window)
     if (!processId)
         return;
     foregroundTracker_.SetTrackedProcessId(processId);
-    latestCpuUsagePercent_.reset();
-    latestGpuUsagePercent_.reset();
-    latestGpuClockMHz_.reset();
-    latestGpuMemoryUsedBytes_.reset();
-    latestSystemMemoryUsedBytes_.reset();
-    cpuUsageMissingCount_ = 0;
-    gpuUsageMissingCount_ = 0;
-    gpuClockMissingCount_ = 0;
-    gpuMemoryMissingCount_ = 0;
-    systemMemoryMissingCount_ = 0;
+    telemetryAggregator_.ResetSystem();
     StartGraphicsApiProbe(processId);
     if (EnsureMockHud())
     {

@@ -59,6 +59,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/Win32Format.cpp
     src/ClawHUD/ProcessLiveness.cpp
     src/ClawHUD/HudSettingsStore.cpp
+    src/ClawHUD/HudTelemetryAggregator.cpp
     src/ClawHUD/GameDetection/ProcessLifecycleSource.cpp
     src/ClawHUD/GameDetection/PresentActivitySource.cpp
     src/ClawHUD/GameDetection/WindowLifecycleSource.cpp
@@ -260,6 +261,18 @@ if(BUILD_TESTING)
     target_include_directories(ClawHUD.ProcessLivenessTests PRIVATE src/ClawHUD)
     set_target_properties(ClawHUD.ProcessLivenessTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.ProcessLivenessTests COMMAND ClawHUD.ProcessLivenessTests)
+
+    add_executable(ClawHUD.HudTelemetryAggregatorTests
+        tests/HudTelemetryAggregatorTests.cpp
+        src/ClawHUD/HudTelemetryAggregator.cpp
+        src/ClawHUD/HudModel.cpp)
+    target_compile_features(ClawHUD.HudTelemetryAggregatorTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.HudTelemetryAggregatorTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.HudTelemetryAggregatorTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.HudTelemetryAggregatorTests PRIVATE user32)
+    set_target_properties(ClawHUD.HudTelemetryAggregatorTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.HudTelemetryAggregatorTests COMMAND ClawHUD.HudTelemetryAggregatorTests)
 
     add_executable(ClawHUD.HudSettingsStoreTests
         tests/HudSettingsStoreTests.cpp
