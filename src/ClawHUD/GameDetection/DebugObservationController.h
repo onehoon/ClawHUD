@@ -13,9 +13,10 @@ class PresentMonTelemetryProvider;
 
 // Owns the four debug-only observation sources that used to sit directly on App.
 // App holds it through a std::unique_ptr and constructs it only when the
-// developer [Developer] DebugLog switch is on, so a normal DebugLog=0 startup
-// never builds any of these objects -- in particular WindowsGameIdentitySource,
-// which starts a worker thread in its constructor.
+// developer [Developer] DebugLoggingEnabled switch is on, so a normal
+// DebugLoggingEnabled=false startup never builds any of these objects -- in
+// particular WindowsGameIdentitySource, which starts a worker thread in its
+// constructor.
 //
 // Observation only: nothing here ever feeds production game detection,
 // telemetry, or HUD state. The controller holds a non-owning reference to the

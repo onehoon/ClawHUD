@@ -1586,8 +1586,9 @@ Those extractions remain valid and are retained in the new architecture.
 - #176: in-app API2 diagnostic and `GameDetectionProbe` archived/removed; active
   `ClawHUD.exe` returned to a production-only baseline.
 - #177: Settings **Diagnostics tab** deleted entirely; debug logging moved to a
-  developer-only `[Developer] DebugLog` key in `settings.ini` (read once at
-  startup, never written). Settings now has 3 tabs (General/HUD, Tweaks, About).
+  developer-only `[Developer] DebugLoggingEnabled` key in `settings.ini` (read
+  once at startup, never written). Settings now has 3 tabs (General/HUD, Tweaks,
+  About).
 
 ### Refactor phase progress
 
@@ -1860,13 +1861,14 @@ Those extractions remain valid and are retained in the new architecture.
   - `App` owns it as `std::unique_ptr<clawhud::DebugObservationController>
     debugObservation_`, constructed **lazily in `Run()`** at the old debug
     start-up slot and **only when `debugLoggingEnabled_`**. `debugLoggingEnabled_`
-    stays App-owned (still read once from `[Developer] DebugLog`, never toggled).
-  - **Intentional behavior/resource change:** `DebugLog=0` previously still
-    constructed `WindowsGameIdentitySource` (an always-live `App` value member)
-    and started its constructor-owned `std::jthread`. After R6 the whole
-    controller is absent when `DebugLog=0`, so none of the four sources — and no
-    `WindowsGameIdentitySource` worker thread — are created. `DebugLog=1`
-    behavior is unchanged.
+    stays App-owned (still read once from `[Developer] DebugLoggingEnabled`,
+    never toggled).
+  - **Intentional behavior/resource change:** `DebugLoggingEnabled=false`
+    previously still constructed `WindowsGameIdentitySource` (an always-live
+    `App` value member) and started its constructor-owned `std::jthread`. After
+    R6 the whole controller is absent when `DebugLoggingEnabled=false`, so none
+    of the four sources — and no `WindowsGameIdentitySource` worker thread — are
+    created. `DebugLoggingEnabled=true` behavior is unchanged.
   - Effective orders preserved: startup `ProcessLifecycle.Start →
     WindowLifecycle.Start → PresentActivity.Start(shared provider)` (failures
     non-fatal, same warning text); foreground tail `WindowsGameIdentity.QueueInspect
@@ -1888,8 +1890,8 @@ Those extractions remain valid and are retained in the new architecture.
     includes / members).
   - **Hardware smoke: deferred** — app unsupported on this dev machine; per the
     R6 work order §33 not itself a merge blocker. §34 follow-up: verify
-    `DebugLog` OFF (no debug logs / no identity worker) and ON (all debug logs
-    present, detection still production-authoritative) on hardware.
+    `DebugLoggingEnabled` OFF (no debug logs / no identity worker) and ON (all
+    debug logs present, detection still production-authoritative) on hardware.
 
 - **R7 (final `App` shell cleanup)** — PR #194, merged `ff5102a` (code review +
   CI green). Shell cleanup only; **no new abstraction**. `App` stays the

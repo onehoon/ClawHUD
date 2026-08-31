@@ -11,7 +11,7 @@ namespace clawhud
 struct HudSettings
 {
     bool hudEnabled = true;
-    // [Developer] DebugLog. Developer-only; read at startup, never written back.
+    // [Developer] DebugLoggingEnabled. Developer-only; read at startup, never written back.
     bool debugLoggingEnabled = false;
     bool startWithWindows = true;
     bool intelVrrRangeFixEnabled = true;
@@ -39,7 +39,7 @@ public:
     HudSettings Load() const;
 
     // Writes the layout / general subset. hudEnabled and the developer-only
-    // [Developer] DebugLog key are not written here. No-op when unavailable.
+    // [Developer] DebugLoggingEnabled key are not written here. No-op when unavailable.
     void Save(const HudSettings& settings) const;
 
     void SaveEnabled(bool enabled) const;

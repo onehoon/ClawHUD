@@ -11,12 +11,12 @@ manual switch in `%LOCALAPPDATA%\ClawHUD\settings.ini`:
 
 ```ini
 [Developer]
-DebugLog=true
+DebugLoggingEnabled=true
 ```
 
-`DebugLog` defaults to `false`, accepts `true`/`false` (case-insensitive) or
-`1`/`0`, is read once at startup, and is never written by the app. Change it and
-restart ClawHUD to take effect. Logs are written to `%LOCALAPPDATA%\ClawHUD\logs`,
+`DebugLoggingEnabled` defaults to `false`, accepts `true`/`false`
+(case-insensitive) or `1`/`0`, is read once at startup, and is never written by
+the app. Change it and restart ClawHUD to take effect. Logs are written to `%LOCALAPPDATA%\ClawHUD\logs`,
 the shared directory for runtime, EC, and Intel VRR Range Fix logs.
 
 There is no in-app developer diagnostic. Production PresentMon usage

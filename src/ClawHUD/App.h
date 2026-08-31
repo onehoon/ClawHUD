@@ -111,7 +111,7 @@ private:
     clawhud::GameSessionController gameSession_{presentMonTelemetryProvider_};
     // Debug-only observation sources. Constructed lazily in Run() only when
     // debugLoggingEnabled_; stays null (and none of the sources exist) for a
-    // normal DebugLog=0 run. See GameDetection/DebugObservationController.h.
+    // normal DebugLoggingEnabled=false run. See GameDetection/DebugObservationController.h.
     std::unique_ptr<clawhud::DebugObservationController> debugObservation_;
     std::unique_ptr<SettingsWindow> settings_;
     bool exiting_{};
@@ -128,7 +128,7 @@ private:
     unsigned resumeRecoveryAttempts_{};
     clawhud::TweakStartupCoordinator tweakStartupCoordinator_;
     bool startWithWindows_{true};
-    // Developer-only. Read once from [Developer] DebugLog in settings.ini at
-    // startup; never written by the app and never toggled at runtime.
+    // Developer-only. Read once from [Developer] DebugLoggingEnabled in
+    // settings.ini at startup; never written by the app and never toggled at runtime.
     bool debugLoggingEnabled_{};
 };
