@@ -71,7 +71,7 @@ behavior silently (a dropped guard, a reordered call, a flipped condition). Miti
 |----|-------|---------|------|--------|
 | 0 | Refactor plan + behavior inventory template | docs | none | done (#167) |
 | 1 | Extract stateless helpers (`Win32Format`, `ProcessLiveness`) | A | very low | done |
-| 2 | Extract `HudSettingsStore` (settings.ini load/save) | B | low | todo |
+| 2 | Extract `HudSettingsStore` (settings.ini load/save) | B | low | done |
 | 3 | Extract `DiagnosticsController` | C | medium | todo |
 | 4 | Extract `HudTelemetryAggregator` (retained fields + snapshot) | D | medium | todo |
 | 5 | Extract `ProductionSamplingScheduler` | E | medium-high | todo |
@@ -126,3 +126,12 @@ PR 7 lands. No interface extraction.
     `PresentMonApi2Diagnostic.cpp` has a *different* `ProcessAlive`
     (`OpenProcess(SYNCHRONIZE, ...)` only). Not touched here (dedup of the first, and
     any decision on the second, is separate).
+- PR 2: `LoadHudSettings` / `SaveHudSettings` / `SaveHudEnabledSetting` and the
+  ini write in `SetIntelVrrRangeFixEnabled` now delegate to a new
+  `clawhud::HudSettingsStore` (owns the ini path, read/write primitives, and the
+  parent-directory creation). `App` keeps every member field; `LoadHudSettings`
+  copies from a returned `HudSettings` struct and `SaveHudSettings` populates one.
+  `Load()` on an unavailable store returns struct defaults that match the old
+  `App` member initializers, so the empty-path early-return behaviour is preserved.
+  New test `HudSettingsStoreTests` (round-trip, legacy opacity key, missing-key
+  fallbacks, `SaveEnabled` / `SaveIntelVrrRangeFixEnabled` isolation).

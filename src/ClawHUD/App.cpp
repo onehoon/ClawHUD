@@ -14,6 +14,7 @@
 #include "TelemetryRetention.h"
 #include "Win32Format.h"
 #include "ProcessLiveness.h"
+#include "HudSettingsStore.h"
 
 #include <Velopack.hpp>
 
@@ -81,31 +82,6 @@ struct GameRenderVerifierUpdate
 {
     clawhud::GameRenderVerifierEvent event;
 };
-
-std::wstring HudSettingsPath()
-{
-    PWSTR localAppData{};
-    if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, &localAppData)))
-        return {};
-    std::wstring path(localAppData);
-    CoTaskMemFree(localAppData);
-    return path + L"\\ClawHUD\\settings.ini";
-}
-
-std::wstring ReadHudSetting(const std::wstring& path, const wchar_t* key,
-    const wchar_t* fallback)
-{
-    wchar_t value[64]{};
-    GetPrivateProfileStringW(L"HUD", key, fallback, value, ARRAYSIZE(value), path.c_str());
-    return value;
-}
-
-bool ReadBoolSetting(const std::wstring& path, const wchar_t* section, const wchar_t* key, bool fallback)
-{
-    wchar_t value[16]{};
-    GetPrivateProfileStringW(section, key, fallback ? L"1" : L"0", value, ARRAYSIZE(value), path.c_str());
-    return wcstol(value, nullptr, 10) != 0;
-}
 
 void Log(const std::wstring& message)
 {
@@ -323,14 +299,7 @@ int App::Run()
 void App::SetIntelVrrRangeFixEnabled(bool enabled)
 {
     intelVrrRangeFixEnabled_ = enabled;
-    const auto path = HudSettingsPath();
-    if (path.empty()) return;
-    const auto separator = path.find_last_of(L'\\');
-    if (separator != std::wstring::npos) CreateDirectoryW(path.substr(0, separator).c_str(), nullptr);
-    if (!WritePrivateProfileStringW(L"Tweaks", L"IntelVrrRangeFixEnabled",
-        enabled ? L"1" : L"0", path.c_str()))
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
-            L"Settings save failed key=IntelVrrRangeFixEnabled");
+    hudSettingsStore_.SaveIntelVrrRangeFixEnabled(enabled);
 }
 
 void App::SetDebugLoggingEnabled(bool enabled)
@@ -2425,82 +2394,37 @@ bool App::AcquireSingleInstance()
 
 void App::LoadHudSettings()
 {
-    mockHudEnabled_ = true;
-    const auto path = HudSettingsPath();
-    if (path.empty()) return;
-    mockHudEnabled_ = ReadBoolSetting(path, L"HUD", L"Enabled", true);
-    diagnosticsTabEnabled_ = ReadBoolSetting(
-        path, L"Developer", L"DiagnosticsTabEnabled", false);
-    debugLoggingEnabled_ = ReadBoolSetting(
-        path, L"Developer", L"DebugLoggingEnabled", false);
-    wchar_t startup[8]{};
-    GetPrivateProfileStringW(L"General", L"StartWithWindows", L"1", startup,
-        ARRAYSIZE(startup), path.c_str());
-    startWithWindows_ = std::wcstol(startup, nullptr, 10) != 0;
-    const auto alignment = ReadHudSetting(path, L"Alignment", L"Center");
-    if (alignment == L"Left") hudOptions_.alignment = clawhud::HudAlignment::Left;
-    else if (alignment == L"Right") hudOptions_.alignment = clawhud::HudAlignment::Right;
-    hudFont_ = clawhud::ParseHudFont(ReadHudSetting(path, L"Font", L"Unispace"));
-    const auto background = ReadHudSetting(path, L"BackgroundWidth", L"FullWidth");
-    if (background == L"ContentWidth") hudOptions_.backgroundMode = clawhud::HudBackgroundMode::ContentWidth;
-    else if (background == L"FullWidth") hudOptions_.backgroundMode = clawhud::HudBackgroundMode::FullWidth;
-    const auto visibility = ReadHudSetting(path, L"VisibilityMode", L"InGameOnly");
-    if (visibility == L"Always") hudOptions_.visibilityMode = clawhud::HudVisibilityMode::Always;
-    else if (visibility == L"InGameOnly") hudOptions_.visibilityMode = clawhud::HudVisibilityMode::InGameOnly;
-    hudSizeOffset_ = clawhud::ParseHudSizeOffset(ReadHudSetting(path, L"Size", L"0"));
-    const auto configuredOpacity = ReadHudSetting(path, L"HudOpacity", L"__missing__");
-    const auto legacyOpacity = ReadHudSetting(path, L"BackgroundOpacity", L"");
-    hudOptions_.backgroundOpacity = clawhud::HudOpacityFractionFromPercent(
-        clawhud::HudOpacityPercentFromSettings(configuredOpacity,
-            configuredOpacity != L"__missing__", legacyOpacity));
-    intelVrrRangeFixEnabled_ = ReadBoolSetting(path, L"Tweaks", L"IntelVrrRangeFixEnabled", true);
+    const auto settings = hudSettingsStore_.Load();
+    mockHudEnabled_ = settings.hudEnabled;
+    diagnosticsTabEnabled_ = settings.diagnosticsTabEnabled;
+    debugLoggingEnabled_ = settings.debugLoggingEnabled;
+    startWithWindows_ = settings.startWithWindows;
+    hudOptions_.alignment = settings.alignment;
+    hudFont_ = settings.font;
+    hudOptions_.backgroundMode = settings.backgroundMode;
+    hudOptions_.visibilityMode = settings.visibilityMode;
+    hudSizeOffset_ = settings.sizeOffset;
+    hudOptions_.backgroundOpacity = settings.backgroundOpacity;
+    intelVrrRangeFixEnabled_ = settings.intelVrrRangeFixEnabled;
 }
 
 void App::SaveHudSettings() const
 {
-    const auto path = HudSettingsPath();
-    if (path.empty()) return;
-    const auto separator = path.find_last_of(L'\\');
-    if (separator != std::wstring::npos)
-        CreateDirectoryW(path.substr(0, separator).c_str(), nullptr);
-    const wchar_t* alignment = hudOptions_.alignment == clawhud::HudAlignment::Left ? L"Left" :
-        hudOptions_.alignment == clawhud::HudAlignment::Right ? L"Right" : L"Center";
-    const wchar_t* background = hudOptions_.backgroundMode == clawhud::HudBackgroundMode::ContentWidth
-        ? L"ContentWidth" : L"FullWidth";
-    const wchar_t* visibility = hudOptions_.visibilityMode == clawhud::HudVisibilityMode::Always
-        ? L"Always" : L"InGameOnly";
-    const wchar_t* font = clawhud::HudFontIniToken(hudFont_);
-    wchar_t opacity[8]{};
-    swprintf_s(opacity, L"%ld", clawhud::HudOpacityPercentFromFraction(
-        hudOptions_.backgroundOpacity));
-    bool saved = WritePrivateProfileStringW(L"HUD", L"Alignment", alignment, path.c_str()) != FALSE;
-    saved = WritePrivateProfileStringW(L"HUD", L"Font", font, path.c_str()) != FALSE && saved;
-    saved = WritePrivateProfileStringW(L"HUD", L"BackgroundWidth", background, path.c_str()) != FALSE && saved;
-    saved = WritePrivateProfileStringW(L"HUD", L"HudOpacity", opacity, path.c_str()) != FALSE && saved;
-    saved = WritePrivateProfileStringW(L"HUD", L"VisibilityMode", visibility, path.c_str()) != FALSE && saved;
-    wchar_t size[8]{};
-    swprintf_s(size, L"%d", clawhud::ClampHudSizeOffset(hudSizeOffset_));
-    saved = WritePrivateProfileStringW(L"HUD", L"Size", size, path.c_str()) != FALSE && saved;
-    saved = WritePrivateProfileStringW(L"General", L"StartWithWindows",
-        startWithWindows_ ? L"1" : L"0", path.c_str()) != FALSE && saved;
-    saved = WritePrivateProfileStringW(L"Developer", L"DebugLoggingEnabled",
-        debugLoggingEnabled_ ? L"1" : L"0", path.c_str()) != FALSE && saved;
-    if (!saved)
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error, L"Settings save failed");
+    clawhud::HudSettings settings;
+    settings.alignment = hudOptions_.alignment;
+    settings.font = hudFont_;
+    settings.backgroundMode = hudOptions_.backgroundMode;
+    settings.visibilityMode = hudOptions_.visibilityMode;
+    settings.backgroundOpacity = hudOptions_.backgroundOpacity;
+    settings.sizeOffset = hudSizeOffset_;
+    settings.startWithWindows = startWithWindows_;
+    settings.debugLoggingEnabled = debugLoggingEnabled_;
+    hudSettingsStore_.Save(settings);
 }
 
 void App::SaveHudEnabledSetting(bool enabled) const
 {
-    const auto path = HudSettingsPath();
-    if (path.empty()) return;
-    const auto separator = path.find_last_of(L'\\');
-    if (separator != std::wstring::npos)
-        CreateDirectoryW(path.substr(0, separator).c_str(), nullptr);
-    if (!WritePrivateProfileStringW(L"HUD", L"Enabled", enabled ? L"1" : L"0", path.c_str()))
-    {
-        clawhud::RuntimeLogger::Log(
-            clawhud::RuntimeLogLevel::Error, L"Settings save failed key=Enabled");
-    }
+    hudSettingsStore_.SaveEnabled(enabled);
 }
 
 bool App::ApplyStartupRegistration() const
