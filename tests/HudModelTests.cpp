@@ -105,26 +105,24 @@ int main()
         HudVisibilityMode::InGameOnly, false),
         "a show override beats InGameOnly with no game");
     ok &= Check(ShouldSampleProductionTelemetry(
-        ShouldShowHud(HudVisibilityMode::Always, false), false, false),
+        ShouldShowHud(HudVisibilityMode::Always, false), false),
         "always mode keeps global telemetry alive after game exit");
     ok &= Check(!ShouldSampleProductionTelemetry(
-        ShouldShowHud(HudVisibilityMode::InGameOnly, false), false, false),
+        ShouldShowHud(HudVisibilityMode::InGameOnly, false), false),
         "in-game-only mode stops global telemetry with no game");
     ok &= Check(ShouldSampleProductionTelemetry(
-        ShouldShowHud(HudVisibilityMode::InGameOnly, true), false, false),
+        ShouldShowHud(HudVisibilityMode::InGameOnly, true), false),
         "in-game-only mode starts global telemetry on game entry");
     ok &= Check(!ShouldSampleProductionTelemetry(
-        ShouldShowHud(HudVisibilityMode::InGameOnly, false), false, false),
+        ShouldShowHud(HudVisibilityMode::InGameOnly, false), false),
         "in-game-only mode stops global telemetry on Alt-Tab");
     ok &= Check(ShouldSampleProductionTelemetry(
-        ShouldShowHud(HudVisibilityMode::InGameOnly, true), false, false),
+        ShouldShowHud(HudVisibilityMode::InGameOnly, true), false),
         "in-game-only mode resumes global telemetry on return");
     ok &= Check(!ShouldSampleProductionTelemetry(
-        ShouldShowHud(HudVisibilityMode::InGameOnly, false), false, false),
+        ShouldShowHud(HudVisibilityMode::InGameOnly, false), false),
         "in-game-only mode stops global telemetry after game exit");
-    ok &= Check(!ShouldSampleProductionTelemetry(true, true, false),
-        "diagnostic mode owns telemetry lifecycle");
-    ok &= Check(!ShouldSampleProductionTelemetry(true, false, true),
+    ok &= Check(!ShouldSampleProductionTelemetry(true, true),
         "suspend pauses telemetry lifecycle");
 
     HudTelemetrySnapshot missing{};

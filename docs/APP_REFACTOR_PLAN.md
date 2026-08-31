@@ -1494,13 +1494,23 @@ Not part of this plan. `SettingsWindow` remains an `App` facade client.
 These are worth remembering but should be assigned to the appropriate phase rather than
 mixed randomly into controller PRs.
 
-### High-value before extraction
+### High-value before extraction — completed in R0
 
-- normalize `MockHud` production naming;
-- normalize sampling names that still say `Ec` while controlling the whole sampling path;
-- normalize stale `PresentMon` naming around `GameRenderVerifier` release/resume policy;
-- remove the now-unused diagnostic argument from `ShouldSampleProductionTelemetry`;
-- confirm and remove dead `TrackMockGameWindow` surface if it still has no caller.
+- ~~normalize `MockHud` production naming~~ — done: `hudEnabled_`, `EnsureHud`,
+  `StopHud`, `RefreshHud`, `HudVisible`, `HudEnabled`.
+- ~~normalize sampling names that still say `Ec`~~ — done:
+  `StartProductionSampling`, `StopProductionSampling`, `productionSamplingActive_`.
+- ~~normalize stale `PresentMon` naming around `GameRenderVerifier`~~ — done:
+  `ResumeRecoveryCanRetainVerifier`, `CommittedTargetRelease{Plan,Ops}::stopRenderVerification`.
+- ~~remove the now-unused diagnostic argument from `ShouldSampleProductionTelemetry`~~ —
+  done: signature is now `(resolvedShow, suspended)`.
+- ~~confirm and remove dead `TrackMockGameWindow` surface~~ — done: no callers, deleted.
+
+One name deliberately retained: the HUD window class string
+`L"ClawHUD.MockHudSurface"` and window title `L"ClawHUD Mock HUD"` in
+`HudPresentation.cpp` are runtime values inside the VRR-critical presentation
+backend, not C++ symbols. Changing a `RegisterClassW` name is a behavioral change,
+so R0 left them untouched.
 
 ### Good later cleanup
 
@@ -1568,10 +1578,36 @@ Those extractions remain valid and are retained in the new architecture.
   API2; `PresentMon.exe` build/runtime/package dependency removed.
 - #176: in-app API2 diagnostic and `GameDetectionProbe` archived/removed; active
   `ClawHUD.exe` returned to a production-only baseline.
+- #177: Settings **Diagnostics tab** deleted entirely; debug logging moved to a
+  developer-only `[Developer] DebugLog` key in `settings.ini` (read once at
+  startup, never written). Settings now has 3 tabs (General/HUD, Tweaks, About).
+
+### Refactor phase progress
+
+- **R0 (naming / dead-surface normalization)** — branch
+  `refactor/r0-naming-cleanup`. Mechanical rename only, no behavior change.
+  - Renames: `mockHudEnabled_`->`hudEnabled_`, `EnsureMockHud`->`EnsureHud`,
+    `StopMockHud`->`StopHud`, `RefreshMockHud`->`RefreshHud`,
+    `MockHudVisible`->`HudVisible`, `MockHudEnabled`->`HudEnabled`,
+    `StartProductionEcSampling`->`StartProductionSampling`,
+    `StopProductionEcSampling`->`StopProductionSampling`,
+    `ecHudSamplingActive_`->`productionSamplingActive_`,
+    `ResumeRecoveryCanRetainPresentMon`->`ResumeRecoveryCanRetainVerifier`,
+    `CommittedTargetRelease{Plan,Ops}::stopPresentMon`->`stopRenderVerification`.
+  - Dead surface removed: `App::TrackMockGameWindow` (no callers).
+  - Obsolete parameter removed: `ShouldSampleProductionTelemetry` lost its
+    permanently-false diagnostic bool → `(resolvedShow, suspended)`.
+  - `App` facade methods unchanged in shape; only names changed. No controller
+    extracted. `HudPresentation` / presentation backend: zero diff.
+  - Deviation: the `HudPresentation.cpp` window-class string
+    `L"ClawHUD.MockHudSurface"` was intentionally not renamed (runtime value in
+    the VRR-critical backend — see §16).
+  - CTest: 46/46 pass locally (VS 2022 BuildTools, Ninja, Release). No hardware
+    smoke (diff is purely mechanical).
 
 ### Next work
 
-Start with **R0** from §9. After each merged PR, update this progress log with:
+Continue with **R1** from §9. After each merged PR, update this progress log with:
 
 ```text
 PR number

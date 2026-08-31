@@ -73,17 +73,16 @@ bool ShouldShowHud(HudVisibilityMode mode, bool foregroundGameActive) noexcept
     return mode == HudVisibilityMode::Always || foregroundGameActive;
 }
 
-bool ResolveHudVisible(bool mockHudEnabled, std::optional<bool> manualOverride,
+bool ResolveHudVisible(bool hudEnabled, std::optional<bool> manualOverride,
     HudVisibilityMode mode, bool foregroundActive) noexcept
 {
-    return mockHudEnabled &&
+    return hudEnabled &&
         (manualOverride ? *manualOverride : ShouldShowHud(mode, foregroundActive));
 }
 
-bool ShouldSampleProductionTelemetry(bool resolvedShow, bool diagnosticMode,
-    bool suspended) noexcept
+bool ShouldSampleProductionTelemetry(bool resolvedShow, bool suspended) noexcept
 {
-    return resolvedShow && !diagnosticMode && !suspended;
+    return resolvedShow && !suspended;
 }
 
 float HudOpacityFractionFromPercent(long percent) noexcept

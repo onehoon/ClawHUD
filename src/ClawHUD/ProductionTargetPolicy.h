@@ -27,7 +27,7 @@ enum class GlobalTelemetryAction
 
 struct CommittedTargetReleasePlan
 {
-    bool stopPresentMon{ true };
+    bool stopRenderVerification{ true };
     bool stopGraphicsApiProbe{ true };
     bool clearTrackedProcess{ true };
     bool reconcileHudVisibility{ true };
@@ -47,7 +47,7 @@ constexpr CommittedTargetReleasePlan PlanCommittedTargetRelease() noexcept
 
 struct CommittedTargetReleaseOps
 {
-    std::function<void()> stopPresentMon;
+    std::function<void()> stopRenderVerification;
     std::function<void()> stopGraphicsApiProbe;
     std::function<void()> clearTrackedProcess;
     std::function<void()> startGlobalTelemetry;
@@ -59,8 +59,8 @@ inline void ApplyCommittedTargetReleasePlan(
     const CommittedTargetReleasePlan& plan,
     const CommittedTargetReleaseOps& ops)
 {
-    if (plan.stopPresentMon)
-        ops.stopPresentMon();
+    if (plan.stopRenderVerification)
+        ops.stopRenderVerification();
     if (plan.stopGraphicsApiProbe)
         ops.stopGraphicsApiProbe();
     if (plan.clearTrackedProcess)

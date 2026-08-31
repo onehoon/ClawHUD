@@ -189,7 +189,7 @@ void SettingsWindow::UpdateHudControls()
     if (fontSegoeUiVariable_) SendMessageW(fontSegoeUiVariable_, BM_SETCHECK,
         app_.HudFont() == clawhud::HudFont::SegoeUiVariable ? BST_CHECKED : BST_UNCHECKED, 0);
     if (enableHud_) SendMessageW(enableHud_, BM_SETCHECK,
-        app_.MockHudEnabled() ? BST_CHECKED : BST_UNCHECKED, 0);
+        app_.HudEnabled() ? BST_CHECKED : BST_UNCHECKED, 0);
     if (visibilityAlways_) SendMessageW(visibilityAlways_, BM_SETCHECK,
         options.visibilityMode == clawhud::HudVisibilityMode::Always ? BST_CHECKED : BST_UNCHECKED, 0);
     if (visibilityInGameOnly_) SendMessageW(visibilityInGameOnly_, BM_SETCHECK,
