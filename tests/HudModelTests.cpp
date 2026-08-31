@@ -86,6 +86,24 @@ int main()
     ok &= Check(ShouldShowHud(HudVisibilityMode::Always, false), "always visibility");
     ok &= Check(!ShouldShowHud(HudVisibilityMode::InGameOnly, false), "in-game-only visibility");
     ok &= Check(ShouldShowHud(HudVisibilityMode::InGameOnly, true), "foreground game visibility");
+
+    ok &= Check(!ResolveHudVisible(false, std::nullopt, HudVisibilityMode::Always, true),
+        "HUD off resolves hidden regardless of mode or foreground");
+    ok &= Check(!ResolveHudVisible(false, std::optional<bool>(true),
+        HudVisibilityMode::Always, true),
+        "HUD off resolves hidden even with a show override");
+    ok &= Check(ResolveHudVisible(true, std::nullopt, HudVisibilityMode::Always, false),
+        "Always mode shows with no foreground game");
+    ok &= Check(!ResolveHudVisible(true, std::nullopt, HudVisibilityMode::InGameOnly, false),
+        "InGameOnly hides with no foreground game");
+    ok &= Check(ResolveHudVisible(true, std::nullopt, HudVisibilityMode::InGameOnly, true),
+        "InGameOnly shows with a foreground game");
+    ok &= Check(!ResolveHudVisible(true, std::optional<bool>(false),
+        HudVisibilityMode::Always, true),
+        "a hide override beats Always mode and foreground");
+    ok &= Check(ResolveHudVisible(true, std::optional<bool>(true),
+        HudVisibilityMode::InGameOnly, false),
+        "a show override beats InGameOnly with no game");
     ok &= Check(ShouldSampleProductionTelemetry(
         ShouldShowHud(HudVisibilityMode::Always, false), false, false),
         "always mode keeps global telemetry alive after game exit");

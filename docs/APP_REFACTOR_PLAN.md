@@ -91,6 +91,14 @@ PR6 -> PR7 -> PR8
 
 Recommended order for unattended execution: 1, 2, 3, 4, 5, 6, 7, 8, 9.
 
+**Revised after PR 4.** The app cannot be run or diff-reviewed here, so
+"safe = has a new unit test" was prioritised. PRs 1, 2, 4 covered the pure
+logic; a follow-up pulled `ResolveHudVisible` out of `ReconcileHudVisibility`.
+The pure-logic seam is now essentially exhausted — PRs 5 (sampling scheduler),
+6 (HUD controller), 7 (visibility state machine) and 8 (game detection) are
+**verbatim relocation into controller files**, verified by the full local build
+(`ClawHUD.exe` links) plus each PR's behavior inventory, not by new tests.
+
 ## Cluster reference (App.cpp regions at plan time, commit 266624e)
 
 | Cluster | Region (approx lines) | What it is |
@@ -152,3 +160,7 @@ PR 7 lands. No interface extraction.
   Only reorder: the two full-reset sites now clear EC+system before the
   power/battery lines instead of EC, then power/battery, then system — all
   independent field writes. New test `HudTelemetryAggregatorTests`.
+- Follow-up to PR 4: the `resolvedShow` computation in `ReconcileHudVisibility`
+  moved to `clawhud::ResolveHudVisible` (next to `ShouldShowHud` in `HudModel`).
+  The dead `rendererForegroundActive = false` local and its `|| false` term are
+  dropped. New cases in `HudModelTests`.
