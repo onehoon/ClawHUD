@@ -32,6 +32,13 @@ file(ARCHIVE_EXTRACT INPUT "${VELOPACK_ARCHIVE}" DESTINATION "${VELOPACK_ROOT}")
 set(PRESENTMON_VERSION "2.5.1")
 set(PRESENTMON_API2_ROOT "${CMAKE_SOURCE_DIR}/third_party/presentmon/2.5.1")
 
+add_executable(ClawHUD.Diag
+    src/ClawHUD.Diag/main.cpp)
+target_compile_features(ClawHUD.Diag PRIVATE cxx_std_20)
+target_compile_definitions(ClawHUD.Diag PRIVATE
+    UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+set_target_properties(ClawHUD.Diag PROPERTIES CXX_EXTENSIONS OFF)
+
 add_library(ClawHUD.Velopack SHARED IMPORTED GLOBAL)
 set_target_properties(ClawHUD.Velopack PROPERTIES
     IMPORTED_IMPLIB "${VELOPACK_ROOT}/lib/velopack_libc_win_x64_msvc.dll.lib"
