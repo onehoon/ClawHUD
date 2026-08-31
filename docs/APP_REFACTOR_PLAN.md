@@ -1769,12 +1769,60 @@ Those extractions remain valid and are retained in the new architecture.
     token-level move verification + full CTest + the frozen presentation contract
     are the interim evidence.
 
+- **R4 (extract `GameSessionController`)** — PR #187, branch
+  `refactor/r4-game-session-controller`. Ownership + message-plumbing
+  relocation; no game-detection redesign.
+  - New `src/ClawHUD/GameDetection/GameSessionController.{h,cpp}` (concrete
+    class, `namespace clawhud`). Owns, moved out of `App`: `ForegroundTracker`,
+    `GameDetectionCoordinator`, the three production triggers,
+    `ProductionGameWindowSource`, `ProductionProcessLifetimeWatcher`,
+    `GameRenderVerifier`, `SteamRunningAppIdSource`, `steamRunningAppId_`, the
+    six game-session `WM_APP` ids (2/5/6/7/8/9) + payloads, and 15 methods
+    (`Handle*`, `ApplyProductionEvidence`, `HandleGameDetectionTransition`,
+    `Arm*`, `TryCommit*`, `Release*`/`Clear*`, `Start/StopGameRenderVerification`
+    → `Ensure/StopRenderVerification`, `ReevaluateProductionGameDetection` →
+    `ReevaluateForeground`, the four `DiscardPending*`). Token-compared verbatim
+    vs `ed1d769` modulo member/hook substitution.
+  - **Shared provider stays App-owned** (verifier holds `&`); no second API2
+    session. **Debug observation stays in `App`** (`WindowsGameIdentitySource`,
+    `Process/Window LifecycleSource`, `PresentActivitySource`,
+    `debugLoggingEnabled_`) — R6. `MicrosoftGameTrigger` (production) not merged
+    with `WindowsGameIdentitySource` (debug).
+  - Cross-domain effects via `GameSessionHooks` (12 domain-specific
+    `std::function`s, each a one-liner in `App::MakeGameSessionHooks`): runtime
+    gate, foreground tail, HUD reconcile, graphics-probe ops, committed FPS
+    target, sampling lifecycle. No `App&`, no event bus. Hooks bound in the App
+    ctor (`SetHooks`), `messageWindow_` in `Run` (`BindMessageWindow`).
+  - `App::ProcessMessages` delegates: `if (gameSession_.HandleMessage(message))
+    continue;`. Commit cross-domain order (tracked PID → graphics probe →
+    committed telemetry PID → sampling → committed log → HUD reconcile)
+    preserved exactly. Startup / shutdown ordering preserved (`StopSources()`
+    bundles the game-session sources at the old first-stop position).
+  - `HudController.*` / `ProductionTelemetryController.*` /
+    `GameDetectionCoordinator.*` / `GameRenderVerifier.*` / `*Trigger*` /
+    `ProductionTargetPolicy.*` / `HudPresentation.*`: **zero diff**.
+  - Deliberate deltas (all no-observable-change, documented in the PR):
+    `Exit()` now also stops the Steam watcher via `StopSources()` (was `~App`
+    only); the three debug sources stop just after `StopSources()` instead of
+    interleaved; resume-fallback pending-event drain order normalized.
+  - No new test target (can't construct without the D3D verifier stack); the
+    14 game-detection/scenario suites + `SuspendResumeRecoveryTests` cover the
+    logic and stay green.
+  - `App.cpp` 1365 → 734 lines; `App.h` 171 → 126.
+  - CTest: 46/46 pass locally (VS 2022 BuildTools, Ninja, Release), clean build
+    (no warnings). **Hardware smoke: deferred** — app unsupported on this dev
+    machine; per the R4 work order §63 this is *not* itself a merge blocker
+    (unlike R3). §64 follow-up matrix: Steam / generic / Microsoft launch +
+    Alt+Tab + exit, HUD Always/InGameOnly, suspend/resume, FPS target
+    transitions, VRR / click-through / no-activation.
+
 ### Next work
 
-**R4 — Extract `GameSessionController`** (§8.3, §9) — the highest-risk PR: do it
-only after re-reading §8.3, the behavior-inventory template, and
-`docs/GAME_DETECTION_PRODUCTION_DESIGN.md`. After each merged PR, update this
-progress log with:
+**R5 — re-evaluate suspend/resume now that the controllers exist** (§9 R5).
+Default: keep suspend/resume as top-level `App` orchestration using the R1 pure
+policy; only create a `RuntimeLifecycleController` if `App` still holds a large
+amount of hard-to-follow retry machinery. Re-read §9 R5 first. After each merged
+PR, update this progress log with:
 
 ```text
 PR number
