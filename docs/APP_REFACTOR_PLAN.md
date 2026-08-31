@@ -1816,13 +1816,45 @@ Those extractions remain valid and are retained in the new architecture.
     Alt+Tab + exit, HUD Always/InGameOnly, suspend/resume, FPS target
     transitions, VRR / click-through / no-activation.
 
+- **R5 (re-evaluate suspend/resume — no controller)** — PR #189, branch
+  `refactor/r5-suspend-resume`. Boundary-confirmation / cleanup phase, not an
+  extraction.
+  - **R5 decision: no `RuntimeLifecycleController` / `SuspendResumeCoordinator`
+    created.** Suspend/resume remains top-level `App` orchestration. The R1
+    `SuspendResumePolicy.h` remains the pure decision layer (unchanged). After
+    R2/R3/R4 the remaining `App` lifecycle surface — `suspended_`,
+    `resumeRecoveryActive_`, `resumeRecoveryAttempts_`, `HandleSystemSuspend`,
+    `HandleSystemResume`, `TryResumeRecovery`, `CancelResumeRecovery`,
+    `PauseProductionSamplingForSuspend` — is small and cohesive, and every
+    detailed HUD / telemetry / game-session operation already goes through a
+    controller API. `App` is the correct composition root for these cross-domain
+    recovery flows; another coordinator would only move the same coupling
+    sideways.
+  - Runtime diff: one provably-equivalent boolean simplification in
+    `App::TryResumeRecovery` — `rendererForegroundActive` (captured once from
+    `gameSession_.ForegroundIsTrackedProcess()`) now reused for both the
+    `expectedVisible` term and the `ResumeRecoveryShouldWaitForForeground`
+    argument, dropping two redundant re-queries (`x || x` in the ternary; a
+    third call with no intervening foreground-tracker mutation). No call
+    ordering change. Plus a comment in `App.h` recording the R5 decision.
+  - `SuspendResumePolicy.h`, `HudController.*`, `ProductionTelemetryController.*`,
+    `GameSessionController.*`, `HudPresentation.*` /
+    `HudPresentationContract.*` / `HudPresentationLifecycle.*` / `HudRenderer.*`:
+    **zero diff**. No new PresentMon provider/session. Tray-only startup
+    unchanged.
+  - CTest: 46/46 pass locally (VS 2022 BuildTools, Ninja, Release), clean build.
+    **Hardware smoke: deferred** — app unsupported on this dev machine; per the
+    R5 work order §28 not itself a merge blocker.
+
 ### Next work
 
-**R5 — re-evaluate suspend/resume now that the controllers exist** (§9 R5).
-Default: keep suspend/resume as top-level `App` orchestration using the R1 pure
-policy; only create a `RuntimeLifecycleController` if `App` still holds a large
-amount of hard-to-follow retry machinery. Re-read §9 R5 first. After each merged
-PR, update this progress log with:
+**R6 — Optional `DebugObservationController`** (§9 R6). Extract the debug-only
+observation sources still owned by `App` (`WindowsGameIdentitySource`,
+`ProcessLifecycleSource`, `WindowLifecycleSource`, `PresentActivitySource`,
+`debugLoggingEnabled_`) behind one controller gated on the developer
+`[Developer] DebugLog` switch, so `App` no longer carries the debug wiring. This
+is optional — do it only if it makes `App` meaningfully clearer. Re-read §9 R6
+first. After each merged PR, update this progress log with:
 
 ```text
 PR number

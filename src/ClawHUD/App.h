@@ -112,6 +112,11 @@ private:
     std::wstring executablePath_;
     bool hudHotkeyRegistered_{};
     bool intelVrrRangeFixEnabled_{ true };
+    // Suspend/resume is deliberately kept as top-level App orchestration (R5):
+    // App is the single authority for this state, and HandleSystemSuspend /
+    // HandleSystemResume / TryResumeRecovery are cross-domain recovery flows that
+    // drive HudController, ProductionTelemetryController and GameSessionController
+    // through their narrow APIs. The pure decisions live in SuspendResumePolicy.h.
     bool suspended_{};
     bool resumeRecoveryActive_{};
     unsigned resumeRecoveryAttempts_{};
