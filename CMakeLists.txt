@@ -18,12 +18,6 @@ configure_file(
     "${CMAKE_BINARY_DIR}/generated/Version.h"
     @ONLY)
 
-add_executable(ClawHUD.VrrPoc WIN32 src/ClawHUD.VrrPoc/main.cpp)
-target_compile_features(ClawHUD.VrrPoc PRIVATE cxx_std_20)
-target_compile_definitions(ClawHUD.VrrPoc PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-target_link_libraries(ClawHUD.VrrPoc PRIVATE d3d11 dxgi dcomp d2d1 dwrite)
-set_target_properties(ClawHUD.VrrPoc PROPERTIES CXX_EXTENSIONS OFF)
-
 set(VELOPACK_VERSION "1.2.0")
 set(VELOPACK_ARCHIVE "${CMAKE_BINARY_DIR}/_deps/velopack_libc_${VELOPACK_VERSION}.zip")
 set(VELOPACK_ROOT "${CMAKE_BINARY_DIR}/_deps/velopack_libc_${VELOPACK_VERSION}")
@@ -72,8 +66,6 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/SettingsWindow.Settings.cpp
     src/ClawHUD/SettingsWindowInternal.cpp
     src/ClawHUD/SettingsWindowGeometry.cpp
-    src/ClawHUD/EcDiagnostic.cpp
-    src/ClawHUD/IgclTelemetryDiagnostic.cpp
     src/ClawHUD/PresentMonApi2Diagnostic.cpp
     src/ClawHUD/GameDetectionProbe.cpp
     src/ClawHUD/PresentMonApi2Client.cpp
@@ -91,10 +83,6 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/WindowsMemoryTelemetry.cpp
     src/ClawHUD/IntelGraphicsApiProbe.cpp
     src/ClawHUD/SupportedHardware.cpp
-    src/ClawHUD/VrrDiagnostic.cpp
-    src/ClawHUD/D3dkmtVblankProbe.cpp
-    src/ClawHUD/VrrDiagnosticAnalysis.cpp
-    src/ClawHUD/IntelVrrDiagnosticProbe.cpp
     src/ClawHUD/Tweaks/TweakStartupCoordinator.cpp
     src/ClawHUD/Tweaks/IntelVrr/AffectedPanelDetector.cpp
     src/ClawHUD/Tweaks/IntelVrr/IntelArcSyncClient.cpp
@@ -310,17 +298,6 @@ if(BUILD_TESTING)
     set_target_properties(ClawHUD.ProductionTargetPolicyTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.ProductionTargetPolicyTests COMMAND ClawHUD.ProductionTargetPolicyTests)
 
-    add_executable(ClawHUD.IntelVrrDiagnosticProbeTests
-        tests/IntelVrrDiagnosticProbeTests.cpp
-        src/ClawHUD/IntelVrrDiagnosticProbe.cpp
-        src/ClawHUD/Tweaks/IntelVrr/AffectedPanelDetector.cpp)
-    target_compile_features(ClawHUD.IntelVrrDiagnosticProbeTests PRIVATE cxx_std_20)
-    target_compile_definitions(ClawHUD.IntelVrrDiagnosticProbeTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-    target_include_directories(ClawHUD.IntelVrrDiagnosticProbeTests PRIVATE src/ClawHUD)
-    target_link_libraries(ClawHUD.IntelVrrDiagnosticProbeTests PRIVATE wbemuuid ole32 oleaut32)
-    set_target_properties(ClawHUD.IntelVrrDiagnosticProbeTests PROPERTIES CXX_EXTENSIONS OFF)
-    add_test(NAME ClawHUD.IntelVrrDiagnosticProbeTests COMMAND ClawHUD.IntelVrrDiagnosticProbeTests)
-
     add_executable(ClawHUD.IntelVrrRangeTweakTests
         tests/IntelVrrRangeTweakTests.cpp
         src/ClawHUD/Tweaks/IntelVrr/AffectedPanelDetector.cpp
@@ -340,13 +317,6 @@ if(BUILD_TESTING)
     target_include_directories(ClawHUD.TweakStartupCoordinatorTests PRIVATE src/ClawHUD)
     set_target_properties(ClawHUD.TweakStartupCoordinatorTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.TweakStartupCoordinatorTests COMMAND ClawHUD.TweakStartupCoordinatorTests)
-
-    add_executable(ClawHUD.DiagnosticHudModeTests tests/DiagnosticHudModeTests.cpp)
-    target_compile_features(ClawHUD.DiagnosticHudModeTests PRIVATE cxx_std_20)
-    target_compile_definitions(ClawHUD.DiagnosticHudModeTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-    target_include_directories(ClawHUD.DiagnosticHudModeTests PRIVATE src/ClawHUD)
-    set_target_properties(ClawHUD.DiagnosticHudModeTests PROPERTIES CXX_EXTENSIONS OFF)
-    add_test(NAME ClawHUD.DiagnosticHudModeTests COMMAND ClawHUD.DiagnosticHudModeTests)
 
     add_executable(ClawHUD.SuspendResumeRecoveryTests tests/SuspendResumeRecoveryTests.cpp)
     target_compile_features(ClawHUD.SuspendResumeRecoveryTests PRIVATE cxx_std_20)
@@ -423,17 +393,6 @@ if(BUILD_TESTING)
     set_target_properties(ClawHUD.IntelGraphicsApiProbeTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.IntelGraphicsApiProbeTests COMMAND ClawHUD.IntelGraphicsApiProbeTests)
 
-    add_executable(ClawHUD.IgclTelemetryDiagnosticTests
-        tests/IgclTelemetryDiagnosticTests.cpp
-        src/ClawHUD/IgclTelemetryDiagnostic.cpp
-        src/ClawHUD/RuntimeLogger.cpp)
-    target_compile_features(ClawHUD.IgclTelemetryDiagnosticTests PRIVATE cxx_std_20)
-    target_compile_definitions(ClawHUD.IgclTelemetryDiagnosticTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-    target_include_directories(ClawHUD.IgclTelemetryDiagnosticTests PRIVATE src/ClawHUD "${CMAKE_BINARY_DIR}/generated")
-    target_link_libraries(ClawHUD.IgclTelemetryDiagnosticTests PRIVATE shell32)
-    set_target_properties(ClawHUD.IgclTelemetryDiagnosticTests PROPERTIES CXX_EXTENSIONS OFF)
-    add_test(NAME ClawHUD.IgclTelemetryDiagnosticTests COMMAND ClawHUD.IgclTelemetryDiagnosticTests)
-
     add_executable(ClawHUD.SupportedHardwareTests
         tests/SupportedHardwareTests.cpp
         src/ClawHUD/SupportedHardware.cpp
@@ -472,25 +431,6 @@ if(BUILD_TESTING)
     target_link_libraries(ClawHUD.UninstallCleanupTests PRIVATE shell32 ole32)
     set_target_properties(ClawHUD.UninstallCleanupTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.UninstallCleanupTests COMMAND ClawHUD.UninstallCleanupTests)
-
-    add_executable(ClawHUD.VrrDiagnosticAnalysisTests
-        tests/VrrDiagnosticAnalysisTests.cpp
-        src/ClawHUD/VrrDiagnosticAnalysis.cpp)
-    target_compile_features(ClawHUD.VrrDiagnosticAnalysisTests PRIVATE cxx_std_20)
-    target_include_directories(ClawHUD.VrrDiagnosticAnalysisTests PRIVATE src/ClawHUD)
-    set_target_properties(ClawHUD.VrrDiagnosticAnalysisTests PROPERTIES CXX_EXTENSIONS OFF)
-    add_test(NAME ClawHUD.VrrDiagnosticAnalysisTests COMMAND ClawHUD.VrrDiagnosticAnalysisTests)
-
-    add_executable(ClawHUD.D3dkmtVblankProbeTests
-        tests/D3dkmtVblankProbeTests.cpp
-        src/ClawHUD/D3dkmtVblankProbe.cpp)
-    target_compile_features(ClawHUD.D3dkmtVblankProbeTests PRIVATE cxx_std_20)
-    target_compile_definitions(ClawHUD.D3dkmtVblankProbeTests PRIVATE
-        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-    target_include_directories(ClawHUD.D3dkmtVblankProbeTests PRIVATE src/ClawHUD)
-    target_link_libraries(ClawHUD.D3dkmtVblankProbeTests PRIVATE gdi32 user32)
-    set_target_properties(ClawHUD.D3dkmtVblankProbeTests PROPERTIES CXX_EXTENSIONS OFF)
-    add_test(NAME ClawHUD.D3dkmtVblankProbeTests COMMAND ClawHUD.D3dkmtVblankProbeTests)
 
     add_executable(ClawHUD.HudPresentationContractTests
         tests/HudPresentationContractTests.cpp

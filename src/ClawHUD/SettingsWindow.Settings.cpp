@@ -215,7 +215,6 @@ void SettingsWindow::UpdateHudControls()
             (size == -1 ? L"-1" : L"-2");
         SetWindowTextW(hudSizeValue_, text);
     }
-    const bool sizeChangeEnabled = !app_.VrrDiagnosticRunning();
-    if (hudSizeMinus_) EnableWindow(hudSizeMinus_, sizeChangeEnabled && size > clawhud::kMinHudSizeOffset);
-    if (hudSizePlus_) EnableWindow(hudSizePlus_, sizeChangeEnabled && size < clawhud::kMaxHudSizeOffset);
+    if (hudSizeMinus_) EnableWindow(hudSizeMinus_, size > clawhud::kMinHudSizeOffset);
+    if (hudSizePlus_) EnableWindow(hudSizePlus_, size < clawhud::kMaxHudSizeOffset);
 }

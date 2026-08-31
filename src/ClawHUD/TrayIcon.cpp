@@ -161,8 +161,6 @@ LRESULT CALLBACK TrayIcon::WindowProc(HWND window, UINT message, WPARAM wParam, 
             self->app_.TryResumeRecovery();
         else if (wParam == kPresentMonFpsTimerId)
             self->app_.SampleProductionFpsTelemetry();
-        else if (wParam == kMockHudTimerId)
-            self->app_.RenderMockHud();
         return 0;
     }
     if (message == kTrayMessage && lParam == WM_LBUTTONUP)

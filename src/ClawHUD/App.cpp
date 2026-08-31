@@ -34,7 +34,6 @@ namespace
 {
 constexpr UINT kSettingsDestroyed = WM_APP + 1;
 constexpr UINT kForegroundChanged = WM_APP + 2;
-constexpr UINT kHudVisibilityRequest = WM_APP + 3;
 constexpr UINT kSteamRunningAppIdChanged = WM_APP + 5;
 constexpr UINT kMicrosoftGameEvidence = WM_APP + 6;
 constexpr UINT kGameRenderVerifierUpdate = WM_APP + 7;
@@ -46,19 +45,6 @@ constexpr UINT kPresentMonFpsSamplingIntervalMs = 500;
 constexpr UINT kGraphicsApiRetryIntervalMs = 500;
 constexpr unsigned kGraphicsApiMaxAttempts = 5;
 constexpr wchar_t kInstanceMutexName[] = L"Local\\ClawHUD.SingleInstance";
-struct HudVisibilityRequest
-{
-    bool restore{};
-    bool query{};
-    bool modeRequest{};
-    bool visible{};
-    DiagnosticHudMode mode{ DiagnosticHudMode::Off };
-    HudVisibilityState state{};
-    HANDLE complete{};
-    bool result{};
-    std::atomic_bool cancelled{};
-    ~HudVisibilityRequest() { if (complete) CloseHandle(complete); }
-};
 
 struct MicrosoftGameEvidenceUpdate
 {
@@ -111,7 +97,6 @@ App::App(HINSTANCE instance) : instance_(instance), tray_(*this),
 App::~App()
 {
     Log(L"ClawHUD exiting");
-    KillTimer(tray_.Window(), kMockHudTimerId);
     CancelResumeRecovery();
     StopProductionEcSampling(false, L"app-shutdown");
     StopGraphicsApiProbe();
@@ -121,21 +106,17 @@ App::~App()
     windowLifecycleSource_.Stop();
     presentActivitySource_.Stop();
     processLifecycleSource_.Stop();
-    if (vrrDiagnostic_) vrrDiagnostic_->Stop();
     if (presentMonApi2Diagnostic_) presentMonApi2Diagnostic_->Stop();
-    DiscardPendingHudVisibilityRequests();
     StopProductionPresentMonSampling(L"app-shutdown", true);
     steamRunningAppIdSource_.Stop();
     DiscardPendingGameRenderVerifierEvents();
     DiscardPendingMicrosoftGameEvidence();
     DiscardPendingProductionWindowEvents();
     DiscardPendingProductionProcessExitEvents();
-    vrrDiagnostic_.reset();
     if (hudHotkeyRegistered_ && tray_.Window())
         UnregisterHotKey(tray_.Window(), kHudToggleHotkeyId);
     hudHotkeyRegistered_ = false;
     hudPresentation_.reset();
-    ecDiagnostic_.reset();
     settings_.reset();
     tray_.Destroy();
     if (instanceMutex_)
@@ -230,9 +211,6 @@ int App::Run()
     if (!hudHotkeyRegistered_)
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
             L"RegisterHotKey(F8) failed; continuing without the global HUD toggle");
-    ecDiagnostic_ = std::make_unique<EcDiagnostic>(tray_.Window());
-    igclDiagnostic_ = std::make_unique<clawhud::IgclTelemetryDiagnostic>(tray_.Window());
-    vrrDiagnostic_ = std::make_unique<VrrDiagnostic>(*this, tray_.Window());
     presentMonApi2Diagnostic_ = std::make_unique<clawhud::PresentMonApi2Diagnostic>(tray_.Window());
     const bool providerReady = presentMonTelemetryProvider_.Initialize();
     Log(L"[PresentMon] providerReady=" + std::to_wstring(providerReady) +
@@ -352,78 +330,6 @@ void App::SetStartWithWindows(bool enabled)
     SaveHudSettings();
 }
 
-bool App::StartEcDiagnostic()
-{
-    if (!ecDiagnostic_ || DiagnosticRunning() || ecHudSamplingActive_)
-        return false;
-
-    igclStatus_ = L"Idle";
-    StopProductionPresentMonSampling(L"diagnostic-start", false);
-    StopProductionFpsSampling();
-    StopGraphicsApiProbe();
-    if (gameDetectionCoordinator_.Context().state != clawhud::GameDetectionState::Committed)
-        ClearProductionCandidate(L"diagnostic-start");
-    if (!ecDiagnostic_->Start())
-    {
-        if (mockHudEnabled_ && !suspended_)
-            ReevaluateProductionGameDetection();
-        ReconcileHudVisibility();
-        return false;
-    }
-    ecStatus_ = L"Running";
-    return true;
-}
-bool App::StartIgclDiagnostic()
-{
-    if (!igclDiagnostic_ || DiagnosticRunning())
-        return false;
-    ecStatus_ = L"Idle";
-    StopProductionEcSampling(false, L"igcl-diagnostic-start");
-    StopProductionPresentMonSampling(L"igcl-diagnostic-start", false);
-    StopGraphicsApiProbe();
-    if (gameDetectionCoordinator_.Context().state != clawhud::GameDetectionState::Committed)
-        ClearProductionCandidate(L"diagnostic-start");
-    if (!igclDiagnostic_->Start())
-    {
-        if (mockHudEnabled_ && !suspended_) ReevaluateProductionGameDetection();
-        ReconcileHudVisibility();
-        return false;
-    }
-    igclStatus_ = L"Waiting 5 seconds...";
-    if (settings_) settings_->RequestClose();
-    return true;
-}
-void App::StopIgclDiagnostic()
-{
-    const bool wasRunning = IgclDiagnosticRunning();
-    if (igclDiagnostic_) igclDiagnostic_->Stop();
-    if (wasRunning && clawhud::ShouldReevaluateForegroundAfterDiagnostic(
-        mockHudEnabled_, DiagnosticRunning(), suspended_))
-        ReevaluateProductionGameDetection();
-    ReconcileHudVisibility();
-}
-bool App::IgclDiagnosticRunning() const { return igclDiagnostic_ && igclDiagnostic_->Running(); }
-void App::FinishIgclDiagnostic(bool success)
-{
-    if (igclDiagnostic_) igclDiagnostic_->Stop();
-    if (clawhud::ShouldReevaluateForegroundAfterDiagnostic(
-        mockHudEnabled_, DiagnosticRunning(), suspended_))
-        ReevaluateProductionGameDetection();
-    ReconcileHudVisibility();
-    if (!success)
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
-            L"IGCL diagnostic completed without success; production telemetry restored");
-}
-void App::StopEcDiagnostic()
-{
-    if (ecDiagnostic_)
-        ecDiagnostic_->Stop();
-    if (clawhud::ShouldReevaluateForegroundAfterDiagnostic(
-        mockHudEnabled_, DiagnosticRunning(), suspended_))
-        ReevaluateProductionGameDetection();
-    ReconcileHudVisibility();
-}
-bool App::EcDiagnosticRunning() const { return ecDiagnostic_ && ecDiagnostic_->Running(); }
 void App::OpenDiagnosticLogFolder()
 {
     try
@@ -434,51 +340,9 @@ void App::OpenDiagnosticLogFolder()
     }
     catch (...) {}
 }
-bool App::StartVrrDiagnostic()
-{
-    if (!vrrDiagnostic_ || DiagnosticRunning()) return false;
-    if (!VrrDiagnosticCanWaitForF8(hudHotkeyRegistered_))
-    {
-        vrrStatus_ = L"F8 unavailable";
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
-            L"VRR diagnostic start failed: global F8 hotkey is not registered");
-        return false;
-    }
-    StopProductionEcSampling(false, L"diagnostic-start");
-    StopProductionPresentMonSampling(L"diagnostic-start", false);
-    StopGraphicsApiProbe();
-    if (gameDetectionCoordinator_.Context().state != clawhud::GameDetectionState::Committed)
-        ClearProductionCandidate(L"diagnostic-start");
-    if (!vrrDiagnostic_->Start())
-    {
-        if (clawhud::ShouldReevaluateForegroundAfterDiagnostic(
-            mockHudEnabled_, DiagnosticRunning(), suspended_))
-            ReevaluateProductionGameDetection();
-        ReconcileHudVisibility();
-        if (const DWORD processId = foregroundTracker_.TrackedProcessId();
-            processId && ProcessAlive(processId) && mockHudEnabled_)
-            StartGraphicsApiProbe(processId);
-        return false;
-    }
-    vrrStatus_ = L"Waiting for F8";
-    if (settings_) settings_->RequestClose();
-    return true;
-}
-void App::StopVrrDiagnostic()
-{
-    if (vrrDiagnostic_)
-        vrrDiagnostic_->Stop();
-    if (clawhud::ShouldReevaluateForegroundAfterDiagnostic(
-        mockHudEnabled_, DiagnosticRunning(), suspended_))
-        ReevaluateProductionGameDetection();
-    ReconcileHudVisibility();
-}
-bool App::VrrDiagnosticRunning() const { return vrrDiagnostic_ && vrrDiagnostic_->Running(); }
 bool App::StartPresentMonApi2Diagnostic()
 {
     if (!presentMonApi2Diagnostic_ || DiagnosticRunning()) return false;
-    ecStatus_ = L"Idle";
-    igclStatus_ = L"Idle";
     StopProductionEcSampling(false, L"api2-diagnostic-start");
     StopProductionPresentMonSampling(L"api2-diagnostic-start", false);
     StopGraphicsApiProbe();
@@ -505,12 +369,10 @@ bool App::PresentMonApi2DiagnosticRunning() const
 }
 bool App::DiagnosticRunning() const
 {
-    return EcDiagnosticRunning() || VrrDiagnosticRunning() ||
-        IgclDiagnosticRunning() || PresentMonApi2DiagnosticRunning();
+    return PresentMonApi2DiagnosticRunning();
 }
 void App::StopDiagnostic()
 {
-    StopVrrDiagnostic(); StopEcDiagnostic(); StopIgclDiagnostic();
     StopPresentMonApi2Diagnostic();
 }
 
@@ -520,7 +382,6 @@ void App::HandleSystemSuspend()
         return;
     suspended_ = true;
     CancelResumeRecovery();
-    KillTimer(tray_.Window(), kMockHudTimerId);
     if (hudPresentation_ && hudPresentation_->Visible())
     {
         if (SUCCEEDED(hudPresentation_->Hide()))
@@ -542,7 +403,6 @@ void App::HandleSystemResume()
         return;
     if (ResumeRecoveryNeedsSuspendFallback(suspended_))
     {
-        KillTimer(tray_.Window(), kMockHudTimerId);
         if (hudPresentation_ && hudPresentation_->Visible())
             hudPresentation_->Hide();
         PauseProductionSamplingForSuspend();
@@ -683,31 +543,14 @@ bool App::EnsureMockHud()
         Log(L"HUD initialized");
         hudInitializedLogged_ = true;
     }
-    if (diagnosticHudMode_.has_value())
-    {
-        hr = hudPresentation_->Render(clawhud::MakeGameDcSample(), options);
-        if (FAILED(hr))
-        {
-            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
-                L"HUD render failed hr=" + HexHresult(hr));
-            return false;
-        }
-    }
     return true;
 }
 
 void App::StopMockHud()
 {
-    if (VrrDiagnosticRunning())
-    {
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
-            L"Hide Mock HUD ignored while VRR diagnostic is running");
-        return;
-    }
     if (mockHudEnabled_) Log(L"HUD disabled");
     mockHudEnabled_ = false;
     manualHudVisibilityOverride_.reset();
-    KillTimer(tray_.Window(), kMockHudTimerId);
     StopProductionEcSampling(true, L"hud-disabled");
     StopGraphicsApiProbe();
     if (gameDetectionCoordinator_.Context().state != clawhud::GameDetectionState::Committed)
@@ -723,12 +566,6 @@ void App::StopMockHud()
 
 bool App::SetHudEnabled(bool enabled)
 {
-    if (VrrDiagnosticRunning())
-    {
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
-            L"HUD enable change ignored while VRR diagnostic is running");
-        return false;
-    }
     if (!enabled)
     {
         StopMockHud();
@@ -738,7 +575,6 @@ bool App::SetHudEnabled(bool enabled)
     if (!EnsureMockHud()) return false;
     if (!mockHudEnabled_) Log(L"HUD enabled");
     mockHudEnabled_ = true;
-    mockFrameIndex_ = 0;
     ReevaluateProductionGameDetection();
     manualHudVisibilityOverride_.reset();
     ReconcileHudVisibility();
@@ -748,12 +584,6 @@ bool App::SetHudEnabled(bool enabled)
 
 void App::SetHudAlignment(clawhud::HudAlignment alignment)
 {
-    if (VrrDiagnosticRunning())
-    {
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
-            L"HUD alignment change ignored while VRR diagnostic is running");
-        return;
-    }
     if (hudOptions_.alignment == alignment)
         return;
     const auto previousAlignment = hudOptions_.alignment;
@@ -804,12 +634,6 @@ void App::SetHudFont(clawhud::HudFont font)
 
 void App::SetHudBackgroundMode(clawhud::HudBackgroundMode mode)
 {
-    if (VrrDiagnosticRunning())
-    {
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
-            L"HUD background mode change ignored while VRR diagnostic is running");
-        return;
-    }
     if (hudOptions_.backgroundMode == mode)
         return;
     const auto previousMode = hudOptions_.backgroundMode;
@@ -832,12 +656,6 @@ void App::SetHudBackgroundMode(clawhud::HudBackgroundMode mode)
 
 bool App::SetHudOpacity(float opacity, bool persist)
 {
-    if (VrrDiagnosticRunning())
-    {
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
-            L"HUD opacity change ignored while VRR diagnostic is running");
-        return false;
-    }
     const long requestedPercent = static_cast<long>(std::lround(opacity * 100.0f));
     const long percent = clawhud::ClampHudOpacityPercent(requestedPercent);
     const float newOpacity = static_cast<float>(percent) / 100.0f;
@@ -863,12 +681,6 @@ bool App::SetHudOpacity(float opacity, bool persist)
 
 void App::SetHudSizeOffset(int offset)
 {
-    if (VrrDiagnosticRunning())
-    {
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
-            L"HUD size change ignored while VRR diagnostic is running");
-        return;
-    }
     offset = clawhud::ClampHudSizeOffset(offset);
     if (hudSizeOffset_ == offset)
         return;
@@ -920,12 +732,7 @@ bool App::RecreateHudPresentation(bool restoreVisible)
         return false;
     }
     if (mockHudEnabled_)
-    {
-        if (diagnosticHudMode_.has_value())
-            RenderMockHud(true);
-        else
-            RenderProductionHud(true);
-    }
+        RenderProductionHud(true);
     if (clawhud::ShouldRestoreHudVisibility(restoreVisible))
     {
         hr = hudPresentation_->Show();
@@ -942,40 +749,7 @@ bool App::RecreateHudPresentation(bool restoreVisible)
 void App::RefreshMockHud()
 {
     if (mockHudEnabled_ && hudPresentation_ && hudPresentation_->Visible())
-    {
-        if (diagnosticHudMode_.has_value())
-            RenderMockHud();
-        else
-            RenderProductionHud();
-    }
-}
-
-void App::RenderMockHud(bool allowHidden)
-{
-    if (!mockHudEnabled_ || !hudPresentation_ ||
-        (!allowHidden && !hudPresentation_->Visible()))
-        return;
-    auto snapshot = clawhud::MakeGameDcSample();
-    const auto frame = mockFrameIndex_++;
-    const auto phase = frame % 3;
-    snapshot.renderFps = phase == 1 ? 100.0 : 99.0;
-    snapshot.cpuUsagePercent = phase == 0 ? 9.0 : phase == 1 ? 10.0 : 100.0;
-    snapshot.gpuUsagePercent = phase == 1 ? 100.0 : 99.0;
-    snapshot.cpuPackagePowerW = phase == 1 ? 10.1 : 9.8;
-    snapshot.fan1Rpm = phase == 1 ? 1000 : 999;
-    snapshot.fan2Rpm = phase == 1 ? 1000 : 999;
-    snapshot.batteryPercent = phase == 0 ? 9 : phase == 1 ? 10 : 100;
-    const auto options = BuildHudRenderOptions();
-    const HRESULT hr = hudPresentation_->Render(snapshot, options);
-    if (FAILED(hr))
-    {
-        if (!hudRenderFailureLogged_)
-            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
-                L"HUD render failed hr=" + HexHresult(hr));
-        hudRenderFailureLogged_ = true;
-    }
-    else
-        hudRenderFailureLogged_ = false;
+        RenderProductionHud();
 }
 
 clawhud::MsiEcHudTelemetry App::ReadHudEcTelemetry()
@@ -1072,8 +846,7 @@ clawhud::MsiEcHudTelemetry App::ReadHudEcTelemetry()
 void App::RenderProductionHud(bool allowHidden)
 {
     if (!mockHudEnabled_ || !hudPresentation_ ||
-        (!allowHidden && !hudPresentation_->Visible()) ||
-        diagnosticHudMode_.has_value())
+        (!allowHidden && !hudPresentation_->Visible()))
         return;
 
     clawhud::HudTelemetrySnapshot snapshot{};
@@ -1103,8 +876,7 @@ void App::RenderProductionHud(bool allowHidden)
 
 void App::SampleProductionTelemetry()
 {
-    if (suspended_ || !mockHudEnabled_ || !hudPresentation_ || !hudPresentation_->Visible() ||
-        diagnosticHudMode_.has_value())
+    if (suspended_ || !mockHudEnabled_ || !hudPresentation_ || !hudPresentation_->Visible())
         return;
     if (graphicsApiProcessId_ && !ProcessAlive(graphicsApiProcessId_))
         StopGraphicsApiProbe();
@@ -1158,8 +930,7 @@ void App::SampleProductionTelemetry()
 
 void App::SampleProductionBatteryTelemetry()
 {
-    if (suspended_ || !mockHudEnabled_ || !hudPresentation_ || !hudPresentation_->Visible() ||
-        diagnosticHudMode_.has_value())
+    if (suspended_ || !mockHudEnabled_ || !hudPresentation_ || !hudPresentation_->Visible())
         return;
     latestPowerTelemetry_ = clawhud::ReadWindowsPowerTelemetry();
     if (!latestPowerTelemetry_)
@@ -1191,7 +962,7 @@ void App::SampleProductionBatteryTelemetry()
 
 void App::StartProductionEcSampling()
 {
-    if (suspended_ || diagnosticHudMode_.has_value() || !MockHudVisible())
+    if (suspended_ || !MockHudVisible())
         return;
     if (!ecHudSamplingActive_)
     {
@@ -1609,12 +1380,6 @@ bool App::MockHudVisible() const noexcept
 
 void App::TrackMockGameWindow(HWND window)
 {
-    if (VrrDiagnosticRunning())
-    {
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
-            L"Track Mock Game ignored while VRR diagnostic is running");
-        return;
-    }
     DWORD processId{};
     if (window)
         GetWindowThreadProcessId(window, &processId);
@@ -1975,12 +1740,6 @@ void App::ClearProductionCandidate(const wchar_t* reason)
 
 void App::SetHudVisibilityMode(clawhud::HudVisibilityMode mode)
 {
-    if (VrrDiagnosticRunning())
-    {
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
-            L"HUD visibility mode change ignored while VRR diagnostic is running");
-        return;
-    }
     const auto previousMode = hudOptions_.visibilityMode;
     hudOptions_.visibilityMode = mode;
     manualHudVisibilityOverride_.reset();
@@ -2009,18 +1768,6 @@ void App::SetHudVisibilityMode(clawhud::HudVisibilityMode mode)
 
 void App::HandleHudToggleHotkey()
 {
-    if (vrrDiagnostic_ && vrrDiagnostic_->WaitingForTrigger())
-    {
-        if (vrrDiagnostic_->TriggerFromForeground())
-            Log(L"VRR diagnostic triggered by F8");
-        return;
-    }
-    if (VrrDiagnosticRunning())
-    {
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
-            L"F8 ignored while VRR diagnostic is running");
-        return;
-    }
     if (!mockHudEnabled_)
     {
         if (!EnsureMockHud())
@@ -2030,7 +1777,6 @@ void App::HandleHudToggleHotkey()
             return;
         }
         mockHudEnabled_ = true;
-        mockFrameIndex_ = 0;
         ReevaluateProductionGameDetection();
         if (const DWORD processId = foregroundTracker_.TrackedProcessId())
             StartGraphicsApiProbe(processId);
@@ -2038,169 +1784,6 @@ void App::HandleHudToggleHotkey()
     manualHudVisibilityOverride_ = !MockHudVisible();
     ReconcileHudVisibility();
     if (settings_) settings_->UpdateHudControls();
-}
-
-HudVisibilityState App::CaptureHudVisibilityState() const noexcept
-{
-    return { mockHudEnabled_, manualHudVisibilityOverride_, MockHudVisible() };
-}
-
-bool App::ApplyDiagnosticHudVisibility(bool visible)
-{
-    diagnosticHudMode_.reset();
-    StopProductionEcSampling(true, L"diagnostic-start");
-    if (gameDetectionCoordinator_.Context().state != clawhud::GameDetectionState::Committed)
-        ClearProductionCandidate(L"diagnostic-start");
-    manualHudVisibilityOverride_ = visible;
-    if (visible && !mockHudEnabled_)
-    {
-        if (!EnsureMockHud()) return false;
-        mockHudEnabled_ = true;
-        mockFrameIndex_ = 0;
-    }
-    ReconcileHudVisibility();
-    return MockHudVisible() == visible;
-}
-
-bool App::ApplyDiagnosticHudMode(DiagnosticHudMode mode)
-{
-    StopProductionPresentMonSampling(L"diagnostic-start", false);
-    StopProductionEcSampling(false, L"diagnostic-start");
-    if (gameDetectionCoordinator_.Context().state != clawhud::GameDetectionState::Committed)
-        ClearProductionCandidate(L"diagnostic-start");
-    diagnosticHudMode_ = mode;
-    manualHudVisibilityOverride_ = mode == DiagnosticHudMode::Off
-        ? std::optional<bool>(false)
-        : std::optional<bool>(true);
-    if (mode != DiagnosticHudMode::Off)
-    {
-        if (!EnsureMockHud()) return false;
-        mockHudEnabled_ = true;
-        mockFrameIndex_ = 0;
-    }
-    ReconcileHudVisibility();
-    return MockHudVisible() == (mode != DiagnosticHudMode::Off);
-}
-
-bool App::RestoreHudVisibilityState(const HudVisibilityState& state)
-{
-    diagnosticHudMode_.reset();
-    manualHudVisibilityOverride_ = state.manualOverride;
-    if (state.mockHudEnabled)
-    {
-        if (!EnsureMockHud()) return false;
-        mockHudEnabled_ = true;
-    }
-    else
-    {
-        mockHudEnabled_ = false;
-    }
-    ReconcileHudVisibility();
-    if (state.mockHudEnabled)
-    {
-        if (const DWORD processId = foregroundTracker_.TrackedProcessId();
-            processId && ProcessAlive(processId))
-            StartGraphicsApiProbe(processId);
-    }
-    const bool expectedVisible = state.mockHudEnabled &&
-        (state.manualOverride.has_value()
-            ? *state.manualOverride
-            : clawhud::ShouldShowHud(
-                hudOptions_.visibilityMode,
-                foregroundTracker_.ForegroundIsTrackedProcess()));
-    return MockHudVisible() == expectedVisible;
-}
-
-bool App::RequestHudOnUiThread(bool visible, const HudVisibilityState* restore, DWORD timeoutMs)
-{
-    if (!tray_.Window()) return false;
-    auto request = std::make_shared<HudVisibilityRequest>();
-    request->complete = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    if (!request->complete) return false;
-    request->restore = restore != nullptr;
-    request->visible = visible;
-    if (restore) request->state = *restore;
-    auto* payload = new std::shared_ptr<HudVisibilityRequest>(request);
-    if (!PostMessageW(tray_.Window(), kHudVisibilityRequest,
-        reinterpret_cast<WPARAM>(payload), 0))
-    {
-        delete payload;
-        return false;
-    }
-    const bool completed = WaitForSingleObject(request->complete, timeoutMs) == WAIT_OBJECT_0;
-    if (!completed) request->cancelled = true;
-    return completed && request->result;
-}
-
-bool App::RequestDiagnosticHudVisibility(bool visible, DWORD timeoutMs)
-{
-    return RequestHudOnUiThread(visible, nullptr, timeoutMs);
-}
-
-bool App::RequestDiagnosticHudVisibilityMatches(bool expected, DWORD timeoutMs)
-{
-    if (!tray_.Window()) return false;
-    auto request = std::make_shared<HudVisibilityRequest>();
-    request->complete = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    if (!request->complete) return false;
-    request->query = true;
-    request->visible = expected;
-    auto* payload = new std::shared_ptr<HudVisibilityRequest>(request);
-    if (!PostMessageW(tray_.Window(), kHudVisibilityRequest,
-        reinterpret_cast<WPARAM>(payload), 0))
-    {
-        delete payload;
-        return false;
-    }
-    const bool completed = WaitForSingleObject(request->complete, timeoutMs) == WAIT_OBJECT_0;
-    if (!completed) request->cancelled = true;
-    return completed && request->result;
-}
-
-bool App::RequestDiagnosticHudMode(DiagnosticHudMode mode, DWORD timeoutMs)
-{
-    if (!tray_.Window()) return false;
-    auto request = std::make_shared<HudVisibilityRequest>();
-    request->complete = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    if (!request->complete) return false;
-    request->modeRequest = true;
-    request->mode = mode;
-    auto* payload = new std::shared_ptr<HudVisibilityRequest>(request);
-    if (!PostMessageW(tray_.Window(), kHudVisibilityRequest,
-        reinterpret_cast<WPARAM>(payload), 0))
-    {
-        delete payload;
-        return false;
-    }
-    const bool completed = WaitForSingleObject(request->complete, timeoutMs) == WAIT_OBJECT_0;
-    if (!completed) request->cancelled = true;
-    return completed && request->result;
-}
-
-bool App::RequestDiagnosticHudState(const HudVisibilityState& state, DWORD timeoutMs)
-{
-    return RequestHudOnUiThread(false, &state, timeoutMs);
-}
-
-void App::CancelPendingHudVisibilityRequests()
-{
-    DiscardPendingHudVisibilityRequests();
-}
-
-void App::DiscardPendingHudVisibilityRequests()
-{
-    MSG message{};
-    while (PeekMessageW(&message, tray_.Window(), kHudVisibilityRequest,
-        kHudVisibilityRequest, PM_REMOVE))
-    {
-        auto* payload = reinterpret_cast<std::shared_ptr<HudVisibilityRequest>*>(message.wParam);
-        if (payload)
-        {
-            (*payload)->cancelled = true;
-            SetEvent((*payload)->complete);
-            delete payload;
-        }
-    }
 }
 
 void App::DiscardPendingGameRenderVerifierEvents()
@@ -2241,7 +1824,6 @@ void App::ReconcileHudVisibility()
         return;
     if (suspended_ || resumeRecoveryActive_)
     {
-        KillTimer(tray_.Window(), kMockHudTimerId);
         hudPresentation_->Hide();
         return;
     }
@@ -2264,16 +1846,8 @@ void App::ReconcileHudVisibility()
             if (!wasVisible) Log(L"HUD shown");
             hudShowFailureLogged_ = false;
             if (clawhud::ShouldSampleProductionTelemetry(
-                    resolvedShow, diagnosticHudMode_.has_value(), suspended_))
-            {
-                KillTimer(tray_.Window(), kMockHudTimerId);
+                    resolvedShow, false, suspended_))
                 StartProductionEcSampling();
-            }
-            else if (DiagnosticHudModeUsesPeriodicUpdates(*diagnosticHudMode_))
-                SetTimer(tray_.Window(), kMockHudTimerId,
-                    kDiagnosticMockHudTimerIntervalMs, nullptr);
-            else
-                KillTimer(tray_.Window(), kMockHudTimerId);
         }
         else
         {
@@ -2297,9 +1871,7 @@ void App::ReconcileHudVisibility()
                 L"HUD hide failed hr=" + HexHresult(hr));
         if (FAILED(hr))
             hudHideFailureLogged_ = true;
-        KillTimer(tray_.Window(), kMockHudTimerId);
-        if (!diagnosticHudMode_.has_value())
-            StopProductionEcSampling(false, L"hud-hidden");
+        StopProductionEcSampling(false, L"hud-hidden");
     }
 }
 
@@ -2420,12 +1992,6 @@ void App::CheckForUpdates()
 
 void App::OpenSettings()
 {
-    if (VrrDiagnosticRunning())
-    {
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
-            L"Open Settings ignored while VRR diagnostic is running");
-        return;
-    }
     if (settings_)
     {
         settings_->Show(instance_);
@@ -2445,7 +2011,6 @@ void App::Exit()
     if (exiting_) return;
     exiting_ = true;
     CancelResumeRecovery();
-    KillTimer(tray_.Window(), kMockHudTimerId);
     StopProductionEcSampling(false, L"app-shutdown");
     StopGraphicsApiProbe();
     productionGameWindowSource_.Stop();
@@ -2454,11 +2019,7 @@ void App::Exit()
     windowLifecycleSource_.Stop();
     presentActivitySource_.Stop();
     processLifecycleSource_.Stop();
-    if (vrrDiagnostic_) vrrDiagnostic_->Stop();
-    if (ecDiagnostic_) ecDiagnostic_->Stop();
-    if (igclDiagnostic_) igclDiagnostic_->Stop();
     StopProductionPresentMonSampling(L"app-shutdown", true);
-    DiscardPendingHudVisibilityRequests();
     DiscardPendingProductionWindowEvents();
     DiscardPendingProductionProcessExitEvents();
     DiscardPendingMicrosoftGameEvidence();
@@ -2478,27 +2039,6 @@ int App::ProcessMessages()
     MSG message{};
     while (GetMessageW(&message, nullptr, 0, 0) > 0)
     {
-        if (message.message == kHudVisibilityRequest)
-        {
-            auto* payload = reinterpret_cast<std::shared_ptr<HudVisibilityRequest>*>(message.wParam);
-            if (payload)
-            {
-                auto request = *payload;
-                delete payload;
-                if (!request->cancelled.exchange(true))
-                {
-                    request->result = request->modeRequest
-                        ? ApplyDiagnosticHudMode(request->mode)
-                        : request->query
-                            ? MockHudVisible() == request->visible
-                            : request->restore
-                                ? RestoreHudVisibilityState(request->state)
-                                : ApplyDiagnosticHudVisibility(request->visible);
-                }
-                SetEvent(request->complete);
-            }
-            continue;
-        }
         if (message.message == kSettingsDestroyed)
         {
             SettingsDestroyed();
@@ -2574,25 +2114,6 @@ int App::ProcessMessages()
             }
             continue;
         }
-        if (message.message == kEcDiagnosticStatus)
-        {
-            auto* status = reinterpret_cast<std::wstring*>(message.wParam);
-            if (status) { ecStatus_ = *status; if (settings_) settings_->SetDiagnosticStatus(*status); }
-            delete status;
-            continue;
-        }
-        if (message.message == clawhud::kIgclDiagnosticStatus)
-        {
-            auto* status = reinterpret_cast<std::wstring*>(message.wParam);
-            if (status) { igclStatus_ = *status; if (settings_) settings_->SetDiagnosticStatus(*status); }
-            delete status;
-            continue;
-        }
-        if (message.message == clawhud::kIgclDiagnosticCompleted)
-        {
-            FinishIgclDiagnostic(message.wParam != 0);
-            continue;
-        }
         if (message.message == clawhud::kPresentMonApi2DiagnosticStatus)
         {
             auto* status = reinterpret_cast<std::wstring*>(message.wParam);
@@ -2607,34 +2128,6 @@ int App::ProcessMessages()
         if (message.message == clawhud::kPresentMonApi2DiagnosticCompleted)
         {
             StopPresentMonApi2Diagnostic();
-            continue;
-        }
-        if (message.message == kVrrDiagnosticStatus)
-        {
-            auto* status = reinterpret_cast<std::wstring*>(message.wParam);
-            if (status)
-            {
-                vrrStatus_ = *status;
-                if (settings_) settings_->SetVrrStatus(*status);
-                if (VrrDiagnosticStatusRequiresForegroundReevaluation(*status) &&
-                    clawhud::ShouldReevaluateForegroundAfterDiagnostic(
-                        mockHudEnabled_, DiagnosticRunning(), suspended_))
-                {
-                    ReevaluateProductionGameDetection();
-                    ReconcileHudVisibility();
-                }
-            }
-            delete status;
-            continue;
-        }
-        if (message.message == kVrrDiagnosticCompleted)
-        {
-            if (clawhud::ShouldReevaluateForegroundAfterDiagnostic(
-                mockHudEnabled_, DiagnosticRunning(), suspended_))
-            {
-                ReevaluateProductionGameDetection();
-                ReconcileHudVisibility();
-            }
             continue;
         }
         if (settings_ && settings_->Window() &&

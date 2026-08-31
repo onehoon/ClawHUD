@@ -1,2 +1,0 @@
-Application,ProcessID,SwapChainAddress,PresentRuntime,SyncInterval,PresentFlags,AllowsTearing,PresentMode,CPUStartQPCTimeInMs,MsUntilDisplayed,MsBetweenPresents,MsBetweenDisplayChange
-fixture.exe,1234,0x1,DXGI,1,0,1,Hardware: Independent Flip,1000.000,NA,NA,NA

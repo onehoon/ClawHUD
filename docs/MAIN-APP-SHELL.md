@@ -15,7 +15,7 @@ The tray menu contains:
 - Settings
 - Exit
 
-Settings is created only when selected. It contains the General, HUD, Tweaks, and Diagnostics tabs. The Diagnostics tab only creates its bounded MSI EC worker after **Start EC Test** is selected. The Tweaks tab only persists the Intel VRR Range Fix startup toggle and displays its last result; it never applies a profile from the UI. The Settings minimize and close buttons hide the window to the tray while keeping ClawHUD running; selecting Settings again restores the same window.
+Settings is created only when selected. It contains the General, HUD, Tweaks, and Diagnostics tabs. The Diagnostics tab only starts the PresentMon API2 read-only survey after **Start API2 Test** is selected; it also exposes the debug-logging toggle and **Open Log Folder**. The Tweaks tab only persists the Intel VRR Range Fix startup toggle and displays its last result; it never applies a profile from the UI. The Settings minimize and close buttons hide the window to the tray while keeping ClawHUD running; selecting Settings again restores the same window.
 
 The General tab contains **Start ClawHUD with Windows**, enabled by default when the setting is absent. The setting is stored in `%LOCALAPPDATA%\\ClawHUD\\settings.ini`. When enabled, ClawHUD maintains its own `ClawHUD.lnk` in the current user's Startup folder; disabling it removes only that shortcut. The packaged Velopack release includes the Startup shortcut location as well.
 
@@ -30,4 +30,4 @@ cmake --build build --config Release
 
 CMake downloads the pinned Velopack C/C++ 1.2.0 library and verifies its SHA-256 before extracting it into the build directory. The update feed is the ClawHUD GitHub repository; until a Velopack release feed exists, the check fails or reports no update and startup continues without a notification or popup.
 
-The EC diagnostic probe is user-started and read-only; it does not add production telemetry polling. VRR/PresentMon capture is also diagnostics-only and starts only from the Diagnostics tab; it does not create a startup session or production telemetry loop. Game detection, settings persistence, startup-with-Windows, and Composition Swapchain production HUD rendering remain out of scope.
+The PresentMon API2 capability survey is user-started and read-only; it does not add production telemetry polling and starts only from the Diagnostics tab. It does not create a startup session or production telemetry loop. Game detection, settings persistence, startup-with-Windows, and Composition Swapchain production HUD rendering remain out of scope.

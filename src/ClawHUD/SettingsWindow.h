@@ -18,7 +18,6 @@ public:
     void UpdateGeneralControls();
     void UpdateHudControls();
     void SetDiagnosticStatus(const std::wstring& status);
-    void SetVrrStatus(const std::wstring& status);
 
 private:
     static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
@@ -78,15 +77,10 @@ private:
     HWND hudSizePlus_{};
     HWND fontUnispace_{};
     HWND fontSegoeUiVariable_{};
-    HWND startEcButton_{};
-    HWND startIgclButton_{};
     HWND startApi2Button_{};
     HWND stopApi2Button_{};
     HWND openLogsButton_{};
     HWND diagnosticStatus_{};
-    HWND startVrrButton_{};
-    HWND stopVrrButton_{};
-    HWND vrrStatus_{};
     HWND aboutPanel_{};
     HWND aboutIcon_{};
     int settingsScrollY_{};

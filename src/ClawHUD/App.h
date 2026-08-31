@@ -10,8 +10,6 @@
 #include <string>
 
 #include "TrayIcon.h"
-#include "EcDiagnostic.h"
-#include "VrrDiagnostic.h"
 #include "HudModel.h"
 #include "ForegroundTracker.h"
 #include "GameDetection/WindowsGameIdentitySource.h"
@@ -36,7 +34,6 @@
 #include "BatteryPowerEstimator.h"
 #include "SteamRunningAppIdSource.h"
 #include "IntelGraphicsApiProbe.h"
-#include "IgclTelemetryDiagnostic.h"
 #include "PresentMonApi2Diagnostic.h"
 #include "Tweaks/TweakStartupCoordinator.h"
 #include "Tweaks/IntelVrr/IntelVrrRunResult.h"
@@ -45,7 +42,6 @@ class SettingsWindow;
 namespace clawhud { class HudPresentation; struct HudRenderOptions; }
 
 constexpr int kHudToggleHotkeyId = 1;
-constexpr UINT_PTR kMockHudTimerId = 1;
 constexpr UINT_PTR kEcHudTimerId = 2;
 constexpr UINT_PTR kBatteryHudTimerId = 3;
 constexpr UINT_PTR kGraphicsApiRetryTimerId = 4;
@@ -113,31 +109,17 @@ public:
     void SetStartWithWindows(bool enabled);
     HWND MessageWindow() const { return tray_.Window(); }
     const std::wstring& ExecutablePath() const { return executablePath_; }
-    bool StartEcDiagnostic();
-    void StopEcDiagnostic();
-    bool EcDiagnosticRunning() const;
-    const std::wstring& EcStatus() const { return ecStatus_; }
     void OpenDiagnosticLogFolder();
-    bool StartVrrDiagnostic();
-    void StopVrrDiagnostic();
-    bool VrrDiagnosticRunning() const;
     bool DiagnosticRunning() const;
-    bool StartIgclDiagnostic();
-    void StopIgclDiagnostic();
-    bool IgclDiagnosticRunning() const;
-    const std::wstring& IgclStatus() const noexcept { return igclStatus_; }
     bool StartPresentMonApi2Diagnostic();
     void StopPresentMonApi2Diagnostic();
     bool PresentMonApi2DiagnosticRunning() const;
     const std::wstring& PresentMonApi2Status() const noexcept { return presentMonApi2Status_; }
     void StopDiagnostic();
-    void FinishIgclDiagnostic(bool success);
     void HandleSystemSuspend();
     void HandleSystemResume();
     void TryResumeRecovery();
-    const std::wstring& VrrStatus() const { return vrrStatus_; }
     void StopMockHud();
-    void RenderMockHud(bool allowHidden = false);
     void SampleProductionTelemetry();
     void SampleProductionBatteryTelemetry();
     void SampleProductionFpsTelemetry();
@@ -157,13 +139,6 @@ public:
     void TrackMockGameWindow(HWND window);
     void SetHudVisibilityMode(clawhud::HudVisibilityMode mode);
     void HandleHudToggleHotkey();
-    HudVisibilityState CaptureHudVisibilityState() const noexcept;
-    bool RestoreHudVisibilityState(const HudVisibilityState& state);
-    bool RequestDiagnosticHudVisibility(bool visible, DWORD timeoutMs = 5000);
-    bool RequestDiagnosticHudVisibilityMatches(bool expected, DWORD timeoutMs = 5000);
-    bool RequestDiagnosticHudMode(DiagnosticHudMode mode, DWORD timeoutMs = 5000);
-    bool RequestDiagnosticHudState(const HudVisibilityState& state, DWORD timeoutMs = 5000);
-    void CancelPendingHudVisibilityRequests();
     bool IntelVrrRangeFixEnabled() const noexcept { return intelVrrRangeFixEnabled_; }
     void SetIntelVrrRangeFixEnabled(bool enabled);
     bool DebugLoggingEnabled() const noexcept { return debugLoggingEnabled_; }
@@ -209,8 +184,6 @@ private:
     void ClearProductionCandidate(const wchar_t* reason);
     void ApplyProductionEvidence(clawhud::GameDetectionTrigger trigger,
         HWND window, DWORD processId);
-    bool ApplyDiagnosticHudVisibility(bool visible);
-    bool ApplyDiagnosticHudMode(DiagnosticHudMode mode);
     clawhud::MsiEcHudTelemetry ReadHudEcTelemetry();
     void StartProductionEcSampling();
     void PauseProductionSamplingForSuspend();
@@ -224,8 +197,6 @@ private:
     void StopProductionFpsSampling(bool clearTarget = true);
     void StartGraphicsApiProbe(DWORD processId);
     void StopGraphicsApiProbe();
-    bool RequestHudOnUiThread(bool visible, const HudVisibilityState* restore, DWORD timeoutMs);
-    void DiscardPendingHudVisibilityRequests();
     void DiscardPendingMicrosoftGameEvidence();
     void DiscardPendingProductionWindowEvents();
     void DiscardPendingProductionProcessExitEvents();
@@ -235,10 +206,7 @@ private:
     HANDLE instanceMutex_{};
     clawhud::HudSettingsStore hudSettingsStore_;
     TrayIcon tray_;
-    std::unique_ptr<EcDiagnostic> ecDiagnostic_;
-    std::unique_ptr<clawhud::IgclTelemetryDiagnostic> igclDiagnostic_;
     std::unique_ptr<clawhud::PresentMonApi2Diagnostic> presentMonApi2Diagnostic_;
-    std::unique_ptr<VrrDiagnostic> vrrDiagnostic_;
     std::unique_ptr<clawhud::HudPresentation> hudPresentation_;
     std::unique_ptr<EcHelperClient> ecHudClient_;
     clawhud::HudTelemetryAggregator telemetryAggregator_;
@@ -266,14 +234,9 @@ private:
     clawhud::HudLayoutOptions hudOptions_{};
     clawhud::HudFont hudFont_{clawhud::HudFont::Unispace};
     std::optional<bool> manualHudVisibilityOverride_;
-    std::optional<DiagnosticHudMode> diagnosticHudMode_;
     bool mockHudEnabled_{};
-    std::size_t mockFrameIndex_{};
     std::unique_ptr<SettingsWindow> settings_;
     bool exiting_{};
-    std::wstring ecStatus_{ L"Idle" };
-    std::wstring vrrStatus_{ L"Idle" };
-    std::wstring igclStatus_{ L"Idle" };
     std::wstring presentMonApi2Status_{ L"Idle" };
     std::wstring executablePath_;
     int hudSizeOffset_{};
