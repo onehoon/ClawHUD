@@ -43,6 +43,7 @@ add_executable(ClawHUD WIN32
     src/resources/ClawHUD.rc
     src/ClawHUD/App.cpp
     src/ClawHUD/ProductionTelemetryController.cpp
+    src/ClawHUD/HudController.cpp
     src/ClawHUD/RuntimeLogger.cpp
     src/ClawHUD/Win32Format.cpp
     src/ClawHUD/ProcessLiveness.cpp
