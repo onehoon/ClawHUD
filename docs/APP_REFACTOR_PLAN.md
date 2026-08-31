@@ -65,20 +65,34 @@ behavior silently (a dropped guard, a reordered call, a flipped condition). Miti
 - If a seam forces a behavior decision, stop and report rather than guess.
 - Update the Status column and check the boxes in this file as part of each PR.
 
+## Status: PAUSED after the pure-logic phase
+
+PRs 0, 1, 2, 4 plus the `ResolveHudVisible` follow-up are merged (#167–#171).
+`App.cpp` went 2,817 → 2,650 lines with four new tested collaborators.
+
+Work is **paused before PRs 5–9**. Those are verbatim relocation into controller
+files — no new test coverage, verified only by the full local build and each PR's
+behavior inventory. On this setup (app can't run here, `main` unprotected so PRs
+merge immediately, no human diff review) that trade — a ~10–20% chance one of the
+four relocation PRs ships a subtle HUD/timing regression, in exchange for
+navigability only — was judged not worth doing blind. **Resume when the app can be
+smoke-tested or a PR can be diff-reviewed before merge.**
+
 ## PR sequence
 
 | PR | Title | Cluster | Risk | Status |
 |----|-------|---------|------|--------|
 | 0 | Refactor plan + behavior inventory template | docs | none | done (#167) |
-| 1 | Extract stateless helpers (`Win32Format`, `ProcessLiveness`) | A | very low | done |
-| 2 | Extract `HudSettingsStore` (settings.ini load/save) | B | low | done |
+| 1 | Extract stateless helpers (`Win32Format`, `ProcessLiveness`) | A | very low | done (#168) |
+| 2 | Extract `HudSettingsStore` (settings.ini load/save) | B | low | done (#169) |
 | 3 | Extract `DiagnosticsController` | C | medium | deferred (see note) |
-| 4 | Extract `HudTelemetryAggregator` (retained fields + snapshot) | D | medium | done |
-| 5 | Extract `ProductionSamplingScheduler` | E | medium-high | todo |
-| 6 | Extract `HudController` | F | medium | todo |
-| 7 | Extract `HudVisibilityStateMachine` | G | high | todo |
-| 8 | Extract `ProductionGameDetectionController` | H | high | todo |
-| 9 | Message-pump dispatch table + final `App` slimming | I | medium | todo |
+| 4 | Extract `HudTelemetryAggregator` (retained fields + snapshot) | D | medium | done (#170) |
+| — | Extract `ResolveHudVisible` | (G) | very low | done (#171) |
+| 5 | Extract `ProductionSamplingScheduler` | E | medium-high | not started — relocation, needs review/smoke |
+| 6 | Extract `HudController` | F | medium | not started — relocation, needs review/smoke |
+| 7 | Extract `HudVisibilityStateMachine` | G | high | not started — relocation, needs review/smoke |
+| 8 | Extract `ProductionGameDetectionController` | H | high | not started — real callback design, pause on it |
+| 9 | Message-pump dispatch table + final `App` slimming | I | medium | not started |
 
 ### Dependencies
 
