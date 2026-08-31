@@ -6,8 +6,8 @@
 // decisions and their tests do not depend on the whole App class. The runtime
 // orchestration (App::HandleSystemSuspend / HandleSystemResume / TryResumeRecovery
 // and the suspended_ / resumeRecoveryActive_ / resumeRecoveryAttempts_ state)
-// stays in App. The Win32 timer id (kResumeRecoveryTimerId) is message-loop
-// wiring and stays with the other runtime ids in App.h.
+// stays in App. The Win32 timer id (kResumeRecoveryTimerId) is App runtime /
+// message-loop wiring and lives in App.cpp.
 namespace clawhud
 {
 inline constexpr UINT kResumeRecoveryIntervalMs = 500;

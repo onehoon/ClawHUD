@@ -10,6 +10,7 @@
 #include "SuspendResumePolicy.h"
 #include "ProcessLiveness.h"
 #include "HudSettingsStore.h"
+#include "GameDetection/DebugObservationController.h"
 
 #include <Velopack.hpp>
 
@@ -30,6 +31,9 @@ namespace
 // 6, 7, 8, 9) live in GameSessionController.cpp and the telemetry timer ids in
 // ProductionTelemetryController.h.
 constexpr UINT kSettingsDestroyed = WM_APP + 1;
+// Win32 SetTimer id for the suspend/resume HUD recovery retry. App-internal
+// message-loop wiring; the pure retry policy is in SuspendResumePolicy.h.
+constexpr UINT_PTR kResumeRecoveryTimerId = 5;
 constexpr wchar_t kInstanceMutexName[] = L"Local\\ClawHUD.SingleInstance";
 
 void Log(const std::wstring& message)
@@ -63,16 +67,7 @@ App::App(HINSTANCE instance) : instance_(instance), tray_(*this)
 App::~App()
 {
     Log(L"ClawHUD exiting");
-    CancelResumeRecovery();
-    StopProductionSampling(false, L"app-shutdown");
-    productionTelemetry_.StopGraphicsApiProbe();
-    gameSession_.StopSources();
-    windowLifecycleSource_.Stop();
-    presentActivitySource_.Stop();
-    processLifecycleSource_.Stop();
-    if (hudHotkeyRegistered_ && tray_.Window())
-        UnregisterHotKey(tray_.Window(), kHudToggleHotkeyId);
-    hudHotkeyRegistered_ = false;
+    StopRuntimeSources();
     hudController_.DestroyPresentation();
     settings_.reset();
     tray_.Destroy();
@@ -81,6 +76,19 @@ App::~App()
         ReleaseMutex(instanceMutex_);
         CloseHandle(instanceMutex_);
     }
+}
+
+void App::StopRuntimeSources()
+{
+    CancelResumeRecovery();
+    StopProductionSampling(false, L"app-shutdown");
+    productionTelemetry_.StopGraphicsApiProbe();
+    gameSession_.StopSources();
+    if (debugObservation_)
+        debugObservation_->Stop();
+    if (hudHotkeyRegistered_ && tray_.Window())
+        UnregisterHotKey(tray_.Window(), kHudToggleHotkeyId);
+    hudHotkeyRegistered_ = false;
 }
 
 clawhud::GameSessionHooks App::MakeGameSessionHooks()
@@ -95,11 +103,8 @@ clawhud::GameSessionHooks App::MakeGameSessionHooks()
     {
         productionTelemetry_.OnForegroundProcessChanged(processId);
         ReconcileHudVisibility();
-        if (debugLoggingEnabled_)
-        {
-            windowsGameIdentitySource_.QueueInspect(window, processId);
-            presentActivitySource_.Watch(processId);
-        }
+        if (debugObservation_)
+            debugObservation_->OnForegroundChanged(window, processId);
     };
     hooks.reconcileHudVisibility = [this] { ReconcileHudVisibility(); };
     hooks.startGraphicsApiProbe = [this](DWORD pid)
@@ -161,15 +166,11 @@ int App::Run()
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
             L"Steam RunningAppID watcher initialization failed");
     gameSession_.InitializeSteamSession(steamWatcherStarted);
-    if (debugLoggingEnabled_ && !processLifecycleSource_.Start())
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
-            L"Process lifecycle diagnostic source failed to start; continuing");
     if (debugLoggingEnabled_)
     {
-        if (!windowLifecycleSource_.Start())
-            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
-                L"Window lifecycle diagnostic source failed to start; continuing");
-        presentActivitySource_.Start(presentMonTelemetryProvider_);
+        debugObservation_ = std::make_unique<clawhud::DebugObservationController>(
+            presentMonTelemetryProvider_);
+        debugObservation_->Start();
     }
     hudHotkeyRegistered_ = RegisterHotKey(tray_.Window(), kHudToggleHotkeyId,
         MOD_NOREPEAT, VK_F8) != FALSE;
@@ -284,14 +285,13 @@ void App::TryResumeRecovery()
         (manualOverride.has_value()
             ? *manualOverride
             : visibilityMode == clawhud::HudVisibilityMode::Always ||
-                rendererForegroundActive ||
-                gameSession_.ForegroundIsTrackedProcess());
+                rendererForegroundActive);
     const bool visibilityUsesForeground = !manualOverride.has_value() &&
         visibilityMode == clawhud::HudVisibilityMode::InGameOnly;
     gameSession_.DiscardPendingRenderVerifierEvents();
     if (clawhud::ResumeRecoveryShouldWaitForForeground(
         hudEnabled, visibilityUsesForeground, processAlive,
-        gameSession_.ForegroundIsTrackedProcess(), resumeRecoveryAttempts_))
+        rendererForegroundActive, resumeRecoveryAttempts_))
     {
         SetTimer(tray_.Window(), kResumeRecoveryTimerId,
             clawhud::kResumeRecoveryIntervalMs, nullptr);
@@ -438,18 +438,35 @@ void App::RenderProductionHud(bool allowHidden)
     hudController_.Render(snapshot, allowHidden);
 }
 
-void App::SampleProductionTelemetry()
+void App::HandleTimer(UINT_PTR timerId)
 {
-    if (suspended_ || !hudController_.Enabled() || !HudVisible())
-        return;
-    productionTelemetry_.SampleSystemEc();
-}
-
-void App::SampleProductionBatteryTelemetry()
-{
-    if (suspended_ || !hudController_.Enabled() || !HudVisible())
-        return;
-    productionTelemetry_.SampleBattery();
+    // EC / battery / FPS samples share the same HUD/suspend guard; the graphics
+    // API retry deliberately has none; the resume timer drives recovery.
+    const bool hudSampleAllowed =
+        !suspended_ && hudController_.Enabled() && HudVisible();
+    switch (timerId)
+    {
+    case clawhud::kEcHudTimerId:
+        if (hudSampleAllowed)
+            productionTelemetry_.SampleSystemEc();
+        break;
+    case clawhud::kBatteryHudTimerId:
+        if (hudSampleAllowed)
+            productionTelemetry_.SampleBattery();
+        break;
+    case clawhud::kPresentMonFpsTimerId:
+        if (hudSampleAllowed)
+            productionTelemetry_.SampleFps();
+        break;
+    case clawhud::kGraphicsApiRetryTimerId:
+        productionTelemetry_.TryGraphicsApiProbe();
+        break;
+    case kResumeRecoveryTimerId:
+        TryResumeRecovery();
+        break;
+    default:
+        break;
+    }
 }
 
 void App::StartProductionSampling()
@@ -459,13 +476,6 @@ void App::StartProductionSampling()
     productionTelemetry_.StartBaseSampling();
     gameSession_.EnsureRenderVerification();
     productionTelemetry_.StartFpsSampling();
-}
-
-void App::SampleProductionFpsTelemetry()
-{
-    if (suspended_ || !hudController_.Enabled() || !HudVisible())
-        return;
-    productionTelemetry_.SampleFps();
 }
 
 void App::PauseProductionSamplingForSuspend()
@@ -491,11 +501,6 @@ void App::StopProductionSampling(bool stopRenderVerification, const wchar_t* rea
     productionTelemetry_.ResetSamplingState(reason);
 }
 
-void App::TryGraphicsApiProbe()
-{
-    productionTelemetry_.TryGraphicsApiProbe();
-}
-
 void App::SetHudVisibilityMode(clawhud::HudVisibilityMode mode)
 {
     const auto previousMode = hudController_.SetVisibilityMode(mode);
@@ -511,7 +516,8 @@ void App::SetHudVisibilityMode(clawhud::HudVisibilityMode mode)
                 GetWindowThreadProcessId(foreground, &foregroundProcessId);
         }
         productionTelemetry_.SetVisibilityMode(mode, foregroundProcessId);
-        SampleProductionFpsTelemetry();
+        if (!suspended_ && hudController_.Enabled() && HudVisible())
+            productionTelemetry_.SampleFps();
     }
     SaveHudSettings();
     ReconcileHudVisibility();
@@ -683,6 +689,12 @@ void App::OpenSettings()
     if (!settings_->Show(instance_)) settings_.reset();
 }
 
+void App::PostSettingsDestroyed()
+{
+    if (const HWND window = tray_.Window())
+        PostMessageW(window, kSettingsDestroyed, 0, 0);
+}
+
 void App::SettingsDestroyed()
 {
     settings_.reset();
@@ -692,18 +704,7 @@ void App::Exit()
 {
     if (exiting_) return;
     exiting_ = true;
-    CancelResumeRecovery();
-    StopProductionSampling(false, L"app-shutdown");
-    productionTelemetry_.StopGraphicsApiProbe();
-    gameSession_.StopSources();
-    windowLifecycleSource_.Stop();
-    presentActivitySource_.Stop();
-    processLifecycleSource_.Stop();
-    if (hudHotkeyRegistered_ && tray_.Window())
-    {
-        UnregisterHotKey(tray_.Window(), kHudToggleHotkeyId);
-        hudHotkeyRegistered_ = false;
-    }
+    StopRuntimeSources();
     settings_.reset();
     tray_.Destroy();
     PostQuitMessage(0);

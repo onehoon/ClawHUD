@@ -1,6 +1,6 @@
 # ClawHUD Production Refactor Plan
 
-Status: **ACTIVE — R0 (#178), R1 (#180), R2 (#182), R3 (#184) merged; R4 is next** (R3 hardware smoke still pending)  
+Status: **COMPLETE — R0 (#178), R1 (#180), R2 (#182), R3 (#184), R4 (#187), R5 (#189), R6 (#192), R7 (#194), R8 (#196) merged** (R0–R7 runtime architecture; R8 build-file organization. R3 / R4 / R6 / R7 hardware smoke still pending, non-blocking)  
 Re-baseline commit: `c0a2dcbd598ad7a31fa7dd28fec09cbd9c29e1f2` (after PR #175 / #176)  
 Date: 2026-08-31  
 Repository: `onehoon/ClawHUD`
@@ -1769,9 +1769,11 @@ Those extractions remain valid and are retained in the new architecture.
     token-level move verification + full CTest + the frozen presentation contract
     are the interim evidence.
 
-- **R4 (extract `GameSessionController`)** — PR #187, branch
-  `refactor/r4-game-session-controller`. Ownership + message-plumbing
-  relocation; no game-detection redesign.
+- **R4 (extract `GameSessionController`)** — PR #187, merged `7519960` (code
+  review + CI green; **hardware smoke still pending** — the dev machine cannot
+  run the app, so the §64 Claw trigger-matrix / VRR gate is owed as a follow-up,
+  but per the R4 work order §63 this is not itself a merge blocker). Ownership +
+  message-plumbing relocation; no game-detection redesign.
   - New `src/ClawHUD/GameDetection/GameSessionController.{h,cpp}` (concrete
     class, `namespace clawhud`). Owns, moved out of `App`: `ForegroundTracker`,
     `GameDetectionCoordinator`, the three production triggers,
@@ -1816,23 +1818,176 @@ Those extractions remain valid and are retained in the new architecture.
     Alt+Tab + exit, HUD Always/InGameOnly, suspend/resume, FPS target
     transitions, VRR / click-through / no-activation.
 
+- **R5 (re-evaluate suspend/resume — no controller)** — PR #189, merged
+  `bf11b13` (code review + CI green). Boundary-confirmation / cleanup phase, not
+  an extraction.
+  - **R5 decision: no `RuntimeLifecycleController` / `SuspendResumeCoordinator`
+    created.** Suspend/resume remains top-level `App` orchestration. The R1
+    `SuspendResumePolicy.h` remains the pure decision layer (unchanged). After
+    R2/R3/R4 the remaining `App` lifecycle surface — `suspended_`,
+    `resumeRecoveryActive_`, `resumeRecoveryAttempts_`, `HandleSystemSuspend`,
+    `HandleSystemResume`, `TryResumeRecovery`, `CancelResumeRecovery`,
+    `PauseProductionSamplingForSuspend` — is small and cohesive, and every
+    detailed HUD / telemetry / game-session operation already goes through a
+    controller API. `App` is the correct composition root for these cross-domain
+    recovery flows; another coordinator would only move the same coupling
+    sideways.
+  - Runtime diff: one provably-equivalent boolean simplification in
+    `App::TryResumeRecovery` — `rendererForegroundActive` (captured once from
+    `gameSession_.ForegroundIsTrackedProcess()`) now reused for both the
+    `expectedVisible` term and the `ResumeRecoveryShouldWaitForForeground`
+    argument, dropping two redundant re-queries (`x || x` in the ternary; a
+    third call with no intervening foreground-tracker mutation). No call
+    ordering change. Plus a comment in `App.h` recording the R5 decision.
+  - `SuspendResumePolicy.h`, `HudController.*`, `ProductionTelemetryController.*`,
+    `GameSessionController.*`, `HudPresentation.*` /
+    `HudPresentationContract.*` / `HudPresentationLifecycle.*` / `HudRenderer.*`:
+    **zero diff**. No new PresentMon provider/session. Tray-only startup
+    unchanged.
+  - CTest: 46/46 pass locally (VS 2022 BuildTools, Ninja, Release), clean build.
+    **Hardware smoke: deferred** — app unsupported on this dev machine; per the
+    R5 work order §28 not itself a merge blocker.
+
+- **R6 (extract `DebugObservationController`; make debug sources lazy)** — PR
+  #192, merged `1472c0d` (code review + CI green). Ownership relocation + one
+  intentional resource improvement.
+  - New `src/ClawHUD/GameDetection/DebugObservationController.{h,cpp}` (concrete
+    class, `namespace clawhud`). Owns the four debug-only sources moved out of
+    `App`: `WindowsGameIdentitySource`, `ProcessLifecycleSource`,
+    `WindowLifecycleSource`, `PresentActivitySource`. API is `Start()` /
+    `OnForegroundChanged(HWND, DWORD)` / `Stop()`; holds a non-owning
+    `PresentMonTelemetryProvider&` (PresentActivitySource lease only).
+  - `App` owns it as `std::unique_ptr<clawhud::DebugObservationController>
+    debugObservation_`, constructed **lazily in `Run()`** at the old debug
+    start-up slot and **only when `debugLoggingEnabled_`**. `debugLoggingEnabled_`
+    stays App-owned (still read once from `[Developer] DebugLog`, never toggled).
+  - **Intentional behavior/resource change:** `DebugLog=0` previously still
+    constructed `WindowsGameIdentitySource` (an always-live `App` value member)
+    and started its constructor-owned `std::jthread`. After R6 the whole
+    controller is absent when `DebugLog=0`, so none of the four sources — and no
+    `WindowsGameIdentitySource` worker thread — are created. `DebugLog=1`
+    behavior is unchanged.
+  - Effective orders preserved: startup `ProcessLifecycle.Start →
+    WindowLifecycle.Start → PresentActivity.Start(shared provider)` (failures
+    non-fatal, same warning text); foreground tail `WindowsGameIdentity.QueueInspect
+    → PresentActivity.Watch` (still after `productionTelemetry_.OnForegroundProcessChanged`
+    + `ReconcileHudVisibility`, which stay in `App`); shutdown
+    `WindowLifecycle.Stop → PresentActivity.Stop → ProcessLifecycle.Stop` inside
+    `Stop()`, called from both `~App` and `Exit()` at the old position.
+  - `App.h` drops the four debug-source includes → forward-declares the
+    controller; the four old members are removed (no aliases). Debug output
+    still never touches production detection / telemetry / HUD.
+    `HudPresentation.*` / `HudController.*` / `GameSessionController.*` /
+    `MicrosoftGameTrigger` / game-detection state machine / suspend-resume /
+    tray-only Settings: **zero diff**. One shared App-owned PresentMon provider;
+    no new API2 session. Four source `.cpp/.h` files: **zero diff**.
+  - No new test target (composition wrapper over already-tested sources; the
+    laziness contract is structural). CTest 46/46 local, clean build.
+  - `App.cpp` 733 → 725 lines; `App.h` unchanged in size (131 → 132 — the
+    forward declaration + member comment roughly offset the four removed
+    includes / members).
+  - **Hardware smoke: deferred** — app unsupported on this dev machine; per the
+    R6 work order §33 not itself a merge blocker. §34 follow-up: verify
+    `DebugLog` OFF (no debug logs / no identity worker) and ON (all debug logs
+    present, detection still production-authoritative) on hardware.
+
+- **R7 (final `App` shell cleanup)** — PR #194, merged `ff5102a` (code review +
+  CI green). Shell cleanup only; **no new abstraction**. `App` stays the
+  composition root / mediator.
+  - **Part A — shared shutdown helper.** `~App()` and `Exit()` shared an
+    identical runtime-stop block; extracted to `private void
+    StopRuntimeSources()` — exact same order (`CancelResumeRecovery` →
+    `StopProductionSampling(false,"app-shutdown")` →
+    `productionTelemetry_.StopGraphicsApiProbe` → `gameSession_.StopSources` →
+    `if(debugObservation_) Stop` → `UnregisterHotKey(F8)` if registered →
+    `hudHotkeyRegistered_=false`). The two callers stay distinct: `~App()` also
+    does `DestroyPresentation → settings_.reset → tray_.Destroy → mutex
+    release`; `Exit()` does `settings_.reset → tray_.Destroy → PostQuitMessage`.
+    No new shutdown flag. (`Exit()` previously set `hudHotkeyRegistered_=false`
+    only inside the `if`; now unconditional as in `~App()` — a no-op difference.)
+  - **Part B — timer dispatch.** `TrayIcon::WindowProc(WM_TIMER)` no longer
+    branches on individual timer ids — it calls one `public void
+    HandleTimer(UINT_PTR)`. `HandleTimer` preserves the per-timer guards
+    exactly: EC / battery / FPS share `!suspended_ && Enabled() && HudVisible()`;
+    graphics-API retry has **no** guard; `kResumeRecoveryTimerId → TryResumeRecovery()`;
+    unknown id → no-op. The four `App::Sample*` / `App::TryGraphicsApiProbe`
+    forwarders are **deleted** (the one internal FPS-sample caller in
+    `SetHudVisibilityMode` inlines the same guard). `kResumeRecoveryTimerId = 5`
+    moved from `App.h` → anon namespace in `App.cpp` (value unchanged);
+    `TryResumeRecovery()` is now private.
+  - **Part C — Settings destruction facade.** `SettingsWindow::WM_NCDESTROY`
+    calls `App::PostSettingsDestroyed()` instead of
+    `PostMessageW(app_.MessageWindow(), WM_APP+1, …)`. Still **asynchronous**
+    (posts private `kSettingsDestroyed` → pump → `SettingsDestroyed()` →
+    `settings_.reset()`). `kSettingsDestroyed` stays App-private; no new public
+    message constant.
+  - **Part D — facade audit.** Removed: `App::MessageWindow()`,
+    `App::ExecutablePath()` (member kept — `ApplyStartupRegistration` uses it),
+    the four timer forwarders, `SettingsWindow::RequestClose()` (all dead in
+    active code). Privatized: `App::SettingsDestroyed`, `TryResumeRecovery`,
+    `StopHud`, `RenderProductionHud`, `HudVisible`;
+    `SettingsWindow::UpdateGeneralControls`. Public `App` surface is now only
+    real tray/Settings entry points + user settings ops.
+  - **Parts E/F.** `Run()` startup order and `ProcessMessages()` structure
+    **unchanged** (no `StartupCoordinator` / `MessageDispatcher`). Dropped three
+    now-unused std includes from `App.h` (`<atomic>`, `<cstddef>`, `<cstdint>`);
+    `ProductionTargetPolicy.h` / `UninstallCleanup.h` kept (still used).
+  - Frozen (**zero diff**): `HudPresentation.*` / `HudPresentationContract.*` /
+    `HudPresentationLifecycle.*` / `HudRenderer.*` / `HudController.*`, all of
+    `GameDetection/*`. **Zero behavioral diff** in
+    `ProductionTelemetryController.*` and `SuspendResumePolicy.h` (comment-only:
+    both said the resume-recovery timer id lives in `App.h`; it moved to
+    `App.cpp`). One shared App-owned PresentMon provider; lazy Settings;
+    suspend/resume state; game-detection policy — all unchanged.
+  - No new test target (imperative dispatch helper). CTest 46/46 local, clean
+    build, no new warnings. Line counts are roughly flat (`App.cpp` 725 → 735,
+    `App.h` 132 → 134 — the `HandleTimer` switch + `StopRuntimeSources`
+    signature cost slightly more than the deleted forwarders); R7's value is a
+    narrower public surface and no duplicated shutdown block, not fewer lines.
+  - `APP_REFACTOR_BEHAVIOR_INVENTORY_TEMPLATE.md`: lazy-Settings section updated
+    to the async `PostSettingsDestroyed` flow + two new checklist items.
+  - **Hardware smoke: deferred** — app unsupported on this dev machine; per the
+    R7 work order §37 not itself a merge blocker.
+
+**Core runtime refactor: COMPLETE at R7.** The four controllers
+(`HudController`, `ProductionTelemetryController`, `GameSessionController`,
+`DebugObservationController`) are extracted, `App` is a clean composition
+root / mediator, and every runtime state domain has one clear owner.
+
+- **R8 (CMake test-target organization)** — PR #196, merged `315f656` (code
+  review + CI green). **Build-file organization only; zero C++ / test /
+  workflow diff.**
+  - New `cmake/ClawHUDTests.cmake` — the current root `if(BUILD_TESTING)` body
+    (all 46 `add_executable(...Tests)` / `target_*` / `add_test` declarations)
+    relocated **verbatim**, same order, byte-identical (verified `diff` of the
+    moved block vs `ff5102a:CMakeLists.txt` lines 149–695), plus a 3-line header
+    comment.
+  - Root `CMakeLists.txt` keeps every production stanza (`project` / MSVC
+    guards / `Version.h` gen / Velopack / PresentMon paths / `ClawHUD` +
+    `ClawHUD.EcHelper` targets / POST_BUILD staging) and `include(CTest)`, then:
+    ```cmake
+    if(BUILD_TESTING)
+        include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/ClawHUDTests.cmake")
+    endif()
+    ```
+    Root loses 551 lines, gains 1. No helper macro, no multi-file split, no
+    path rewriting, no second `if(BUILD_TESTING)` in the include.
+  - Verified: `BUILD_TESTING=ON` clean configure + Release build + `ctest -N`
+    inventory **identical** to the pre-R8 baseline (46 test names, same order) +
+    **46/46** pass; separate clean `BUILD_TESTING=OFF` dir configures and builds
+    `ClawHUD` + `ClawHUD.EcHelper` with **0** test targets generated.
+  - Changed files: `CMakeLists.txt`, `cmake/ClawHUDTests.cmake` (new),
+    `docs/APP_REFACTOR_PLAN.md`. No `src/**`, `tests/**`, `.github/workflows/**`
+    diff. HUD/VRR presentation contract: literal zero diff.
+
+**R0–R8 refactor series: COMPLETE.** R0–R7 = runtime architecture; R8 = build-file
+organization. No R9 is planned.
+
 ### Next work
 
-**R5 — re-evaluate suspend/resume now that the controllers exist** (§9 R5).
-Default: keep suspend/resume as top-level `App` orchestration using the R1 pure
-policy; only create a `RuntimeLifecycleController` if `App` still holds a large
-amount of hard-to-follow retry machinery. Re-read §9 R5 first. After each merged
-PR, update this progress log with:
-
-```text
-PR number
-main commit
-what state moved
-what App methods remain as facade
-full CTest result
-hardware smoke result if applicable
-any deliberate deviation from this plan
-```
+None — the App refactor plan is finished. Outstanding non-blocking follow-up:
+R3 / R4 / R6 / R7 hardware smoke on a supported MSI Claw (see each phase's
+`§NN follow-up` note).
 
 Before starting R2, R3, or R4 in a new conversation, re-read the corresponding section of
 this document and the behavior-inventory template rather than reconstructing decisions from
