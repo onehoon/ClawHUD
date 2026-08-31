@@ -1954,8 +1954,8 @@ Those extractions remain valid and are retained in the new architecture.
 `DebugObservationController`) are extracted, `App` is a clean composition
 root / mediator, and every runtime state domain has one clear owner.
 
-- **R8 (CMake test-target organization)** — PR #196, branch
-  `refactor/r8-cmake-tests`. **Build-file organization only; zero C++ / test /
+- **R8 (CMake test-target organization)** — PR #196, merged `315f656` (code
+  review + CI green). **Build-file organization only; zero C++ / test /
   workflow diff.**
   - New `cmake/ClawHUDTests.cmake` — the current root `if(BUILD_TESTING)` body
     (all 46 `add_executable(...Tests)` / `target_*` / `add_test` declarations)
