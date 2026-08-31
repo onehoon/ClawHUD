@@ -1,6 +1,6 @@
 # ClawHUD Production Refactor Plan
 
-Status: **CORE REFACTOR COMPLETE AT R7 — R0 (#178), R1 (#180), R2 (#182), R3 (#184), R4 (#187), R5 (#189), R6 (#192), R7 (#194) merged; R8 optional** (R3 / R4 / R6 / R7 hardware smoke still pending, non-blocking)  
+Status: **COMPLETE — R0 (#178), R1 (#180), R2 (#182), R3 (#184), R4 (#187), R5 (#189), R6 (#192), R7 (#194), R8 (#196) merged** (R0–R7 runtime architecture; R8 build-file organization. R3 / R4 / R6 / R7 hardware smoke still pending, non-blocking)  
 Re-baseline commit: `c0a2dcbd598ad7a31fa7dd28fec09cbd9c29e1f2` (after PR #175 / #176)  
 Date: 2026-08-31  
 Repository: `onehoon/ClawHUD`
@@ -1952,25 +1952,42 @@ Those extractions remain valid and are retained in the new architecture.
 **Core runtime refactor: COMPLETE at R7.** The four controllers
 (`HudController`, `ProductionTelemetryController`, `GameSessionController`,
 `DebugObservationController`) are extracted, `App` is a clean composition
-root / mediator, and every runtime state domain has one clear owner. R8 below
-is **optional** and not required for runtime-architecture completion.
+root / mediator, and every runtime state domain has one clear owner.
+
+- **R8 (CMake test-target organization)** — PR #196, branch
+  `refactor/r8-cmake-tests`. **Build-file organization only; zero C++ / test /
+  workflow diff.**
+  - New `cmake/ClawHUDTests.cmake` — the current root `if(BUILD_TESTING)` body
+    (all 46 `add_executable(...Tests)` / `target_*` / `add_test` declarations)
+    relocated **verbatim**, same order, byte-identical (verified `diff` of the
+    moved block vs `ff5102a:CMakeLists.txt` lines 149–695), plus a 3-line header
+    comment.
+  - Root `CMakeLists.txt` keeps every production stanza (`project` / MSVC
+    guards / `Version.h` gen / Velopack / PresentMon paths / `ClawHUD` +
+    `ClawHUD.EcHelper` targets / POST_BUILD staging) and `include(CTest)`, then:
+    ```cmake
+    if(BUILD_TESTING)
+        include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/ClawHUDTests.cmake")
+    endif()
+    ```
+    Root loses 551 lines, gains 1. No helper macro, no multi-file split, no
+    path rewriting, no second `if(BUILD_TESTING)` in the include.
+  - Verified: `BUILD_TESTING=ON` clean configure + Release build + `ctest -N`
+    inventory **identical** to the pre-R8 baseline (46 test names, same order) +
+    **46/46** pass; separate clean `BUILD_TESTING=OFF` dir configures and builds
+    `ClawHUD` + `ClawHUD.EcHelper` with **0** test targets generated.
+  - Changed files: `CMakeLists.txt`, `cmake/ClawHUDTests.cmake` (new),
+    `docs/APP_REFACTOR_PLAN.md`. No `src/**`, `tests/**`, `.github/workflows/**`
+    diff. HUD/VRR presentation contract: literal zero diff.
+
+**R0–R8 refactor series: COMPLETE.** R0–R7 = runtime architecture; R8 = build-file
+organization. No R9 is planned.
 
 ### Next work
 
-**R8 — Optional `CMakeLists.txt` / test-target organization** (see the "R8 —
-Optional build-file organization" section above). Not required; do it only if
-the explicit per-test-target declarations become a real maintenance problem.
-After each merged PR, update this progress log with:
-
-```text
-PR number
-main commit
-what state moved
-what App methods remain as facade
-full CTest result
-hardware smoke result if applicable
-any deliberate deviation from this plan
-```
+None — the App refactor plan is finished. Outstanding non-blocking follow-up:
+R3 / R4 / R6 / R7 hardware smoke on a supported MSI Claw (see each phase's
+`§NN follow-up` note).
 
 Before starting R2, R3, or R4 in a new conversation, re-read the corresponding section of
 this document and the behavior-inventory template rather than reconstructing decisions from
