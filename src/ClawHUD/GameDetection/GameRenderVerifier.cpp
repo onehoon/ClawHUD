@@ -1,14 +1,27 @@
 #include "GameRenderVerifier.h"
 
+#include "PresentMonTelemetryProvider.h"
+
+#include <chrono>
 #include <utility>
 
 namespace clawhud
 {
-GameRenderVerifierEvent StampPresentMonHudEvent(
-    DWORD processId, std::uint64_t generation,
-    const PresentMonHudEvent& event) noexcept
+namespace
 {
-    return {processId, generation, event};
+constexpr auto kFramePollInterval = std::chrono::milliseconds(100);
+}
+
+GameRenderVerifierEvent MakeGameRenderVerifierEvent(
+    DWORD processId, std::uint64_t generation,
+    GameRenderVerifierEventType type) noexcept
+{
+    return {processId, generation, type};
+}
+
+GameRenderVerifier::GameRenderVerifier(PresentMonTelemetryProvider& provider)
+    : provider_(provider)
+{
 }
 
 GameRenderVerifier::~GameRenderVerifier()
@@ -16,71 +29,70 @@ GameRenderVerifier::~GameRenderVerifier()
     Stop();
 }
 
-bool GameRenderVerifier::Start(const std::wstring& presentMonExecutable,
-    DWORD processId, std::uint64_t generation, EventCallback callback)
+bool GameRenderVerifier::Start(DWORD processId, std::uint64_t generation,
+    EventCallback callback)
 {
     Stop();
-    if (presentMonExecutable.empty() || processId == 0 || generation == 0 || !callback)
+    if (processId == 0 || generation == 0 || !callback)
+        return false;
+
+    PresentMonProcessLease lease = provider_.BeginGameRenderVerification(processId);
+    if (!lease)
         return false;
 
     processId_ = processId;
     generation_ = generation;
     callback_ = std::move(callback);
-
-    auto telemetry = std::make_unique<PresentMonHudTelemetry>();
-    if (!telemetry->Start(presentMonExecutable, processId,
-            [this](const PresentMonHudEvent& event)
-            {
-                HandleTelemetryEvent(event);
-            }))
+    stop_.store(false);
+    running_.store(true);
+    worker_ = std::thread([this, processId, generation,
+        lease = std::move(lease)]() mutable
     {
-        callback_ = {};
-        processId_ = 0;
-        generation_ = 0;
-        return false;
-    }
-
-    telemetry_ = std::move(telemetry);
+        PollLoop(processId, generation);
+        lease.Release();
+    });
     return true;
 }
 
-DWORD GameRenderVerifier::Stop() noexcept
+void GameRenderVerifier::Stop() noexcept
 {
-    DWORD exitCode{};
-    if (telemetry_)
-    {
-        exitCode = telemetry_->Stop();
-        telemetry_.reset();
-    }
+    stop_.store(true);
+    if (worker_.joinable())
+        worker_.join();
+    running_.store(false);
     callback_ = {};
     processId_ = 0;
     generation_ = 0;
-    return exitCode;
 }
 
-bool GameRenderVerifier::Running() const noexcept
+void GameRenderVerifier::PollLoop(DWORD processId, std::uint64_t generation)
 {
-    return telemetry_ && telemetry_->Running();
-}
-
-void GameRenderVerifier::HandleTelemetryEvent(
-    const PresentMonHudEvent& event) noexcept
-{
-    try
+    while (!stop_.load())
     {
-        if (callback_)
-            callback_(StampPresentMonHudEvent(processId_, generation_, event));
+        const auto displayed = provider_.PollGameRenderDisplayedFrame(processId);
+        if (displayed && *displayed)
+        {
+            try
+            {
+                if (callback_)
+                    callback_(MakeGameRenderVerifierEvent(processId, generation,
+                        GameRenderVerifierEventType::FirstDisplayedFrame));
+            }
+            catch (...)
+            {
+            }
+            break;
+        }
+        std::this_thread::sleep_for(kFramePollInterval);
     }
-    catch (...)
-    {
-    }
+    running_.store(false);
 }
 
 bool GameRenderVerifier::ApplyRendererEvidence(
     GameDetectionCoordinator& coordinator,
     const GameRenderVerifierEvent& event) noexcept
 {
-    if (event.event.type != PresentMonHudEventType::FirstDisplayedFrame)
+    if (event.type != GameRenderVerifierEventType::FirstDisplayedFrame)
         return false;
     return coordinator.MarkRendererReady(event.processId, event.generation);
 }

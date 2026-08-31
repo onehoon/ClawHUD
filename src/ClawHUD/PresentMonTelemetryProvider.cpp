@@ -1,6 +1,26 @@
 #include "PresentMonTelemetryProvider.h"
 namespace clawhud
 {
+PresentMonProcessLease& PresentMonProcessLease::operator=(
+    PresentMonProcessLease&& other) noexcept
+{
+    if (this != &other)
+    {
+        Release();
+        provider_ = std::exchange(other.provider_, nullptr);
+        processId_ = std::exchange(other.processId_, 0);
+    }
+    return *this;
+}
+PresentMonProcessLease::~PresentMonProcessLease() { Release(); }
+void PresentMonProcessLease::Release() noexcept
+{
+    if (provider_)
+        provider_->ReleaseProcess(processId_);
+    provider_ = nullptr;
+    processId_ = 0;
+}
+
 namespace
 {
 template<class T> const T* Entry(const PM_INTROSPECTION_OBJARRAY* a, size_t i)
@@ -41,6 +61,8 @@ bool PresentMonTelemetryProvider::Initialize()
     if (client_.SetEtwFlushPeriod(kPresentMonEtwFlushPeriodMs) == PM_STATUS_SUCCESS)
         processTelemetry_.Initialize(client_, capabilities_);
     systemTelemetry_.Initialize(client_, capabilities_);
+    frameTelemetry_.Initialize(client_, capabilities_);
+    debugFrameTelemetry_.Initialize(client_, capabilities_);
     return true;
 }
 void PresentMonTelemetryProvider::Shutdown() noexcept
@@ -50,6 +72,8 @@ void PresentMonTelemetryProvider::Shutdown() noexcept
 }
 void PresentMonTelemetryProvider::ShutdownUnlocked() noexcept
 {
+    debugFrameTelemetry_.Shutdown(client_);
+    frameTelemetry_.Shutdown(client_);
     processTelemetry_.Shutdown(client_);
     systemTelemetry_.Shutdown(client_);
     ready_ = false;
@@ -66,6 +90,51 @@ std::optional<PresentMonProcessSnapshot> PresentMonTelemetryProvider::ReadProces
 }
 bool PresentMonTelemetryProvider::SystemReady() const noexcept
 { std::scoped_lock lock(apiMutex_); return ready_ && systemTelemetry_.Ready(); }
+PresentMonProcessLease PresentMonTelemetryProvider::AcquireProcess(std::uint32_t processId)
+{
+    std::scoped_lock lock(apiMutex_);
+    if (!ready_ || processId == 0 ||
+        client_.StartTrackingProcess(processId) != PM_STATUS_SUCCESS)
+        return {};
+    return PresentMonProcessLease(this, processId);
+}
+PresentMonProcessLease PresentMonTelemetryProvider::BeginGameRenderVerification(
+    std::uint32_t processId)
+{
+    std::scoped_lock lock(apiMutex_);
+    if (!ready_ || !frameTelemetry_.Ready() || processId == 0)
+        return {};
+    if (client_.StartTrackingProcess(processId) != PM_STATUS_SUCCESS)
+        return {};
+    if (!frameTelemetry_.BeginVerification(client_, processId))
+    {
+        client_.StopTrackingProcess(processId);
+        return {};
+    }
+    return PresentMonProcessLease(this, processId);
+}
+void PresentMonTelemetryProvider::ReleaseProcess(std::uint32_t processId) noexcept
+{
+    std::scoped_lock lock(apiMutex_);
+    if (ready_ && processId != 0)
+        client_.StopTrackingProcess(processId);
+}
+std::optional<bool> PresentMonTelemetryProvider::PollGameRenderDisplayedFrame(
+    std::uint32_t processId)
+{
+    std::scoped_lock lock(apiMutex_);
+    return ready_ ? frameTelemetry_.PollDisplayedFrame(client_, processId)
+                  : std::nullopt;
+}
+bool PresentMonTelemetryProvider::FrameReady() const noexcept
+{ std::scoped_lock lock(apiMutex_); return ready_ && frameTelemetry_.Ready(); }
+std::optional<PresentMonDebugFrame> PresentMonTelemetryProvider::ReadDebugFrameActivity(
+    std::uint32_t processId)
+{
+    std::scoped_lock lock(apiMutex_);
+    return ready_ ? debugFrameTelemetry_.ReadLatest(client_, processId)
+                  : std::nullopt;
+}
 std::optional<PresentMonSystemSnapshot> PresentMonTelemetryProvider::ReadSystem()
 {
     std::scoped_lock lock(apiMutex_);

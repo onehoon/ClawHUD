@@ -1,111 +1,58 @@
 #include "GameDetection/PresentActivitySource.h"
 
-#include <cstdlib>
+#include "PresentMonDebugFrameTelemetry.h"
+#include "PresentMonTelemetryProvider.h"
+
 #include <iostream>
-#include <string>
-#include <vector>
+
+using namespace clawhud;
 
 namespace
 {
-void Check(bool condition, const char* message)
+bool Check(bool condition, const char* message)
 {
-    if (!condition)
-    {
-        std::cerr << "FAIL: " << message << '\n';
-        std::exit(EXIT_FAILURE);
-    }
-}
-
-clawhud::PresentActivitySample Sample(DWORD processId, double qpc,
-    std::optional<bool> displayed = std::nullopt)
-{
-    clawhud::PresentActivitySample sample;
-    sample.processId = processId;
-    sample.application = processId == 100 ? "game.exe" : "tool.exe";
-    sample.qpcTimeMs = qpc;
-    sample.displayed = displayed;
-    return sample;
+    if (condition) return true;
+    std::cerr << "FAILED: " << message << '\n';
+    return false;
 }
 }
 
 int main()
 {
-    const std::vector<std::string> headers{
-        "PresentMode", "CPUStartQPCTimeInMs", "ProcessID", "Application",
-        "FrameType", "SwapChainAddress", "MsBetweenDisplayChange"};
-    const auto schema = clawhud::ParsePresentActivitySchema(headers);
-    Check(schema.HasRequiredColumns(), "required schema columns are recognized");
-    Check(schema.presentMode && schema.frameType && schema.swapChainAddress &&
-        schema.msBetweenDisplayChange, "optional schema columns are recognized");
+    bool ok = true;
 
-    const std::vector<std::string> row{
-        "Hardware:IndependentFlip", "1000.5", "100", "game.exe", "Application",
-        "0x123", "16.7"};
-    const auto parsed = clawhud::ParsePresentActivityRow(schema, row);
-    Check(parsed.has_value(), "valid row parses");
-    Check(parsed->processId == 100 && parsed->qpcTimeMs == 1000.5,
-        "required values are parsed");
-    Check(parsed->displayed == true, "positive display interval is displayed");
-    Check(parsed->presentMode == "Hardware:IndependentFlip" &&
-        parsed->frameType == "Application" && parsed->swapChainAddress == "0x123",
-        "optional values are parsed");
+    PresentMonDebugFrame frame;
+    frame.swapChainAddress = 0x7FF0ABCD1234ULL;
+    frame.presentMode = PM_PRESENT_MODE_HARDWARE_INDEPENDENT_FLIP;
+    frame.frameType = PM_FRAME_TYPE_APPLICATION;
+    frame.betweenDisplayChangeMs = 8.33;
+    const auto line = FormatPresentActivityLine(4321, frame);
+    ok &= Check(line.rfind(L"[PresentActivity] pid=4321", 0) == 0,
+        "the debug line is prefixed and carries the PID");
+    ok &= Check(line.find(L"swapChain=0x00007FF0ABCD1234") != std::wstring::npos,
+        "the swap-chain address is rendered as fixed-width hex");
+    ok &= Check(line.find(L"presentMode=HardwareIndependentFlip") != std::wstring::npos,
+        "the present mode enum is named");
+    ok &= Check(line.find(L"frameType=Application") != std::wstring::npos,
+        "the frame type enum is named");
+    ok &= Check(line.find(L"displayed=1") != std::wstring::npos,
+        "a positive display-change interval is reported as displayed");
 
-    const auto missing = clawhud::ParsePresentActivitySchema({"Application", "ProcessID"});
-    Check(!missing.HasRequiredColumns(), "missing timestamp is rejected");
-    Check(!clawhud::ParsePresentActivityRow(schema, {"mode", "bad", "100", "game.exe"}),
-        "invalid timestamp is rejected");
-    Check(!clawhud::ParsePresentActivityRow(schema,
-        {"mode", "1000", "100", "NA"}), "missing application is rejected");
+    PresentMonDebugFrame empty;
+    ok &= Check(FormatPresentActivityLine(9, empty) == L"[PresentActivity] pid=9",
+        "an evidence-free frame still logs the PID only");
 
-    const auto command = clawhud::BuildPresentActivityCommandLine(
-        L"C:\\tools\\PresentMon.exe", L"ClawHUD-PresentActivity-1-2");
-    Check(command.find(L"--session_name") != std::wstring::npos,
-        "diagnostic command has a session name");
-    Check(command.find(L"--process_id") == std::wstring::npos,
-        "diagnostic command is global");
-    Check(command.find(L"--stop_existing_session") == std::wstring::npos,
-        "diagnostic command does not stop another session");
-    Check(command.find(L"--no_track_gpu") != std::wstring::npos,
-        "diagnostic capture disables unused GPU tracking");
-    Check(command.find(L"--no_track_input") != std::wstring::npos,
-        "diagnostic capture disables unused input tracking");
-    Check(clawhud::EscapePresentActivityValue("a\\b\"c\n") == L"a\\\\b\\\"c\\n",
-        "log field escaping is bounded");
-
-    clawhud::PresentActivityAggregator aggregator;
-    aggregator.Consume(Sample(100, 1000.0, true));
-    aggregator.Consume(Sample(100, 1100.0, false));
-    aggregator.Consume(Sample(100, 1200.0, true));
-    auto summaries = aggregator.Consume(Sample(100, 1500.0, false));
-    Check(summaries.size() == 1, "activity window emits one summary");
-    Check(summaries[0].processId == 100 && summaries[0].presentCount == 3,
-        "summary aggregates one PID only");
-    Check(summaries[0].displayedCount == 2,
-        "displayed count includes only positive intervals");
-    Check(summaries[0].displayCountAvailable,
-        "displayed count availability is retained");
-    clawhud::PresentActivityAggregator shortLived;
-    shortLived.Consume(Sample(300, 1000.0));
-    summaries = shortLived.Consume(Sample(100, 1600.0));
-    Check(summaries.size() == 1 && summaries[0].processId == 300 &&
-        summaries[0].presentCount == 1,
-        "short-lived PID activity is preserved by global QPC progress");
-
-    clawhud::PresentActivityAggregator finalWindow;
-    finalWindow.Consume(Sample(400, 3000.0));
-    summaries = finalWindow.Drain();
-    Check(summaries.size() == 1 && summaries[0].processId == 400 &&
-        summaries[0].presentCount == 1,
-        "final partial activity window is drained");
-
-    auto noDisplay = clawhud::PresentActivityAggregator{};
-    noDisplay.Consume(Sample(300, 2000.0));
-    summaries = noDisplay.Consume(Sample(300, 2500.0));
-    Check(summaries.size() == 1 && summaries[0].displayedCount == 0,
-        "unavailable display intervals do not fabricate a displayed count");
-
-    clawhud::PresentActivitySource source;
+    // Lifecycle against an unready provider: nothing is launched and it is safe.
+    PresentMonTelemetryProvider provider;
+    PresentActivitySource source;
+    source.Start(provider);
+    source.Watch(1234);
+    source.Watch(0);
+    ok &= Check(source.Watched() == 0, "Watch(0) clears the observed PID");
     source.Stop();
+    ok &= Check(!source.Running(), "Stop leaves the source idle");
     source.Stop();
-    std::cout << "PASS\n";
+    ok &= Check(!source.Running(), "repeated Stop is safe");
+
+    return ok ? 0 : 1;
 }

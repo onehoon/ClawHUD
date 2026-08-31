@@ -21,8 +21,8 @@ bool Check(bool condition, const char* message)
 
 GameRenderVerifierEvent FirstFrame(DWORD processId, std::uint64_t generation)
 {
-    return StampPresentMonHudEvent(processId, generation,
-        {PresentMonHudEventType::FirstDisplayedFrame, {}});
+    return MakeGameRenderVerifierEvent(processId, generation,
+        GameRenderVerifierEventType::FirstDisplayedFrame);
 }
 
 bool Commit(GameDetectionCoordinator& coordinator, DWORD processId)
