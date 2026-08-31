@@ -60,7 +60,7 @@ HudSettings HudSettingsStore::Load() const
         return settings;
 
     settings.hudEnabled = ReadBool(L"HUD", L"Enabled", true);
-    settings.debugLoggingEnabled = ReadBool(L"Developer", L"DebugLog", false);
+    settings.debugLoggingEnabled = ReadBool(L"Developer", L"DebugLoggingEnabled", false);
     wchar_t startup[8]{};
     GetPrivateProfileStringW(L"General", L"StartWithWindows", L"1", startup,
         ARRAYSIZE(startup), path_.c_str());
