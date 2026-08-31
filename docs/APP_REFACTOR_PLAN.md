@@ -69,8 +69,8 @@ behavior silently (a dropped guard, a reordered call, a flipped condition). Miti
 
 | PR | Title | Cluster | Risk | Status |
 |----|-------|---------|------|--------|
-| 0 | Refactor plan + behavior inventory template | docs | none | in progress |
-| 1 | Extract stateless helpers (`HudSettingsIni`, `Win32ProcessUtil`, `Win32Format`) | A | very low | todo |
+| 0 | Refactor plan + behavior inventory template | docs | none | done (#167) |
+| 1 | Extract stateless helpers (`Win32Format`, `ProcessLiveness`) | A | very low | done |
 | 2 | Extract `HudSettingsStore` (settings.ini load/save) | B | low | todo |
 | 3 | Extract `DiagnosticsController` | C | medium | todo |
 | 4 | Extract `HudTelemetryAggregator` (retained fields + snapshot) | D | medium | todo |
@@ -118,3 +118,11 @@ PR 7 lands. No interface extraction.
 ## Progress log
 
 - PR 0: plan committed.
+- PR 1: `HexHresult` / `HwndText` moved to `Win32Format.{h,cpp}`, `ProcessAlive` to
+  `ProcessLiveness.{h,cpp}`, both under `namespace clawhud`. `App.cpp` keeps
+  `using`-declarations so call sites are unchanged. New tests `Win32FormatTests`,
+  `ProcessLivenessTests`. Verbatim move.
+  - Follow-up noted: `EcHelperClient.cpp` has an identical private `HexHresult`;
+    `PresentMonApi2Diagnostic.cpp` has a *different* `ProcessAlive`
+    (`OpenProcess(SYNCHRONIZE, ...)` only). Not touched here (dedup of the first, and
+    any decision on the second, is separate).
