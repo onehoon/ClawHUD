@@ -10,6 +10,7 @@
 #include "SuspendResumePolicy.h"
 #include "ProcessLiveness.h"
 #include "HudSettingsStore.h"
+#include "GameDetection/DebugObservationController.h"
 
 #include <Velopack.hpp>
 
@@ -67,9 +68,8 @@ App::~App()
     StopProductionSampling(false, L"app-shutdown");
     productionTelemetry_.StopGraphicsApiProbe();
     gameSession_.StopSources();
-    windowLifecycleSource_.Stop();
-    presentActivitySource_.Stop();
-    processLifecycleSource_.Stop();
+    if (debugObservation_)
+        debugObservation_->Stop();
     if (hudHotkeyRegistered_ && tray_.Window())
         UnregisterHotKey(tray_.Window(), kHudToggleHotkeyId);
     hudHotkeyRegistered_ = false;
@@ -95,11 +95,8 @@ clawhud::GameSessionHooks App::MakeGameSessionHooks()
     {
         productionTelemetry_.OnForegroundProcessChanged(processId);
         ReconcileHudVisibility();
-        if (debugLoggingEnabled_)
-        {
-            windowsGameIdentitySource_.QueueInspect(window, processId);
-            presentActivitySource_.Watch(processId);
-        }
+        if (debugObservation_)
+            debugObservation_->OnForegroundChanged(window, processId);
     };
     hooks.reconcileHudVisibility = [this] { ReconcileHudVisibility(); };
     hooks.startGraphicsApiProbe = [this](DWORD pid)
@@ -161,15 +158,11 @@ int App::Run()
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
             L"Steam RunningAppID watcher initialization failed");
     gameSession_.InitializeSteamSession(steamWatcherStarted);
-    if (debugLoggingEnabled_ && !processLifecycleSource_.Start())
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
-            L"Process lifecycle diagnostic source failed to start; continuing");
     if (debugLoggingEnabled_)
     {
-        if (!windowLifecycleSource_.Start())
-            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
-                L"Window lifecycle diagnostic source failed to start; continuing");
-        presentActivitySource_.Start(presentMonTelemetryProvider_);
+        debugObservation_ = std::make_unique<clawhud::DebugObservationController>(
+            presentMonTelemetryProvider_);
+        debugObservation_->Start();
     }
     hudHotkeyRegistered_ = RegisterHotKey(tray_.Window(), kHudToggleHotkeyId,
         MOD_NOREPEAT, VK_F8) != FALSE;
@@ -695,9 +688,8 @@ void App::Exit()
     StopProductionSampling(false, L"app-shutdown");
     productionTelemetry_.StopGraphicsApiProbe();
     gameSession_.StopSources();
-    windowLifecycleSource_.Stop();
-    presentActivitySource_.Stop();
-    processLifecycleSource_.Stop();
+    if (debugObservation_)
+        debugObservation_->Stop();
     if (hudHotkeyRegistered_ && tray_.Window())
     {
         UnregisterHotKey(tray_.Window(), kHudToggleHotkeyId);

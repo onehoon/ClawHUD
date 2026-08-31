@@ -1848,15 +1848,59 @@ Those extractions remain valid and are retained in the new architecture.
     **Hardware smoke: deferred** — app unsupported on this dev machine; per the
     R5 work order §28 not itself a merge blocker.
 
+- **R6 (extract `DebugObservationController`; make debug sources lazy)** — PR
+  #192, branch `refactor/r6-debug-observation`. Ownership relocation + one
+  intentional resource improvement.
+  - New `src/ClawHUD/GameDetection/DebugObservationController.{h,cpp}` (concrete
+    class, `namespace clawhud`). Owns the four debug-only sources moved out of
+    `App`: `WindowsGameIdentitySource`, `ProcessLifecycleSource`,
+    `WindowLifecycleSource`, `PresentActivitySource`. API is `Start()` /
+    `OnForegroundChanged(HWND, DWORD)` / `Stop()`; holds a non-owning
+    `PresentMonTelemetryProvider&` (PresentActivitySource lease only).
+  - `App` owns it as `std::unique_ptr<clawhud::DebugObservationController>
+    debugObservation_`, constructed **lazily in `Run()`** at the old debug
+    start-up slot and **only when `debugLoggingEnabled_`**. `debugLoggingEnabled_`
+    stays App-owned (still read once from `[Developer] DebugLog`, never toggled).
+  - **Intentional behavior/resource change:** `DebugLog=0` previously still
+    constructed `WindowsGameIdentitySource` (an always-live `App` value member)
+    and started its constructor-owned `std::jthread`. After R6 the whole
+    controller is absent when `DebugLog=0`, so none of the four sources — and no
+    `WindowsGameIdentitySource` worker thread — are created. `DebugLog=1`
+    behavior is unchanged.
+  - Effective orders preserved: startup `ProcessLifecycle.Start →
+    WindowLifecycle.Start → PresentActivity.Start(shared provider)` (failures
+    non-fatal, same warning text); foreground tail `WindowsGameIdentity.QueueInspect
+    → PresentActivity.Watch` (still after `productionTelemetry_.OnForegroundProcessChanged`
+    + `ReconcileHudVisibility`, which stay in `App`); shutdown
+    `WindowLifecycle.Stop → PresentActivity.Stop → ProcessLifecycle.Stop` inside
+    `Stop()`, called from both `~App` and `Exit()` at the old position.
+  - `App.h` drops the four debug-source includes → forward-declares the
+    controller; the four old members are removed (no aliases). Debug output
+    still never touches production detection / telemetry / HUD.
+    `HudPresentation.*` / `HudController.*` / `GameSessionController.*` /
+    `MicrosoftGameTrigger` / game-detection state machine / suspend-resume /
+    tray-only Settings: **zero diff**. One shared App-owned PresentMon provider;
+    no new API2 session. Four source `.cpp/.h` files: **zero diff**.
+  - No new test target (composition wrapper over already-tested sources; the
+    laziness contract is structural). CTest 46/46 local, clean build.
+  - `App.cpp` 733 → 725 lines; `App.h` unchanged in size (131 → 132 — the
+    forward declaration + member comment roughly offset the four removed
+    includes / members).
+  - **Hardware smoke: deferred** — app unsupported on this dev machine; per the
+    R6 work order §33 not itself a merge blocker. §34 follow-up: verify
+    `DebugLog` OFF (no debug logs / no identity worker) and ON (all debug logs
+    present, detection still production-authoritative) on hardware.
+
 ### Next work
 
-**R6 — Optional `DebugObservationController`** (§9 R6). Extract the debug-only
-observation sources still owned by `App` (`WindowsGameIdentitySource`,
-`ProcessLifecycleSource`, `WindowLifecycleSource`, `PresentActivitySource`,
-`debugLoggingEnabled_`) behind one controller gated on the developer
-`[Developer] DebugLog` switch, so `App` no longer carries the debug wiring. This
-is optional — do it only if it makes `App` meaningfully clearer. Re-read §9 R6
-first. After each merged PR, update this progress log with:
+**R7 — Final `App` shell cleanup** (see the "R7 — Final `App` shell cleanup"
+section above). With the four controllers extracted: centralize the duplicated
+runtime stop steps shared by `Exit()` and `~App()`, simplify `Run()` to
+startup/wiring and `ProcessMessages()` to controller + Settings dispatch, remove
+obsolete forwarding methods no UI caller needs, and keep the public `App` facade
+that `SettingsWindow` / `TrayIcon` require. No new shell class unless `App` still
+has a real ownership problem. Re-read that section first. After each merged PR,
+update this progress log with:
 
 ```text
 PR number

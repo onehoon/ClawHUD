@@ -11,10 +11,6 @@
 
 #include "TrayIcon.h"
 #include "HudModel.h"
-#include "GameDetection/WindowsGameIdentitySource.h"
-#include "GameDetection/ProcessLifecycleSource.h"
-#include "GameDetection/PresentActivitySource.h"
-#include "GameDetection/WindowLifecycleSource.h"
 #include "GameDetection/GameSessionController.h"
 #include "PresentMonTelemetryProvider.h"
 #include "ProductionTelemetryController.h"
@@ -24,6 +20,11 @@
 #include "Tweaks/IntelVrr/IntelVrrRunResult.h"
 
 class SettingsWindow;
+
+namespace clawhud
+{
+class DebugObservationController;
+}
 
 constexpr int kHudToggleHotkeyId = 1;
 constexpr UINT_PTR kResumeRecoveryTimerId = 5;
@@ -106,7 +107,10 @@ private:
     // RunningAppID session context, and the game-session WM_APP plumbing.
     // Holds a non-owning reference to the shared provider (verifier only).
     clawhud::GameSessionController gameSession_{presentMonTelemetryProvider_};
-    clawhud::WindowsGameIdentitySource windowsGameIdentitySource_;
+    // Debug-only observation sources. Constructed lazily in Run() only when
+    // debugLoggingEnabled_; stays null (and none of the sources exist) for a
+    // normal DebugLog=0 run. See GameDetection/DebugObservationController.h.
+    std::unique_ptr<clawhud::DebugObservationController> debugObservation_;
     std::unique_ptr<SettingsWindow> settings_;
     bool exiting_{};
     std::wstring executablePath_;
@@ -125,7 +129,4 @@ private:
     // Developer-only. Read once from [Developer] DebugLog in settings.ini at
     // startup; never written by the app and never toggled at runtime.
     bool debugLoggingEnabled_{};
-    clawhud::ProcessLifecycleSource processLifecycleSource_;
-    clawhud::PresentActivitySource presentActivitySource_;
-    clawhud::WindowLifecycleSource windowLifecycleSource_;
 };
