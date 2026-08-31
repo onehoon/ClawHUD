@@ -30,6 +30,7 @@
 #include "FpsStaleHold.h"
 #include "EcHelperClient.h"
 #include "HudSettingsStore.h"
+#include "HudTelemetryAggregator.h"
 #include "MsiEcHudTelemetry.h"
 #include "WindowsPowerTelemetry.h"
 #include "BatteryPowerEstimator.h"
@@ -240,7 +241,7 @@ private:
     std::unique_ptr<VrrDiagnostic> vrrDiagnostic_;
     std::unique_ptr<clawhud::HudPresentation> hudPresentation_;
     std::unique_ptr<EcHelperClient> ecHudClient_;
-    clawhud::MsiEcHudTelemetry ecHudTelemetry_{};
+    clawhud::HudTelemetryAggregator telemetryAggregator_;
     clawhud::PresentMonTelemetryProvider presentMonTelemetryProvider_;
     std::optional<double> latestProcessFps_;
     // Retains the last valid FPS across short same-PID API2 misses (2 s window).
@@ -256,11 +257,6 @@ private:
     clawhud::BatteryPowerEstimator batteryPowerEstimator_;
     bool batteryEcOnDc_{};
     bool batteryEcReadyLogged_{};
-    std::optional<double> latestCpuUsagePercent_;
-    std::optional<double> latestGpuUsagePercent_;
-    std::optional<double> latestGpuClockMHz_;
-    std::optional<std::uint64_t> latestGpuMemoryUsedBytes_;
-    std::optional<std::uint64_t> latestSystemMemoryUsedBytes_;
     clawhud::IntelGraphicsApiProbe graphicsApiProbe_;
     std::optional<std::wstring> latestGraphicsApi_;
     DWORD graphicsApiProcessId_{};
@@ -287,15 +283,6 @@ private:
     bool hudRenderFailureLogged_{};
     bool hudShowFailureLogged_{};
     bool hudHideFailureLogged_{};
-    unsigned cpuUsageMissingCount_{};
-    unsigned gpuUsageMissingCount_{};
-    unsigned gpuClockMissingCount_{};
-    unsigned gpuMemoryMissingCount_{};
-    unsigned systemMemoryMissingCount_{};
-    unsigned ecCpuTempMissingCount_{};
-    unsigned ecFan1MissingCount_{};
-    unsigned ecFan2MissingCount_{};
-    unsigned ecTdpMissingCount_{};
     bool intelVrrRangeFixEnabled_{ true };
     bool suspended_{};
     bool resumeRecoveryActive_{};

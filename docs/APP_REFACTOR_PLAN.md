@@ -72,8 +72,8 @@ behavior silently (a dropped guard, a reordered call, a flipped condition). Miti
 | 0 | Refactor plan + behavior inventory template | docs | none | done (#167) |
 | 1 | Extract stateless helpers (`Win32Format`, `ProcessLiveness`) | A | very low | done |
 | 2 | Extract `HudSettingsStore` (settings.ini load/save) | B | low | done |
-| 3 | Extract `DiagnosticsController` | C | medium | todo |
-| 4 | Extract `HudTelemetryAggregator` (retained fields + snapshot) | D | medium | todo |
+| 3 | Extract `DiagnosticsController` | C | medium | deferred (see note) |
+| 4 | Extract `HudTelemetryAggregator` (retained fields + snapshot) | D | medium | done |
 | 5 | Extract `ProductionSamplingScheduler` | E | medium-high | todo |
 | 6 | Extract `HudController` | F | medium | todo |
 | 7 | Extract `HudVisibilityStateMachine` | G | high | todo |
@@ -135,3 +135,20 @@ PR 7 lands. No interface extraction.
   `App` member initializers, so the empty-path early-return behaviour is preserved.
   New test `HudSettingsStoreTests` (round-trip, legacy opacity key, missing-key
   fallbacks, `SaveEnabled` / `SaveIntelVrrRangeFixEnabled` isolation).
+- PR 3: **deferred.** The four diagnostics' `Start*` / `Stop*` are heavily
+  interleaved with sampling teardown/restore, game-detection candidate handling,
+  `ReconcileHudVisibility`, and the foreground tracker. Cleanly extracting a
+  controller needs a wide host interface back into `App` (or reordering that
+  logic). Revisit after the sampling / visibility / game-detection controllers
+  land, when the collaborators it needs are themselves objects.
+- PR 4: the retained-telemetry state (`ecHudTelemetry_` + 4 EC miss counters, the
+  five `latest*` system optionals + 5 system miss counters, and the two
+  `kXxxMissingThreshold` constants) moves into `clawhud::HudTelemetryAggregator`.
+  `SampleProductionTelemetry` now calls `IngestEc` / `IngestSystem`,
+  `RenderProductionHud` calls `FillSnapshot` (graphics API, FPS, and battery
+  fields still filled by `App`), and the three reset sites call `Reset()` /
+  `ResetSystem()`. Battery estimator, power telemetry, FPS hold, graphics-API
+  state stay in `App` (they belong with the sampling scheduler, a later PR).
+  Only reorder: the two full-reset sites now clear EC+system before the
+  power/battery lines instead of EC, then power/battery, then system — all
+  independent field writes. New test `HudTelemetryAggregatorTests`.
