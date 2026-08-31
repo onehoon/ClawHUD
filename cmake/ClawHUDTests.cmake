@@ -549,3 +549,47 @@
     set_target_properties(ClawHUD.PresentMonRuntimeBootstrapTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.PresentMonRuntimeBootstrapTests
         COMMAND ClawHUD.PresentMonRuntimeBootstrapTests)
+
+# --- ClawHUD.Diag standalone diagnostic test targets ---------------------
+# Added with the diagnostic foundation (PR #190); kept here so the root
+# CMakeLists.txt stays production-focused (R8).
+    add_executable(ClawHUD.DiagApi2EvidenceTests
+        tests/DiagApi2EvidenceTests.cpp
+        src/ClawHUD.Diag/Api2Evidence.cpp
+        src/ClawHUD.Diag/DiagPresentMonApi2Client.cpp)
+    target_compile_features(ClawHUD.DiagApi2EvidenceTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.DiagApi2EvidenceTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.DiagApi2EvidenceTests PRIVATE src/ClawHUD.Diag)
+    target_link_libraries(ClawHUD.DiagApi2EvidenceTests PRIVATE kernel32)
+    set_target_properties(ClawHUD.DiagApi2EvidenceTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.DiagApi2EvidenceTests COMMAND ClawHUD.DiagApi2EvidenceTests)
+
+    add_executable(ClawHUD.DiagProcessMetadataTests
+        tests/DiagProcessMetadataTests.cpp
+        src/ClawHUD.Diag/DiagnosticSession.cpp
+        src/ClawHUD.Diag/Api2Evidence.cpp
+        src/ClawHUD.Diag/DiagPresentMonApi2Client.cpp)
+    target_compile_features(ClawHUD.DiagProcessMetadataTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.DiagProcessMetadataTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.DiagProcessMetadataTests PRIVATE src/ClawHUD.Diag "${CMAKE_BINARY_DIR}/generated")
+    target_link_libraries(ClawHUD.DiagProcessMetadataTests PRIVATE advapi32 dwmapi user32 pdh)
+    set_target_properties(ClawHUD.DiagProcessMetadataTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.DiagProcessMetadataTests COMMAND ClawHUD.DiagProcessMetadataTests)
+
+    add_executable(ClawHUD.DiagWinEventTests
+        tests/DiagWinEventTests.cpp
+        src/ClawHUD.Diag/DiagnosticSession.cpp
+        src/ClawHUD.Diag/Api2Evidence.cpp
+        src/ClawHUD.Diag/DiagPresentMonApi2Client.cpp)
+    target_compile_features(ClawHUD.DiagWinEventTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.DiagWinEventTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.DiagWinEventTests PRIVATE src/ClawHUD.Diag "${CMAKE_BINARY_DIR}/generated")
+    target_link_libraries(ClawHUD.DiagWinEventTests PRIVATE advapi32 dwmapi user32 pdh)
+    set_target_properties(ClawHUD.DiagWinEventTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.DiagWinEventTests COMMAND ClawHUD.DiagWinEventTests)
+
+    add_test(NAME ClawHUD.DiagJsonlSmoke
+        COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File
+        "${CMAKE_SOURCE_DIR}/tests/DiagJsonlSmoke.ps1" "$<TARGET_FILE:ClawHUD.Diag>")
+    set_tests_properties(ClawHUD.DiagJsonlSmoke PROPERTIES
+        WORKING_DIRECTORY "$<TARGET_FILE_DIR:ClawHUD.Diag>")

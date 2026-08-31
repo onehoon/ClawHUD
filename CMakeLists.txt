@@ -32,6 +32,25 @@ file(ARCHIVE_EXTRACT INPUT "${VELOPACK_ARCHIVE}" DESTINATION "${VELOPACK_ROOT}")
 set(PRESENTMON_VERSION "2.5.1")
 set(PRESENTMON_API2_ROOT "${CMAKE_SOURCE_DIR}/third_party/presentmon/2.5.1")
 
+file(READ "${CMAKE_SOURCE_DIR}/archive/diagnostics/presentmon-api2/assets/PresentMonAutoTargetBlockList.txt"
+    CLAWHUD_DIAG_BLOCKLIST)
+file(WRITE "${CMAKE_BINARY_DIR}/generated/DiagBlocklist.h"
+    "#pragma once\n#include <string_view>\nconstexpr std::string_view kDiagPresentMonBlocklist = R\"BLOCK(${CLAWHUD_DIAG_BLOCKLIST})BLOCK\";\n")
+
+add_executable(ClawHUD.Diag
+    src/ClawHUD.Diag/main.cpp
+    src/ClawHUD.Diag/DiagnosticSession.cpp
+    src/ClawHUD.Diag/Api2Evidence.cpp
+    src/ClawHUD.Diag/DiagPresentMonApi2Client.cpp)
+target_compile_features(ClawHUD.Diag PRIVATE cxx_std_20)
+target_compile_definitions(ClawHUD.Diag PRIVATE
+    UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+set_target_properties(ClawHUD.Diag PROPERTIES CXX_EXTENSIONS OFF)
+target_include_directories(ClawHUD.Diag PRIVATE
+    src/ClawHUD.Diag
+    "${CMAKE_BINARY_DIR}/generated")
+target_link_libraries(ClawHUD.Diag PRIVATE advapi32 dwmapi user32 pdh)
+
 add_library(ClawHUD.Velopack SHARED IMPORTED GLOBAL)
 set_target_properties(ClawHUD.Velopack PROPERTIES
     IMPORTED_IMPLIB "${VELOPACK_ROOT}/lib/velopack_libc_win_x64_msvc.dll.lib"

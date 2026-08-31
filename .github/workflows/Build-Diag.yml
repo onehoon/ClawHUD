@@ -1,0 +1,41 @@
+name: Build Diagnostic
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/Build-Diag.yml'
+      - 'src/ClawHUD.Diag/**'
+      - 'CMakeLists.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  build-diag:
+    name: Build ClawHUD diagnostic
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Release x64
+        shell: pwsh
+        run: >-
+          cmake -S . -B build
+          -G "Visual Studio 18 2026"
+          -A x64
+          -T v145
+          -DBUILD_TESTING=OFF
+
+      - name: Build diagnostic
+        shell: pwsh
+        run: cmake --build build --config Release --target ClawHUD.Diag --parallel 2
+
+      - name: Upload diagnostic executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClawHUD-Diag
+          path: build/Release/ClawHUD.Diag.exe
+          if-no-files-found: error
