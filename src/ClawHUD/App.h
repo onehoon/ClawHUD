@@ -25,13 +25,13 @@
 #include "GameDetection/SteamRunningAppTrigger.h"
 #include "PresentMonTelemetryProvider.h"
 #include "ProductionTelemetryController.h"
+#include "HudController.h"
 #include "HudSettingsStore.h"
 #include "SteamRunningAppIdSource.h"
 #include "Tweaks/TweakStartupCoordinator.h"
 #include "Tweaks/IntelVrr/IntelVrrRunResult.h"
 
 class SettingsWindow;
-namespace clawhud { class HudPresentation; struct HudRenderOptions; }
 
 constexpr int kHudToggleHotkeyId = 1;
 constexpr UINT_PTR kResumeRecoveryTimerId = 5;
@@ -62,12 +62,12 @@ public:
     void SampleProductionFpsTelemetry();
     void RenderProductionHud(bool allowHidden = false);
     void TryGraphicsApiProbe();
-    bool HudVisible() const noexcept;
-    bool HudEnabled() const noexcept { return hudEnabled_; }
-    int HudSizeOffset() const noexcept { return hudSizeOffset_; }
+    bool HudVisible() const noexcept { return hudController_.Visible(); }
+    bool HudEnabled() const noexcept { return hudController_.Enabled(); }
+    int HudSizeOffset() const noexcept { return hudController_.SizeOffset(); }
     bool SetHudEnabled(bool enabled);
-    const clawhud::HudLayoutOptions& HudOptions() const noexcept { return hudOptions_; }
-    clawhud::HudFont HudFont() const noexcept { return hudFont_; }
+    const clawhud::HudLayoutOptions& HudOptions() const noexcept { return hudController_.Options(); }
+    clawhud::HudFont HudFont() const noexcept { return hudController_.Font(); }
     void SetHudAlignment(clawhud::HudAlignment alignment);
     void SetHudFont(clawhud::HudFont font);
     void SetHudBackgroundMode(clawhud::HudBackgroundMode mode);
@@ -86,11 +86,7 @@ private:
     void LoadHudSettings();
     void SaveHudEnabledSetting(bool enabled) const;
     void SaveHudSettings() const;
-    clawhud::HudRenderOptions BuildHudRenderOptions() const;
-    bool RecreateHudPresentation(bool restoreVisible);
     bool ApplyStartupRegistration() const;
-    void RefreshHud();
-    bool EnsureHud();
     void ReconcileHudVisibility();
     void ReleaseCommittedProductionTarget(const wchar_t* reason);
     void ReevaluateProductionGameDetection();
@@ -135,7 +131,10 @@ private:
     HANDLE instanceMutex_{};
     clawhud::HudSettingsStore hudSettingsStore_;
     TrayIcon tray_;
-    std::unique_ptr<clawhud::HudPresentation> hudPresentation_;
+    // Owns HUD user state + the existing concrete HudPresentation object and
+    // every Initialize / Render / Show / Hide / Shutdown call site. Presentation
+    // stays lazily allocated.
+    clawhud::HudController hudController_{instance_};
     clawhud::PresentMonTelemetryProvider presentMonTelemetryProvider_;
     // Owns EC / system / battery / FPS / graphics-API telemetry, retention,
     // target state, and the sampling timer lifecycle. Holds a non-owning
@@ -144,19 +143,10 @@ private:
         presentMonTelemetryProvider_};
     ForegroundTracker foregroundTracker_;
     clawhud::WindowsGameIdentitySource windowsGameIdentitySource_;
-    clawhud::HudLayoutOptions hudOptions_{};
-    clawhud::HudFont hudFont_{clawhud::HudFont::Unispace};
-    std::optional<bool> manualHudVisibilityOverride_;
-    bool hudEnabled_{};
     std::unique_ptr<SettingsWindow> settings_;
     bool exiting_{};
     std::wstring executablePath_;
-    int hudSizeOffset_{};
     bool hudHotkeyRegistered_{};
-    bool hudInitializedLogged_{};
-    bool hudRenderFailureLogged_{};
-    bool hudShowFailureLogged_{};
-    bool hudHideFailureLogged_{};
     bool intelVrrRangeFixEnabled_{ true };
     bool suspended_{};
     bool resumeRecoveryActive_{};

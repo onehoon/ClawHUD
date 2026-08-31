@@ -1,6 +1,6 @@
 # ClawHUD Production Refactor Plan
 
-Status: **ACTIVE — R0 (#178), R1 (#180), R2 (#182) complete; R3 is next**  
+Status: **ACTIVE — R0 (#178), R1 (#180), R2 (#182) merged; R3 (#184) open; R4 is next**  
 Re-baseline commit: `c0a2dcbd598ad7a31fa7dd28fec09cbd9c29e1f2` (after PR #175 / #176)  
 Date: 2026-08-31  
 Repository: `onehoon/ClawHUD`
@@ -8,9 +8,9 @@ Repository: `onehoon/ClawHUD`
 Phase progress lives in §18. In short: #177 removed the Diagnostics tab; **R0**
 (#178) normalized production naming; **R1** (#180) moved the suspend/resume pure
 policy into `SuspendResumePolicy.h`; **R2** (#182) extracted
-`ProductionTelemetryController` (EC / system / battery / FPS / graphics-API
-telemetry + sampling lifecycle) out of `App`. **R3** (`HudController`) has not
-started.
+`ProductionTelemetryController`; **R3** (#184, open) extracts `HudController`
+(HUD state + the existing `HudPresentation` lifetime, presentation contract
+frozen) — **hardware smoke pending**. **R4** (`GameSessionController`) is next.
 
 This document is the continuation artifact for the production-code refactor. It is
 intentionally detailed so a later ChatGPT/Codex session can continue without needing the
@@ -1695,13 +1695,84 @@ Those extractions remain valid and are retained in the new architecture.
     PR; the behavior inventory is the compensating artifact and CI re-verifies the
     build.
 
+- **R3 (extract `HudController`)** — PR #184, branch
+  `refactor/r3-hud-controller`. Ownership relocation; the production HUD
+  presentation contract is frozen (`HudPresentation.*` /
+  `HudPresentationContract.*` / `HudPresentationLifecycle.*` / `HudRenderer.*`:
+  **zero diff**).
+  - New `src/ClawHUD/HudController.{h,cpp}` (concrete class, `namespace clawhud`).
+    Owns, moved out of `App`: `std::unique_ptr<HudPresentation>` (still lazily
+    allocated), `hudOptions_` → `options_`, `hudFont_` → `font_`, `hudSizeOffset_`
+    → `sizeOffset_`, `manualHudVisibilityOverride_` → `manualOverride_`,
+    `hudEnabled_` → `enabled_`, and the four presentation log latches
+    (`hudInitializedLogged_` / `hudRenderFailureLogged_` / `hudShowFailureLogged_`
+    / `hudHideFailureLogged_`).
+  - Moved verbatim (token-compared vs `6f002d8`): `EnsureHud` → `Ensure`,
+    `BuildHudRenderOptions` → `BuildRenderOptions`, `RecreateHudPresentation` →
+    `Recreate`, the `HudPresentation::Render` guard+latch out of
+    `RenderProductionHud` → `Render`, the visibility Show/Hide/log/latch block out
+    of `ReconcileHudVisibility` → `ReconcileVisibility`, and the suspend-hide /
+    resume-fallback-hide / lifecycle-gate hides.
+  - The `SetHud{Alignment,Font,BackgroundMode,SizeOffset,Opacity}` recreate +
+    rollback lifecycle moved into `HudController::Set*`; each returns whether
+    `App` should persist. `App::SetHud*` are now thin: call the controller, then
+    `SaveHudSettings()` (+ `settings_->UpdateHudControls()` for font) exactly
+    where the old code did. `SetVisibilityMode` splits: controller sets
+    `options_.visibilityMode` + resets the override; `App` keeps the
+    `productionTelemetry_.SetVisibilityMode` sync + persistence + reconcile.
+  - `HudPresentation` stays a VRR-critical black box; the controller holds the
+    existing concrete type via `unique_ptr`, no interface. It never touches
+    telemetry / game detection / settings UI. `App::RenderProductionHud` is a
+    thin bridge: `productionTelemetry_.FillSnapshot(s)` → `hudController_.Render`.
+    `HudController` gets a `requestRender(bool allowHidden)` callback (bound in
+    the `App` ctor to `RenderProductionHud`) for its internal recreate/refresh
+    renders — same round-trip as before.
+  - `ReconcileHudVisibility` split: `App` keeps the committed-game liveness
+    release, `productionTelemetry_.ReconcileGraphicsApiTargetLiveness()`, and the
+    suspend/resume-active early Hide gate; the controller does
+    `ResolveHudVisible` + Show/Hide + latches and returns
+    `HudVisibilityEffects{startProductionSampling, stopProductionSampling}` that
+    `App` applies. Old `ShouldSampleProductionTelemetry(resolvedShow=true,
+    suspended_=false)` is unconditionally true in the show-success branch (App
+    routes suspend away) — encoded as `effects.startProductionSampling = true`.
+  - Three `enabled_` mutators, one per distinct old site: `MarkEnabled(bool
+    logTransition)` (`SetHudEnabled` logs, F8 does not), `MarkDisabled()`
+    (`StopHud`: logs + resets override), `AbandonEnable()` (startup `Ensure()`
+    failure: bare `enabled_=false`, no log — matches the old `hudEnabled_=false`).
+  - `SettingsWindow` still talks only to `App` (unchanged). `settings_` stays a
+    lazily-created `unique_ptr`; `HudController` construction creates no Settings
+    UI and no D3D/DComp/presentation resource. `App` facade getters
+    (`HudVisible`/`HudEnabled`/`HudSizeOffset`/`HudOptions`/`HudFont`) now forward
+    to the controller.
+  - `App.h`: `HudPresentation` / `HudRenderOptions` forward decls and the eight
+    HUD members dropped; `#include "HudController.h"` added; `App.cpp` drops the
+    now-unused `HudPresentation.h` / `HudSize.h` includes.
+  - No new test target: `HudController` cannot be constructed in a test without
+    linking the D3D/DComp `HudPresentation` backend, which the work order (§37)
+    rules out. The pure decisions it wraps (`ResolveHudVisible`, `CommitHud*After
+    Recreation`, `ShouldRestoreHudVisibility`, `BuildHudRenderOptionsForSize`,
+    `ClampHud{Size,Opacity}*`) are already unit-tested (`HudModelTests`,
+    `HudSizeTests`); behavior inventory in the PR is the compensating artifact.
+  - CTest: 46/46 pass locally (VS 2022 BuildTools, Ninja, Release), clean build
+    (no warnings), including `HudModelTests` / `HudSizeTests` /
+    `HudWindowGeometryTests` / `HudRendererTests` / `HudPresentationContractTests`
+    / `HudPresentationLifecycleTests` / `SuspendResumeRecoveryTests` /
+    `ProductionGameDetectionScenarioTests`.
+  - **Hardware smoke: PENDING** — R3 moves presentation lifecycle call sites and
+    §41 requires supported-hardware validation (HUD show/hide, F8, alignment /
+    font / size / opacity recreate, game commit/Alt-Tab/exit, suspend/resume
+    fresh-frame recovery, and the VRR / click-through / no-activation / topmost
+    gate). The app cannot run on this dev machine. **This PR is not fully
+    merge-ready until that validation is done** — the behavior inventory +
+    token-level move verification + full CTest + the frozen presentation contract
+    are the interim evidence.
+
 ### Next work
 
-**R3 — Extract `HudController`** (§8.1, §9). Re-read those sections,
-`docs/APP_REFACTOR_BEHAVIOR_INVENTORY_TEMPLATE.md`, and
-`docs/HUD_PRESENTATION_REFACTOR_GUARDRAIL.md` first (R3 is the presentation-
-lifecycle move — hardware smoke becomes mandatory). After each merged PR, update
-this progress log with:
+**R4 — Extract `GameSessionController`** (§8.3, §9) — the highest-risk PR: do it
+only after re-reading §8.3, the behavior-inventory template, and
+`docs/GAME_DETECTION_PRODUCTION_DESIGN.md`. After each merged PR, update this
+progress log with:
 
 ```text
 PR number

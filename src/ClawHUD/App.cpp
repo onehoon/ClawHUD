@@ -1,10 +1,8 @@
 #include "App.h"
 
 #include "SettingsWindow.h"
-#include "HudPresentation.h"
 #include "Tweaks/IntelVrr/IntelVrrResultStore.h"
 #include "SupportedHardware.h"
-#include "HudSize.h"
 #include "UninstallCleanup.h"
 #include "RuntimeLogger.h"
 #include "Version.h"
@@ -78,13 +76,15 @@ App::App(HINSTANCE instance) : instance_(instance), tray_(*this),
     wchar_t path[MAX_PATH]{}; const DWORD length = GetModuleFileNameW(instance_, path, ARRAYSIZE(path));
     executablePath_.assign(path, length);
     LoadHudSettings();
-    productionTelemetry_.SyncVisibilityMode(hudOptions_.visibilityMode);
+    hudController_.SetRenderCallback(
+        [this](bool allowHidden) { RenderProductionHud(allowHidden); });
+    productionTelemetry_.SyncVisibilityMode(hudController_.Options().visibilityMode);
     clawhud::RuntimeLogger::SetDebugLogging(debugLoggingEnabled_);
     Log(L"ClawHUD started version=" CLAWHUD_VERSION L" pid=" +
         std::to_wstring(GetCurrentProcessId()));
     clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
-        L"Runtime settings HUDEnabled=" + std::to_wstring(hudEnabled_ ? 1 : 0) +
-        L" HUDSizeOffset=" + std::to_wstring(hudSizeOffset_) +
+        L"Runtime settings HUDEnabled=" + std::to_wstring(hudController_.Enabled() ? 1 : 0) +
+        L" HUDSizeOffset=" + std::to_wstring(hudController_.SizeOffset()) +
         L" StartWithWindows=" + std::to_wstring(startWithWindows_ ? 1 : 0));
 }
 
@@ -109,7 +109,7 @@ App::~App()
     if (hudHotkeyRegistered_ && tray_.Window())
         UnregisterHotKey(tray_.Window(), kHudToggleHotkeyId);
     hudHotkeyRegistered_ = false;
-    hudPresentation_.reset();
+    hudController_.DestroyPresentation();
     settings_.reset();
     tray_.Destroy();
     if (instanceMutex_)
@@ -226,7 +226,7 @@ int App::Run()
                 windowsGameIdentitySource_.QueueInspect(window, processId);
                 presentActivitySource_.Watch(processId);
             }
-            if (hudEnabled_)
+            if (hudController_.Enabled())
                 HandleProductionForegroundChanged(window, processId);
         }))
     {
@@ -234,11 +234,11 @@ int App::Run()
             L"Foreground tracker initialization failed");
         return 1;
     }
-    if (hudEnabled_)
+    if (hudController_.Enabled())
     {
-        if (!EnsureHud())
+        if (!hudController_.Ensure())
         {
-            hudEnabled_ = false;
+            hudController_.AbandonEnable();
             clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
                 L"Persisted HUD enable restore failed during initialization");
         }
@@ -285,14 +285,7 @@ void App::HandleSystemSuspend()
         return;
     suspended_ = true;
     CancelResumeRecovery();
-    if (hudPresentation_ && hudPresentation_->Visible())
-    {
-        if (SUCCEEDED(hudPresentation_->Hide()))
-            Log(L"HUD suspended");
-        else
-            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
-                L"HUD suspend hide failed");
-    }
+    hudController_.HideForSuspend();
     PauseProductionSamplingForSuspend();
     DiscardPendingGameRenderVerifierEvents();
     DiscardPendingMicrosoftGameEvidence();
@@ -306,8 +299,7 @@ void App::HandleSystemResume()
         return;
     if (clawhud::ResumeRecoveryNeedsSuspendFallback(suspended_))
     {
-        if (hudPresentation_ && hudPresentation_->Visible())
-            hudPresentation_->Hide();
+        hudController_.HideForResumeFallback();
         PauseProductionSamplingForSuspend();
         DiscardPendingGameRenderVerifierEvents();
         DiscardPendingProductionWindowEvents();
@@ -335,17 +327,20 @@ void App::TryResumeRecovery()
     const bool retainVerifier = clawhud::ResumeRecoveryCanRetainVerifier(
         processId, gameRenderVerifier_.ProcessId(), gameRenderVerifier_.Running());
     const bool rendererForegroundActive = foregroundTracker_.ForegroundIsTrackedProcess();
-    const bool expectedVisible = hudEnabled_ &&
-        (manualHudVisibilityOverride_.has_value()
-            ? *manualHudVisibilityOverride_
-            : hudOptions_.visibilityMode == clawhud::HudVisibilityMode::Always ||
+    const bool hudEnabled = hudController_.Enabled();
+    const auto manualOverride = hudController_.ManualOverride();
+    const auto visibilityMode = hudController_.VisibilityMode();
+    const bool expectedVisible = hudEnabled &&
+        (manualOverride.has_value()
+            ? *manualOverride
+            : visibilityMode == clawhud::HudVisibilityMode::Always ||
                 rendererForegroundActive ||
                 foregroundTracker_.ForegroundIsTrackedProcess());
-    const bool visibilityUsesForeground = !manualHudVisibilityOverride_.has_value() &&
-        hudOptions_.visibilityMode == clawhud::HudVisibilityMode::InGameOnly;
+    const bool visibilityUsesForeground = !manualOverride.has_value() &&
+        visibilityMode == clawhud::HudVisibilityMode::InGameOnly;
     DiscardPendingGameRenderVerifierEvents();
     if (clawhud::ResumeRecoveryShouldWaitForForeground(
-        hudEnabled_, visibilityUsesForeground, processAlive,
+        hudEnabled, visibilityUsesForeground, processAlive,
         foregroundTracker_.ForegroundIsTrackedProcess(), resumeRecoveryAttempts_))
     {
         SetTimer(tray_.Window(), kResumeRecoveryTimerId,
@@ -358,14 +353,13 @@ void App::TryResumeRecovery()
     else
         productionTelemetry_.StopGraphicsApiProbe();
 
-    bool freshFrameReady = !expectedVisible || hudPresentation_ != nullptr;
-    if (expectedVisible && hudPresentation_)
+    bool freshFrameReady = !expectedVisible || hudController_.HasPresentation();
+    if (expectedVisible && hudController_.HasPresentation())
     {
-        const HRESULT clearHr = hudPresentation_->Render(
-            clawhud::HudTelemetrySnapshot{}, BuildHudRenderOptions());
+        const HRESULT clearHr = hudController_.RenderRecoveryFrame();
         freshFrameReady = clawhud::ResumeRecoveryFrameWasPresented(clearHr);
         if (!freshFrameReady && clearHr != S_FALSE && resumeRecoveryAttempts_ == 1)
-            freshFrameReady = RecreateHudPresentation(false);
+            freshFrameReady = hudController_.Recreate(false);
     }
     if (!clawhud::ResumeRecoveryMayShowHud(expectedVisible, freshFrameReady))
     {
@@ -386,7 +380,7 @@ void App::TryResumeRecovery()
     ReconcileHudVisibility();
     if (expectedVisible && !HudVisible() && resumeRecoveryAttempts_ == 1)
     {
-        RecreateHudPresentation(true);
+        hudController_.Recreate(true);
         ReconcileHudVisibility();
     }
 
@@ -404,7 +398,7 @@ void App::TryResumeRecovery()
         const unsigned completedAttempt = resumeRecoveryAttempts_;
         CancelResumeRecovery();
         if (clawhud::ShouldReevaluateForegroundAfterResume(
-            hudEnabled_, recovered))
+            hudEnabled, recovered))
             ReevaluateProductionGameDetection();
         Log(L"HUD resume recovery completed attempt=" +
             std::to_wstring(completedAttempt));
@@ -423,43 +417,16 @@ void App::TryResumeRecovery()
         clawhud::kResumeRecoveryIntervalMs, nullptr);
 }
 
-bool App::EnsureHud()
-{
-    if (!hudPresentation_)
-        hudPresentation_ = std::make_unique<clawhud::HudPresentation>();
-    const auto options = BuildHudRenderOptions();
-    HRESULT hr = hudPresentation_->Initialize(instance_, options,
-        hudOptions_.backgroundOpacity * 100.0f);
-    if (FAILED(hr))
-    {
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
-            L"HUD initialization failed hr=" + HexHresult(hr));
-        return false;
-    }
-    if (!hudInitializedLogged_)
-    {
-        Log(L"HUD initialized");
-        hudInitializedLogged_ = true;
-    }
-    return true;
-}
-
 void App::StopHud()
 {
-    if (hudEnabled_) Log(L"HUD disabled");
-    hudEnabled_ = false;
-    manualHudVisibilityOverride_.reset();
+    hudController_.MarkDisabled();
     StopProductionSampling(true, L"hud-disabled");
     productionTelemetry_.StopGraphicsApiProbe();
     if (gameDetectionCoordinator_.Context().state != clawhud::GameDetectionState::Committed)
         ClearProductionCandidate(L"hud-disabled");
     productionTelemetry_.StopFpsSampling();
     ReconcileHudVisibility();
-    if (hudPresentation_)
-    {
-        hudPresentation_->Shutdown();
-        hudPresentation_.reset();
-    }
+    hudController_.ShutdownPresentation();
 }
 
 bool App::SetHudEnabled(bool enabled)
@@ -470,11 +437,10 @@ bool App::SetHudEnabled(bool enabled)
         SaveHudEnabledSetting(false);
         return true;
     }
-    if (!EnsureHud()) return false;
-    if (!hudEnabled_) Log(L"HUD enabled");
-    hudEnabled_ = true;
+    if (!hudController_.Ensure()) return false;
+    hudController_.MarkEnabled(true);
     ReevaluateProductionGameDetection();
-    manualHudVisibilityOverride_.reset();
+    hudController_.ResetManualOverride();
     ReconcileHudVisibility();
     SaveHudEnabledSetting(true);
     return true;
@@ -482,206 +448,57 @@ bool App::SetHudEnabled(bool enabled)
 
 void App::SetHudAlignment(clawhud::HudAlignment alignment)
 {
-    if (hudOptions_.alignment == alignment)
-        return;
-    const auto previousAlignment = hudOptions_.alignment;
-    hudOptions_.alignment = alignment;
-    if (hudOptions_.backgroundMode == clawhud::HudBackgroundMode::ContentWidth)
-    {
-        const bool restoreVisible = hudPresentation_ &&
-            hudPresentation_->Initialized() && hudPresentation_->Visible();
-        const bool recreated = RecreateHudPresentation(restoreVisible);
-        hudOptions_.alignment = clawhud::CommitHudAlignmentAfterRecreation(
-            previousAlignment, alignment, recreated);
-        if (!recreated)
-        {
-            RecreateHudPresentation(restoreVisible);
-            SaveHudSettings();
-            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
-                L"HUD alignment change rolled back after presentation recreation failure");
-            return;
-        }
-    }
-    else
-    {
-        RefreshHud();
-    }
-    SaveHudSettings();
+    if (hudController_.SetAlignment(alignment))
+        SaveHudSettings();
 }
 
 void App::SetHudFont(clawhud::HudFont font)
 {
-    if (hudFont_ == font)
-        return;
-    const auto previousFont = hudFont_;
-    const bool restoreVisible = hudPresentation_ &&
-        hudPresentation_->Initialized() && hudPresentation_->Visible();
-    hudFont_ = font;
-    if (!RecreateHudPresentation(restoreVisible))
+    if (hudController_.SetFont(font))
     {
-        hudFont_ = previousFont;
-        RecreateHudPresentation(restoreVisible);
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
-            L"HUD font change rolled back after presentation recreation failure");
-        return;
+        SaveHudSettings();
+        if (settings_)
+            settings_->UpdateHudControls();
     }
-    SaveHudSettings();
-    if (settings_)
-        settings_->UpdateHudControls();
 }
 
 void App::SetHudBackgroundMode(clawhud::HudBackgroundMode mode)
 {
-    if (hudOptions_.backgroundMode == mode)
-        return;
-    const auto previousMode = hudOptions_.backgroundMode;
-    hudOptions_.backgroundMode = mode;
-    const bool restoreVisible = hudPresentation_ &&
-        hudPresentation_->Initialized() && hudPresentation_->Visible();
-    const bool recreated = RecreateHudPresentation(restoreVisible);
-    hudOptions_.backgroundMode = clawhud::CommitHudBackgroundModeAfterRecreation(
-        previousMode, mode, recreated);
-    if (!recreated)
-    {
-        RecreateHudPresentation(restoreVisible);
+    if (hudController_.SetBackgroundMode(mode))
         SaveHudSettings();
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
-            L"HUD background mode change rolled back after presentation recreation failure");
-        return;
-    }
-    SaveHudSettings();
 }
 
 bool App::SetHudOpacity(float opacity, bool persist)
 {
-    const long requestedPercent = static_cast<long>(std::lround(opacity * 100.0f));
-    const long percent = clawhud::ClampHudOpacityPercent(requestedPercent);
-    const float newOpacity = static_cast<float>(percent) / 100.0f;
-    if (hudOptions_.backgroundOpacity == newOpacity)
-    {
-        if (persist) SaveHudSettings();
-        return true;
-    }
-    if (hudPresentation_ && hudPresentation_->Initialized())
-    {
-        const HRESULT hr = hudPresentation_->SetHudOpacity(static_cast<float>(percent));
-        if (FAILED(hr))
-        {
-            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
-                L"SetLayeredWindowAttributes for HUD opacity failed hr=" + HexHresult(hr));
-            return false;
-        }
-    }
-    hudOptions_.backgroundOpacity = newOpacity;
+    if (!hudController_.SetOpacity(opacity))
+        return false;
     if (persist) SaveHudSettings();
     return true;
 }
 
 void App::SetHudSizeOffset(int offset)
 {
-    offset = clawhud::ClampHudSizeOffset(offset);
-    if (hudSizeOffset_ == offset)
-        return;
-
-    const int previousOffset = hudSizeOffset_;
-    const bool restoreVisible = hudPresentation_ &&
-        hudPresentation_->Initialized() && hudPresentation_->Visible();
-    hudSizeOffset_ = offset;
-    const bool recreated = RecreateHudPresentation(restoreVisible);
-    hudSizeOffset_ = clawhud::CommitHudSizeOffsetAfterRecreation(
-        previousOffset, offset, recreated);
-    if (!recreated)
-    {
-        RecreateHudPresentation(restoreVisible);
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
-            L"HUD size change rolled back after presentation recreation failure");
-        return;
-    }
-    Log(L"HUD presentation recreated");
-    SaveHudSettings();
-}
-
-clawhud::HudRenderOptions App::BuildHudRenderOptions() const
-{
-    auto options = clawhud::BuildHudRenderOptionsForSize(
-        hudSizeOffset_, hudOptions_, hudFont_);
-    // The renderer remains opaque; the existing layered HWND owns HUD opacity.
-    options.layout.backgroundOpacity = 1.0f;
-    return options;
-}
-
-bool App::RecreateHudPresentation(bool restoreVisible)
-{
-    if (!hudPresentation_)
-        return true;
-
-    const bool wasInitialized = hudPresentation_->Initialized();
-    if (!wasInitialized && !hudEnabled_)
-        return true;
-
-    const auto options = BuildHudRenderOptions();
-    hudPresentation_->Shutdown();
-    HRESULT hr = hudPresentation_->Initialize(instance_, options,
-        hudOptions_.backgroundOpacity * 100.0f);
-    if (FAILED(hr))
-    {
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
-            L"HUD presentation recreation failed hr=" + HexHresult(hr));
-        return false;
-    }
-    if (hudEnabled_)
-        RenderProductionHud(true);
-    if (clawhud::ShouldRestoreHudVisibility(restoreVisible))
-    {
-        hr = hudPresentation_->Show();
-        if (FAILED(hr))
-        {
-            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
-                L"HUD visibility restore failed hr=" + HexHresult(hr));
-            return false;
-        }
-    }
-    return true;
-}
-
-void App::RefreshHud()
-{
-    if (hudEnabled_ && hudPresentation_ && hudPresentation_->Visible())
-        RenderProductionHud();
+    if (hudController_.SetSizeOffset(offset))
+        SaveHudSettings();
 }
 
 void App::RenderProductionHud(bool allowHidden)
 {
-    if (!hudEnabled_ || !hudPresentation_ ||
-        (!allowHidden && !hudPresentation_->Visible()))
-        return;
-
     clawhud::HudTelemetrySnapshot snapshot{};
     productionTelemetry_.FillSnapshot(snapshot);
-
-    const auto options = BuildHudRenderOptions();
-    const HRESULT hr = hudPresentation_->Render(snapshot, options);
-    if (FAILED(hr))
-    {
-        if (!hudRenderFailureLogged_)
-            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
-                L"HUD render failed hr=" + HexHresult(hr));
-        hudRenderFailureLogged_ = true;
-    }
-    else
-        hudRenderFailureLogged_ = false;
+    hudController_.Render(snapshot, allowHidden);
 }
 
 void App::SampleProductionTelemetry()
 {
-    if (suspended_ || !hudEnabled_ || !hudPresentation_ || !hudPresentation_->Visible())
+    if (suspended_ || !hudController_.Enabled() || !HudVisible())
         return;
     productionTelemetry_.SampleSystemEc();
 }
 
 void App::SampleProductionBatteryTelemetry()
 {
-    if (suspended_ || !hudEnabled_ || !hudPresentation_ || !hudPresentation_->Visible())
+    if (suspended_ || !hudController_.Enabled() || !HudVisible())
         return;
     productionTelemetry_.SampleBattery();
 }
@@ -697,7 +514,7 @@ void App::StartProductionSampling()
 
 void App::SampleProductionFpsTelemetry()
 {
-    if (suspended_ || !hudEnabled_ || !HudVisible())
+    if (suspended_ || !hudController_.Enabled() || !HudVisible())
         return;
     productionTelemetry_.SampleFps();
 }
@@ -767,7 +584,7 @@ void App::StopProductionSampling(bool stopRenderVerification, const wchar_t* rea
 
 void App::StartGameRenderVerification()
 {
-    if (suspended_ || !hudEnabled_)
+    if (suspended_ || !hudController_.Enabled())
         return;
     const auto& context = gameDetectionCoordinator_.Context();
     const DWORD processId = context.candidateProcessId;
@@ -866,11 +683,6 @@ void App::HandleGameRenderVerifierEvent(
             std::to_wstring(foregroundProcessId));
 }
 
-bool App::HudVisible() const noexcept
-{
-    return hudPresentation_ && hudPresentation_->Visible();
-}
-
 void App::ReevaluateProductionGameDetection()
 {
     HWND foreground = GetForegroundWindow();
@@ -883,7 +695,7 @@ void App::ReevaluateProductionGameDetection()
 void App::HandleProductionForegroundChanged(HWND window, DWORD processId)
 {
     if (!clawhud::ShouldConsiderForegroundProductionTarget(
-        hudEnabled_, suspended_))
+        hudController_.Enabled(), suspended_))
         return;
     if (TryCommitReadyCandidateFromForeground(window, processId))
         return;
@@ -910,7 +722,7 @@ void App::HandleMicrosoftGameEvidence(
     const clawhud::MicrosoftGameTriggerEvidence& evidence)
 {
     if (!clawhud::ShouldConsiderForegroundProductionTarget(
-        hudEnabled_, suspended_))
+        hudController_.Enabled(), suspended_))
         return;
     if (!ProcessAlive(evidence.processId))
     {
@@ -930,7 +742,7 @@ void App::HandleProductionWindowEvent(
         event.type != clawhud::ProductionWindowEventType::Show)
         return;
     if (!clawhud::ShouldConsiderForegroundProductionTarget(
-        hudEnabled_, suspended_))
+        hudController_.Enabled(), suspended_))
         return;
 
     const auto& context = gameDetectionCoordinator_.Context();
@@ -1157,7 +969,7 @@ void App::HandleProductionProcessExit(DWORD processId,
         ReleaseCommittedProductionTarget(L"game-exited");
     else
         ReleaseProductionGameCandidate(L"process-exited");
-    if (hudEnabled_ && !suspended_)
+    if (hudController_.Enabled() && !suspended_)
         ReevaluateProductionGameDetection();
 }
 
@@ -1167,7 +979,7 @@ bool App::TryCommitReadyCandidateFromForeground(HWND,
     const auto& context = gameDetectionCoordinator_.Context();
     if (!clawhud::ShouldCommitReadyCandidate(
             context, foregroundProcessId, ProcessAlive(context.candidateProcessId)) ||
-        !hudEnabled_ || suspended_)
+        !hudController_.Enabled() || suspended_)
         return false;
     const DWORD processId = context.candidateProcessId;
     const auto generation = context.generation;
@@ -1207,9 +1019,7 @@ void App::ClearProductionCandidate(const wchar_t* reason)
 
 void App::SetHudVisibilityMode(clawhud::HudVisibilityMode mode)
 {
-    const auto previousMode = hudOptions_.visibilityMode;
-    hudOptions_.visibilityMode = mode;
-    manualHudVisibilityOverride_.reset();
+    const auto previousMode = hudController_.SetVisibilityMode(mode);
     if (mode != previousMode)
     {
         DWORD foregroundProcessId{};
@@ -1230,20 +1040,20 @@ void App::SetHudVisibilityMode(clawhud::HudVisibilityMode mode)
 
 void App::HandleHudToggleHotkey()
 {
-    if (!hudEnabled_)
+    if (!hudController_.Enabled())
     {
-        if (!EnsureHud())
+        if (!hudController_.Ensure())
         {
             clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
                 L"F8 HUD ON initialization failed");
             return;
         }
-        hudEnabled_ = true;
+        hudController_.MarkEnabled(false);
         ReevaluateProductionGameDetection();
         if (const DWORD processId = foregroundTracker_.TrackedProcessId())
             productionTelemetry_.StartGraphicsApiProbe(processId);
     }
-    manualHudVisibilityOverride_ = !HudVisible();
+    hudController_.SetManualOverride(!HudVisible());
     ReconcileHudVisibility();
     if (settings_) settings_->UpdateHudControls();
 }
@@ -1282,11 +1092,11 @@ void App::DiscardPendingProductionProcessExitEvents()
 
 void App::ReconcileHudVisibility()
 {
-    if (!hudPresentation_)
+    if (!hudController_.HasPresentation())
         return;
     if (suspended_ || resumeRecoveryActive_)
     {
-        hudPresentation_->Hide();
+        hudController_.HideForLifecycleGate();
         return;
     }
     if (gameDetectionCoordinator_.Context().state == clawhud::GameDetectionState::Committed &&
@@ -1294,45 +1104,12 @@ void App::ReconcileHudVisibility()
         !ProcessAlive(gameDetectionCoordinator_.Context().candidateProcessId))
         ReleaseCommittedProductionTarget(L"game-exited");
     productionTelemetry_.ReconcileGraphicsApiTargetLiveness();
-    const bool legacyForegroundActive = foregroundTracker_.ForegroundIsTrackedProcess();
-    const bool resolvedShow = clawhud::ResolveHudVisible(hudEnabled_,
-        manualHudVisibilityOverride_, hudOptions_.visibilityMode,
-        legacyForegroundActive);
-    if (resolvedShow)
-    {
-        const bool wasVisible = hudPresentation_->Visible();
-        const HRESULT hr = hudPresentation_->Show();
-        if (SUCCEEDED(hr))
-        {
-            if (!wasVisible) Log(L"HUD shown");
-            hudShowFailureLogged_ = false;
-            if (clawhud::ShouldSampleProductionTelemetry(resolvedShow, suspended_))
-                StartProductionSampling();
-        }
-        else
-        {
-            if (!hudShowFailureLogged_)
-                clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
-                    L"HUD show failed hr=" + HexHresult(hr));
-            hudShowFailureLogged_ = true;
-        }
-    }
-    else
-    {
-        const bool wasVisible = hudPresentation_->Visible();
-        const HRESULT hr = hudPresentation_->Hide();
-        if (SUCCEEDED(hr))
-        {
-            if (wasVisible) Log(L"HUD hidden");
-            hudHideFailureLogged_ = false;
-        }
-        else if (!hudHideFailureLogged_)
-            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
-                L"HUD hide failed hr=" + HexHresult(hr));
-        if (FAILED(hr))
-            hudHideFailureLogged_ = true;
+    const bool foregroundGameActive = foregroundTracker_.ForegroundIsTrackedProcess();
+    const auto effects = hudController_.ReconcileVisibility(foregroundGameActive);
+    if (effects.startProductionSampling)
+        StartProductionSampling();
+    if (effects.stopProductionSampling)
         StopProductionSampling(false, L"hud-hidden");
-    }
 }
 
 bool App::AcquireSingleInstance()
@@ -1357,27 +1134,30 @@ bool App::AcquireSingleInstance()
 void App::LoadHudSettings()
 {
     const auto settings = hudSettingsStore_.Load();
-    hudEnabled_ = settings.hudEnabled;
     debugLoggingEnabled_ = settings.debugLoggingEnabled;
     startWithWindows_ = settings.startWithWindows;
-    hudOptions_.alignment = settings.alignment;
-    hudFont_ = settings.font;
-    hudOptions_.backgroundMode = settings.backgroundMode;
-    hudOptions_.visibilityMode = settings.visibilityMode;
-    hudSizeOffset_ = settings.sizeOffset;
-    hudOptions_.backgroundOpacity = settings.backgroundOpacity;
     intelVrrRangeFixEnabled_ = settings.intelVrrRangeFixEnabled;
+    clawhud::HudControllerState hudState;
+    hudState.enabled = settings.hudEnabled;
+    hudState.options.alignment = settings.alignment;
+    hudState.font = settings.font;
+    hudState.options.backgroundMode = settings.backgroundMode;
+    hudState.options.visibilityMode = settings.visibilityMode;
+    hudState.sizeOffset = settings.sizeOffset;
+    hudState.options.backgroundOpacity = settings.backgroundOpacity;
+    hudController_.RestoreState(hudState);
 }
 
 void App::SaveHudSettings() const
 {
+    const auto& options = hudController_.Options();
     clawhud::HudSettings settings;
-    settings.alignment = hudOptions_.alignment;
-    settings.font = hudFont_;
-    settings.backgroundMode = hudOptions_.backgroundMode;
-    settings.visibilityMode = hudOptions_.visibilityMode;
-    settings.backgroundOpacity = hudOptions_.backgroundOpacity;
-    settings.sizeOffset = hudSizeOffset_;
+    settings.alignment = options.alignment;
+    settings.font = hudController_.Font();
+    settings.backgroundMode = options.backgroundMode;
+    settings.visibilityMode = options.visibilityMode;
+    settings.backgroundOpacity = options.backgroundOpacity;
+    settings.sizeOffset = hudController_.SizeOffset();
     settings.startWithWindows = startWithWindows_;
     hudSettingsStore_.Save(settings);
 }
