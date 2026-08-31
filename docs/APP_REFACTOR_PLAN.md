@@ -1891,9 +1891,9 @@ Those extractions remain valid and are retained in the new architecture.
     `DebugLog` OFF (no debug logs / no identity worker) and ON (all debug logs
     present, detection still production-authoritative) on hardware.
 
-- **R7 (final `App` shell cleanup)** — PR #194, branch
-  `refactor/r7-app-shell-cleanup`. Shell cleanup only; **no new abstraction**.
-  `App` stays the composition root / mediator.
+- **R7 (final `App` shell cleanup)** — PR #194, merged `ff5102a` (code review +
+  CI green). Shell cleanup only; **no new abstraction**. `App` stays the
+  composition root / mediator.
   - **Part A — shared shutdown helper.** `~App()` and `Exit()` shared an
     identical runtime-stop block; extracted to `private void
     StopRuntimeSources()` — exact same order (`CancelResumeRecovery` →
