@@ -33,12 +33,12 @@ int main()
         "recovery retries before the limit");
     ok &= Check(!ResumeRecoveryHasAttemptsRemaining(6),
         "recovery stops at the limit");
-    ok &= Check(ResumeRecoveryCanRetainPresentMon(42, 42, true),
-        "same live PresentMon target is retained");
-    ok &= Check(!ResumeRecoveryCanRetainPresentMon(42, 42, false),
-        "dead PresentMon target is not retained");
-    ok &= Check(!ResumeRecoveryCanRetainPresentMon(42, 43, true),
-        "different PresentMon target is not retained");
+    ok &= Check(ResumeRecoveryCanRetainVerifier(42, 42, true),
+        "same live render-verifier target is retained");
+    ok &= Check(!ResumeRecoveryCanRetainVerifier(42, 42, false),
+        "dead render-verifier target is not retained");
+    ok &= Check(!ResumeRecoveryCanRetainVerifier(42, 43, true),
+        "different render-verifier target is not retained");
     ok &= Check(ResumeRecoveryShouldWaitForForeground(true, true, true, false, 1),
         "live InGameOnly target waits for temporary non-game foreground");
     ok &= Check(!ResumeRecoveryShouldWaitForForeground(true, true, true, false, 6),

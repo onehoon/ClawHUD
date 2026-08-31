@@ -69,10 +69,10 @@ constexpr bool ResumeRecoveryHasAttemptsRemaining(unsigned attempts) noexcept
     return attempts < kResumeRecoveryMaxAttempts;
 }
 
-constexpr bool ResumeRecoveryCanRetainPresentMon(
-    DWORD trackedProcessId, DWORD presentMonProcessId, bool running) noexcept
+constexpr bool ResumeRecoveryCanRetainVerifier(
+    DWORD trackedProcessId, DWORD verifierProcessId, bool running) noexcept
 {
-    return trackedProcessId != 0 && trackedProcessId == presentMonProcessId && running;
+    return trackedProcessId != 0 && trackedProcessId == verifierProcessId && running;
 }
 
 constexpr bool ResumeRecoveryShouldWaitForForeground(
@@ -110,14 +110,14 @@ public:
     void HandleSystemSuspend();
     void HandleSystemResume();
     void TryResumeRecovery();
-    void StopMockHud();
+    void StopHud();
     void SampleProductionTelemetry();
     void SampleProductionBatteryTelemetry();
     void SampleProductionFpsTelemetry();
     void RenderProductionHud(bool allowHidden = false);
     void TryGraphicsApiProbe();
-    bool MockHudVisible() const noexcept;
-    bool MockHudEnabled() const noexcept { return mockHudEnabled_; }
+    bool HudVisible() const noexcept;
+    bool HudEnabled() const noexcept { return hudEnabled_; }
     int HudSizeOffset() const noexcept { return hudSizeOffset_; }
     bool SetHudEnabled(bool enabled);
     const clawhud::HudLayoutOptions& HudOptions() const noexcept { return hudOptions_; }
@@ -127,7 +127,6 @@ public:
     void SetHudBackgroundMode(clawhud::HudBackgroundMode mode);
     bool SetHudOpacity(float opacity, bool persist = true);
     void SetHudSizeOffset(int offset);
-    void TrackMockGameWindow(HWND window);
     void SetHudVisibilityMode(clawhud::HudVisibilityMode mode);
     void HandleHudToggleHotkey();
     bool IntelVrrRangeFixEnabled() const noexcept { return intelVrrRangeFixEnabled_; }
@@ -144,8 +143,8 @@ private:
     clawhud::HudRenderOptions BuildHudRenderOptions() const;
     bool RecreateHudPresentation(bool restoreVisible);
     bool ApplyStartupRegistration() const;
-    void RefreshMockHud();
-    bool EnsureMockHud();
+    void RefreshHud();
+    bool EnsureHud();
     void ReconcileHudVisibility();
     void ReleaseCommittedProductionTarget(const wchar_t* reason);
     void ReevaluateProductionGameDetection();
@@ -174,10 +173,10 @@ private:
     void ApplyProductionEvidence(clawhud::GameDetectionTrigger trigger,
         HWND window, DWORD processId);
     clawhud::MsiEcHudTelemetry ReadHudEcTelemetry();
-    void StartProductionEcSampling();
+    void StartProductionSampling();
     void PauseProductionSamplingForSuspend();
     void CancelResumeRecovery();
-    void StopProductionEcSampling(bool stopRenderVerification = true,
+    void StopProductionSampling(bool stopRenderVerification = true,
         const wchar_t* reason = L"explicit-reset");
     void StartGameRenderVerification();
     void StopGameRenderVerification(const wchar_t* reason = L"explicit-reset",
@@ -220,13 +219,13 @@ private:
     clawhud::HudLayoutOptions hudOptions_{};
     clawhud::HudFont hudFont_{clawhud::HudFont::Unispace};
     std::optional<bool> manualHudVisibilityOverride_;
-    bool mockHudEnabled_{};
+    bool hudEnabled_{};
     std::unique_ptr<SettingsWindow> settings_;
     bool exiting_{};
     std::wstring executablePath_;
     int hudSizeOffset_{};
     bool hudHotkeyRegistered_{};
-    bool ecHudSamplingActive_{};
+    bool productionSamplingActive_{};
     bool hudInitializedLogged_{};
     bool hudRenderFailureLogged_{};
     bool hudShowFailureLogged_{};

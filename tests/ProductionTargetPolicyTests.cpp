@@ -17,7 +17,7 @@ int main()
 {
     bool ok = true;
     const auto release = clawhud::PlanCommittedTargetRelease();
-    ok &= Check(release.stopPresentMon && release.stopGraphicsApiProbe &&
+    ok &= Check(release.stopRenderVerification && release.stopGraphicsApiProbe &&
         release.clearTrackedProcess && release.reconcileHudVisibility,
         "committed target release clears only game-scoped state and reconciles visibility");
     ok &= Check(release.globalTelemetry == clawhud::GlobalTelemetryAction::Keep,
@@ -26,7 +26,7 @@ int main()
     int globalStops = 0;
     int reconciles = 0;
     clawhud::CommittedTargetReleaseOps ops;
-    ops.stopPresentMon = [] {};
+    ops.stopRenderVerification = [] {};
     ops.stopGraphicsApiProbe = [] {};
     ops.clearTrackedProcess = [] {};
     ops.startGlobalTelemetry = [&] { ++globalStarts; };
