@@ -56,6 +56,8 @@ add_executable(ClawHUD WIN32
     src/resources/ClawHUD.rc
     src/ClawHUD/App.cpp
     src/ClawHUD/RuntimeLogger.cpp
+    src/ClawHUD/Win32Format.cpp
+    src/ClawHUD/ProcessLiveness.cpp
     src/ClawHUD/GameDetection/ProcessLifecycleSource.cpp
     src/ClawHUD/GameDetection/PresentActivitySource.cpp
     src/ClawHUD/GameDetection/WindowLifecycleSource.cpp
@@ -237,6 +239,26 @@ if(BUILD_TESTING)
     target_include_directories(ClawHUD.FpsStaleHoldTests PRIVATE src/ClawHUD)
     set_target_properties(ClawHUD.FpsStaleHoldTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.FpsStaleHoldTests COMMAND ClawHUD.FpsStaleHoldTests)
+
+    add_executable(ClawHUD.Win32FormatTests
+        tests/Win32FormatTests.cpp
+        src/ClawHUD/Win32Format.cpp)
+    target_compile_features(ClawHUD.Win32FormatTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.Win32FormatTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.Win32FormatTests PRIVATE src/ClawHUD)
+    set_target_properties(ClawHUD.Win32FormatTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.Win32FormatTests COMMAND ClawHUD.Win32FormatTests)
+
+    add_executable(ClawHUD.ProcessLivenessTests
+        tests/ProcessLivenessTests.cpp
+        src/ClawHUD/ProcessLiveness.cpp)
+    target_compile_features(ClawHUD.ProcessLivenessTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.ProcessLivenessTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.ProcessLivenessTests PRIVATE src/ClawHUD)
+    set_target_properties(ClawHUD.ProcessLivenessTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.ProcessLivenessTests COMMAND ClawHUD.ProcessLivenessTests)
 
     add_executable(ClawHUD.AlwaysModeFpsTargetTests
         tests/AlwaysModeFpsTargetTests.cpp

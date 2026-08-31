@@ -12,6 +12,8 @@
 #include "ProductionTargetPolicy.h"
 #include "GameDetection/GameDetectionTrace.h"
 #include "TelemetryRetention.h"
+#include "Win32Format.h"
+#include "ProcessLiveness.h"
 
 #include <Velopack.hpp>
 
@@ -110,32 +112,9 @@ void Log(const std::wstring& message)
     clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info, message);
 }
 
-std::wstring HexHresult(HRESULT hr)
-{
-    wchar_t buffer[11]{};
-    swprintf_s(buffer, L"0x%08X", static_cast<unsigned int>(hr));
-    return buffer;
-}
-
-std::wstring HwndText(HWND window)
-{
-    wchar_t buffer[32]{};
-    swprintf_s(buffer, L"0x%p", window);
-    return buffer;
-}
-
-bool ProcessAlive(DWORD processId)
-{
-    if (!processId)
-        return false;
-    HANDLE process = OpenProcess(
-        SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
-    if (!process)
-        return false;
-    const bool alive = WaitForSingleObject(process, 0) == WAIT_TIMEOUT;
-    CloseHandle(process);
-    return alive;
-}
+using clawhud::HexHresult;
+using clawhud::HwndText;
+using clawhud::ProcessAlive;
 
 }
 
