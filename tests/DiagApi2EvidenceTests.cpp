@@ -6,6 +6,7 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <vector>
 
 int main()
 {
@@ -16,15 +17,25 @@ int main()
     const auto unavailable = evidence.Sample(1234);
     assert(unavailable.json ==
         "\"trackStatus\":null,\"trackStatusCode\":null,\"pollStatus\":\"UNAVAILABLE\","
-        "\"pollStatusCode\":null,\"swapChainCount\":null,\"rendererActive\":null,"
+        "\"pollStatusCode\":null,\"pollRowCount\":null,\"swapChainCount\":null,\"rendererActive\":null,"
         "\"swapChainAddress\":null,\"displayedFps\":null,\"presentedFps\":null,\"swapChains\":null");
     assert(!unavailable.pollSucceeded);
-    assert(unavailable.swapChainCount == 0);
+    assert(unavailable.pollRowCount == 0 && unavailable.swapChainCount == 0);
     assert(!unavailable.anyDisplayedFpsPositive && !unavailable.anyPresentedFpsPositive);
     evidence.Stop();
 
     // PresentMon 2.5.1 rejects a zero input swap-chain capacity.
     static_assert(Api2Evidence::kSwapChainCapacity > 0);
+
+    // Row stride matches PresentMon's PadToAlignment(cursor, 16): three 8-byte
+    // fields end at a raw 24 but the real per-row stride is 32.
+    const std::vector<PM_QUERY_ELEMENT> threeFields{
+        { PM_METRIC_SWAP_CHAIN_ADDRESS, PM_STAT_NEWEST_POINT, 0, 0, 0, 8 },
+        { PM_METRIC_DISPLAYED_FPS, PM_STAT_AVG, 0, 0, 8, 8 },
+        { PM_METRIC_PRESENTED_FPS, PM_STAT_AVG, 0, 0, 16, 8 } };
+    assert(Api2AlignedRowBytes(threeFields) == 32);
+    assert(Api2AlignedRowBytes({}) == 16);
+    assert(Api2AlignedRowBytes({ { PM_METRIC_DISPLAYED_FPS, PM_STAT_AVG, 0, 0, 0, 8 } }) == 16);
 
     // Raw PM_STATUS values are preserved, not collapsed into local labels.
     assert(Api2StatusName(PM_STATUS_SUCCESS) == "PM_STATUS_SUCCESS");
@@ -50,18 +61,36 @@ int main()
     assert(Api2DecodeValue(blob, element) == "null");
 
     // A failed poll records the raw status and null renderer evidence.
-    const auto failed = Api2ComposeSample(PM_STATUS_BAD_ARGUMENT, 0, {}, "null", "null");
+    const auto failed = Api2ComposeSample(PM_STATUS_BAD_ARGUMENT, 0, 0, {}, "null", "null");
     assert(failed.find("\"pollStatus\":\"PM_STATUS_BAD_ARGUMENT\"") != std::string::npos);
     assert(failed.find("\"pollStatusCode\":2") != std::string::npos);
+    assert(failed.find("\"pollRowCount\":null") != std::string::npos);
     assert(failed.find("\"swapChains\":null") != std::string::npos);
+
+    // A successful poll with only the null-address probe row is NOT renderer
+    // evidence: pollRowCount 1, swapChainCount 0, rendererActive false.
+    const std::vector<Api2SwapChainRow> probeOnly{ { std::nullopt, std::nullopt, std::nullopt } };
+    const auto aggregate = Api2AggregateRows(probeOnly);
+    assert(aggregate.swapChainCount == 0);
+    assert(!aggregate.anyDisplayedFpsPositive && !aggregate.anyPresentedFpsPositive);
+    const auto probe = Api2ComposeSample(PM_STATUS_SUCCESS, 1, aggregate.swapChainCount,
+        probeOnly, "\"PM_STATUS_SUCCESS\"", "0");
+    assert(probe.find("\"pollRowCount\":1") != std::string::npos);
+    assert(probe.find("\"swapChainCount\":0") != std::string::npos);
+    assert(probe.find("\"rendererActive\":false") != std::string::npos);
+    assert(probe.find("\"swapChainAddress\":null") != std::string::npos);
 
     // A multi-row success preserves per-swap-chain evidence and mirrors row 0
     // into the top-level fields.
     const std::vector<Api2SwapChainRow> rows{
         { std::optional<std::uint64_t>(111), std::optional<double>(60.0), std::optional<double>(60.0) },
         { std::optional<std::uint64_t>(222), std::optional<double>(30.0), std::optional<double>(45.0) } };
-    const auto ok = Api2ComposeSample(PM_STATUS_SUCCESS, 2, rows, "\"PM_STATUS_SUCCESS\"", "0");
+    const auto agg = Api2AggregateRows(rows);
+    assert(agg.swapChainCount == 2 && agg.anyDisplayedFpsPositive && agg.anyPresentedFpsPositive);
+    const auto ok = Api2ComposeSample(PM_STATUS_SUCCESS, 2, agg.swapChainCount, rows,
+        "\"PM_STATUS_SUCCESS\"", "0");
     assert(ok.find("\"pollStatus\":\"PM_STATUS_SUCCESS\"") != std::string::npos);
+    assert(ok.find("\"pollRowCount\":2") != std::string::npos);
     assert(ok.find("\"swapChainCount\":2") != std::string::npos);
     assert(ok.find("\"rendererActive\":true") != std::string::npos);
     assert(ok.find("\"swapChainAddress\":111,") != std::string::npos);

@@ -65,6 +65,7 @@ private:
     bool IsObserved(DWORD processId) noexcept;
     void MarkFirst(DWORD processId, std::string_view milestone) noexcept;
     void MarkExited(DWORD processId) noexcept;
+    std::int64_t ElapsedMs() const noexcept;
 
     std::filesystem::path path_;
     std::filesystem::path summaryPath_;
@@ -104,7 +105,16 @@ private:
         std::string imagePath;
         std::uint64_t processStartFileTime{};
     };
-    struct CachedWindow { DWORD processId{}; std::string fields; };
+    // Also holds the earliest CREATE / SHOW time for this HWND so a lifecycle
+    // milestone that happened before the PID qualified for the Observed PID
+    // Pool can be hydrated into the timeline once the PID is admitted.
+    struct CachedWindow
+    {
+        DWORD processId{};
+        std::string fields;
+        std::int64_t firstCreateMs{-1};
+        std::int64_t firstShowMs{-1};
+    };
     // Permanent per-generation evidence timelines, keyed by (pid, start time).
     std::unordered_map<DiagProcessKey, PidTimeline, DiagProcessKeyHash> timelines_;
     // Live numeric PID -> its current generation key. Entries are dropped when

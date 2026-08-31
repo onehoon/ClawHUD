@@ -4,6 +4,7 @@
 
 #include "PresentMonApi2Api.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -15,6 +16,11 @@
 // Human-readable name for a PresentMon API2 status, so raw evidence keeps the
 // exact PM_STATUS instead of a diagnostic-owned label.
 std::string_view Api2StatusName(PM_STATUS status) noexcept;
+
+// Per-row blob stride PresentMon 2.5.1 uses: PadToAlignment(cursor, 16). The
+// unaligned max element end (24 for three 8-byte fields) misdecodes row 1+ and
+// under-allocates the caller buffer for multi-swap-chain polls.
+std::size_t Api2AlignedRowBytes(const std::vector<PM_QUERY_ELEMENT>& elements) noexcept;
 
 // Typed decode of one blob row. Nullopt = field absent / not finite / zero addr.
 std::optional<std::uint64_t> Api2DecodeAddress(const std::uint8_t* row, const PM_QUERY_ELEMENT& element);
@@ -30,11 +36,25 @@ struct Api2SwapChainRow
     std::optional<double> presentedFps;
 };
 
+// Derived milestone signals for a poll's rows. swapChainCount only counts rows
+// that carry a non-null SWAP_CHAIN_ADDRESS: PresentMon 2.5.1 returns one
+// null-address probe row before it has observed a real swap chain, and that
+// row is not renderer evidence.
+struct Api2RowAggregate
+{
+    std::uint32_t swapChainCount{};
+    bool anyDisplayedFpsPositive{};
+    bool anyPresentedFpsPositive{};
+};
+Api2RowAggregate Api2AggregateRows(const std::vector<Api2SwapChainRow>& rows) noexcept;
+
 // Compose the api2 record body from a completed poll. Split out so the
 // in/out capacity + status contract can be unit-tested without a live loader.
-std::string Api2ComposeSample(PM_STATUS pollStatus, std::uint32_t swapChainCount,
-    const std::vector<Api2SwapChainRow>& rows, std::string trackStatusJson,
-    std::string trackStatusCodeJson);
+// pollRowCount = raw *numSwapChains from API2; swapChainCount = rows that
+// actually carry a non-null SWAP_CHAIN_ADDRESS.
+std::string Api2ComposeSample(PM_STATUS pollStatus, std::uint32_t pollRowCount,
+    std::uint32_t swapChainCount, const std::vector<Api2SwapChainRow>& rows,
+    std::string trackStatusJson, std::string trackStatusCodeJson);
 
 // Structured sample: JSONL body plus the derived milestone signals, aggregated
 // across every swap-chain row so the per-PID summary stays correct for a
@@ -43,7 +63,8 @@ struct Api2SampleResult
 {
     std::string json;
     bool pollSucceeded{};
-    std::uint32_t swapChainCount{};
+    std::uint32_t pollRowCount{};    // raw *numSwapChains returned by API2
+    std::uint32_t swapChainCount{};  // rows with a non-null SWAP_CHAIN_ADDRESS
     bool anySwapChainAddress{};
     bool anyDisplayedFpsPositive{};
     bool anyPresentedFpsPositive{};

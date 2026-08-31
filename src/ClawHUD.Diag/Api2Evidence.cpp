@@ -74,12 +74,23 @@ std::string NumberOrNull(std::optional<double> value)
 
 constexpr const char* kUnavailableBody =
     "\"trackStatus\":null,\"trackStatusCode\":null,\"pollStatus\":\"UNAVAILABLE\","
-    "\"pollStatusCode\":null,\"swapChainCount\":null,\"rendererActive\":null,"
+    "\"pollStatusCode\":null,\"pollRowCount\":null,\"swapChainCount\":null,\"rendererActive\":null,"
     "\"swapChainAddress\":null,\"displayedFps\":null,\"presentedFps\":null,\"swapChains\":null";
 constexpr const char* kExceptionBody =
     "\"trackStatus\":null,\"trackStatusCode\":null,\"pollStatus\":\"EXCEPTION\","
-    "\"pollStatusCode\":null,\"swapChainCount\":null,\"rendererActive\":null,"
+    "\"pollStatusCode\":null,\"pollRowCount\":null,\"swapChainCount\":null,\"rendererActive\":null,"
     "\"swapChainAddress\":null,\"displayedFps\":null,\"presentedFps\":null,\"swapChains\":null";
+}
+
+std::size_t Api2AlignedRowBytes(const std::vector<PM_QUERY_ELEMENT>& elements) noexcept
+{
+    // Match PresentMon 2.5.1 DynamicQuery: blobSize_ = PadToAlignment(cursor, 16).
+    constexpr std::uint64_t kAlignment = 16;
+    std::uint64_t end{};
+    for (const auto& element : elements)
+        end = std::max(end, element.dataOffset + element.dataSize);
+    if (end == 0) end = kAlignment;
+    return static_cast<std::size_t>((end + (kAlignment - 1)) & ~(kAlignment - 1));
 }
 
 std::string_view Api2StatusName(PM_STATUS status) noexcept
@@ -141,19 +152,35 @@ std::string Api2DecodeValue(const std::uint8_t* blob, const PM_QUERY_ELEMENT& el
     return "null";
 }
 
-std::string Api2ComposeSample(PM_STATUS pollStatus, std::uint32_t swapChainCount,
-    const std::vector<Api2SwapChainRow>& rows, std::string trackStatusJson,
-    std::string trackStatusCodeJson)
+Api2RowAggregate Api2AggregateRows(const std::vector<Api2SwapChainRow>& rows) noexcept
+{
+    Api2RowAggregate aggregate;
+    for (const auto& row : rows)
+    {
+        if (row.address.has_value()) ++aggregate.swapChainCount;
+        aggregate.anyDisplayedFpsPositive = aggregate.anyDisplayedFpsPositive || row.displayedFps.value_or(0.0) > 0.0;
+        aggregate.anyPresentedFpsPositive = aggregate.anyPresentedFpsPositive || row.presentedFps.value_or(0.0) > 0.0;
+    }
+    return aggregate;
+}
+
+std::string Api2ComposeSample(PM_STATUS pollStatus, std::uint32_t pollRowCount,
+    std::uint32_t swapChainCount, const std::vector<Api2SwapChainRow>& rows,
+    std::string trackStatusJson, std::string trackStatusCodeJson)
 {
     std::string body = "\"trackStatus\":" + trackStatusJson +
         ",\"trackStatusCode\":" + trackStatusCodeJson +
         ",\"pollStatus\":\"" + std::string(Api2StatusName(pollStatus)) +
         "\",\"pollStatusCode\":" + std::to_string(static_cast<int>(pollStatus));
     if (pollStatus != PM_STATUS_SUCCESS)
-        return body + ",\"swapChainCount\":null,\"rendererActive\":null,\"swapChainAddress\":null,"
-            "\"displayedFps\":null,\"presentedFps\":null,\"swapChains\":null";
+        return body + ",\"pollRowCount\":null,\"swapChainCount\":null,\"rendererActive\":null,"
+            "\"swapChainAddress\":null,\"displayedFps\":null,\"presentedFps\":null,\"swapChains\":null";
+    // pollRowCount is the raw API2 count; PresentMon returns one null-address
+    // row before it has observed a real swap chain, so renderer evidence is
+    // driven by swapChainCount (rows carrying an actual SWAP_CHAIN_ADDRESS).
     const Api2SwapChainRow first = rows.empty() ? Api2SwapChainRow{} : rows.front();
-    body += ",\"swapChainCount\":" + std::to_string(swapChainCount) +
+    body += ",\"pollRowCount\":" + std::to_string(pollRowCount) +
+        ",\"swapChainCount\":" + std::to_string(swapChainCount) +
         ",\"rendererActive\":" + (swapChainCount ? "true" : "false") +
         ",\"swapChainAddress\":" + NumberOrNull(first.address) +
         ",\"displayedFps\":" + NumberOrNull(first.displayedFps) +
@@ -197,8 +224,9 @@ bool Api2Evidence::Start(std::string& detail) noexcept
         if (state->elements.empty() || state->client.RegisterDynamicQuery(&state->query,
             state->elements.data(), state->elements.size(), 1000, 0) != PM_STATUS_SUCCESS || !state->query)
         { detail = "query_unavailable"; return false; }
-        std::uint64_t bytes{}; for (const auto& element : state->elements) bytes = std::max(bytes, element.dataOffset + element.dataSize);
-        state->rowBytes = static_cast<size_t>(std::max<std::uint64_t>(bytes, 1));
+        // 16-byte-aligned per-row stride, matching PresentMon 2.5.1. Using the
+        // unaligned element end misdecodes row 1+ and under-allocates the blob.
+        state->rowBytes = Api2AlignedRowBytes(state->elements);
         // PresentMon rejects a zero input capacity, so the blob must hold
         // kSwapChainCapacity result rows and Sample() passes that count in.
         state->blob.assign(state->rowBytes * kSwapChainCapacity, std::uint8_t{});
@@ -248,9 +276,9 @@ Api2SampleResult Api2Evidence::Sample(DWORD processId) noexcept
             {
                 result.json = "\"trackStatus\":\"" + std::string(Api2StatusName(status)) +
                     "\",\"trackStatusCode\":" + std::to_string(static_cast<int>(status)) +
-                    ",\"pollStatus\":null,\"pollStatusCode\":null,\"swapChainCount\":null,"
-                    "\"rendererActive\":null,\"swapChainAddress\":null,\"displayedFps\":null,"
-                    "\"presentedFps\":null,\"swapChains\":null";
+                    ",\"pollStatus\":null,\"pollStatusCode\":null,\"pollRowCount\":null,"
+                    "\"swapChainCount\":null,\"rendererActive\":null,\"swapChainAddress\":null,"
+                    "\"displayedFps\":null,\"presentedFps\":null,\"swapChains\":null";
                 return result;
             }
             state_->tracked.insert(processId);
@@ -270,15 +298,15 @@ Api2SampleResult Api2Evidence::Sample(DWORD processId) noexcept
             for (std::uint32_t index = 0; index < count; ++index)
                 rows.push_back(DecodeRow(state_->blob.data() + state_->rowBytes * index, state_->elements));
             result.pollSucceeded = true;
-            result.swapChainCount = swaps;
-            for (const auto& row : rows)
-            {
-                result.anySwapChainAddress = result.anySwapChainAddress || row.address.has_value();
-                result.anyDisplayedFpsPositive = result.anyDisplayedFpsPositive || row.displayedFps.value_or(0.0) > 0.0;
-                result.anyPresentedFpsPositive = result.anyPresentedFpsPositive || row.presentedFps.value_or(0.0) > 0.0;
-            }
+            result.pollRowCount = swaps;
+            const auto aggregate = Api2AggregateRows(rows);
+            result.swapChainCount = aggregate.swapChainCount;
+            result.anySwapChainAddress = aggregate.swapChainCount != 0;
+            result.anyDisplayedFpsPositive = aggregate.anyDisplayedFpsPositive;
+            result.anyPresentedFpsPositive = aggregate.anyPresentedFpsPositive;
         }
-        result.json = Api2ComposeSample(poll, result.swapChainCount, rows, trackJson, trackCodeJson);
+        result.json = Api2ComposeSample(poll, result.pollRowCount, result.swapChainCount,
+            rows, trackJson, trackCodeJson);
         return result;
     }
     catch (...)

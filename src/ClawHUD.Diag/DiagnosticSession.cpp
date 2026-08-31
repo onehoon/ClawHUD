@@ -123,6 +123,11 @@ std::string ActualOsVersion()
         std::to_string(version.build);
 }
 
+// Section 16: report explicit null / n/a rather than a synthetic -1 for a
+// first-occurrence time that never happened.
+std::string MsJson(std::int64_t value) { return value >= 0 ? std::to_string(value) : "null"; }
+std::string MsText(std::int64_t value) { return value >= 0 ? std::to_string(value) : "n/a"; }
+
 struct CandidateWindow { HWND hwnd{}; std::wstring title; };
 BOOL CALLBACK CollectCandidateWindow(HWND hwnd, LPARAM parameter)
 {
@@ -297,7 +302,7 @@ bool DiagnosticSession::Start()
     std::string api2Detail;
     api2_.Start(api2Detail);
     TIME_ZONE_INFORMATION timezone{}; GetTimeZoneInformation(&timezone);
-    WriteRecord("session_header", "\"schemaVersion\":1,\"api2Loader\":\"manual beside exe\",\"api2State\":\"" + api2Detail + "\",\"api2SwapChainCapacity\":" + std::to_string(Api2Evidence::kSwapChainCapacity) + ",\"osVersion\":\"" + ActualOsVersion() + "\",\"timezoneBiasMinutes\":" + std::to_string(-timezone.Bias) + ",\"api2IntervalMs\":250,\"pdhIntervalMs\":500,\"pdhDeltaWindowMs\":100,\"presentMonBlocklistCommit\":\"f57eb474371c635ff2be620c04ca47400ca1b81a\"");
+    WriteRecord("session_header", "\"schemaVersion\":1,\"api2Loader\":\"manual beside exe\",\"api2State\":\"" + api2Detail + "\",\"api2SwapChainCapacity\":" + std::to_string(Api2Evidence::kSwapChainCapacity) + ",\"osVersion\":\"" + ActualOsVersion() + "\",\"timezoneBiasMinutes\":" + std::to_string(-timezone.Bias) + ",\"api2IntervalMs\":250,\"pdhIntervalMs\":500,\"pdhDeltaWindowMs\":100,\"presentMonBlocklistSource\":\"archive/diagnostics/presentmon-api2/assets/PresentMonAutoTargetBlockList.txt\",\"presentMonBlocklistCommit\":\"f57eb474371c635ff2be620c04ca47400ca1b81a\"");
     WriteRecord("steam_running_app_id", "\"oldAppId\":null,\"appId\":" + std::to_string(previousSteamAppId_.load()));
     api2Sampler_ = std::jthread([this](std::stop_token stop) {
         while (!stop.stop_requested() && running_)
@@ -409,9 +414,14 @@ void DiagnosticSession::RecordWinEvent(DWORD event, HWND hwnd, LONG objectId, LO
     else
     {
         const std::string live = WindowFields(hwnd, &pid);
+        const auto elapsed = ElapsedMs();
         {
             std::lock_guard lock(observedMutex_);
-            windowCache_[hwnd] = { pid, live };
+            auto& cached = windowCache_[hwnd];
+            cached.processId = pid;
+            cached.fields = live;
+            if (event == EVENT_OBJECT_CREATE && cached.firstCreateMs < 0) cached.firstCreateMs = elapsed;
+            if (event == EVENT_OBJECT_SHOW && cached.firstShowMs < 0) cached.firstShowMs = elapsed;
         }
         fields = live + ",\"metadataSource\":\"live\"";
     }
@@ -455,10 +465,11 @@ void DiagnosticSession::SampleApi2ObservedPids() noexcept
         const auto sample = api2_.Sample(pid);
         WriteRecord("api2", "\"pid\":" + std::to_string(pid) + "," + sample.json);
         // Milestones come from the structured result aggregated across every
-        // swap-chain row, never from reparsing sample.json.
+        // swap-chain row, never from reparsing sample.json. A successful poll
+        // with only the null-address probe row is not renderer evidence.
         if (sample.pollSucceeded)
         {
-            if (sample.swapChainCount > 0 || sample.anySwapChainAddress)
+            if (sample.anySwapChainAddress)
             { MarkFirst(pid, "api2_swapchain"); MarkFirst(pid, "swapchain"); }
             if (sample.anyDisplayedFpsPositive) MarkFirst(pid, "displayed_fps");
             if (sample.anyPresentedFpsPositive) MarkFirst(pid, "presented_fps");
@@ -488,9 +499,21 @@ void DiagnosticSession::ObserveProcess(DWORD processId, std::string_view reason)
         // lifecycle to follow it and start a fresh timeline.
         api2_.Retire(processId);
         identityByPid_[processId] = key;
-        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - startedAt_).count();
-        timelines_.try_emplace(key, PidTimeline{ .firstSeenMs = elapsed });
+        const auto elapsed = ElapsedMs();
+        auto& timeline = timelines_.try_emplace(key,
+            PidTimeline{ .firstSeenMs = elapsed }).first->second;
+        // Hydrate lifecycle milestones that were recorded for this PID's
+        // top-level windows before it qualified for the Observed PID Pool.
+        for (const auto& [wnd, cached] : windowCache_)
+        {
+            if (cached.processId != processId) continue;
+            if (cached.firstCreateMs >= 0 && (timeline.firstWindowCreateMs < 0 ||
+                cached.firstCreateMs < timeline.firstWindowCreateMs))
+                timeline.firstWindowCreateMs = cached.firstCreateMs;
+            if (cached.firstShowMs >= 0 && (timeline.firstWindowShowMs < 0 ||
+                cached.firstShowMs < timeline.firstWindowShowMs))
+                timeline.firstWindowShowMs = cached.firstShowMs;
+        }
 
         std::wstring image, aumid, packageFull, packageFamily;
         if (process)
@@ -511,7 +534,6 @@ void DiagnosticSession::ObserveProcess(DWORD processId, std::string_view reason)
             initialWindows += "\"" + Hex(windows.windows[index]) + "\"";
         }
         initialWindows += ']';
-        auto& timeline = timelines_.at(key);
         timeline.exe = Json(std::filesystem::path(image).filename().wstring());
         timeline.imagePath = Json(image);
         timeline.processStartFileTime = processStartFileTime;
@@ -540,27 +562,27 @@ void DiagnosticSession::WriteSummary() noexcept
             const DWORD pid = key.pid;
             if (summary)
                 summary << "PID " << pid << " (start " << timeline.processStartFileTime << ") " << timeline.exe << "\n"
-                    << "firstSeenMs=" << timeline.firstSeenMs << " firstWindowCreateMs=" << timeline.firstWindowCreateMs
-                    << " firstWindowShowMs=" << timeline.firstWindowShowMs << " firstTopGpuMs=" << timeline.firstTopGpuMs
-                    << " firstApi2SwapchainMs=" << timeline.firstApi2SwapchainMs << " firstPresentedFpsMs=" << timeline.firstPresentedFpsMs
-                    << " firstDisplayedFpsMs=" << timeline.firstDisplayedFpsMs << " firstForegroundMs=" << timeline.firstForegroundMs << "\n"
+                    << "firstSeenMs=" << MsText(timeline.firstSeenMs) << " firstWindowCreateMs=" << MsText(timeline.firstWindowCreateMs)
+                    << " firstWindowShowMs=" << MsText(timeline.firstWindowShowMs) << " firstTopGpuMs=" << MsText(timeline.firstTopGpuMs)
+                    << " firstApi2SwapchainMs=" << MsText(timeline.firstApi2SwapchainMs) << " firstPresentedFpsMs=" << MsText(timeline.firstPresentedFpsMs)
+                    << " firstDisplayedFpsMs=" << MsText(timeline.firstDisplayedFpsMs) << " firstForegroundMs=" << MsText(timeline.firstForegroundMs) << "\n"
                     << "steamAppIdAtFirstSeen=" << timeline.steamAppIdAtFirstSeen << " microsoftGameIdentity="
                     << (timeline.microsoftGameIdentity ? "true" : "false") << " processExitObserved="
                     << (timeline.processExited ? "true" : "false") << "\n\n";
             WriteRecord("pid_summary", "\"pid\":" + std::to_string(pid) +
-                ",\"firstSeenMs\":" + std::to_string(timeline.firstSeenMs) +
-                ",\"firstWindowCreateMs\":" + std::to_string(timeline.firstWindowCreateMs) +
-                ",\"firstWindowShowMs\":" + std::to_string(timeline.firstWindowShowMs) +
-                ",\"firstForegroundMs\":" + std::to_string(timeline.firstForegroundMs) +
-                ",\"firstTopGpuMs\":" + std::to_string(timeline.firstTopGpuMs) +
-                ",\"firstApi2SwapchainMs\":" + std::to_string(timeline.firstApi2SwapchainMs) +
-                ",\"firstSwapchainMs\":" + std::to_string(timeline.firstSwapchainMs) +
-                ",\"firstDisplayedFpsMs\":" + std::to_string(timeline.firstDisplayedFpsMs) +
-                ",\"firstPresentedFpsMs\":" + std::to_string(timeline.firstPresentedFpsMs) +
-                ",\"lastForegroundMs\":" + std::to_string(timeline.lastForegroundMs) +
-                ",\"lastRendererEvidenceMs\":" + std::to_string(timeline.lastRendererEvidenceMs) +
-                ",\"lastWindowHideMs\":" + std::to_string(timeline.lastWindowHideMs) +
-                ",\"lastWindowDestroyMs\":" + std::to_string(timeline.lastWindowDestroyMs) +
+                ",\"firstSeenMs\":" + MsJson(timeline.firstSeenMs) +
+                ",\"firstWindowCreateMs\":" + MsJson(timeline.firstWindowCreateMs) +
+                ",\"firstWindowShowMs\":" + MsJson(timeline.firstWindowShowMs) +
+                ",\"firstForegroundMs\":" + MsJson(timeline.firstForegroundMs) +
+                ",\"firstTopGpuMs\":" + MsJson(timeline.firstTopGpuMs) +
+                ",\"firstApi2SwapchainMs\":" + MsJson(timeline.firstApi2SwapchainMs) +
+                ",\"firstSwapchainMs\":" + MsJson(timeline.firstSwapchainMs) +
+                ",\"firstDisplayedFpsMs\":" + MsJson(timeline.firstDisplayedFpsMs) +
+                ",\"firstPresentedFpsMs\":" + MsJson(timeline.firstPresentedFpsMs) +
+                ",\"lastForegroundMs\":" + MsJson(timeline.lastForegroundMs) +
+                ",\"lastRendererEvidenceMs\":" + MsJson(timeline.lastRendererEvidenceMs) +
+                ",\"lastWindowHideMs\":" + MsJson(timeline.lastWindowHideMs) +
+                ",\"lastWindowDestroyMs\":" + MsJson(timeline.lastWindowDestroyMs) +
                 ",\"steamAppIdAtFirstSeen\":" + std::to_string(timeline.steamAppIdAtFirstSeen) +
                 ",\"microsoftGameIdentity\":" + (timeline.microsoftGameIdentity ? "true" : "false") +
                 ",\"processExitObserved\":" + (timeline.processExited ? "true" : "false") +
@@ -598,12 +620,15 @@ void DiagnosticSession::SampleTopGpu() noexcept
     for (const auto& [pid, delta] : totals)
         if (const auto window = windows.find(pid); window != windows.end()) ranked.push_back({ pid, delta, window->second, ProcessExe(pid) });
     std::sort(ranked.begin(), ranked.end(), [](const auto& left, const auto& right) { return left.delta > right.delta; });
-    for (size_t rank = 0; rank < std::min<size_t>(ranked.size(), 5); ++rank)
+    // Discovery = the whole positive-3D visible-ownerless candidate list (design
+    // section 5). Logging stays bounded to Top 5 (Raw) + Top 5 (parity).
+    for (const auto& candidate : ranked)
     {
-        ObserveProcess(ranked[rank].pid, "top_gpu");
-        MarkFirst(ranked[rank].pid, "top_gpu");
-        WriteRecord("top_gpu", "\"mode\":\"Raw\",\"rank\":" + std::to_string(rank + 1) + ",\"pid\":" + std::to_string(ranked[rank].pid) + ",\"exe\":\"" + Json(ranked[rank].exe) + "\",\"hwnd\":\"" + Hex(ranked[rank].window.hwnd) + "\",\"title\":\"" + Json(ranked[rank].window.title) + "\",\"gpu3dDelta\":" + std::to_string(ranked[rank].delta));
+        ObserveProcess(candidate.pid, "top_gpu_candidate");
+        MarkFirst(candidate.pid, "top_gpu");
     }
+    for (size_t rank = 0; rank < std::min<size_t>(ranked.size(), 5); ++rank)
+        WriteRecord("top_gpu", "\"mode\":\"Raw\",\"rank\":" + std::to_string(rank + 1) + ",\"pid\":" + std::to_string(ranked[rank].pid) + ",\"exe\":\"" + Json(ranked[rank].exe) + "\",\"hwnd\":\"" + Hex(ranked[rank].window.hwnd) + "\",\"title\":\"" + Json(ranked[rank].window.title) + "\",\"gpu3dDelta\":" + std::to_string(ranked[rank].delta));
     size_t parityRank{};
     for (const auto& candidate : ranked)
     {
@@ -652,6 +677,12 @@ void DiagnosticSession::MarkExited(DWORD processId) noexcept
             ",\"processStartFileTime\":" + std::to_string(startFileTime));
 }
 
+std::int64_t DiagnosticSession::ElapsedMs() const noexcept
+{
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - startedAt_).count();
+}
+
 void DiagnosticSession::MarkFirst(DWORD processId, std::string_view milestone) noexcept
 {
     if (!processId) return;
@@ -660,8 +691,7 @@ void DiagnosticSession::MarkFirst(DWORD processId, std::string_view milestone) n
     if (identity == identityByPid_.end()) return;
     const auto found = timelines_.find(identity->second);
     if (found == timelines_.end()) return;
-    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now() - startedAt_).count();
+    const auto elapsed = ElapsedMs();
     auto& timeline = found->second;
     auto set = [elapsed](std::int64_t& value) { if (value < 0) value = elapsed; };
     if (milestone == "window_create") set(timeline.firstWindowCreateMs);
@@ -764,10 +794,10 @@ std::string DiagnosticSession::WindowFields(HWND hwnd, DWORD* processId) noexcep
     {
         const auto same = [](LONG left, LONG right) { return std::abs(left - right) <= 2; };
         const bool fullscreen = rectAvailable && same(rect.left, monitor.rcMonitor.left) && same(rect.top, monitor.rcMonitor.top) && same(rect.right, monitor.rcMonitor.right) && same(rect.bottom, monitor.rcMonitor.bottom);
-        fields << ",\"monitorRect\":\"" << monitor.rcMonitor.left << ',' << monitor.rcMonitor.top << ',' << monitor.rcMonitor.right << ',' << monitor.rcMonitor.bottom << "\",\"monitorWorkRect\":\"" << monitor.rcWork.left << ',' << monitor.rcWork.top << ',' << monitor.rcWork.right << ',' << monitor.rcWork.bottom << "\",\"fullscreenLike\":" << (fullscreen ? "true" : "false");
+        fields << ",\"monitorRect\":\"" << monitor.rcMonitor.left << ',' << monitor.rcMonitor.top << ',' << monitor.rcMonitor.right << ',' << monitor.rcMonitor.bottom << "\",\"monitorWidth\":" << (monitor.rcMonitor.right - monitor.rcMonitor.left) << ",\"monitorHeight\":" << (monitor.rcMonitor.bottom - monitor.rcMonitor.top) << ",\"monitorWorkRect\":\"" << monitor.rcWork.left << ',' << monitor.rcWork.top << ',' << monitor.rcWork.right << ',' << monitor.rcWork.bottom << "\",\"fullscreenLike\":" << (fullscreen ? "true" : "false");
     }
     else
-        fields << ",\"monitorRect\":null,\"monitorWorkRect\":null,\"fullscreenLike\":null";
+        fields << ",\"monitorRect\":null,\"monitorWidth\":null,\"monitorHeight\":null,\"monitorWorkRect\":null,\"fullscreenLike\":null";
     return fields.str();
 }
 
