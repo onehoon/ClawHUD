@@ -44,6 +44,7 @@ using settings_internal::kSettingsClassName;
 using settings_internal::kStartEc;
 using settings_internal::kStartIgcl;
 using settings_internal::kStartApi2;
+using settings_internal::kStopApi2;
 using settings_internal::kStartVrr;
 using settings_internal::kStartWithWindows;
 using settings_internal::kStopVrr;
@@ -512,6 +513,12 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
     {
         if (self->app_.StartPresentMonApi2Diagnostic())
             self->SetDiagnosticStatus(L"Waiting 5 seconds...");
+        return 0;
+    }
+    if (message == WM_COMMAND && LOWORD(wParam) == kStopApi2)
+    {
+        self->app_.StopPresentMonApi2Diagnostic();
+        self->SetDiagnosticStatus(L"Stopped");
         return 0;
     }
     if (message == WM_COMMAND && LOWORD(wParam) == kStartVrr)

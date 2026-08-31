@@ -81,6 +81,7 @@ private:
     HWND startEcButton_{};
     HWND startIgclButton_{};
     HWND startApi2Button_{};
+    HWND stopApi2Button_{};
     HWND openLogsButton_{};
     HWND diagnosticStatus_{};
     HWND startVrrButton_{};

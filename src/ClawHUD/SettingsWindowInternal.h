@@ -14,6 +14,7 @@ inline constexpr int kStartWithWindows = 1001;
 inline constexpr int kStartEc = 1101;
 inline constexpr int kStartIgcl = 1105;
 inline constexpr int kStartApi2 = 1106;
+inline constexpr int kStopApi2 = 1110;
 inline constexpr int kOpenLogs = 1102;
 inline constexpr int kStartVrr = 1103;
 inline constexpr int kStopVrr = 1104;
