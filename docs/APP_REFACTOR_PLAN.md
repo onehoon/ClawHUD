@@ -1,6 +1,6 @@
 # ClawHUD Production Refactor Plan
 
-Status: **ACTIVE — R0 (#178), R1 (#180), R2 (#182), R3 (#184), R4 (#187) merged; R5 is next** (R3 + R4 hardware smoke still pending)  
+Status: **ACTIVE — R0 (#178), R1 (#180), R2 (#182), R3 (#184), R4 (#187), R5 (#189) merged; R6 is next** (R3 + R4 hardware smoke still pending)  
 Re-baseline commit: `c0a2dcbd598ad7a31fa7dd28fec09cbd9c29e1f2` (after PR #175 / #176)  
 Date: 2026-08-31  
 Repository: `onehoon/ClawHUD`
@@ -1818,9 +1818,9 @@ Those extractions remain valid and are retained in the new architecture.
     Alt+Tab + exit, HUD Always/InGameOnly, suspend/resume, FPS target
     transitions, VRR / click-through / no-activation.
 
-- **R5 (re-evaluate suspend/resume — no controller)** — PR #189, branch
-  `refactor/r5-suspend-resume`. Boundary-confirmation / cleanup phase, not an
-  extraction.
+- **R5 (re-evaluate suspend/resume — no controller)** — PR #189, merged
+  `bf11b13` (code review + CI green). Boundary-confirmation / cleanup phase, not
+  an extraction.
   - **R5 decision: no `RuntimeLifecycleController` / `SuspendResumeCoordinator`
     created.** Suspend/resume remains top-level `App` orchestration. The R1
     `SuspendResumePolicy.h` remains the pure decision layer (unchanged). After
