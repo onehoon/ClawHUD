@@ -68,11 +68,11 @@ HudSettings HudSettingsStore::Load() const
     const auto alignment = ReadString(L"Alignment", L"Center");
     if (alignment == L"Left") settings.alignment = HudAlignment::Left;
     else if (alignment == L"Right") settings.alignment = HudAlignment::Right;
-    settings.font = ParseHudFont(ReadString(L"Font", L"Unispace"));
-    const auto background = ReadString(L"BackgroundWidth", L"FullWidth");
+    settings.font = ParseHudFont(ReadString(L"Font", L"SegoeUIVariable"));
+    const auto background = ReadString(L"BackgroundWidth", L"ContentWidth");
     if (background == L"ContentWidth") settings.backgroundMode = HudBackgroundMode::ContentWidth;
     else if (background == L"FullWidth") settings.backgroundMode = HudBackgroundMode::FullWidth;
-    const auto visibility = ReadString(L"VisibilityMode", L"InGameOnly");
+    const auto visibility = ReadString(L"VisibilityMode", L"Always");
     if (visibility == L"Always") settings.visibilityMode = HudVisibilityMode::Always;
     else if (visibility == L"InGameOnly") settings.visibilityMode = HudVisibilityMode::InGameOnly;
     settings.sizeOffset = ParseHudSizeOffset(ReadString(L"Size", L"0"));

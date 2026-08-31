@@ -62,9 +62,9 @@ void LoadDefaultsWhenUnavailable(bool& ok)
     ok &= Check(s.startWithWindows, "default startWithWindows is true");
     ok &= Check(s.intelVrrRangeFixEnabled, "default intelVrrRangeFixEnabled is true");
     ok &= Check(s.alignment == HudAlignment::Center, "default alignment is Center");
-    ok &= Check(s.font == HudFont::Unispace, "default font is Unispace");
-    ok &= Check(s.backgroundMode == HudBackgroundMode::FullWidth, "default background is FullWidth");
-    ok &= Check(s.visibilityMode == HudVisibilityMode::InGameOnly, "default visibility is InGameOnly");
+    ok &= Check(s.font == HudFont::SegoeUiVariable, "default font is SegoeUIVariable");
+    ok &= Check(s.backgroundMode == HudBackgroundMode::ContentWidth, "default background is ContentWidth");
+    ok &= Check(s.visibilityMode == HudVisibilityMode::Always, "default visibility is Always");
     ok &= Check(s.sizeOffset == 0, "default size offset is 0");
 }
 
@@ -75,7 +75,7 @@ void LoadDefaultsWhenFileMissing(bool& ok)
     ok &= Check(s.hudEnabled && s.startWithWindows && s.intelVrrRangeFixEnabled,
         "missing keys fall back to their defaults");
     ok &= Check(s.alignment == HudAlignment::Center &&
-        s.visibilityMode == HudVisibilityMode::InGameOnly,
+        s.visibilityMode == HudVisibilityMode::Always,
         "missing enum keys fall back to their defaults");
 }
 
@@ -86,9 +86,9 @@ void SaveThenLoadRoundTrips(bool& ok)
 
     HudSettings out;
     out.alignment = HudAlignment::Right;
-    out.font = HudFont::SegoeUiVariable;
-    out.backgroundMode = HudBackgroundMode::ContentWidth;
-    out.visibilityMode = HudVisibilityMode::Always;
+    out.font = HudFont::Unispace;                       // non-default
+    out.backgroundMode = HudBackgroundMode::FullWidth;  // non-default
+    out.visibilityMode = HudVisibilityMode::InGameOnly; // non-default
     out.backgroundOpacity = HudOpacityFractionFromPercent(85);
     out.sizeOffset = 2;
     out.startWithWindows = false;
@@ -96,9 +96,9 @@ void SaveThenLoadRoundTrips(bool& ok)
 
     const auto in = store.Load();
     ok &= Check(in.alignment == HudAlignment::Right, "alignment round-trips");
-    ok &= Check(in.font == HudFont::SegoeUiVariable, "font round-trips");
-    ok &= Check(in.backgroundMode == HudBackgroundMode::ContentWidth, "background round-trips");
-    ok &= Check(in.visibilityMode == HudVisibilityMode::Always, "visibility round-trips");
+    ok &= Check(in.font == HudFont::Unispace, "font round-trips");
+    ok &= Check(in.backgroundMode == HudBackgroundMode::FullWidth, "background round-trips");
+    ok &= Check(in.visibilityMode == HudVisibilityMode::InGameOnly, "visibility round-trips");
     ok &= Check(HudOpacityPercentFromFraction(in.backgroundOpacity) == 85, "opacity round-trips");
     ok &= Check(in.sizeOffset == 2, "size offset round-trips");
     ok &= Check(!in.startWithWindows, "startWithWindows round-trips");
@@ -174,6 +174,10 @@ void ReadsExplicitKeys(bool& ok)
     ini.writeRaw(L"General", L"StartWithWindows", L"0");
     ini.writeRaw(L"Tweaks", L"IntelVrrRangeFixEnabled", L"0");
     ini.writeRaw(L"HUD", L"Alignment", L"Left");
+    // Explicit non-default values are still honored after the default flip.
+    ini.writeRaw(L"HUD", L"Font", L"Unispace");
+    ini.writeRaw(L"HUD", L"BackgroundWidth", L"FullWidth");
+    ini.writeRaw(L"HUD", L"VisibilityMode", L"InGameOnly");
 
     const auto s = store.Load();
     ok &= Check(!s.hudEnabled, "Enabled=0 read");
@@ -181,6 +185,9 @@ void ReadsExplicitKeys(bool& ok)
     ok &= Check(!s.startWithWindows, "StartWithWindows=0 read");
     ok &= Check(!s.intelVrrRangeFixEnabled, "IntelVrrRangeFixEnabled=0 read");
     ok &= Check(s.alignment == HudAlignment::Left, "Alignment=Left read");
+    ok &= Check(s.font == HudFont::Unispace, "Font=Unispace read");
+    ok &= Check(s.backgroundMode == HudBackgroundMode::FullWidth, "BackgroundWidth=FullWidth read");
+    ok &= Check(s.visibilityMode == HudVisibilityMode::InGameOnly, "VisibilityMode=InGameOnly read");
 }
 }
 

@@ -1099,7 +1099,7 @@ Advantages:
 - shows less darkened game content;
 - may feel more like a compact floating telemetry strip.
 
-The final default is **not locked yet**. Full Width is a strong default candidate, but both modes should be easy to support by changing only the background rectangle calculation. Do not create separate renderers for them.
+The current shipped default is **Content Width**. Both modes must stay easy to support by changing only the background rectangle calculation. Do not create separate renderers for them.
 
 Background mode and text alignment are independent settings.
 
@@ -1129,11 +1129,13 @@ No bottom/side placement matrix is required for the first version unless a real 
 
 ClawHUD should use a clean **Windows 11 built-in font** rather than trying to reproduce SteamOS's exact font assets.
 
-Current candidate:
+Default font:
 
 ```text
 Segoe UI Variable
 ```
+
+Unispace (the bundled private monospace font) remains selectable in Settings.
 
 Goals:
 
@@ -1299,11 +1301,11 @@ The current design target can be summarized as:
 ```text
 Position:          Top
 Rows:              1
-Alignment:         Left / Center / Right selectable
+Alignment:         Left / Center / Right selectable (default Center)
 Background:        near-black, semitransparent
-Background width:  Full Width vs Content Width selectable / final default TBD
+Background width:  Full Width vs Content Width selectable (default Content Width)
 Corner style:      square / no card
-Typography:        Windows 11 built-in; Segoe UI Variable candidate
+Typography:        Windows 11 built-in; default Segoe UI Variable (Unispace selectable)
 Sizing:            fixed physical-pixel target, DPI-independent
 Colors:            stable category colors + white values
 Warning colors:    none

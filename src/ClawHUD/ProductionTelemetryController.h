@@ -120,7 +120,7 @@ private:
     bool samplingActive_{};
 
     // Explicit FPS target inputs cached from App (never read from game detection).
-    HudVisibilityMode visibilityMode_{HudVisibilityMode::InGameOnly};
+    HudVisibilityMode visibilityMode_{HudVisibilityMode::Always};
     DWORD committedProcessId_{};
 };
 }

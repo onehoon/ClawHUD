@@ -20,9 +20,9 @@ int main()
 {
     bool ok = true;
     const HudLayoutOptions defaults{};
-    ok &= Check(defaults.visibilityMode == HudVisibilityMode::InGameOnly, "default visibility");
+    ok &= Check(defaults.visibilityMode == HudVisibilityMode::Always, "default visibility");
     ok &= Check(defaults.alignment == HudAlignment::Center, "default alignment");
-    ok &= Check(defaults.backgroundMode == HudBackgroundMode::FullWidth, "default background");
+    ok &= Check(defaults.backgroundMode == HudBackgroundMode::ContentWidth, "default background");
     ok &= Check(defaults.backgroundOpacity == 0.7f, "default opacity");
     ok &= Check(ClampHudOpacityPercent(49) == 50 &&
         ClampHudOpacityPercent(70) == 70 && ClampHudOpacityPercent(101) == 100,

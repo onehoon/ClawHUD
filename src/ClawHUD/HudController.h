@@ -19,7 +19,7 @@ struct HudControllerState
 {
     bool enabled{};
     HudLayoutOptions options{};
-    HudFont font{HudFont::Unispace};
+    HudFont font{HudFont::SegoeUiVariable};
     int sizeOffset{};
 };
 
@@ -105,7 +105,7 @@ private:
     std::function<void(bool)> requestRender_;
     std::unique_ptr<HudPresentation> presentation_;
     HudLayoutOptions options_{};
-    HudFont font_{HudFont::Unispace};
+    HudFont font_{HudFont::SegoeUiVariable};
     int sizeOffset_{};
     bool enabled_{};
     std::optional<bool> manualOverride_;
