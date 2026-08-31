@@ -100,6 +100,7 @@ jobs:
           $release = Join-Path $pwd 'build\Release'
           Copy-Item (Join-Path $release 'ClawHUD.exe') $stage
           Copy-Item (Join-Path $release 'ClawHUD.EcHelper.exe') $stage
+          Copy-Item (Join-Path $release 'PresentMonAutoTargetBlockList.txt') $stage
           Copy-Item (Join-Path $release 'velopack_libc.dll') $stage
           Copy-Item (Join-Path $release 'PresentMonAPI2Loader.dll') $stage
           Copy-Item (Join-Path $release 'runtime\ClawHUD.PresentMonRuntime.msi') (Join-Path $stage 'runtime')
@@ -112,6 +113,7 @@ jobs:
           $required = @(
             'ClawHUD.exe',
             'ClawHUD.EcHelper.exe',
+            'PresentMonAutoTargetBlockList.txt',
             'velopack_libc.dll',
             'PresentMonAPI2Loader.dll',
             'runtime\ClawHUD.PresentMonRuntime.msi',
