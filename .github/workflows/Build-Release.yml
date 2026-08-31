@@ -48,6 +48,9 @@ jobs:
           $version = "0.1.$nextPatch"
           Write-Host "Next ClawHUD release: $version"
           "version=$version" >> $env:GITHUB_OUTPUT
+          if ($lastPatch -ge 0) {
+            "previous_tag=v0.1.$lastPatch" >> $env:GITHUB_OUTPUT
+          }
 
       - name: Generate release notes
         shell: pwsh
@@ -133,8 +136,24 @@ jobs:
 
       - name: Pack Velopack release
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           Remove-Item -Recurse -Force release -ErrorAction SilentlyContinue
+          $previousTag = "${{ steps.version.outputs.previous_tag }}"
+          if ($previousTag) {
+            New-Item -ItemType Directory -Force release | Out-Null
+            gh release download $previousTag `
+              --repo $env:GITHUB_REPOSITORY `
+              --pattern 'ClawHUD-*-stable-full.nupkg' `
+              --pattern 'releases.stable.json' `
+              --dir release
+
+            if (-not (Get-ChildItem release -Filter '*-full.nupkg' -File) -or
+                -not (Test-Path 'release\releases.stable.json')) {
+              throw "Velopack delta base is incomplete for $previousTag."
+            }
+          }
           vpk pack `
             --packId ClawHUD `
             --packTitle ClawHUD `
@@ -144,8 +163,13 @@ jobs:
             --releaseNotes .\release-notes.md `
             --shortcuts StartMenuRoot `
             --channel stable `
+            --delta BestSpeed `
             --framework vcredist145-x64 `
             --outputDir .\release
+
+          if ($previousTag -and -not (Get-ChildItem release -Filter '*-delta.nupkg' -File)) {
+            throw "Velopack did not produce a delta package from $previousTag."
+          }
 
       - name: Upload GitHub Release
         shell: pwsh
