@@ -53,6 +53,7 @@ public:
     std::uint32_t recordSize{sizeof(double)};
     int flushCount{};
     std::uint32_t lastFlushPid{};
+    PM_STATUS flushStatus{PM_STATUS_SUCCESS};
     // Frames the next ConsumeFrames returns (BETWEEN_DISPLAY_CHANGE value each).
     std::vector<double> pending;
 
@@ -77,8 +78,9 @@ public:
     {
         ++flushCount;
         lastFlushPid = pid;
-        pending.clear();
-        return PM_STATUS_SUCCESS;
+        if (flushStatus == PM_STATUS_SUCCESS)
+            pending.clear();
+        return flushStatus;
     }
 
     PM_STATUS ConsumeFrames(PM_FRAME_QUERY_HANDLE, std::uint32_t,
@@ -173,6 +175,19 @@ void ArmedAttemptLifecycle(bool& ok)
     client.pending = {9.9};
     ok &= Check(frame.PollDisplayedFrame(client, 100) == true,
         "the re-armed attempt reports only after a genuinely new positive sample");
+
+    // A failed flush must leave the target disarmed so queued stale frames
+    // cannot satisfy the attempt.
+    client.flushStatus = PM_STATUS_FAILURE;
+    client.pending = {5.0};
+    ok &= Check(!frame.BeginVerification(client, 300),
+        "BeginVerification fails when FlushFrames reports an error");
+    ok &= Check(!frame.PollDisplayedFrame(client, 300),
+        "a failed begin leaves the PID unarmed (poll stays nullopt)");
+    client.flushStatus = PM_STATUS_SUCCESS;
+    ok &= Check(frame.BeginVerification(client, 300) &&
+        frame.PollDisplayedFrame(client, 300) == false,
+        "a later successful begin re-arms cleanly with no stale evidence");
 
     frame.Shutdown(client);
     ok &= Check(!frame.Ready() && !frame.PollDisplayedFrame(client, 100),

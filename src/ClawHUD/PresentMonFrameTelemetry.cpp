@@ -139,11 +139,15 @@ bool PresentMonFrameTelemetry::BeginVerification(
 {
     if (!ready_ || query_ == nullptr || processId == 0)
         return false;
-    armedProcessId_ = processId;
     detector_.Reset();
-    // Drop frames queued before this attempt so a previous verification (same
-    // numeric PID, earlier generation, or PID reuse) cannot satisfy it.
-    client.FlushFrames(processId);
+    armedProcessId_ = 0;
+    // Dropping frames queued before this attempt is mandatory: another
+    // shared-session consumer (FPS telemetry, Debug Logging) may already have
+    // this PID tracked, so historical frames can be queued. If the flush fails
+    // we must not arm the target and let stale evidence satisfy it.
+    if (client.FlushFrames(processId) != PM_STATUS_SUCCESS)
+        return false;
+    armedProcessId_ = processId;
     return true;
 }
 
