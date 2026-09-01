@@ -27,6 +27,19 @@ inline CompatibilityTargetAction PlanCompatibilityTargetAction(
     return prior ? CompatibilityTargetAction::Clear : CompatibilityTargetAction::None;
 }
 
+// An already-posted renderer completion can arrive after the controller has
+// handed the single verifier worker to a newer foreground request. The exact
+// process generation carried by that completion is still trustworthy cache
+// evidence (R2 TryMarkRendererVerified is generation-safe), so it must always
+// be applied; but only the *matching* active adapter request may be cleared.
+// A stale completion must never clear or replace a newer active verification.
+inline bool RendererCompletionClearsActiveRequest(
+    const std::optional<RendererVerificationRequest>& active,
+    const RendererVerificationRequest& completed) noexcept
+{
+    return active && *active == completed;
+}
+
 inline bool ShouldStartRendererVerification(
     const std::optional<RendererVerificationRequest>& active,
     bool verifierRunning,

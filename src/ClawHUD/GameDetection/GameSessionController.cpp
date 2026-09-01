@@ -145,8 +145,7 @@ bool GameSessionController::HandleMessage(const MSG& message)
         auto* update = reinterpret_cast<GameRenderVerifierUpdate*>(message.wParam);
         if (update)
         {
-            HandleGameRenderVerifierEvent({update->request.process.processId,
-                update->request.requestId, update->type});
+            HandleGameRenderVerifierUpdate(update->request, update->type);
             delete update;
         }
         return true;
@@ -662,20 +661,24 @@ void GameSessionController::HandleProductionProcessExit(DWORD processId,
         ReevaluateForeground();
 }
 
-void GameSessionController::HandleGameRenderVerifierEvent(
-    const GameRenderVerifierEvent& event)
+void GameSessionController::HandleGameRenderVerifierUpdate(
+    const RendererVerificationRequest& request, GameRenderVerifierEventType type)
 {
-    const auto runtime = Runtime();
-    if (!activeRendererRequest_ || event.type != GameRenderVerifierEventType::FirstDisplayedFrame ||
-        event.processId != activeRendererRequest_->process.processId ||
-        event.generation != activeRendererRequest_->requestId)
+    if (type != GameRenderVerifierEventType::FirstDisplayedFrame)
         return;
-    const auto request = *activeRendererRequest_;
-    activeRendererRequest_.reset();
+    // A trusted already-posted completion always contributes its exact
+    // process-generation renderer evidence, even after the verifier worker has
+    // been handed off to a newer foreground request. R3/R2 stop an old
+    // generation from overwriting newer evidence for the same numeric PID
+    // (PR #202). Only the matching active adapter request may be cleared: a
+    // stale completion must never disturb a newer active verification.
     foregroundGameDetector_.CompleteRendererVerification({request, true});
+    if (RendererCompletionClearsActiveRequest(activeRendererRequest_, request))
+        activeRendererRequest_.reset();
     Log(L"[GameDetection] renderer.first-frame pid=" +
-        std::to_wstring(event.processId) + L" requestId=" +
-        std::to_wstring(event.generation));
+        std::to_wstring(request.process.processId) + L" requestId=" +
+        std::to_wstring(request.requestId));
+    const auto runtime = Runtime();
     if (!runtime.suspended && !runtime.resumeRecoveryActive)
         EvaluateCurrentForeground(L"renderer-completion");
 }

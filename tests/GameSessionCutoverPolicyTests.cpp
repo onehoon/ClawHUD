@@ -80,6 +80,16 @@ int main()
     Check(!ShouldStartRendererVerification(requestA, true, requestA) &&
         ShouldStartRendererVerification(requestA, true, requestB),
         "repeated requests are deduplicated while a distinct foreground request hands off");
+
+    // An already-posted request-A completion consumed after the verifier worker
+    // was handed off to request B: A's exact evidence is still applied by the
+    // caller, but the active B request must not be cleared or replaced.
+    Check(!RendererCompletionClearsActiveRequest(requestB, requestA),
+        "a stale already-posted completion never clears the active verifier request");
+    Check(RendererCompletionClearsActiveRequest(requestA, requestA),
+        "the matching active request is cleared on its own completion");
+    Check(!RendererCompletionClearsActiveRequest(std::nullopt, requestA),
+        "a completion with no active request clears nothing");
     Check(ProcessInstanceStillMatches(gameA, gameA) &&
         !ProcessInstanceStillMatches(gameA, Process(100, 11)),
         "PID generation reuse invalidates the old compatibility target");

@@ -127,7 +127,8 @@ private:
     void HandleProductionWindowEvent(const ProductionWindowEvent& event);
     void HandleMicrosoftGameEvidence(const MicrosoftGameTriggerEvidence& evidence);
     void HandleProductionProcessExit(DWORD processId, std::uint64_t generation);
-    void HandleGameRenderVerifierEvent(const GameRenderVerifierEvent& event);
+    void HandleGameRenderVerifierUpdate(const RendererVerificationRequest& request,
+        GameRenderVerifierEventType type);
     void HandleSteamRunningAppIdChanged();
     void EvaluateCurrentForeground(const wchar_t* reason);
     void ApplyForegroundEvaluation(const ForegroundGameEvaluation& evaluation,
