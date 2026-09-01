@@ -115,10 +115,10 @@ clawhud::GameSessionHooks App::MakeGameSessionHooks()
         { productionTelemetry_.StopGraphicsApiProbe(); };
     hooks.stopGraphicsApiProbeIfTarget = [this](DWORD pid)
         { productionTelemetry_.StopGraphicsApiProbeIfTarget(pid); };
-    hooks.setCommittedProcess = [this](DWORD pid)
-        { productionTelemetry_.SetCommittedProcess(pid); };
-    hooks.clearCommittedProcess = [this]
-        { productionTelemetry_.ClearCommittedProcess(); };
+    hooks.setInGameForegroundProcess = [this](DWORD pid)
+        { productionTelemetry_.SetInGameForegroundProcess(pid); };
+    hooks.clearInGameForegroundProcess = [this]
+        { productionTelemetry_.ClearInGameForegroundProcess(); };
     hooks.stopFpsSampling = [this]
         { productionTelemetry_.StopFpsSampling(); };
     hooks.startProductionSampling = [this] { StartProductionSampling(); };
@@ -272,12 +272,15 @@ void App::TryResumeRecovery()
         return;
 
     ++resumeRecoveryAttempts_;
+    // Re-evaluate the actual current foreground game now; never restore a
+    // pre-suspend game just because it is still alive / was previously tracked.
     gameSession_.ReconcileForeground();
-    const DWORD processId = gameSession_.TrackedProcessId();
+    gameSession_.ReevaluateForeground();
+    const DWORD processId = gameSession_.CurrentForegroundGameProcessId();
     const bool processAlive = processId && ProcessAlive(processId);
     const bool retainVerifier = clawhud::ResumeRecoveryCanRetainVerifier(
         processId, gameSession_.VerifierProcessId(), gameSession_.VerifierRunning());
-    const bool rendererForegroundActive = gameSession_.ForegroundIsTrackedProcess();
+    const bool rendererForegroundActive = gameSession_.CurrentForegroundGameActive();
     const bool hudEnabled = hudController_.Enabled();
     const auto manualOverride = hudController_.ManualOverride();
     const auto visibilityMode = hudController_.VisibilityMode();
@@ -372,7 +375,7 @@ void App::StopHud()
     hudController_.MarkDisabled();
     StopProductionSampling(true, L"hud-disabled");
     productionTelemetry_.StopGraphicsApiProbe();
-    gameSession_.ClearCandidateIfNotCommitted(L"hud-disabled");
+    gameSession_.ResetForegroundGameSession(L"hud-disabled");
     productionTelemetry_.StopFpsSampling();
     ReconcileHudVisibility();
     hudController_.ShutdownPresentation();
@@ -516,6 +519,13 @@ void App::SetHudVisibilityMode(clawhud::HudVisibilityMode mode)
                 GetWindowThreadProcessId(foreground, &foregroundProcessId);
         }
         productionTelemetry_.SetVisibilityMode(mode, foregroundProcessId);
+        if (mode == clawhud::HudVisibilityMode::InGameOnly)
+        {
+            // Evaluate the current foreground screen now instead of waiting for
+            // the next WinEvent: an already-known admitted game becomes the
+            // In-Game Only target immediately.
+            gameSession_.ReevaluateForeground();
+        }
         if (!suspended_ && hudController_.Enabled() && HudVisible())
             productionTelemetry_.SampleFps();
     }
@@ -535,7 +545,7 @@ void App::HandleHudToggleHotkey()
         }
         hudController_.MarkEnabled(false);
         gameSession_.ReevaluateForeground();
-        if (const DWORD processId = gameSession_.TrackedProcessId())
+        if (const DWORD processId = gameSession_.CurrentForegroundGameProcessId())
             productionTelemetry_.StartGraphicsApiProbe(processId);
     }
     hudController_.SetManualOverride(!HudVisible());
@@ -552,9 +562,9 @@ void App::ReconcileHudVisibility()
         hudController_.HideForLifecycleGate();
         return;
     }
-    gameSession_.ReleaseCommittedIfForegroundGone();
+    gameSession_.RevalidateCurrentForegroundGame();
     productionTelemetry_.ReconcileGraphicsApiTargetLiveness();
-    const bool foregroundGameActive = gameSession_.ForegroundIsTrackedProcess();
+    const bool foregroundGameActive = gameSession_.CurrentForegroundGameActive();
     const auto effects = hudController_.ReconcileVisibility(foregroundGameActive);
     if (effects.startProductionSampling)
         StartProductionSampling();

@@ -7,24 +7,26 @@
 
 namespace clawhud
 {
-enum class CompatibilityTargetAction
+enum class ForegroundGameTargetAction
 {
     None,
     SetEligible,
     Clear,
 };
 
-// R4 keeps the old App hooks temporarily, but their target is only the
-// currently eligible foreground game; it is never a retained game lifetime.
-inline CompatibilityTargetAction PlanCompatibilityTargetAction(
+// Maps a fresh foreground-first evaluation onto the current In-Game Only game
+// target. The target is only ever the currently eligible foreground game
+// process generation; it is never a retained game lifetime. A different exact
+// process generation (PID reuse included) is a target change, not a keep.
+inline ForegroundGameTargetAction PlanForegroundGameTargetAction(
     const std::optional<GameProcessInstance>& prior,
     const CurrentForegroundGame& current) noexcept
 {
     if (current.decision == ForegroundGameDecision::Eligible && current.process)
         return !prior || *prior != *current.process
-            ? CompatibilityTargetAction::SetEligible
-            : CompatibilityTargetAction::None;
-    return prior ? CompatibilityTargetAction::Clear : CompatibilityTargetAction::None;
+            ? ForegroundGameTargetAction::SetEligible
+            : ForegroundGameTargetAction::None;
+    return prior ? ForegroundGameTargetAction::Clear : ForegroundGameTargetAction::None;
 }
 
 // An already-posted renderer completion can arrive after the controller has

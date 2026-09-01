@@ -52,9 +52,11 @@ struct GameSessionHooks
     std::function<void()> stopGraphicsApiProbe;
     std::function<void(DWORD)> stopGraphicsApiProbeIfTarget;
 
-    // ProductionTelemetryController committed FPS target + FPS reset.
-    std::function<void(DWORD)> setCommittedProcess;
-    std::function<void()> clearCommittedProcess;
+    // ProductionTelemetryController In-Game Only FPS target. set(pid) means this
+    // PID is the current eligible foreground game target now; clear() means there
+    // is no current eligible foreground game. Not process-lifetime ownership.
+    std::function<void(DWORD)> setInGameForegroundProcess;
+    std::function<void()> clearInGameForegroundProcess;
     std::function<void()> stopFpsSampling;
 
     // App production-sampling lifecycle.
@@ -107,17 +109,23 @@ public:
     void EnsureRenderVerification();
     void StopRenderVerification(const wchar_t* reason = L"explicit-reset",
         bool clearLatestFps = false);
-    void ReleaseCommittedIfForegroundGone();
-    void ClearCandidateIfNotCommitted(const wchar_t* reason);
+    // Liveness safety net: if the current eligible foreground game's exact
+    // process generation no longer exists, clear the target and re-evaluate.
+    void RevalidateCurrentForegroundGame();
+    // HUD-disable / reset: stop verification, clear the current foreground-game
+    // target and its downstream effects; preserve the known-game cache.
+    void ResetForegroundGameSession(const wchar_t* reason);
 
     // --- narrow queries (resume recovery / F8 / HUD reconcile) --------
     void ReconcileForeground();
-    DWORD TrackedProcessId() const noexcept;
-    bool ForegroundIsTrackedProcess() const noexcept;
+    // The current eligible foreground game: true only when the latest
+    // foreground-first evaluation is Eligible for a still-matching exact
+    // process generation. Never derived from HUD/FPS/telemetry state.
+    bool CurrentForegroundGameActive() const noexcept;
+    DWORD CurrentForegroundGameProcessId() const noexcept;
     DWORD VerifierProcessId() const noexcept;
     std::uint64_t VerifierGeneration() const noexcept;
     bool VerifierRunning() const noexcept;
-    bool CommittedProcessAliveOrNone() const;
 
     // --- shutdown ----------------------------------------------------
     void StopSources();
@@ -166,6 +174,9 @@ private:
     SteamRunningAppIdSource steamRunningAppIdSource_;
     std::uint32_t steamRunningAppId_{};
     std::optional<RendererVerificationRequest> activeRendererRequest_;
-    std::optional<GameProcessInstance> bridgedEligibleProcess_;
+    // The current eligible foreground game as an exact process generation
+    // (PID + creation time), or none. Kept as a full GameProcessInstance so
+    // PID reuse cannot preserve an old generation's target authority.
+    std::optional<GameProcessInstance> currentForegroundGameProcess_;
 };
 }

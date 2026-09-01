@@ -76,12 +76,12 @@ void ZeroPid(bool& ok)
 void ModeSwitching(bool& ok)
 {
     AlwaysModeFpsTarget target;
-    // Enter Always with a known foreground PID (8908); a legacy committed PID
+    // Enter Always with a known foreground PID (8908); the In-Game Only game PID
     // (9124) must never become the target.
     target.SetForegroundProcess(8908);
     target.AcceptSample(8908, 75.0);
     ok &= Check(target.DisplayedFps() == 75.0 && target.TargetProcessId() == 8908,
-        "Always adopts the current foreground PID, not the legacy game PID");
+        "Always adopts the current foreground PID, not the In-Game game PID");
 
     // Leave Always mode.
     target.Release();
@@ -101,27 +101,41 @@ void ModeSwitching(bool& ok)
 void SharedSamplerTargetSelection(bool& ok)
 {
     constexpr DWORD foregroundPid = 8908;
-    constexpr DWORD committedPid = 9124;
+    constexpr DWORD inGamePid = 9124;
 
-    // B / I: Always targets the foreground PID, never the committed game PID.
+    // Always targets the foreground PID, never the In-Game Only game PID.
     ok &= Check(ResolveProductionFpsTargetPid(HudVisibilityMode::Always,
-        foregroundPid, committedPid) == foregroundPid,
+        foregroundPid, inGamePid) == foregroundPid,
         "Always mode selects the foreground PID");
 
-    // In-Game Only keeps the existing committed candidate PID unchanged.
+    // In-Game Only targets the current eligible foreground game PID.
     ok &= Check(ResolveProductionFpsTargetPid(HudVisibilityMode::InGameOnly,
-        foregroundPid, committedPid) == committedPid,
-        "In-Game Only mode selects the committed game PID");
+        foregroundPid, inGamePid) == inGamePid,
+        "In-Game Only mode selects the current foreground game PID");
 
-    // D / H: Always never falls back when the foreground PID is unavailable.
+    // Always never falls back to the game PID when the foreground PID is 0.
     ok &= Check(ResolveProductionFpsTargetPid(HudVisibilityMode::Always,
-        0, committedPid) == 0,
-        "Always mode does not fall back to the committed PID");
+        0, inGamePid) == 0,
+        "Always mode does not fall back to the In-Game game PID");
 
-    // In-Game Only with no committed candidate has no target.
+    // In-Game Only with no current game (foreground is not a game) has no
+    // target; it never falls back to a background game or the foreground PID.
     ok &= Check(ResolveProductionFpsTargetPid(HudVisibilityMode::InGameOnly,
         foregroundPid, 0) == 0,
         "In-Game Only mode does not fall back to the foreground PID");
+}
+
+// Game detection keeps running and changing the cached In-Game Only target
+// regardless of visibility mode (renderer verification, admission, foreground
+// transitions). Only InGameOnly may treat that as authoritative and invalidate
+// the shared FPS state/query on a target change/clear; Always mode's FPS must
+// stay fully decoupled from game-detection transitions.
+void InGameTargetInvalidationIsModeGated(bool& ok)
+{
+    ok &= Check(InGameTargetChangeInvalidatesFps(HudVisibilityMode::InGameOnly),
+        "In-Game Only target changes invalidate the shared FPS state while InGameOnly is active");
+    ok &= Check(!InGameTargetChangeInvalidatesFps(HudVisibilityMode::Always),
+        "In-Game Only target changes must not disturb the independent Always-mode FPS while Always is active");
 }
 }
 
@@ -135,5 +149,6 @@ int main()
     ZeroPid(ok);
     ModeSwitching(ok);
     SharedSamplerTargetSelection(ok);
+    InGameTargetInvalidationIsModeGated(ok);
     return ok ? 0 : 1;
 }

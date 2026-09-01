@@ -266,25 +266,25 @@ void GameSessionController::StopRenderVerification(const wchar_t* reason,
         hooks_.stopFpsSampling();
 }
 
-void GameSessionController::ReleaseCommittedIfForegroundGone()
+void GameSessionController::RevalidateCurrentForegroundGame()
 {
-    if (bridgedEligibleProcess_)
+    if (currentForegroundGameProcess_)
     {
         const auto current = QueryGameProcessInstance(
-            bridgedEligibleProcess_->processId);
-        if (!current || *current != *bridgedEligibleProcess_)
-            EvaluateCurrentForeground(L"eligible-process-changed");
+            currentForegroundGameProcess_->processId);
+        if (!current || *current != *currentForegroundGameProcess_)
+            EvaluateCurrentForeground(L"current-game-process-changed");
     }
 }
 
-void GameSessionController::ClearCandidateIfNotCommitted(const wchar_t* reason)
+void GameSessionController::ResetForegroundGameSession(const wchar_t* reason)
 {
     StopRenderVerification(reason, true);
-    if (bridgedEligibleProcess_)
-        hooks_.stopGraphicsApiProbeIfTarget(bridgedEligibleProcess_->processId);
-    bridgedEligibleProcess_.reset();
+    if (currentForegroundGameProcess_)
+        hooks_.stopGraphicsApiProbeIfTarget(currentForegroundGameProcess_->processId);
+    currentForegroundGameProcess_.reset();
     foregroundTracker_.SetTrackedProcessId(0);
-    hooks_.clearCommittedProcess();
+    hooks_.clearInGameForegroundProcess();
     hooks_.reconcileHudVisibility();
 }
 
@@ -295,14 +295,16 @@ void GameSessionController::ReconcileForeground()
     foregroundTracker_.Reconcile();
 }
 
-DWORD GameSessionController::TrackedProcessId() const noexcept
+bool GameSessionController::CurrentForegroundGameActive() const noexcept
 {
-    return foregroundTracker_.TrackedProcessId();
+    return currentForegroundGameProcess_.has_value();
 }
 
-bool GameSessionController::ForegroundIsTrackedProcess() const noexcept
+DWORD GameSessionController::CurrentForegroundGameProcessId() const noexcept
 {
-    return foregroundTracker_.ForegroundIsTrackedProcess();
+    return currentForegroundGameProcess_
+        ? currentForegroundGameProcess_->processId
+        : 0;
 }
 
 DWORD GameSessionController::VerifierProcessId() const noexcept
@@ -318,15 +320,6 @@ std::uint64_t GameSessionController::VerifierGeneration() const noexcept
 bool GameSessionController::VerifierRunning() const noexcept
 {
     return gameRenderVerifier_.Running();
-}
-
-bool GameSessionController::CommittedProcessAliveOrNone() const
-{
-    if (!bridgedEligibleProcess_)
-        return true;
-    const auto current = QueryGameProcessInstance(
-        bridgedEligibleProcess_->processId);
-    return ProcessInstanceStillMatches(bridgedEligibleProcess_, current);
 }
 
 // --- shutdown --------------------------------------------------------
@@ -371,18 +364,18 @@ void GameSessionController::ApplyForegroundEvaluation(
     const ForegroundGameEvaluation& evaluation, const wchar_t* reason)
 {
     const auto& current = evaluation.current;
-    const auto action = PlanCompatibilityTargetAction(bridgedEligibleProcess_, current);
-    if (action == CompatibilityTargetAction::SetEligible)
+    const auto action = PlanForegroundGameTargetAction(currentForegroundGameProcess_, current);
+    if (action == ForegroundGameTargetAction::SetEligible)
     {
         const DWORD processId = current.process->processId;
-        if (bridgedEligibleProcess_)
-            hooks_.stopGraphicsApiProbeIfTarget(bridgedEligibleProcess_->processId);
-        bridgedEligibleProcess_ = current.process;
+        if (currentForegroundGameProcess_)
+            hooks_.stopGraphicsApiProbeIfTarget(currentForegroundGameProcess_->processId);
+        currentForegroundGameProcess_ = current.process;
         foregroundTracker_.SetTrackedProcessId(processId);
-        hooks_.setCommittedProcess(processId);
+        hooks_.setInGameForegroundProcess(processId);
         hooks_.startGraphicsApiProbe(processId);
         hooks_.startProductionSampling();
-        Log(L"[GameDetection] foreground.eligible pid=" + std::to_wstring(processId));
+        Log(L"[GameDetection] foreground.target-set pid=" + std::to_wstring(processId));
         hooks_.reconcileHudVisibility();
     }
     if (current.decision == ForegroundGameDecision::Eligible)
@@ -392,14 +385,14 @@ void GameSessionController::ApplyForegroundEvaluation(
         return;
     }
 
-    if (action == CompatibilityTargetAction::Clear)
+    if (action == ForegroundGameTargetAction::Clear)
     {
-        Log(L"[GameDetection] foreground.clear oldPid=" +
-            std::to_wstring(bridgedEligibleProcess_->processId) + L" reason=" + reason);
-        hooks_.stopGraphicsApiProbeIfTarget(bridgedEligibleProcess_->processId);
-        bridgedEligibleProcess_.reset();
+        Log(L"[GameDetection] foreground.target-clear oldPid=" +
+            std::to_wstring(currentForegroundGameProcess_->processId) + L" reason=" + reason);
+        hooks_.stopGraphicsApiProbeIfTarget(currentForegroundGameProcess_->processId);
+        currentForegroundGameProcess_.reset();
         foregroundTracker_.SetTrackedProcessId(0);
-        hooks_.clearCommittedProcess();
+        hooks_.clearInGameForegroundProcess();
         hooks_.reconcileHudVisibility();
     }
     if (current.decision == ForegroundGameDecision::Hidden)
@@ -698,7 +691,7 @@ bool GameSessionController::TryCommitReadyCandidateFromForeground(HWND,
         return false;
     foregroundTracker_.SetTrackedProcessId(processId);
     hooks_.startGraphicsApiProbe(processId);
-    hooks_.setCommittedProcess(processId);
+    hooks_.setInGameForegroundProcess(processId);
     hooks_.startProductionSampling();
     HandleGameDetectionTransition({
         GameDetectionTransition::Committed, generation, processId});
@@ -735,7 +728,7 @@ void GameSessionController::ReleaseCommittedProductionTarget(const wchar_t* reas
     const auto generation = context.generation;
     if (!processId)
         return;
-    hooks_.clearCommittedProcess();
+    hooks_.clearInGameForegroundProcess();
     const auto release = PlanCommittedTargetRelease();
     CommittedTargetReleaseOps ops;
     ops.stopRenderVerification = [this, reason]
