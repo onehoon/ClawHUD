@@ -4,8 +4,11 @@
 
 #include <cstdint>
 #include <functional>
+#include <optional>
 
 #include "ForegroundTracker.h"
+#include "ForegroundGameDetector.h"
+#include "GameSessionCutoverPolicy.h"
 #include "GameDetectionCoordinator.h"
 #include "GameRenderVerifier.h"
 #include "GenericForegroundTrigger.h"
@@ -124,8 +127,14 @@ private:
     void HandleProductionWindowEvent(const ProductionWindowEvent& event);
     void HandleMicrosoftGameEvidence(const MicrosoftGameTriggerEvidence& evidence);
     void HandleProductionProcessExit(DWORD processId, std::uint64_t generation);
-    void HandleGameRenderVerifierEvent(const GameRenderVerifierEvent& event);
+    void HandleGameRenderVerifierUpdate(const RendererVerificationRequest& request,
+        GameRenderVerifierEventType type);
     void HandleSteamRunningAppIdChanged();
+    void EvaluateCurrentForeground(const wchar_t* reason);
+    void ApplyForegroundEvaluation(const ForegroundGameEvaluation& evaluation,
+        const wchar_t* reason);
+    bool WindowEventAffectsCurrentForeground(
+        const ProductionWindowEvent& event) const;
     void ApplyProductionEvidence(GameDetectionTrigger trigger, HWND window, DWORD processId);
     void HandleGameDetectionTransition(
         const GameDetectionTransitionResult& transition,
@@ -149,11 +158,14 @@ private:
     SteamRunningAppTrigger steamRunningAppTrigger_{gameDetectionCoordinator_};
     GenericForegroundTrigger genericForegroundTrigger_;
     KnownGameProcessCache knownGameProcesses_;
+    ForegroundGameDetector foregroundGameDetector_{knownGameProcesses_};
     MicrosoftGameTrigger microsoftGameTrigger_{knownGameProcesses_};
     ProductionGameWindowSource productionGameWindowSource_;
     ProductionProcessLifetimeWatcher productionProcessLifetimeWatcher_;
     GameRenderVerifier gameRenderVerifier_{provider_};
     SteamRunningAppIdSource steamRunningAppIdSource_;
     std::uint32_t steamRunningAppId_{};
+    std::optional<RendererVerificationRequest> activeRendererRequest_;
+    std::optional<GameProcessInstance> bridgedEligibleProcess_;
 };
 }

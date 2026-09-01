@@ -169,6 +169,14 @@ add_custom_command(TARGET ClawHUD POST_BUILD
 
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(ClawHUD.GameSessionCutoverPolicyTests
+        tests/GameSessionCutoverPolicyTests.cpp)
+    target_compile_features(ClawHUD.GameSessionCutoverPolicyTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.GameSessionCutoverPolicyTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.GameSessionCutoverPolicyTests PRIVATE src/ClawHUD)
+    set_target_properties(ClawHUD.GameSessionCutoverPolicyTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.GameSessionCutoverPolicyTests COMMAND ClawHUD.GameSessionCutoverPolicyTests)
+
     add_executable(ClawHUD.ForegroundGameDetectorTests
         tests/ForegroundGameDetectorTests.cpp
         src/ClawHUD/GameDetection/ForegroundGameDetector.cpp
