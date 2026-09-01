@@ -3,1336 +3,189 @@
 > [!WARNING]
 > **ClawHUD is under active development. Do not install or use it yet.**
 
-ClawHUD is an experimental, lightweight performance HUD for **Windows 11 + MSI Claw + Intel Arc**.
+ClawHUD is a lightweight performance HUD built specifically for supported **MSI Claw** handhelds on **Windows 11**.
 
-Build requirements: Windows 11, MSVC (Visual Studio 2026), and the Windows SDK. MinGW is not supported.
-
-The project is intentionally narrow. It is not intended to become a generic overlay framework, hardware-control suite, or multi-device monitoring platform. The goal is a very small gaming add-on that can show useful performance and MSI Claw hardware telemetry while remaining compatible with Intel XeFG, OptiScaler, and VRR.
-
-This README is also an architectural reference for future implementation work. When code, experiments, or agent-generated changes conflict with the constraints below, the constraints in this document should be treated as the default project direction unless a later hardware result explicitly changes them.
+It displays FPS, CPU/GPU telemetry, memory usage, fan speed, power, and battery information without injecting into games or hooking their rendering pipeline. The production HUD is designed around preserving **VRR**, **Intel XeFG**, and **OptiScaler** compatibility.
 
 ---
 
-## Current status
+## Supported devices
 
-The repository currently contains a **Phase 0 VRR / XeFG presentation PoC** using the Windows 11 Composition Swapchain / Presentation Manager path.
+ClawHUD currently supports only the following MSI Claw board IDs:
 
-The PoC has successfully reached the point where it can:
+| Device | Board ID |
+| --- | --- |
+| MSI Claw A2VM | `MS-1T42` / `MS-1T52` |
+| MSI Claw 8 EX AI+ | `MS-1T91` |
 
-- create the Windows Composition Swapchain path,
-- query `IPresentationFactory::IsPresentationSupportedWithIndependentFlip()`,
-- create a premultiplied-alpha presentation surface,
-- host it through DirectComposition,
-- show and remove a static external HUD,
-- operate without game injection, Present hooking, DXGI hooking, or swapchain interception.
+**Windows 11 x64** and the device's **Intel Arc GPU** are required.
 
-This proves that the candidate presentation path can be built. It **does not yet prove** that VRR, OptiScaler, or XeFG remain correct on real MSI Claw hardware while the HUD is active.
+ClawHUD checks the baseboard ID at startup. Unsupported devices are rejected instead of running with unverified hardware behavior.
 
-See:
+---
 
-- [Phase 0 VRR / XeFG PoC](docs/PHASE0-VRR-POC.md)
+## Features
+
+- Lightweight, tray-first performance HUD
+- FPS and system/hardware telemetry
+- `Always on` and `In-game only` display modes
+- Automatic foreground game detection
+- Global `F8` hotkey to show or hide the HUD
+- Start ClawHUD with Windows
+- HUD size adjustment
+- `Unispace` and `Segoe UI Variable` fonts
+- Left / Center / Right alignment
+- Full-width or content-width HUD background
+- HUD Opacity adjustment
+- Intel VRR Range Fix for affected MSI Claw displays
+- Silent application update checks at startup
+
+ClawHUD runs from the system tray. Open **Settings** from the tray icon to configure the HUD.
+
+---
+
+## Telemetry
+
+ClawHUD combines PresentMon API2, Windows telemetry, and MSI-specific EC telemetry.
+
+| HUD item | Displayed information | Source |
+| --- | --- | --- |
+| **FPS** | Displayed FPS for the current target game | [PresentMon API2](https://github.com/GameTechDev/PresentMon) |
+| **CPU** | CPU usage + CPU temperature | PresentMon API2 + MSI EC |
+| **GPU** | GPU usage + GPU clock | PresentMon API2 |
+| **TDP** | CPU package power | MSI EC |
+| **RAM** | System memory usage | Windows |
+| **VRAM** | GPU memory usage | PresentMon API2 |
+| **FAN** | Fan speed | MSI EC |
+| **BAT** | Battery level + estimated remaining time while on battery | Windows + MSI EC |
+
+MSI EC telemetry is read through ClawHUD's narrowly scoped read-only EC helper. See [MSI EC Telemetry Reference](docs/MSI_EC_TELEMETRY_REFERENCE.md) for implementation details.
+
+Telemetry values are displayed only when the corresponding data is available. Missing sensor data is not presented as a synthetic zero value.
+
+### FPS and Intel XeFG
+
+FPS is sourced from PresentMon API2. Some Intel driver-side XeFG paths can generate frames that are not fully visible to normal OS-level PresentMon observation, so the FPS shown by ClawHUD may not always represent every physically generated/output frame in those configurations.
+
+---
+
+## Game detection
+
+ClawHUD automatically tries to identify the game that currently owns the foreground window. The detection path includes normal Windows games as well as Steam and Microsoft/Xbox game context.
+
+Game detection is still under development and **may not work perfectly with every game, launcher, or unusual window configuration**.
+
+- **Always on** does not depend on game detection to keep the HUD visible.
+- **In-game only** depends on automatic game detection. If a game is not detected correctly, the HUD may not appear automatically.
+- `F8` can be used to manually show or hide the HUD.
+
+The implementation intentionally avoids continuous process polling for game detection. See [Game Detection Redesign](docs/GAME_DETECTION_REDESIGN_PR_PLAN_2026-08-31.md) for the internal design.
+
+---
+
+## HUD settings
+
+The **Settings** tab provides the user-facing HUD controls:
+
+- **Start ClawHUD with Windows**
+- **Enable HUD**
+- **Display mode** — `In-game only` / `Always on`
+- **HUD size**
+- **Font** — `Unispace` / `Segoe UI Variable`
+- **Alignment** — Left / Center / Right
+- **Background width** — Full width / Content width
+- **HUD Opacity**
+
+Settings are persisted between launches.
+
+---
+
+## Intel VRR Range Fix
+
+The **Tweaks** tab contains **Intel VRR Range Fix**.
+
+This tweak restores the native VRR range on affected MSI Claw displays and is applied at application startup when enabled. The UI reports the detected panel, the range before and after the operation, and the last apply result.
+
+The tweak is enabled by default in the current development build.
+
+---
+
+## PresentMon runtime
+
+ClawHUD uses **PresentMon API2** for FPS and CPU/GPU telemetry.
+
+A compatible PresentMon API2 shared-service runtime is required. ClawHUD checks for it at startup and:
+
+- reuses an already installed compatible runtime when available, or
+- installs the bundled compatible PresentMon runtime automatically when it is missing or incompatible.
+
+Windows may display a **UAC prompt** when the PresentMon runtime needs to be installed. Only the runtime installer is elevated; ClawHUD itself continues to run as a normal non-elevated application.
+
+The bundled runtime contains the PresentMon shared service and matching API2 middleware used by ClawHUD. Version and licensing information is documented in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
+---
+
+## VRR / XeFG-friendly presentation
+
+ClawHUD is intentionally an **external, non-injected HUD**.
+
+The production HUD does not use:
+
+- game DLL injection
+- `Present` hooks
+- DXGI hooks
+- game swapchain interception
+- process-memory modification
+- frame-generation interception
+- an injected frame limiter
+
+The HUD uses the Windows Presentation API / DirectComposition production path with a premultiplied-alpha presentation surface and is built around retaining an independent-flip-capable presentation path.
+
+Real-hardware validation has shown the production HUD retaining the observed Independent Flip presentation family in tested scenarios, including dynamic HUD updates. This remains an important regression requirement as development continues.
+
+For the detailed validation history and limitations of what software-side evidence can prove, see [HUD Presentation / VRR Decision History](docs/HUD_PRESENTATION_VRR_DECISION_HISTORY.md).
+
+---
+
+## Current limitations
+
+ClawHUD is still under active development.
+
+Current limitations include:
+
+- Only the supported MSI Claw board IDs listed above are accepted.
+- Game detection may fail with some games, launchers, or unusual foreground-window behavior.
+- Individual telemetry values may be unavailable depending on the current hardware/driver state.
+- PresentMon may not observe every driver-generated XeFG output frame in some Intel XeFG configurations.
+- Hardware, driver, Windows, and game updates can affect presentation behavior, so VRR/XeFG compatibility continues to be regression-tested.
+
+---
+
+## Development
+
+ClawHUD is a Windows-native C++ project.
+
+Build requirements:
+
+- Windows 11
+- MSVC / Visual Studio 2026
+- Windows SDK
+
+MinGW is not supported.
+
+Detailed implementation notes, research results, validation history, and work orders live under [`docs/`](docs/). The README intentionally focuses on the user-visible product rather than serving as the project's internal architecture specification.
+
+Useful references:
+
+- [HUD Presentation / VRR Decision History](docs/HUD_PRESENTATION_VRR_DECISION_HISTORY.md)
 - [MSI EC Telemetry Reference](docs/MSI_EC_TELEMETRY_REFERENCE.md)
-
-Production shell / tray work may proceed independently, but the production HUD presentation backend remains gated by the Phase 0 hardware result.
-
----
-
-# 1. Product scope
-
-## Supported environment
-
-The intended support boundary is deliberately small:
-
-```text
-OS:       Windows 11 x64 only
-Device:   supported MSI Claw boards only
-GPU:      Intel Arc only
-User:     one Windows user
-Session:  one interactive session
-```
-
-Current MSI board IDs relevant to the project:
-
-```text
-Claw A2VM:       MS-1T42 / MS-1T52
-Claw 8 EX AI+:   MS-1T91
-```
-
-The application does **not** need architecture for:
-
-- Fast User Switching,
-- multiple simultaneous interactive sessions,
-- RDP usage,
-- server/service deployment,
-- generic third-party handheld support,
-- NVIDIA / AMD GPU abstraction.
-
-If a feature only exists to support those scenarios, it is probably out of scope.
+- [Game Detection Redesign](docs/GAME_DETECTION_REDESIGN_PR_PLAN_2026-08-31.md)
+- [Third-party notices](THIRD-PARTY-NOTICES.md)
 
 ---
 
-# 2. Design philosophy
+## License
 
-ClawHUD should stay small.
+ClawHUD is licensed under the **GNU General Public License v3.0**. See [LICENSE](LICENSE).
 
-This is a personal gaming add-on, not enterprise software. Prefer direct, understandable ownership and a small number of concrete objects over abstraction layers designed for hypothetical future platforms.
-
-Avoid unless a real requirement proves them necessary:
-
-```text
-DI containers
-ServiceHost layers
-provider registries
-manager hierarchies
-factory hierarchies
-plugin frameworks
-epoch/barrier coordination
-multi-session authorities
-separate helper processes (except the narrowly scoped EC read helper required for the MSI privilege boundary)
-complex retry/reconcile state machines
-```
-
-A reasonable target is that `App` directly owns the few runtime components that actually exist.
-
-Tests should validate production behavior, but production complexity must not be added merely because a synthetic race or test double can be invented.
-
----
-
-# 3. Application lifecycle
-
-The production application is **tray-first**.
-
-Normal startup should be:
-
-```text
-ClawHUD.exe
-    ↓
-single-instance check
-    ↓
-Velopack startup update check
-    ↓
-apply update and restart if available
-    ↓
-create tray icon
-    ↓
-start minimal background runtime
-    ↓
-NO settings window
-    ↓
-message loop
-```
-
-## Single instance
-
-A simple per-user named mutex is sufficient.
-
-If a second instance starts:
-
-- detect the existing instance,
-- exit the second instance,
-- do not add IPC merely to activate the first instance,
-- do not build multi-session ownership logic.
-
-## Velopack update policy
-
-ClawHUD should check for updates **immediately at application startup**.
-
-The intended behavior is:
-
-```text
-startup
-  ↓
-check update silently
-  ├─ update available → download → apply → restart updated app
-  └─ no update / check failure → continue current version
-```
-
-Policy:
-
-- no update popup,
-- no toast,
-- no progress dialog,
-- no confirmation dialog,
-- no user-facing update notification.
-
-The application normally starts before the user begins a game, so delaying tray startup while an update is downloaded/applied is acceptable.
-
-Update failure must not prevent the currently installed version from starting.
-
-Do not create an updater framework around Velopack; use the normal Velopack lifecycle directly.
-
----
-
-# 4. Tray-first and memory policy
-
-A major goal of ClawHUD is to remain lightweight when sitting in the tray.
-
-On fresh startup, the application should **not** create a settings window and hide it. The settings UI must not exist until the user explicitly requests it.
-
-The General tab provides a **Start ClawHUD with Windows** option. It defaults to enabled when no saved value exists and controls a per-user Startup-folder shortcut; it does not add a service, scheduled task, or elevated startup path.
-
-Fresh tray idle should be close to:
-
-```text
-process
-mutex
-tray icon
-message loop
-minimal runtime state
-```
-
-It should not initialize expensive subsystems just because the process started.
-
-Unless currently needed, tray startup should not automatically create:
-
-- settings HWNDs,
-- Direct2D/DirectWrite settings resources,
-- Direct3D HUD resources,
-- Presentation Manager / DirectComposition HUD resources,
-- PresentMon capture sessions,
-- IGCL polling or diagnostics probes,
-- MSI EC/WMI polling,
-- Diagnostics probes.
-
-## Settings window lifecycle
-
-The settings window is lazy-created:
-
-```text
-Tray → Settings
-    ↓
-create Settings window
-    ↓
-show window
-```
-
-When minimized or closed, hide it to the tray while keeping ClawHUD running. Selecting Settings again restores the existing window.
-
-The Settings window remains lightweight and is not created until explicitly requested.
-
-The initial settings UI only needs a small native Windows surface. The project does not currently need WinUI 3, WPF, WebView, Electron, or another heavyweight UI framework.
-
-Expected top-level tabs:
-
-```text
-General
-HUD
-Tweaks
-Diagnostics
-```
-
-`Diagnostics` initially exists as a placeholder. Diagnostic functionality should be added in later PRs and should initialize only when required.
-
----
-
-# 5. HUD presentation requirements
-
-The project exists only if the HUD can remain non-invasive.
-
-The production HUD must not use:
-
-- game DLL injection,
-- `Present` hooks,
-- DXGI hooks,
-- D3D swapchain interception,
-- process-memory modification,
-- Reflex / XeLL marker injection,
-- frame-generation interception,
-- a frame limiter as part of the HUD,
-- game-specific injected workarounds.
-
-## Primary presentation candidate
-
-The Phase 0 candidate is the Windows 11 **Composition Swapchain / Presentation Manager** path using:
-
-```text
-D3D11 displayable texture
-    ↓
-IPresentationFactory
-    ↓
-IPresentationManager
-    ↓
-IPresentationSurface
-    ↓
-premultiplied alpha
-    ↓
-DirectComposition visual
-```
-
-The candidate is intentionally different from a traditional `WS_EX_LAYERED + TOPMOST` overlay.
-
-A generic layered top-level overlay is not the preferred production path because external overlays can force a game away from its best presentation path or interfere with VRR on systems where MPO/independent presentation cannot be retained.
-
-The current PoC is documented in [docs/PHASE0-VRR-POC.md](docs/PHASE0-VRR-POC.md).
-
----
-
-# 6. Absolute GO / NO-GO conditions
-
-Two product requirements are gates rather than optional improvements:
-
-1. **OptiScaler + XeFG must continue to work correctly with the HUD active.**
-2. **VRR must remain operational with the HUD active.**
-
-If the external non-injected HUD structurally breaks either requirement, the project should not be rescued by switching to injection/hooking.
-
-The fallback is not "make an RTSS-style injected overlay".
-
-The fallback is **NO-GO / project decision**.
-
-## GO candidate
-
-A successful hardware result should show, with HUD OFF vs STATIC HUD vs DYNAMIC HUD:
-
-```text
-✓ game remains functional
-✓ OptiScaler remains functional
-✓ XeFG remains functional
-✓ VRR display cadence remains active
-✓ no clear HUD-caused fixed-refresh quantization
-✓ no meaningful dropped-frame regression
-✓ no meaningful pacing regression
-✓ no presentation-path regression that causes the above failures
-```
-
-`Hardware: Independent Flip` or `Hardware Composed: Independent Flip` are strong presentation outcomes, but a label alone is not the final VRR truth.
-
-## Important VRR nuance
-
-Do **not** reduce VRR validation to:
-
-```text
-Independent Flip = pass
-Composed: Flip = fail
-```
-
-Modern Windows can have more than one valid presentation/composition behavior. The decisive observation is whether actual displayed cadence still behaves as VRR rather than becoming fixed-refresh quantized.
-
-Present mode is evidence; display cadence is the more important behavioral result.
-
----
-
-# 7. VRR validation strategy
-
-Use objective capture rather than visual judgment.
-
-A useful validation case is a non-divisor FPS target safely inside the panel VRR range, for example approximately **73 FPS on a 120 Hz panel** after confirming the real panel/range.
-
-Expected VRR-like interval:
-
-```text
-1000 / 73 ≈ 13.70 ms
-```
-
-A fixed 120 Hz path tends to show interval behavior related to:
-
-```text
-8.33 ms
-16.67 ms
-25.00 ms
-...
-```
-
-The hardware validation sequence is:
-
-```text
-VRR ON
-↓
-select test game + stable non-divisor cap
-↓
-HUD OFF capture 28 s
-↓
-STATIC HUD capture 28 s
-↓
-DYNAMIC HUD capture 28 s at the existing 100 ms mock update cadence
-↓
-compare presentation mode + display timing + pacing
-↓
-repeat with OptiScaler / XeFG configuration
-```
-
-Useful fields include:
-
-- `PresentMode`,
-- display timestamps,
-- `MsBetweenDisplayChange` / equivalent display-change timing,
-- displayed cadence distribution,
-- dropped frames,
-- pacing behavior.
-
-Do not treat the Windows "VRR enabled" setting or `AllowsTearing=true` as proof that VRR was actually retained.
-
-PresentMon overlay itself must not be used as the test HUD. Use capture/logger functionality only so the validation tool does not become another overlay variable.
-
----
-
-# 8. FPS model: Render FPS and Displayed FPS are different metrics
-
-ClawHUD must **not** have one ambiguous `fps` field internally.
-
-The telemetry model should distinguish at least:
-
-```text
-renderFps
-trueDisplayedFps
-frameTimeMs
-```
-
-This distinction is required because Intel XeFG can generate additional output frames that are not equivalent to application-rendered frames.
-
-Example:
-
-```text
-Render FPS:     ~40
-XeFG output:    ~120
-```
-
-Both values are useful and they mean different things.
-
-The HUD may later choose how to label/present them, but the internal model must not collapse them into one number.
-
----
-
-# 9. PresentMon role and limitation
-
-PresentMon remains valuable and is expected to be a major ClawHUD telemetry source.
-
-Expected uses include:
-
-```text
-application/render FPS
-render frametime
-PresentMode
-OS-visible presentation timing
-display-change timing when observable
-process/game association
-dropped/pacing-related presentation data
-some GPU telemetry where appropriate
-```
-
-## UMD-based XeFG problem
-
-There is an important Intel XeFG limitation documented in PresentMon issue #604:
-
-https://github.com/GameTechDev/PresentMon/issues/604
-
-The issue concerns **UMD (User-Mode Driver) based XeFG**. In that path, generated frames can be presented in a way that is not fully visible to the normal OS-level PresentMon observation path.
-
-That means PresentMon can observe the application's rendered/presented work but may not count every frame actually produced by the driver-side XeFG output path.
-
-Therefore:
-
-```text
-PresentMon Render FPS           → useful / expected
-PresentMon generic FPS          → must be named carefully
-PresentMon true Displayed FPS   → NOT assumed correct under UMD XeFG
-```
-
-This is especially important for MSI Claw because it is Intel-only and Intel Graphics Software XeFG multiplier override is a realistic/common usage path rather than an irrelevant edge case.
-
-Do not implement the final ClawHUD FPS display on the assumption that PresentMon alone always knows the true generated/output FPS.
-
-## VRR vs XeFG FPS counting
-
-PresentMon issue #604 is primarily a **generated-frame / real FPS observability problem**, not evidence that XeFG itself disables VRR.
-
-Keep the problems separate:
-
-```text
-VRR validation
-    → display cadence / presentation behavior
-
-UMD XeFG true FPS
-    → actual generated/output-frame observability
-```
-
-When UMD-generated flips are invisible to the normal PresentMon path, those same limits must also be considered before treating PresentMon display-change counters as a complete description of every physical/generated output flip.
-
-If necessary, deeper Intel-driver / ETW actual-flip telemetry should be investigated rather than guessing.
-
----
-
-# 10. Intel IGCL role
-
-Production GPU telemetry is provided by PresentMon API2. Intel Graphics Control Library (IGCL) remains an explicit diagnostic and probe dependency for Intel-specific capability and validation work.
-
-IGCL diagnostic/probe responsibilities include:
-
-```text
-Intel adapter identification
-GPU utilization
-GPU clock / frequency
-GPU power telemetry
-other capability-backed Intel telemetry
-XeFG feature capability
-IGS XeFG override state
-XeFG multiplier override: App / 2x / 3x / 4x
-```
-
-IGCL exposes Intel 3D feature information for frame generation and current Intel documentation includes frame-generation override choices corresponding to 2x / 3x / 4x behavior.
-
-However, the publicly documented IGCL live-state surface currently should **not** be assumed to provide the true driver-generated displayed FPS or an authoritative generated-frame counter.
-
-Therefore the intended split is:
-
-```text
-PresentMon API2
-├─ CPU utilization
-├─ GPU utilization
-├─ GPU clock / frequency
-└─ GPU memory usage
-
-IGCL diagnostics / probes
-├─ Intel-specific capability telemetry
-├─ XeFG capability
-└─ configured XeFG override / multiplier
-
-PresentMon
-├─ Render FPS
-├─ render frametime
-└─ OS-visible presentation data
-
-Intel actual-flip / future driver telemetry
-└─ candidate for TRUE UMD-XeFG output FPS if required
-```
-
-Capability checks should be used per metric. Do not assume every Arc generation exposes every IGCL sensor identically.
-
-In particular, known driver/IGCL gaps on newer GPUs mean MSI EC may remain the preferred source for Claw CPU temperature even when IGCL telemetry exists.
-
----
-
-# 11. XeSS Inspector role
-
-Intel XeSS Inspector is useful as a **research / validation oracle**, not as the ClawHUD production telemetry path.
-
-XeSS Inspector can attach to a target application and inspect XeSS / XeFG context state, including frame-generation state and configuration information. This makes it useful for experiments such as comparing:
-
-```text
-PresentMon result
-vs
-XeSS Inspector XeFG state
-vs
-IGS multiplier override
-```
-
-That can help determine where generated frames become invisible to normal OS-level telemetry.
-
-However, XeSS Inspector is not the production solution because its workflow involves attaching to the target process / XeSS context. ClawHUD's product direction explicitly avoids game-process instrumentation and injection-style dependencies.
-
-Use XeSS Inspector to establish ground truth during research, not as a runtime dependency.
-
----
-
-# 12. MSI EC telemetry
-
-MSI-specific platform telemetry is read through the MSI ACPI/WMI interface rather than guessed from generic GPU APIs.
-
-The authoritative implementation reference is:
-
-[docs/MSI_EC_TELEMETRY_REFERENCE.md](docs/MSI_EC_TELEMETRY_REFERENCE.md)
-
-Production HUD EC values are intentionally limited to:
-
-```text
-Get_Fan(0)
-├─ Fan 1 tach
-└─ Fan 2 tach
-
-Get_Temperature(0)
-└─ CPU temperature
-
-Get_Data(221)
-└─ CPU package power
-```
-
-ClawHUD does not need fan-control or TDP-write functionality for the HUD telemetry path.
-
-Do not pull in:
-
-- `Set_Fan`,
-- fan ownership control,
-- Cooler Boost control,
-- `Set_Data(80/81)` TDP writes,
-- write-oriented lifecycle recovery.
-
-The production application remains unelevated. MSI EC reads are performed only by the narrowly scoped `ClawHUD.EcHelper.exe` read-only helper, which is started with `runas` when an explicit EC diagnostic first needs it. This isolates the privilege boundary without elevating tray, Settings, HUD, PresentMon, or VRR diagnostics. The separate Intel VRR Range Fix is a bounded startup tweak and never becomes a prerequisite for the core runtime.
-
----
-
-# 13. Battery model
-
-The production battery presentation is intentionally small:
-
-```text
-Battery %
-Remaining Time
-```
-
-Battery state, percentage, power-source state, and remaining-time data come from normal Windows power APIs.
-
-## DC / battery behavior
-
-When discharging:
-
-```text
-Battery %       visible
-Remaining       visible when Windows reports it
-CPU Power       visible
-Fan RPM         visible
-CPU Temperature visible
-```
-
-## AC-connected behavior
-
-When AC is connected:
-
-```text
-Battery %       visible
-Remaining       hidden
-CPU Power       visible
-Fan RPM         visible
-CPU Temperature visible
-```
-
-CPU package power is independent of battery state and remains useful on both AC and DC.
-
----
-
-# 14. Telemetry snapshot direction
-
-The application should converge on one small snapshot consumed by the HUD rather than allowing every renderer element to query hardware directly.
-
-Illustrative model:
-
-```cpp
-struct TelemetrySnapshot
-{
-    // Frame metrics
-    std::optional<double> renderFps;
-    std::optional<double> trueDisplayedFps;
-    std::optional<double> frameTimeMs;
-
-    // Intel GPU
-    std::optional<double> gpuUsage;
-    std::optional<double> gpuClockMHz;
-    std::optional<double> gpuPowerW;
-
-    // MSI EC
-    std::optional<int> cpuTempC;
-    std::optional<int> fan1Rpm;
-    std::optional<int> fan2Rpm;
-    std::optional<double> cpuPackagePowerW;
-
-    // Power / battery
-    std::optional<int> batteryPercent;
-    std::optional<int> remainingMinutes;
-    bool onAcPower{};
-};
-```
-
-This is a data shape, not a reason to build a generic provider framework.
-
-Missing values should remain unavailable (`std::optional`) rather than becoming synthetic zeroes.
-
----
-
-# 15. HUD UI direction
-
-The default HUD position is the **top of the screen**.
-
-The text/content should support:
-
-```text
-Left alignment
-Center alignment
-Right alignment
-```
-
-Background behavior should eventually support experimentation with:
-
-```text
-Content-only background
-Full-width background
-Background opacity
-```
-
-A representative compact line is:
-
-```text
-FPS 72 | CPU 61% 61°C | GPU 58% 2200MHz | TDP 18W | FAN 3565RPM | BAT 62% 2h 07m
-```
-
-The exact visual design is not fixed yet. Architecture should not be complicated in anticipation of a future skin/theme system.
-
----
-
-# 16. Diagnostics direction
-
-The Settings window will contain a `Diagnostics` tab.
-
-Initially it can be a placeholder. Later it should become the project's real-hardware verification surface for features such as:
-
-```text
-Presentation / VRR
-MSI EC raw reads
-Intel / IGCL capability and telemetry
-PresentMon capture state
-Battery / power cross-checks
-raw values / export
-```
-
-The Diagnostics workflow should be:
-
-```text
-add raw capability/read probe
-    ↓
-validate on real Claw
-    ↓
-confirm decode / behavior
-    ↓
-move proven value into normal TelemetrySnapshot
-    ↓
-show in HUD
-```
-
-This reduces the need for one-off PowerShell scripts and temporary probe executables.
-
-Important lifecycle rule:
-
-> Diagnostics must not become a permanently running diagnostics service.
-
-If the Diagnostics tab is closed or not active, its special probes/captures should be stopped and their resources released unless the same telemetry is already required by the normal HUD runtime.
-
----
-
-# 17. Planned implementation sequence
-
-Keep PR boundaries small so hardware and lifecycle regressions are easy to isolate.
-
-## PR A — lightweight application shell
-
-```text
-production ClawHUD executable
-single instance
-Velopack silent startup update
-tray-first startup
-Settings lazy creation
-General / HUD / Diagnostics tabs
-clean Settings destruction
-clean tray Exit
-```
-
-Explicitly no telemetry/HUD integration required in this PR.
-
-## PR B — PresentMon baseline
-
-Add the initial frame/presentation telemetry integration while keeping metric naming explicit:
-
-```text
-Render FPS
-render frametime
-PresentMode
-OS-visible display timing
-```
-
-Do not claim UMD-XeFG true Displayed FPS yet.
-
-## PR C — Diagnostics / hardware probes
-
-Add read-only diagnostics in small pieces:
-
-```text
-MSI EC
-IGCL
-Battery
-VRR PoC integration / capture helpers
-```
-
-Use Diagnostics to validate behavior before promoting values to the normal HUD telemetry path.
-
-## Later — production HUD
-
-Only after the hardware presentation test passes:
-
-```text
-validated Composition Swapchain path
-    ↓
-production HUD renderer
-    ↓
-TelemetrySnapshot display
-```
-
-If VRR or XeFG compatibility fails structurally, do not quietly replace this path with injection/hooking.
-
----
-
-# 18. What not to build yet
-
-Until an actual requirement exists, do not add:
-
-```text
-generic multi-GPU abstraction
-generic handheld abstraction
-plugin SDK
-telemetry provider marketplace
-remote API
-web dashboard
-multi-user/session coordination
-complex profile engine
-background Diagnostics service
-fan-control UI
-TDP-control UI
-frame limiter
-injected overlay fallback
-game-specific hook logic
-```
-ClawHUD should earn complexity only when a real supported-device requirement demands it.
-
----
-
-# 19. Definition of project success
-
-ClawHUD is successful if it can remain a very small background application and provide useful MSI Claw / Intel Arc telemetry without interfering with the game experience.
-
-The target product behavior is approximately:
-
-```text
-Boot / login
-    ↓
-ClawHUD starts
-    ↓
-silent update if required
-    ↓
-tray idle with minimal memory/resources
-    ↓
-game / HUD use
-    ↓
-non-injected external HUD
-    ↓
-VRR retained
-XeFG retained
-OptiScaler retained
-    ↓
-accurate render + hardware telemetry
-```
-
-The project should prefer an unavailable metric over a misleading metric, and a NO-GO result over an invasive workaround that violates the original design goal.
-
----
-
-# 20. Layout and visual design reference
-
-This section records the current HUD layout discussion and the external research used to guide it. It is intentionally a **project reference**, not a promise that every visual constant below is already final. Where an older illustrative HUD example elsewhere in this README differs from this section, this section represents the newer layout direction.
-
-## 20.1 Benchmark target: SteamOS / MangoHud horizontal HUD
-
-The first production layout should benchmark the **SteamOS Performance Overlay horizontal one-line style** and MangoHud's corresponding horizontal layout behavior.
-
-MSI Center M's OSD is useful as a reverse-engineering source for telemetry, but its visual design is **not** a ClawHUD layout benchmark.
-
-Relevant public implementation references:
-
-- Valve Gamescope exposes Steam/MangoApp integration and explicitly advertises horizontal MangoApp support through `STEAM_MANGOAPP_HORIZONTAL_SUPPORTED`, `STEAM_MANGOAPP_PRESETS_SUPPORTED`, and `STEAM_USE_MANGOAPP`.
-- MangoHud's current configuration documents preset `2` as the **horizontal view** and exposes `horizontal`, `horizontal_stretch`, `hud_no_margin`, and `hud_compact` layout options.
-- MangoHud is used as an implementation/design reference only. ClawHUD is a Windows-native project and is not expected to copy MangoHud's Linux rendering code.
-
-References:
-
-- https://github.com/ValveSoftware/gamescope/blob/master/src/main.cpp
-- https://github.com/flightlessmango/MangoHud/blob/master/data/MangoHud.conf
-- https://github.com/flightlessmango/MangoHud/blob/master/README.md
-
-The intended design principle is:
-
-```text
-SteamOS horizontal visual language
-    +
-MangoHud public layout/color behavior as a reference
-    +
-Windows-native ClawHUD renderer
-```
-
-Do not build a skin/theme framework around this. The first goal is one clean, fixed visual language.
-
-## 20.2 First layout: one horizontal line
-
-The first HUD layout is a **single horizontal line at the top of the screen**.
-
-No multi-row layout, graphs, cards, gauges, or vertical sensor list are required for the first version.
-
-Current DC / battery example:
-
-```text
-60 FPS | CPU 36% 67°C | GPU 98% 2300MHz | TDP 18W | RAM 8.0GB | VRAM 3.4GB | FAN 3540RPM | BAT 72% 2.5h
-```
-
-Current AC-connected example:
-
-```text
-60 FPS | CPU 36% 67°C | GPU 98% 2300MHz | TDP 18W | RAM 8.0GB | VRAM 3.4GB | FAN 3540RPM | BAT 72%
-```
-
-The graphics API label should conceptually become one of:
-
-```text
-DX11
-DX12
-VULKAN
-```
-
-followed immediately by FPS. The desired UI is clear, but the exact reliable source for distinguishing **DX11 vs DX12** still needs real-device/runtime validation; PresentMon's general present/runtime information must not be assumed to solve that distinction until proven.
-
-## 20.3 Metric order and meaning
-
-The current one-line order is:
-
-```text
-Graphics API + FPS
-| CPU usage + CPU temperature
-| GPU usage + GPU clock
-| TDP
-| RAM
-| VRAM
-| FAN
-| BAT + remaining time (remaining is DC only)
-```
-
-Meaning of each label:
-
-| HUD label | Meaning | Intended source |
-|---|---|---|
-| `DX11` / `DX12` / `VULKAN` + FPS | current graphics API label + frame rate | PresentMon / runtime validation path |
-| `CPU` | total CPU usage + live CPU temperature | PresentMon API2 System telemetry for CPU usage; MSI `Get_Temperature(0)[0]` for temperature |
-| `GPU` | Intel GPU usage + GPU clock | PresentMon API2 System telemetry |
-| `TDP` | **current CPU Package Power**, not the configured PL1/TDP limit | MSI `Get_Data(221)` |
-| `RAM` | used physical system memory | Windows memory API |
-| `VRAM` | Intel GPU memory usage | PresentMon API2 System telemetry |
-| `FAN` | average of the two Claw fan RPM values | MSI `Get_Fan(0)` |
-| `BAT` | battery percentage and, on DC only, remaining time | Windows power API |
-
-VRAM reports memory usage of the built-in Intel GPU. External GPU (eGPU) memory is not included.
-
-The user-facing `TDP` label is intentionally concise. Internally the value should retain an accurate name such as `cpuPackagePowerW` so it is not confused with configured PL1/PL2 limits.
-
-## 20.4 MSI temperature selector
-
-For the production HUD, real-time CPU temperature is read from:
-
-```text
-Get_Temperature(0)
-└─ payload[0] = CPU temperature °C
-```
-
-Do **not** use the fan-curve selector values as live temperatures:
-
-```text
-Get_Temperature(1) = Fan 1 temperature-axis / curve data
-Get_Temperature(2) = Fan 2 temperature-axis / curve data
-```
-
-Selectors `1` and `2` are useful for fan-control/curve research but are not the runtime CPU temperature source for this HUD.
-
-## 20.5 Fan display policy
-
-The HUD displays **one FAN value**, not two separate fan values.
-
-```text
-FAN = average(Fan 1 RPM, Fan 2 RPM)
-```
-
-This keeps the horizontal HUD compact and matches the goal of showing a quick device-level cooling signal rather than exposing every low-level sensor.
-
-If only one fan reading is valid, using the valid fan reading is preferable to manufacturing a zero for the missing fan. If neither reading is valid, the metric should be unavailable rather than reported as `0 RPM` unless hardware has positively reported an actual stopped-fan condition.
-
-## 20.6 AC / DC visibility policy
-
-### DC / battery
-
-Show:
-
-```text
-Battery %
-Remaining time when Windows reports it
-CPU Package Power / TDP
-Fan RPM
-CPU temperature
-CPU/GPU usage
-GPU clock
-RAM / VRAM
-FPS / API
-```
-
-### AC connected
-
-Show:
-
-```text
-Battery %
-CPU Package Power / TDP
-Fan RPM
-CPU temperature
-CPU/GPU usage
-GPU clock
-RAM / VRAM
-FPS / API
-```
-
-Hide:
-
-```text
-Remaining time
-```
-
-Do not replace hidden AC values with artificial text such as:
-
-```text
-Charging
-AC
--- h
-```
-
-The battery segment simply becomes shorter on AC. Battery percentage remains visible.
-
-## 20.7 Static category colors, not warning colors
-
-The first HUD is an information display, not a warning/alert system.
-
-Do **not** change FPS, frametime, CPU, GPU, temperature, power, or other text colors because a metric crosses a threshold.
-
-Examples of behavior intentionally not required:
-
-```text
-low FPS → red
-high frametime → yellow
-high CPU usage → red
-high temperature → warning color
-```
-
-Color is for **stable metric/category identification only**.
-
-MangoHud's current public configuration provides useful baseline values:
-
-```text
-text_color                 = #FFFFFF
-gpu_color                  = #2E9762
-cpu_color                  = #2E97CB
-vram_color                 = #AD64C1
-ram_color                  = #C26693
-engine_color               = #EB5B5B
-battery_color              = #FF9078
-background_color           = #020202
-horizontal_separator_color = #AD64C1
-background_alpha           = 0.5
-alpha                      = 1.0
-round_corners              = 0
-```
-
-ClawHUD should treat those values as a **visual benchmark, not an immutable copied theme**.
-
-Current ClawHUD direction:
-
-- CPU label/category may use the MangoHud-style blue family.
-- GPU label/category may use the MangoHud-style green family.
-- Battery may use the MangoHud-style coral family.
-- metric values remain white.
-- TDP and FAN should initially remain visually simple rather than inventing additional arbitrary category colors.
-- separators should remain low-emphasis and must not dominate the line.
-- no state-dependent recoloring.
-
-Exact final colors should be validated on the actual Claw display before being treated as shipping constants.
-
-## 20.8 Background direction
-
-A near-black semitransparent background is the current baseline direction.
-
-MangoHud's public baseline is approximately:
-
-```text
-background_color = #020202
-background_alpha = 0.5
-round_corners    = 0
-```
-
-This is a better benchmark for ClawHUD than MSI Center M's OSD styling.
-
-The ClawHUD background should stay visually simple:
-
-```text
-near-black
-adjustable opacity
-square / no-card appearance
-no decorative border
-no glow
-no gradient
-```
-
-The exact default opacity is not final yet. **Approximately 50%** is the current benchmark starting point.
-
-## 20.9 Full-width vs content-width background
-
-Two background modes are worth keeping because the rendering cost and implementation difference are minimal:
-
-```text
-Full Width
-Content Width
-```
-
-### Full Width
-
-The background spans the complete display width while only the text moves according to alignment.
-
-Advantages:
-
-- strongest SteamOS-style top performance-bar appearance;
-- the bar does not grow/shrink when remaining time disappears on AC;
-- Left / Center / Right alignment changes only text position, not the overall HUD silhouette;
-- visually stable when metric text length changes.
-
-### Content Width
-
-The background spans only the measured text width plus padding.
-
-Advantages:
-
-- visually smaller footprint;
-- shows less darkened game content;
-- may feel more like a compact floating telemetry strip.
-
-The current shipped default is **Content Width**. Both modes must stay easy to support by changing only the background rectangle calculation. Do not create separate renderers for them.
-
-Background mode and text alignment are independent settings.
-
-## 20.10 Position and alignment
-
-The HUD's vertical position is fixed to the **top** for the initial design.
-
-The one-line text supports three horizontal alignments:
-
-```text
-Left
-Center
-Right
-```
-
-Conceptually:
-
-```text
-Left:   x = leftPadding
-Center: x = (screenWidth - contentWidth) / 2
-Right:  x = screenWidth - contentWidth - rightPadding
-```
-
-No bottom/side placement matrix is required for the first version unless a real need appears later.
-
-## 20.11 Windows typography direction
-
-ClawHUD should use a clean **Windows 11 built-in font** rather than trying to reproduce SteamOS's exact font assets.
-
-Default font:
-
-```text
-Segoe UI Variable
-```
-
-Unispace (the bundled private monospace font) remains selectable in Settings.
-
-Goals:
-
-- clean Windows-native appearance;
-- excellent small-size readability;
-- no external font dependency;
-- no bundled font licensing/distribution requirement;
-- stable numeric rendering.
-
-The final point/pixel size should be chosen by real-device visual testing. Earlier discussion used roughly **14 physical pixels of text in a 28–30 physical-pixel bar** as an initial sizing candidate, but these numbers are not final design constants.
-
-## 20.12 Physical-pixel sizing and DPI independence
-
-The HUD should remain approximately the **same physical pixel size** when Windows DPI scaling or game resolution changes.
-
-Desired behavior:
-
-```text
-100% Windows scale → same HUD pixel height
-150% Windows scale → same HUD pixel height
-175% Windows scale → same HUD pixel height
-```
-
-Likewise, reducing game/display resolution should not cause the HUD font to become proportionally larger simply because normal XAML/DIP scaling changed.
-
-Implementation direction:
-
-- define HUD height, font size, padding, and spacing in target physical pixels;
-- obtain the current window/monitor DPI;
-- convert/inversely compensate when the text/rendering API operates in DIPs;
-- do not let generic desktop DPI scaling silently enlarge the HUD.
-
-If horizontal space becomes insufficient at a very low resolution, prefer a deliberate compact/metric policy over randomly shrinking the font from frame to frame.
-
-## 20.13 Direct2D / DirectWrite text rendering direction
-
-The one-line HUD should be treated as a small native renderer, not a collection of heavy UI controls.
-
-The current rendering direction is:
-
-```text
-TelemetrySnapshot
-    ↓
-format small metric text runs
-    ↓
-DirectWrite text layout
-    ↓
-Direct2D drawing into the validated HUD presentation surface
-    ↓
-Composition / Presentation Manager path
-```
-
-The Phase 0 presentation backend remains authoritative: this section does **not** replace the Composition Swapchain / Presentation Manager requirement with a generic layered overlay.
-
-The text line should be composed from separate runs, for example:
-
-```text
-[60 FPS] [|]
-[CPU] [36%] [67°C] [|]
-[GPU] [98%] [2300MHz] [|]
-[TDP] [18W] [|]
-[RAM] [8.0GB] [|]
-[VRAM] [3.4GB] [|]
-[FAN] [3540RPM] [|]
-[BAT] [72%] [2.5h]
-```
-
-Separate runs allow category labels and values to use different fixed brushes without adding a UI-layout framework.
-
-For a premultiplied-alpha/transparent composition surface, grayscale text antialiasing is a safer initial direction than relying on ClearType assumptions tied to an opaque background.
-
-## 20.14 Avoid numeric/layout jitter
-
-Frequently changing numbers should not make the entire line visibly shift left/right every sample.
-
-Two useful techniques are:
-
-1. use DirectWrite/OpenType **tabular figures** where the selected font supports them;
-2. reserve small predictable widths/slots for rapidly changing values such as FPS, percentages, watts, and RPM.
-
-Examples that should not cause distracting reflow:
-
-```text
-9% → 10% → 100%
-9.8 W → 10.1 W
-999 RPM → 1000 RPM
-```
-
-This does not require drawing visible boxes. It only means the renderer should use stable metric extents where practical.
-
-## 20.15 Telemetry-source direction for this layout
-
-The current runtime split is:
-
-```text
-PresentMon
-└─ FPS / presentation metrics
-
-Windows usage telemetry
-├─ CPU utilization
-├─ RAM usage
-└─ Intel adapter VRAM usage
-
-IGCL
-├─ GPU utilization
-└─ GPU clock
-
-MSI_ACPI read-only
-├─ Get_Temperature(0)[0] → CPU temperature
-├─ Get_Data(221)         → CPU Package Power shown as TDP
-└─ Get_Fan(0)            → Fan 1 / Fan 2 tach
-
-Windows power API
-└─ Battery percentage / power-source state / remaining time
-```
-
-The desired `DX11` / `DX12` / `VULKAN` label also needs validation. A generic Present runtime such as DXGI is not automatically proof of D3D11 vs D3D12, so this must remain a measured implementation detail rather than a guessed mapping.
-
-## 20.16 Candidate sampling / refresh cadence
-
-Sensor sampling and HUD redraw should be separate.
-
-Current starting-point cadence discussed for the PoC/first implementation:
-
-| Metric | Candidate data refresh |
-|---|---:|
-| FPS / frame data | ~250 ms |
-| CPU usage | ~500 ms |
-| GPU usage | ~500 ms |
-| CPU Package Power / `TDP` | ~500 ms |
-| CPU temperature | ~500–1000 ms |
-| FAN average RPM | ~1000 ms |
-| Battery % | ~5000 ms |
-| Remaining time | ~5000–10000 ms |
-| HUD redraw | ~10 FPS / 100 ms |
-
-These are starting points, not performance requirements.
-
-Do not poll every EC/battery metric at the renderer rate. The renderer should display the latest `TelemetrySnapshot` and redraw independently.
-
-## 20.17 Remaining-time policy
-
-Remaining battery time should use the value reported by the Windows power API when available.
-
-Do not build a separate discharge-power estimator or prediction framework for the production HUD. If Windows does not provide a valid remaining-time value, leave it unavailable.
-
-## 20.18 Missing-value behavior
-
-The HUD should prefer unavailable data over misleading data.
-
-Examples:
-
-- do not display a synthetic `0 RPM` merely because fan telemetry failed;
-- do not turn a failed CPU temperature read into `0°C`;
-- do not invent a battery remaining time when Windows does not report one.
-
-Whether an unavailable metric is temporarily omitted or displayed as a compact `--` placeholder can be finalized during visual testing, but synthetic zeroes should not be the default failure representation.
-
-## 20.19 Current layout summary
-
-The current design target can be summarized as:
-
-```text
-Position:          Top
-Rows:              1
-Alignment:         Left / Center / Right selectable (default Center)
-Background:        near-black, semitransparent
-Background width:  Full Width vs Content Width selectable (default Content Width)
-Corner style:      square / no card
-Typography:        Windows 11 built-in; default Segoe UI Variable (Unispace selectable)
-Sizing:            fixed physical-pixel target, DPI-independent
-Colors:            stable category colors + white values
-Warning colors:    none
-Renderer:          Direct2D / DirectWrite into validated composition surface
-Data model:        latest TelemetrySnapshot, independent sampling rates
-```
-
-DC example:
-
-```text
-60 FPS | CPU 36% 67°C | GPU 98% 2300MHz | TDP 18W | RAM 8.0GB | VRAM 3.4GB | FAN 3540RPM | BAT 72% 2.5h
-```
-
-AC example:
-
-```text
-60 FPS | CPU 36% 67°C | GPU 98% 2300MHz | TDP 18W | RAM 8.0GB | VRAM 3.4GB | FAN 3540RPM | BAT 72%
-```
-
-STATIC isolates the presence of the main HUD composition surface, while DYNAMIC adds the existing repeated HUD render/present cadence. This remains evidence gathering; it does not produce an automatic VRR verdict. This section should be updated when real-device presentation, telemetry, and visual tests settle any of the remaining candidate choices.
-
-## Main application shell
-
-The production `ClawHUD.exe` is a lightweight tray-first native Win32 shell with lazy Settings creation. See [docs/MAIN-APP-SHELL.md](docs/MAIN-APP-SHELL.md) for the concrete startup, update, and tray lifecycle.
-
-## EC diagnostics
-
-The Diagnostics tab contains a user-started, bounded MSI EC read-only probe. It records ten samples from `Get_Temperature(0)`, `Get_Fan(0)`, `Get_Data(221)`, and the raw battery current/voltage selectors into `%LOCALAPPDATA%\\ClawHUD\\logs`. It does not initialize WMI at startup and never calls MSI write methods. See [docs/DIAGNOSTICS.md](docs/DIAGNOSTICS.md).
-
-The same tab provides a separate user-started VRR test using the real main HUD presentation path: HUD OFF, STATIC HUD (one frame with no periodic redraw), and DYNAMIC HUD (the existing 100 ms mock update cadence). Each phase uses the pinned PresentMon 2.5.1 standalone console for a 28-second PID-targeted raw CSV capture. Capture data is evidence only; no automatic VRR verdict is emitted. PresentMon/ETW capture remains diagnostics-only and is not initialized at tray startup.
+Third-party components retain their respective licenses. See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
