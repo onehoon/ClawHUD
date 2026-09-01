@@ -239,11 +239,10 @@ void ProductionTelemetryController::StartBaseSampling()
 
 void ProductionTelemetryController::SampleFps()
 {
-    const bool committed = committedProcessId_ != 0;
     const bool alwaysMode = visibilityMode_ == HudVisibilityMode::Always;
     const DWORD processId = ResolveProductionFpsTargetPid(
         visibilityMode_, alwaysFpsTarget_.TargetProcessId(),
-        committed ? committedProcessId_ : 0);
+        inGameForegroundProcessId_);
     const auto now = GetTickCount64();
     if (!processId)
     {
@@ -261,7 +260,7 @@ void ProductionTelemetryController::SampleFps()
     if (alwaysMode)
     {
         // Reject a result that no longer belongs to the current foreground PID
-        // and never fall back to a background/committed PID.
+        // and never fall back to a background/In-Game Only game PID.
         alwaysFpsTarget_.AcceptSample(processId, freshFps);
         targetFps = alwaysFpsTarget_.DisplayedFps();
     }
@@ -397,6 +396,31 @@ void ProductionTelemetryController::OnForegroundProcessChanged(DWORD processId)
         Log(L"[PresentMonFPS] mode=Always foregroundPid=" +
             std::to_wstring(processId) + L" fps-invalidated");
     }
+}
+
+void ProductionTelemetryController::SetInGameForegroundProcess(DWORD processId)
+{
+    if (inGameForegroundProcessId_ == processId)
+        return;
+    inGameForegroundProcessId_ = processId;
+    // The In-Game Only target changed: an FPS value retained for the previous
+    // PID must never be displayed for the new target. The same-PID stale hold
+    // is only meant to bridge brief misses for one unchanged target.
+    latestProcessFps_.reset();
+    fpsStaleHold_.Reset();
+    Log(L"[PresentMonFPS] mode=InGameOnly targetPid=" +
+        std::to_wstring(processId));
+}
+
+void ProductionTelemetryController::ClearInGameForegroundProcess()
+{
+    if (inGameForegroundProcessId_ == 0)
+        return;
+    inGameForegroundProcessId_ = 0;
+    latestProcessFps_.reset();
+    fpsStaleHold_.Reset();
+    (void)provider_.ReadProcess(0);
+    Log(L"[PresentMonFPS] mode=InGameOnly target-cleared");
 }
 
 void ProductionTelemetryController::StartGraphicsApiProbe(DWORD processId)

@@ -43,18 +43,25 @@ int main()
     const auto gameA = Process(100, 10);
     const auto gameB = Process(200, 20);
 
-    Check(PlanCompatibilityTargetAction(gameA, Game(ForegroundGameDecision::NeedsRendererVerification, 200)) ==
-        CompatibilityTargetAction::Clear,
+    Check(PlanForegroundGameTargetAction(gameA, Game(ForegroundGameDecision::NeedsRendererVerification, 200)) ==
+        ForegroundGameTargetAction::Clear,
         "an admitted unknown foreground clears the old eligible target before verification");
-    Check(PlanCompatibilityTargetAction(gameA, Game(ForegroundGameDecision::Hidden)) ==
-        CompatibilityTargetAction::Clear,
-        "a hidden foreground clears the compatibility target immediately");
-    Check(PlanCompatibilityTargetAction(gameA, Game(ForegroundGameDecision::Eligible, 200, 20)) ==
-        CompatibilityTargetAction::SetEligible,
+    Check(PlanForegroundGameTargetAction(gameA, Game(ForegroundGameDecision::Hidden)) ==
+        ForegroundGameTargetAction::Clear,
+        "a hidden foreground (Explorer) clears the In-Game target immediately");
+    Check(PlanForegroundGameTargetAction(gameA, Game(ForegroundGameDecision::Eligible, 200, 20)) ==
+        ForegroundGameTargetAction::SetEligible,
         "a new known foreground retargets directly while the old game remains alive");
-    Check(PlanCompatibilityTargetAction(gameB, Game(ForegroundGameDecision::Eligible, 200, 20)) ==
-        CompatibilityTargetAction::None,
-        "repeated eligible evaluations are idempotent");
+    Check(PlanForegroundGameTargetAction(gameB, Game(ForegroundGameDecision::Eligible, 200, 20)) ==
+        ForegroundGameTargetAction::None,
+        "a redundant eligible re-evaluation for the same generation is not a destructive reset");
+    Check(PlanForegroundGameTargetAction(std::nullopt, Game(ForegroundGameDecision::Hidden)) ==
+        ForegroundGameTargetAction::None,
+        "no current target plus a hidden foreground is a no-op");
+    Check(PlanForegroundGameTargetAction(Process(200, 20),
+        Game(ForegroundGameDecision::Eligible, 200, 21)) ==
+        ForegroundGameTargetAction::SetEligible,
+        "PID reuse with a different creation time is treated as a target change");
 
     const HWND minecraft = reinterpret_cast<HWND>(0x1000);
     const HWND other = reinterpret_cast<HWND>(0x2000);
@@ -92,7 +99,7 @@ int main()
         "a completion with no active request clears nothing");
     Check(ProcessInstanceStillMatches(gameA, gameA) &&
         !ProcessInstanceStillMatches(gameA, Process(100, 11)),
-        "PID generation reuse invalidates the old compatibility target");
+        "PID generation reuse invalidates the old current-foreground-game target");
 
     std::cout << "PASS\n";
 }

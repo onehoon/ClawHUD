@@ -64,8 +64,12 @@ public:
     // state, and (for Always) adopts the supplied foreground PID.
     void SetVisibilityMode(HudVisibilityMode mode, DWORD currentForegroundProcessId);
     void OnForegroundProcessChanged(DWORD processId);
-    void SetCommittedProcess(DWORD processId) noexcept { committedProcessId_ = processId; }
-    void ClearCommittedProcess() noexcept { committedProcessId_ = 0; }
+    // In-Game Only FPS target: exactly the current eligible foreground game PID
+    // (GameSessionController authority). Never a long-lived/background process.
+    // Changing the target PID or clearing it invalidates any retained FPS
+    // immediately so an old game's FPS never shows for a new target.
+    void SetInGameForegroundProcess(DWORD processId);
+    void ClearInGameForegroundProcess();
 
     // --- graphics-API probe --------------------------------------------
     void StartGraphicsApiProbe(DWORD processId);
@@ -121,6 +125,7 @@ private:
 
     // Explicit FPS target inputs cached from App (never read from game detection).
     HudVisibilityMode visibilityMode_{HudVisibilityMode::Always};
-    DWORD committedProcessId_{};
+    // Current eligible foreground game PID for In-Game Only mode, or 0.
+    DWORD inGameForegroundProcessId_{};
 };
 }
