@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <sstream>
 
@@ -410,6 +411,7 @@ HRESULT HudPresentation::RefreshDisplayIfNeeded()
         return hr;
     ShowWindow(window_, SW_SHOWNOACTIVATE);
     visible_ = true;
+    LogDebugWindowState(L"display-refresh-recreate");
     return S_OK;
 }
 
@@ -438,12 +440,78 @@ HRESULT HudPresentation::CommitVisibility(bool visible)
     return compositionDevice_->Commit();
 }
 
+void HudPresentation::LogDebugWindowState(
+    std::wstring_view reason, const WINDOWPOS* windowPos) const noexcept
+{
+    try
+    {
+        const HWND hwnd = window_;
+        const bool isWindow = hwnd && IsWindow(hwnd);
+        const bool isWindowVisible = isWindow && IsWindowVisible(hwnd);
+        const bool isIconic = isWindow && IsIconic(hwnd);
+        const LONG_PTR exStyle = isWindow ? GetWindowLongPtrW(hwnd, GWL_EXSTYLE) : 0;
+        RECT rect{};
+        if (!isWindow || !GetWindowRect(hwnd, &rect))
+            rect = RECT{};
+        const HWND foreground = GetForegroundWindow();
+        DWORD foregroundPid = 0;
+        if (foreground) GetWindowThreadProcessId(foreground, &foregroundPid);
+        const HWND zPrev = isWindow ? GetWindow(hwnd, GW_HWNDPREV) : nullptr;
+        const HWND zNext = isWindow ? GetWindow(hwnd, GW_HWNDNEXT) : nullptr;
+        DWORD zPrevPid = 0;
+        DWORD zNextPid = 0;
+        if (zPrev) GetWindowThreadProcessId(zPrev, &zPrevPid);
+        if (zNext) GetWindowThreadProcessId(zNext, &zNextPid);
+
+        const auto hex = [](const void* value)
+        {
+            std::wostringstream stream;
+            stream << L"0x" << std::hex << reinterpret_cast<std::uintptr_t>(value);
+            return stream.str();
+        };
+
+        std::wostringstream message;
+        message << L"[HudWindowState] reason=" << reason
+            << L" hwnd=" << hex(hwnd)
+            << L" initialized=" << (initialized_ ? 1 : 0)
+            << L" logicalVisible=" << (visible_ ? 1 : 0)
+            << L" isWindow=" << (isWindow ? 1 : 0)
+            << L" isWindowVisible=" << (isWindowVisible ? 1 : 0)
+            << L" isIconic=" << (isIconic ? 1 : 0)
+            << L" exStyle=0x" << std::hex << static_cast<std::uintptr_t>(exStyle) << std::dec
+            << L" exTopmost=" << ((exStyle & WS_EX_TOPMOST) ? 1 : 0)
+            << L" rect=" << rect.left << L"," << rect.top << L"," << rect.right
+                << L"," << rect.bottom
+            << L" foregroundHwnd=" << hex(foreground)
+            << L" foregroundPid=" << foregroundPid
+            << L" zPrevHwnd=" << hex(zPrev) << L" zPrevPid=" << zPrevPid
+            << L" zNextHwnd=" << hex(zNext) << L" zNextPid=" << zNextPid;
+        if (windowPos)
+        {
+            message << L" hwndInsertAfter=" << hex(windowPos->hwndInsertAfter)
+                << L" posFlags=0x" << std::hex
+                    << static_cast<unsigned>(windowPos->flags) << std::dec
+                << L" x=" << windowPos->x << L" y=" << windowPos->y
+                << L" cx=" << windowPos->cx << L" cy=" << windowPos->cy;
+        }
+        RuntimeLogger::Log(RuntimeLogLevel::Debug, message.str());
+    }
+    catch (...)
+    {
+        // Diagnostics must never affect HUD behavior.
+    }
+}
+
 HRESULT HudPresentation::Show()
 {
     if (!initialized_) return E_UNEXPECTED;
     HRESULT hr = RefreshDisplayIfNeeded();
     if (FAILED(hr)) return hr;
-    if (visible_) return S_OK;
+    if (visible_)
+    {
+        LogDebugWindowState(L"show-already-visible");
+        return S_OK;
+    }
     hr = CommitVisibility(true);
     if (FAILED(hr)) return hr;
     if (!SetWindowPos(window_, HWND_TOPMOST, 0, 0, 0, 0,
@@ -451,6 +519,7 @@ HRESULT HudPresentation::Show()
         return LastErrorResult();
     ShowWindow(window_, SW_SHOWNOACTIVATE);
     visible_ = true;
+    LogDebugWindowState(L"show-applied");
     return S_OK;
 }
 
@@ -461,6 +530,7 @@ HRESULT HudPresentation::Hide()
     if (FAILED(hr)) return hr;
     ShowWindow(window_, SW_HIDE);
     visible_ = false;
+    LogDebugWindowState(L"hide-applied");
     return S_OK;
 }
 
@@ -519,8 +589,43 @@ LRESULT CALLBACK HudPresentation::WindowProc(HWND window, UINT message, WPARAM w
     auto* self = reinterpret_cast<HudPresentation*>(GetWindowLongPtrW(window, GWLP_USERDATA));
     if (message == WM_DISPLAYCHANGE || message == WM_DPICHANGED)
     {
-        if (self) self->displayChangePending_ = true;
+        if (self)
+        {
+            self->LogDebugWindowState(message == WM_DISPLAYCHANGE
+                ? L"wm-displaychange" : L"wm-dpichanged");
+            self->displayChangePending_ = true;
+        }
         return 0;
+    }
+    if (self && message == WM_SHOWWINDOW)
+    {
+        std::wostringstream reason;
+        reason << L"wm-showwindow shown=" << (wParam ? 1 : 0)
+            << L" statusLParam=0x" << std::hex
+            << static_cast<unsigned>(static_cast<ULONG_PTR>(lParam));
+        self->LogDebugWindowState(reason.str());
+    }
+    else if (self && message == WM_WINDOWPOSCHANGED)
+    {
+        const auto* pos = reinterpret_cast<const WINDOWPOS*>(lParam);
+        const bool zOrderChanged = pos && !(pos->flags & SWP_NOZORDER);
+        const bool showHideChanged = pos &&
+            (pos->flags & (SWP_SHOWWINDOW | SWP_HIDEWINDOW)) != 0;
+        if (zOrderChanged || showHideChanged)
+            self->LogDebugWindowState(L"wm-windowposchanged", pos);
+    }
+    else if (self && message == WM_STYLECHANGED &&
+        static_cast<int>(wParam) == GWL_EXSTYLE)
+    {
+        if (const auto* styles = reinterpret_cast<const STYLESTRUCT*>(lParam))
+        {
+            std::wostringstream reason;
+            reason << L"wm-stylechanged-exstyle styleOld=0x" << std::hex
+                << styles->styleOld << L" styleNew=0x" << styles->styleNew
+                << L" oldTopmost=" << ((styles->styleOld & WS_EX_TOPMOST) ? 1 : 0)
+                << L" newTopmost=" << ((styles->styleNew & WS_EX_TOPMOST) ? 1 : 0);
+            self->LogDebugWindowState(reason.str());
+        }
     }
     if (message == WM_NCHITTEST) return HTTRANSPARENT;
     if (message == WM_MOUSEACTIVATE) return MA_NOACTIVATE;
