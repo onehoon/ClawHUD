@@ -22,9 +22,13 @@ int main()
         ProductionWindowEventType::Create, "CREATE mapping");
     Check(MapProductionWindowEvent(EVENT_OBJECT_SHOW) ==
         ProductionWindowEventType::Show, "SHOW mapping");
+    Check(MapProductionWindowEvent(EVENT_OBJECT_HIDE) ==
+        ProductionWindowEventType::Hide, "HIDE mapping");
+    Check(MapProductionWindowEvent(EVENT_OBJECT_LOCATIONCHANGE) ==
+        ProductionWindowEventType::LocationChange, "LOCATIONCHANGE mapping");
     Check(MapProductionWindowEvent(EVENT_OBJECT_DESTROY) ==
         ProductionWindowEventType::Destroy, "DESTROY mapping");
-    Check(!MapProductionWindowEvent(EVENT_OBJECT_HIDE), "unsupported event rejected");
+    Check(!MapProductionWindowEvent(EVENT_OBJECT_FOCUS), "unsupported event rejected");
     Check(IsProductionWindowObject(OBJID_WINDOW, CHILDID_SELF),
         "window object accepted");
     Check(!IsProductionWindowObject(OBJID_CLIENT, CHILDID_SELF),

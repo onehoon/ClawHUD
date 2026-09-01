@@ -74,6 +74,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/GameDetection/PresentActivitySource.cpp
     src/ClawHUD/GameDetection/WindowLifecycleSource.cpp
     src/ClawHUD/GameDetection/ProductionGameWindowSource.cpp
+    src/ClawHUD/GameDetection/GameScreenAdmission.cpp
     src/ClawHUD/TrayIcon.cpp
     src/ClawHUD/SettingsWindow.cpp
     src/ClawHUD/SettingsWindow.Tweaks.cpp
@@ -165,5 +166,16 @@ add_custom_command(TARGET ClawHUD POST_BUILD
 
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(ClawHUD.GameScreenAdmissionTests
+        tests/GameScreenAdmissionTests.cpp
+        src/ClawHUD/GameDetection/GameScreenAdmission.cpp
+        src/ClawHUD/ProductionTargetPolicy.cpp)
+    target_compile_features(ClawHUD.GameScreenAdmissionTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.GameScreenAdmissionTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.GameScreenAdmissionTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.GameScreenAdmissionTests PRIVATE dwmapi user32)
+    set_target_properties(ClawHUD.GameScreenAdmissionTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.GameScreenAdmissionTests COMMAND ClawHUD.GameScreenAdmissionTests)
+
     include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/ClawHUDTests.cmake")
 endif()

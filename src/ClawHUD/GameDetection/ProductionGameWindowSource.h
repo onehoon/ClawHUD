@@ -19,6 +19,8 @@ enum class ProductionWindowEventType
 {
     Create,
     Show,
+    Hide,
+    LocationChange,
     Destroy
 };
 
@@ -79,7 +81,7 @@ private:
     void StopWorker() noexcept;
     void UnhookAll() noexcept;
 
-    std::array<HWINEVENTHOOK, 3> hooks_{};
+    std::array<HWINEVENTHOOK, 5> hooks_{};
     std::mutex queueMutex_;
     std::condition_variable_any queueWake_;
     ProductionWindowEventQueue pendingEvents_;

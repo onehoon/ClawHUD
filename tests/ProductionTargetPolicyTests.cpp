@@ -46,6 +46,13 @@ int main()
         "Steam and Windows gaming shells are not production targets");
     ok &= Check(clawhud::IsRejectedProductionTargetImage(L"explorer.exe"),
         "Explorer is not a production target");
+    ok &= Check(clawhud::IsRejectedProductionTargetImage(L"windowsterminal.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"runtimebroker.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"dllhost.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"backgroundtaskhost.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"werfault.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"crashreportclient.exe"),
+        "high-confidence helper and crash processes are not production targets");
     ok &= Check(clawhud::IsRejectedProductionTargetImage(
         L"steaminputaddonforclaw.ui.exe"),
         "Steam Input Addon UI is not a production game target");

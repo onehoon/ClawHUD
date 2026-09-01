@@ -6,9 +6,11 @@ namespace clawhud
 {
 namespace
 {
-constexpr std::array<DWORD, 3> kObservedEvents{
+constexpr std::array<DWORD, 5> kObservedEvents{
     EVENT_OBJECT_CREATE,
     EVENT_OBJECT_SHOW,
+    EVENT_OBJECT_HIDE,
+    EVENT_OBJECT_LOCATIONCHANGE,
     EVENT_OBJECT_DESTROY,
 };
 }
@@ -22,6 +24,8 @@ std::optional<ProductionWindowEventType> MapProductionWindowEvent(DWORD event) n
     {
     case EVENT_OBJECT_CREATE: return ProductionWindowEventType::Create;
     case EVENT_OBJECT_SHOW: return ProductionWindowEventType::Show;
+    case EVENT_OBJECT_HIDE: return ProductionWindowEventType::Hide;
+    case EVENT_OBJECT_LOCATIONCHANGE: return ProductionWindowEventType::LocationChange;
     case EVENT_OBJECT_DESTROY: return ProductionWindowEventType::Destroy;
     default: return std::nullopt;
     }

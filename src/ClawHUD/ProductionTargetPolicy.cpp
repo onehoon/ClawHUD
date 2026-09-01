@@ -78,7 +78,7 @@ bool ShouldCommitReadyCandidate(
 
 bool IsRejectedProductionTargetImage(std::wstring_view image) noexcept
 {
-    constexpr std::array<std::wstring_view, 37> rejected{
+    constexpr std::array<std::wstring_view, 43> rejected{
         L"explorer.exe", L"searchhost.exe", L"shellexperiencehost.exe",
         L"startmenuexperiencehost.exe", L"applicationframehost.exe",
         L"steam.exe", L"steamwebhelper.exe", L"steamservice.exe",
@@ -94,7 +94,9 @@ bool IsRejectedProductionTargetImage(std::wstring_view image) noexcept
         L"gameoverlayui.exe", L"steamerrorreporter.exe",
         L"steamerrorreporter64.exe",
         L"xboxpcapp.exe", L"xboxpctray.exe",
-        L"xboxgamebarwidgets.exe", L"gamingservicesnet.exe"};
+        L"xboxgamebarwidgets.exe", L"gamingservicesnet.exe",
+        L"windowsterminal.exe", L"runtimebroker.exe", L"dllhost.exe",
+        L"backgroundtaskhost.exe", L"werfault.exe", L"crashreportclient.exe"};
     for (const auto candidate : rejected)
         if (candidate == image)
             return true;
@@ -118,33 +120,45 @@ bool IsEligibleProductionTargetImage(std::wstring_view image) noexcept
 std::optional<ProductionTargetProcess> InspectProductionTargetProcess(
     DWORD processId, DWORD ownProcessId) noexcept
 {
-    if (processId == 0 || processId == ownProcessId)
+    const auto inspection = InspectProductionTargetProcessDetailed(processId, ownProcessId);
+    if (inspection.status != ProductionTargetInspectionStatus::Eligible)
         return std::nullopt;
+    return inspection.process;
+}
+
+ProductionTargetInspection InspectProductionTargetProcessDetailed(
+    DWORD processId, DWORD ownProcessId) noexcept
+{
+    if (processId == 0 || processId == ownProcessId)
+        return {};
 
     try
     {
         ProcessHandle process(OpenProcess(
             PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId));
         if (process.get() == nullptr)
-            return std::nullopt;
+            return {};
 
         std::wstring imagePath(32768, L'\0');
         DWORD length = static_cast<DWORD>(imagePath.size());
         if (!QueryFullProcessImageNameW(
                 process.get(), 0, imagePath.data(), &length))
-            return std::nullopt;
+            return {};
         imagePath.resize(length);
 
         auto imageName = Basename(imagePath);
         NormalizeAsciiLowercase(imageName);
-        if (imageName.empty() || IsRejectedProductionTargetImage(imageName))
-            return std::nullopt;
+        if (imageName.empty()) return {};
+        if (IsRejectedProductionTargetImage(imageName))
+            return {ProductionTargetInspectionStatus::Excluded,
+                ProductionTargetProcess{processId, std::move(imageName)}};
 
-        return ProductionTargetProcess{processId, std::move(imageName)};
+        return {ProductionTargetInspectionStatus::Eligible,
+            ProductionTargetProcess{processId, std::move(imageName)}};
     }
     catch (...)
     {
-        return std::nullopt;
+        return {};
     }
 }
 
