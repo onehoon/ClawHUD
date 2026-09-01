@@ -56,6 +56,10 @@ int main()
     Check(ShouldInspectMicrosoftGameWindowEvent(
         WindowEvent(ProductionWindowEventType::Show)), "SHOW is eligible");
     Check(!ShouldInspectMicrosoftGameWindowEvent(
+        WindowEvent(ProductionWindowEventType::Hide)), "HIDE is ignored");
+    Check(!ShouldInspectMicrosoftGameWindowEvent(
+        WindowEvent(ProductionWindowEventType::LocationChange)), "LOCATIONCHANGE is ignored");
+    Check(!ShouldInspectMicrosoftGameWindowEvent(
         WindowEvent(ProductionWindowEventType::Destroy)), "DESTROY is ignored");
     Check(!ShouldInspectMicrosoftGameWindowEvent(
         WindowEvent(ProductionWindowEventType::Create, 0)), "zero PID is ignored");
@@ -76,24 +80,26 @@ int main()
     Check(ShouldEmitMicrosoftGameTrigger(IdentityResult(true, true, true)),
         "readable exact executable match is evidence");
 
-    Check(IsSameMicrosoftGameProcessInstance({100, 1000}, {100, 1000}),
+    Check(GameProcessInstance{100, 1000} == GameProcessInstance{100, 1000},
         "equal PID and creation time identify one process instance");
-    Check(!IsSameMicrosoftGameProcessInstance({100, 1000}, {101, 1000}) &&
-        !IsSameMicrosoftGameProcessInstance({100, 1000}, {100, 2000}),
+    Check(GameProcessInstance{100, 1000} != GameProcessInstance{101, 1000} &&
+        GameProcessInstance{100, 1000} != GameProcessInstance{100, 2000},
         "PID or creation-time changes identify a different process instance");
     const auto currentProcessIdentity =
-        QueryMicrosoftGameProcessIdentity(GetCurrentProcessId());
+        QueryGameProcessInstance(GetCurrentProcessId());
     Check(currentProcessIdentity &&
         currentProcessIdentity->processId == GetCurrentProcessId() &&
         currentProcessIdentity->creationTime != 0,
         "process identity query reads creation time from the process handle");
 
     int positiveProbeCalls = 0;
+    KnownGameProcessCache positiveCache;
     MicrosoftGameTrigger cached(
+        positiveCache,
         [&](DWORD) { ++positiveProbeCalls; return IdentityResult(true, true, true); },
-        [](DWORD processId) -> std::optional<MicrosoftGameProcessIdentity>
+        [](DWORD processId) -> std::optional<GameProcessInstance>
         {
-            return MicrosoftGameProcessIdentity{processId, 1000};
+            return GameProcessInstance{processId, 1000};
         });
     const auto firstEvidence = cached.InspectWindowEvent(InstanceEvent(10));
     const auto secondEvidence = cached.InspectWindowEvent(
@@ -102,14 +108,18 @@ int main()
         secondEvidence->sourceSequence == 11 &&
         secondEvidence->window == reinterpret_cast<HWND>(0x5678),
         "positive process identity cache skips repeated probe and keeps event evidence");
+    Check(positiveCache.Lookup({6008, 1000})->microsoftGameIdentity,
+        "positive probe stores shared Microsoft evidence");
 
     int reusedProbeCalls = 0;
     std::uint64_t creationTime = 1000;
+    KnownGameProcessCache reusedCache;
     MicrosoftGameTrigger reused(
+        reusedCache,
         [&](DWORD) { ++reusedProbeCalls; return IdentityResult(true, true, true); },
-        [&](DWORD processId) -> std::optional<MicrosoftGameProcessIdentity>
+        [&](DWORD processId) -> std::optional<GameProcessInstance>
         {
-            return MicrosoftGameProcessIdentity{processId, creationTime};
+            return GameProcessInstance{processId, creationTime};
         });
     Check(reused.InspectWindowEvent(InstanceEvent(20)) &&
         (creationTime = 2000, reused.InspectWindowEvent(InstanceEvent(21))) &&
@@ -117,21 +127,27 @@ int main()
         "PID reuse with a different creation time requires a new probe");
 
     int negativeProbeCalls = 0;
+    KnownGameProcessCache negativeCache;
     MicrosoftGameTrigger negative(
+        negativeCache,
         [&](DWORD) { ++negativeProbeCalls; return IdentityResult(true, true, false); },
-        [](DWORD processId) -> std::optional<MicrosoftGameProcessIdentity>
+        [](DWORD processId) -> std::optional<GameProcessInstance>
         {
-            return MicrosoftGameProcessIdentity{processId, 3000};
+            return GameProcessInstance{processId, 3000};
         });
     Check(!negative.InspectWindowEvent(InstanceEvent(30)) &&
         !negative.InspectWindowEvent(InstanceEvent(31)) &&
         negativeProbeCalls == 2,
         "negative Microsoft identity results are not cached");
+    Check(!negativeCache.Lookup({6008, 3000}),
+        "negative probe does not create shared evidence");
 
     int identityFailureProbeCalls = 0;
+    KnownGameProcessCache identityFailureCache;
     MicrosoftGameTrigger identityFailure(
+        identityFailureCache,
         [&](DWORD) { ++identityFailureProbeCalls; return IdentityResult(true, true, true); },
-        [](DWORD) -> std::optional<MicrosoftGameProcessIdentity>
+        [](DWORD) -> std::optional<GameProcessInstance>
         {
             return std::nullopt;
         });
@@ -139,6 +155,22 @@ int main()
         identityFailure.InspectWindowEvent(InstanceEvent(41)) &&
         identityFailureProbeCalls == 2,
         "identity query failure falls back without unsafe caching");
+    Check(!identityFailureCache.Lookup({6008, 4000}),
+        "identity query failure skips shared-cache persistence");
+
+    int rendererOnlyProbeCalls = 0;
+    KnownGameProcessCache rendererOnlyCache;
+    rendererOnlyCache.MarkRendererVerified({6008, 5000});
+    MicrosoftGameTrigger rendererOnly(
+        rendererOnlyCache,
+        [&](DWORD) { ++rendererOnlyProbeCalls; return IdentityResult(true, true, true); },
+        [](DWORD processId) -> std::optional<GameProcessInstance>
+        {
+            return GameProcessInstance{processId, 5000};
+        });
+    Check(rendererOnly.InspectWindowEvent(InstanceEvent(50)) &&
+        rendererOnlyProbeCalls == 1,
+        "renderer-only evidence does not bypass Microsoft probe");
 
     const MicrosoftGameTriggerEvidence first{
         10, reinterpret_cast<HWND>(0x1234), 6008};
@@ -184,7 +216,8 @@ int main()
         committed.Context().generation == committedGeneration,
         "committed target is not replaced");
 
-    MicrosoftGameTrigger source;
+    KnownGameProcessCache sourceCache;
+    MicrosoftGameTrigger source(sourceCache);
     Check(!source.InspectWindowEvent(WindowEvent(
         ProductionWindowEventType::Destroy)), "destroy does not probe");
     std::cout << "PASS\n";
