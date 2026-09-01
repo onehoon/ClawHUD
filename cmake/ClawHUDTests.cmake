@@ -342,6 +342,8 @@
         src/ClawHUD/GameDetection/GameDetectionTrace.cpp
         src/ClawHUD/GameDetection/GameRenderVerifier.cpp
         src/ClawHUD/GameDetection/GenericForegroundTrigger.cpp
+        src/ClawHUD/GameDetection/GameProcessInstance.cpp
+        src/ClawHUD/GameDetection/KnownGameProcessCache.cpp
         src/ClawHUD/GameDetection/MicrosoftGameTrigger.cpp
         src/ClawHUD/GameDetection/SteamRunningAppTrigger.cpp
         src/ClawHUD/GameDetection/WindowsGameIdentityProbe.cpp
@@ -391,6 +393,8 @@
 
     add_executable(ClawHUD.MicrosoftGameTriggerTests
         tests/MicrosoftGameTriggerTests.cpp
+        src/ClawHUD/GameDetection/GameProcessInstance.cpp
+        src/ClawHUD/GameDetection/KnownGameProcessCache.cpp
         src/ClawHUD/GameDetection/MicrosoftGameTrigger.cpp
         src/ClawHUD/GameDetection/WindowsGameIdentityProbe.cpp
         src/ClawHUD/GameDetection/GameDetectionCoordinator.cpp

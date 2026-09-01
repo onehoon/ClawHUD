@@ -9,6 +9,7 @@
 #include "GameDetectionCoordinator.h"
 #include "GameRenderVerifier.h"
 #include "GenericForegroundTrigger.h"
+#include "KnownGameProcessCache.h"
 #include "MicrosoftGameTrigger.h"
 #include "ProductionGameWindowSource.h"
 #include "ProductionProcessLifetime.h"
@@ -147,7 +148,8 @@ private:
     GameDetectionCoordinator gameDetectionCoordinator_;
     SteamRunningAppTrigger steamRunningAppTrigger_{gameDetectionCoordinator_};
     GenericForegroundTrigger genericForegroundTrigger_;
-    MicrosoftGameTrigger microsoftGameTrigger_;
+    KnownGameProcessCache knownGameProcesses_;
+    MicrosoftGameTrigger microsoftGameTrigger_{knownGameProcesses_};
     ProductionGameWindowSource productionGameWindowSource_;
     ProductionProcessLifetimeWatcher productionProcessLifetimeWatcher_;
     GameRenderVerifier gameRenderVerifier_{provider_};

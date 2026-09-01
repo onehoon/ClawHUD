@@ -90,19 +90,6 @@ bool GameSessionController::StartWindowSource()
             if (!PostMessageW(messageWindow_, kProductionWindowEvent,
                 reinterpret_cast<WPARAM>(windowUpdate), 0))
                 delete windowUpdate;
-
-            if (const auto evidence = microsoftGameTrigger_.InspectWindowEvent(event))
-            {
-                RuntimeLogger::Log(RuntimeLogLevel::Info,
-                    L"[GameDetection] microsoft.evidence pid=" +
-                    std::to_wstring(evidence->processId) + L" hwnd=" +
-                    HwndText(evidence->window) + L" sequence=" +
-                    std::to_wstring(evidence->sourceSequence));
-                auto* update = new MicrosoftGameEvidenceUpdate{*evidence};
-                if (!PostMessageW(messageWindow_, kMicrosoftGameEvidence,
-                    reinterpret_cast<WPARAM>(update), 0))
-                    delete update;
-            }
         });
 }
 
@@ -444,6 +431,18 @@ void GameSessionController::HandleMicrosoftGameEvidence(
 void GameSessionController::HandleProductionWindowEvent(
     const ProductionWindowEvent& event)
 {
+    if (const auto evidence = microsoftGameTrigger_.InspectWindowEvent(event))
+    {
+        RuntimeLogger::Log(RuntimeLogLevel::Info,
+            L"[GameDetection] microsoft.evidence pid=" +
+            std::to_wstring(evidence->processId) + L" hwnd=" +
+            HwndText(evidence->window) + L" sequence=" +
+            std::to_wstring(evidence->sourceSequence));
+        auto* update = new MicrosoftGameEvidenceUpdate{*evidence};
+        if (!PostMessageW(messageWindow_, kMicrosoftGameEvidence,
+            reinterpret_cast<WPARAM>(update), 0))
+            delete update;
+    }
     if (event.type != ProductionWindowEventType::Create &&
         event.type != ProductionWindowEventType::Show)
         return;

@@ -75,6 +75,8 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/GameDetection/WindowLifecycleSource.cpp
     src/ClawHUD/GameDetection/ProductionGameWindowSource.cpp
     src/ClawHUD/GameDetection/GameScreenAdmission.cpp
+    src/ClawHUD/GameDetection/GameProcessInstance.cpp
+    src/ClawHUD/GameDetection/KnownGameProcessCache.cpp
     src/ClawHUD/TrayIcon.cpp
     src/ClawHUD/SettingsWindow.cpp
     src/ClawHUD/SettingsWindow.Tweaks.cpp
@@ -166,6 +168,17 @@ add_custom_command(TARGET ClawHUD POST_BUILD
 
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(ClawHUD.KnownGameProcessCacheTests
+        tests/KnownGameProcessCacheTests.cpp
+        src/ClawHUD/GameDetection/GameProcessInstance.cpp
+        src/ClawHUD/GameDetection/KnownGameProcessCache.cpp)
+    target_compile_features(ClawHUD.KnownGameProcessCacheTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.KnownGameProcessCacheTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.KnownGameProcessCacheTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.KnownGameProcessCacheTests PRIVATE user32)
+    set_target_properties(ClawHUD.KnownGameProcessCacheTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.KnownGameProcessCacheTests COMMAND ClawHUD.KnownGameProcessCacheTests)
+
     add_executable(ClawHUD.GameScreenAdmissionTests
         tests/GameScreenAdmissionTests.cpp
         src/ClawHUD/GameDetection/GameScreenAdmission.cpp
