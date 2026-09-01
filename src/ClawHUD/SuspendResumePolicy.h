@@ -29,9 +29,10 @@ constexpr bool ResumeRecoveryHasAttemptsRemaining(unsigned attempts) noexcept
 }
 
 constexpr bool ResumeRecoveryCanRetainVerifier(
-    DWORD trackedProcessId, DWORD verifierProcessId, bool running) noexcept
+    DWORD currentGameProcessId, DWORD verifierProcessId, bool running) noexcept
 {
-    return trackedProcessId != 0 && trackedProcessId == verifierProcessId && running;
+    return currentGameProcessId != 0 &&
+        currentGameProcessId == verifierProcessId && running;
 }
 
 constexpr bool ResumeRecoveryShouldWaitForForeground(

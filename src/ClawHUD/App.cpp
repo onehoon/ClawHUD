@@ -109,10 +109,6 @@ clawhud::GameSessionHooks App::MakeGameSessionHooks()
     hooks.reconcileHudVisibility = [this] { ReconcileHudVisibility(); };
     hooks.startGraphicsApiProbe = [this](DWORD pid)
         { productionTelemetry_.StartGraphicsApiProbe(pid); };
-    hooks.ensureGraphicsApiProbe = [this](DWORD pid)
-        { productionTelemetry_.EnsureGraphicsApiProbe(pid); };
-    hooks.stopGraphicsApiProbe = [this]
-        { productionTelemetry_.StopGraphicsApiProbe(); };
     hooks.stopGraphicsApiProbeIfTarget = [this](DWORD pid)
         { productionTelemetry_.StopGraphicsApiProbeIfTarget(pid); };
     hooks.setInGameForegroundProcess = [this](DWORD pid)
@@ -122,8 +118,6 @@ clawhud::GameSessionHooks App::MakeGameSessionHooks()
     hooks.stopFpsSampling = [this]
         { productionTelemetry_.StopFpsSampling(); };
     hooks.startProductionSampling = [this] { StartProductionSampling(); };
-    hooks.stopProductionSampling = [this](bool stopRenderVerification, const wchar_t* reason)
-        { StopProductionSampling(stopRenderVerification, reason); };
     return hooks;
 }
 

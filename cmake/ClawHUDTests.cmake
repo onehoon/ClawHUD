@@ -50,16 +50,6 @@
     set_target_properties(ClawHUD.HudRendererTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.HudRendererTests COMMAND ClawHUD.HudRendererTests)
 
-    add_executable(ClawHUD.ForegroundTrackerTests
-        tests/ForegroundTrackerTests.cpp
-        src/ClawHUD/ForegroundTracker.cpp)
-    target_compile_features(ClawHUD.ForegroundTrackerTests PRIVATE cxx_std_20)
-    target_compile_definitions(ClawHUD.ForegroundTrackerTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-    target_include_directories(ClawHUD.ForegroundTrackerTests PRIVATE src/ClawHUD)
-    target_link_libraries(ClawHUD.ForegroundTrackerTests PRIVATE user32)
-    set_target_properties(ClawHUD.ForegroundTrackerTests PROPERTIES CXX_EXTENSIONS OFF)
-    add_test(NAME ClawHUD.ForegroundTrackerTests COMMAND ClawHUD.ForegroundTrackerTests)
-
     add_executable(ClawHUD.FpsStaleHoldTests
         tests/FpsStaleHoldTests.cpp
         src/ClawHUD/FpsStaleHold.cpp)
@@ -309,18 +299,6 @@
     target_link_libraries(ClawHUD.WindowsGameIdentitySourceTests PRIVATE shell32 propsys ole32)
     set_target_properties(ClawHUD.WindowsGameIdentitySourceTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.WindowsGameIdentitySourceTests COMMAND ClawHUD.WindowsGameIdentitySourceTests)
-
-    add_executable(ClawHUD.ProductionProcessLifetimeTests
-        tests/ProductionProcessLifetimeTests.cpp
-        src/ClawHUD/GameDetection/ProductionProcessLifetime.cpp)
-    target_compile_features(ClawHUD.ProductionProcessLifetimeTests PRIVATE cxx_std_20)
-    target_compile_definitions(ClawHUD.ProductionProcessLifetimeTests PRIVATE
-        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-    target_include_directories(ClawHUD.ProductionProcessLifetimeTests PRIVATE src/ClawHUD)
-    target_link_libraries(ClawHUD.ProductionProcessLifetimeTests PRIVATE user32)
-    set_target_properties(ClawHUD.ProductionProcessLifetimeTests PROPERTIES CXX_EXTENSIONS OFF)
-    add_test(NAME ClawHUD.ProductionProcessLifetimeTests
-        COMMAND ClawHUD.ProductionProcessLifetimeTests)
 
     add_executable(ClawHUD.MicrosoftGameTriggerTests
         tests/MicrosoftGameTriggerTests.cpp

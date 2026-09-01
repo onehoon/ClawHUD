@@ -13,7 +13,6 @@
 #include "KnownGameProcessCache.h"
 #include "MicrosoftGameTrigger.h"
 #include "ProductionGameWindowSource.h"
-#include "ProductionProcessLifetime.h"
 #include "SteamRunningAppIdSource.h"
 #include "PresentMonTelemetryProvider.h"
 
@@ -40,13 +39,12 @@ struct GameSessionHooks
     // OnForegroundProcessChanged + ReconcileHudVisibility + debug observation.
     // Runs before the controller's own production game-detection handling.
     std::function<void(HWND window, DWORD processId)> onForegroundChanged;
-    // Foreground tracked/match state changed: App reconciles HUD visibility.
+    // Current foreground-game target changed: App reconciles HUD visibility.
     std::function<void()> reconcileHudVisibility;
 
-    // ProductionTelemetryController graphics-API probe.
+    // ProductionTelemetryController graphics-API probe target follows the
+    // current eligible foreground game.
     std::function<void(DWORD)> startGraphicsApiProbe;
-    std::function<void(DWORD)> ensureGraphicsApiProbe;
-    std::function<void()> stopGraphicsApiProbe;
     std::function<void(DWORD)> stopGraphicsApiProbeIfTarget;
 
     // ProductionTelemetryController In-Game Only FPS target. set(pid) means this
@@ -58,7 +56,6 @@ struct GameSessionHooks
 
     // App production-sampling lifecycle.
     std::function<void()> startProductionSampling;
-    std::function<void(bool stopRenderVerification, const wchar_t* reason)> stopProductionSampling;
 };
 
 // Owns all production game-session detection: the foreground-first
@@ -121,7 +118,6 @@ public:
     bool CurrentForegroundGameActive() const noexcept;
     DWORD CurrentForegroundGameProcessId() const noexcept;
     DWORD VerifierProcessId() const noexcept;
-    std::uint64_t VerifierGeneration() const noexcept;
     bool VerifierRunning() const noexcept;
 
     // --- shutdown ----------------------------------------------------
@@ -151,7 +147,6 @@ private:
     ForegroundGameDetector foregroundGameDetector_{knownGameProcesses_};
     MicrosoftGameTrigger microsoftGameTrigger_{knownGameProcesses_};
     ProductionGameWindowSource productionGameWindowSource_;
-    ProductionProcessLifetimeWatcher productionProcessLifetimeWatcher_;
     GameRenderVerifier gameRenderVerifier_{provider_};
     SteamRunningAppIdSource steamRunningAppIdSource_;
     std::uint32_t steamRunningAppId_{};
