@@ -1,7 +1,5 @@
 #pragma once
 
-#include "GameDetectionCoordinator.h"
-
 #include <windows.h>
 
 #include <cstdint>
@@ -10,17 +8,10 @@
 
 namespace clawhud
 {
-enum class ProductionProcessExitAction
-{
-    Ignore,
-    ReleaseCandidate,
-    ReleaseCommitted,
-};
-
-ProductionProcessExitAction DecideProductionProcessExit(
-    const GameDetectionContext& context,
-    DWORD processId, std::uint64_t generation) noexcept;
-
+// Standalone process-exit watcher. The foreground-first architecture no longer
+// arms it (foreground/window events drive re-evaluation, and known-game cache
+// identity is process-generation aware), but the class is kept until R7 does
+// the final tracked-PID / lifetime compatibility cleanup.
 class ProductionProcessLifetimeWatcher
 {
 public:

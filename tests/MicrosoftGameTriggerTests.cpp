@@ -172,50 +172,6 @@ int main()
         rendererOnlyProbeCalls == 1,
         "renderer-only evidence does not bypass Microsoft probe");
 
-    const MicrosoftGameTriggerEvidence first{
-        10, reinterpret_cast<HWND>(0x1234), 6008};
-    GameDetectionCoordinator coordinator;
-    auto transition = MicrosoftGameTrigger::ApplyEvidence(coordinator, first);
-    const auto generation = coordinator.Context().generation;
-    Check(transition.transition == GameDetectionTransition::CandidateStarted &&
-        coordinator.Context().state == GameDetectionState::Verifying &&
-        coordinator.Context().candidateProcessId == 6008 &&
-        coordinator.Context().candidateWindow == first.window &&
-        coordinator.Context().microsoftGameIdentity &&
-        coordinator.Context().evidence.microsoftGameIdentity && generation != 0,
-        "positive evidence starts a verifying MicrosoftGame candidate");
-
-    auto repeated = first;
-    repeated.sourceSequence = 11;
-    repeated.window = reinterpret_cast<HWND>(0x5678);
-    transition = MicrosoftGameTrigger::ApplyEvidence(coordinator, repeated);
-    Check(transition.transition == GameDetectionTransition::CandidateUpdated &&
-        coordinator.Context().generation == generation &&
-        coordinator.Context().candidateProcessId == 6008 &&
-        coordinator.Context().candidateWindow == repeated.window,
-        "same PID evidence merges without restart");
-
-    const auto different = MicrosoftGameTrigger::ApplyEvidence(coordinator,
-        {12, reinterpret_cast<HWND>(0x9999), 7000});
-    Check(different.transition == GameDetectionTransition::None &&
-        coordinator.Context().candidateProcessId == 6008 &&
-        coordinator.Context().generation == generation,
-        "different PID evidence does not replace candidate");
-
-    GameDetectionCoordinator committed;
-    MicrosoftGameTrigger::ApplyEvidence(committed, first);
-    const auto committedGeneration = committed.Context().generation;
-    Check(committed.MarkRendererReady(6008, committedGeneration),
-        "candidate becomes ready for committed-target test");
-    Check(committed.CommitCandidate(6008, committedGeneration),
-        "candidate becomes committed for committed-target test");
-    MicrosoftGameTrigger::ApplyEvidence(committed,
-        {13, reinterpret_cast<HWND>(0xAAAA), 7000});
-    Check(committed.Context().state == GameDetectionState::Committed &&
-        committed.Context().candidateProcessId == 6008 &&
-        committed.Context().generation == committedGeneration,
-        "committed target is not replaced");
-
     KnownGameProcessCache sourceCache;
     MicrosoftGameTrigger source(sourceCache);
     Check(!source.InspectWindowEvent(WindowEvent(

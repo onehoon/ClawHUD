@@ -17,29 +17,6 @@ struct ProductionProcessLifetimeWatcher::WaitContext
 {
 };
 
-ProductionProcessExitAction DecideProductionProcessExit(
-    const GameDetectionContext& context,
-    DWORD processId, std::uint64_t generation) noexcept
-{
-    if (context.candidateProcessId == 0 ||
-        context.candidateProcessId != processId ||
-        context.generation != generation)
-        return ProductionProcessExitAction::Ignore;
-
-    switch (context.state)
-    {
-    case GameDetectionState::Verifying:
-    case GameDetectionState::Ready:
-        return ProductionProcessExitAction::ReleaseCandidate;
-    case GameDetectionState::Committed:
-        return ProductionProcessExitAction::ReleaseCommitted;
-    case GameDetectionState::Idle:
-    case GameDetectionState::Armed:
-        return ProductionProcessExitAction::Ignore;
-    }
-    return ProductionProcessExitAction::Ignore;
-}
-
 ProductionProcessLifetimeWatcher::~ProductionProcessLifetimeWatcher()
 {
     Disarm();

@@ -43,39 +43,6 @@ void NormalizeAsciiLowercase(std::wstring& value) noexcept
 
 namespace clawhud
 {
-CandidateDisposition DecideCandidateDisposition(
-    const GameDetectionContext& context,
-    GameDetectionTrigger incomingTrigger, DWORD incomingProcessId) noexcept
-{
-    if (incomingProcessId == 0)
-        return CandidateDisposition::Ignore;
-    if (context.candidateProcessId == incomingProcessId)
-        return CandidateDisposition::Merge;
-    if (context.state == GameDetectionState::Committed)
-        return CandidateDisposition::Ignore;
-    if (context.state == GameDetectionState::Ready)
-        return CandidateDisposition::Ignore;
-    if (context.candidateProcessId == 0)
-        return CandidateDisposition::Replace;
-    if (context.evidence.microsoftGameIdentity)
-        return CandidateDisposition::Ignore;
-    if (context.state == GameDetectionState::Verifying &&
-        (incomingTrigger == GameDetectionTrigger::MicrosoftGameIdentity ||
-            incomingTrigger == GameDetectionTrigger::GenericForeground))
-        return CandidateDisposition::Replace;
-    return CandidateDisposition::Ignore;
-}
-
-bool ShouldCommitReadyCandidate(
-    const GameDetectionContext& context,
-    DWORD foregroundProcessId, bool candidateProcessAlive) noexcept
-{
-    return context.state == GameDetectionState::Ready &&
-        context.candidateProcessId != 0 &&
-        context.candidateProcessId == foregroundProcessId &&
-        candidateProcessAlive;
-}
-
 bool IsRejectedProductionTargetImage(std::wstring_view image) noexcept
 {
     constexpr std::array<std::wstring_view, 43> rejected{
@@ -117,15 +84,6 @@ bool IsEligibleProductionTargetImage(std::wstring_view image) noexcept
     }
 }
 
-std::optional<ProductionTargetProcess> InspectProductionTargetProcess(
-    DWORD processId, DWORD ownProcessId) noexcept
-{
-    const auto inspection = InspectProductionTargetProcessDetailed(processId, ownProcessId);
-    if (inspection.status != ProductionTargetInspectionStatus::Eligible)
-        return std::nullopt;
-    return inspection.process;
-}
-
 ProductionTargetInspection InspectProductionTargetProcessDetailed(
     DWORD processId, DWORD ownProcessId) noexcept
 {
@@ -162,27 +120,9 @@ ProductionTargetInspection InspectProductionTargetProcessDetailed(
     }
 }
 
-bool ShouldRetainCommittedProductionTarget(DWORD committedProcessId,
-    bool processAlive) noexcept
-{
-    return committedProcessId != 0 && processAlive;
-}
-
 bool ShouldReevaluateForegroundAfterResume(bool hudEnabled,
     bool recoveryCompleted) noexcept
 {
     return hudEnabled && recoveryCompleted;
-}
-
-bool ShouldRestartGraphicsApiProbe(DWORD probedProcessId,
-    DWORD committedProcessId) noexcept
-{
-    return committedProcessId != 0 && probedProcessId != committedProcessId;
-}
-
-bool ShouldConsiderForegroundProductionTarget(bool hudEnabled,
-    bool suspended) noexcept
-{
-    return hudEnabled && !suspended;
 }
 }

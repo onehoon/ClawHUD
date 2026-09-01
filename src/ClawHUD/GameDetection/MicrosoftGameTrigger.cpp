@@ -84,16 +84,4 @@ MicrosoftGameTrigger::InspectWindowEvent(const ProductionWindowEvent& event) noe
         return std::nullopt;
     }
 }
-
-GameDetectionTransitionResult MicrosoftGameTrigger::ApplyEvidence(
-    GameDetectionCoordinator& coordinator,
-    const MicrosoftGameTriggerEvidence& evidence) noexcept
-{
-    return coordinator.ObserveWake({
-        GameDetectionTrigger::MicrosoftGameIdentity,
-        evidence.processId,
-        evidence.window,
-        0,
-        true});
-}
 }

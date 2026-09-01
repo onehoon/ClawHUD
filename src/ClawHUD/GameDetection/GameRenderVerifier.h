@@ -1,7 +1,5 @@
 #pragma once
 
-#include "GameDetectionCoordinator.h"
-
 #include <windows.h>
 
 #include <atomic>
@@ -49,10 +47,6 @@ public:
     bool Running() const noexcept { return running_.load(); }
     DWORD ProcessId() const noexcept { return processId_; }
     std::uint64_t Generation() const noexcept { return generation_; }
-
-    static bool ApplyRendererEvidence(
-        GameDetectionCoordinator& coordinator,
-        const GameRenderVerifierEvent& event) noexcept;
 
 private:
     void PollLoop(DWORD processId, std::uint64_t generation);

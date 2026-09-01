@@ -1,8 +1,5 @@
 #include "GameSessionController.h"
 
-#include "GameDetectionTrace.h"
-#include "../ProductionTargetPolicy.h"
-#include "../ProcessLiveness.h"
 #include "../RuntimeLogger.h"
 #include "../Win32Format.h"
 
@@ -20,7 +17,6 @@ constexpr UINT kSteamRunningAppIdChanged = WM_APP + 5;
 constexpr UINT kMicrosoftGameEvidence = WM_APP + 6;
 constexpr UINT kGameRenderVerifierUpdate = WM_APP + 7;
 constexpr UINT kProductionWindowEvent = WM_APP + 8;
-constexpr UINT kProductionProcessExit = WM_APP + 9;
 
 struct MicrosoftGameEvidenceUpdate
 {
@@ -30,12 +26,6 @@ struct MicrosoftGameEvidenceUpdate
 struct ProductionWindowEventUpdate
 {
     ProductionWindowEvent event;
-};
-
-struct ProductionProcessExitUpdate
-{
-    DWORD processId{};
-    std::uint64_t generation{};
 };
 
 struct GameRenderVerifierUpdate
@@ -160,16 +150,6 @@ bool GameSessionController::HandleMessage(const MSG& message)
         }
         return true;
     }
-    if (message.message == kProductionProcessExit)
-    {
-        auto* update = reinterpret_cast<ProductionProcessExitUpdate*>(message.wParam);
-        if (update)
-        {
-            HandleProductionProcessExit(update->processId, update->generation);
-            delete update;
-        }
-        return true;
-    }
     if (message.message == kMicrosoftGameEvidence)
     {
         auto* update = reinterpret_cast<MicrosoftGameEvidenceUpdate*>(message.wParam);
@@ -220,8 +200,6 @@ void GameSessionController::DiscardPendingSuspendEvents()
 void GameSessionController::DiscardPendingEvents()
 {
     DiscardPendingSuspendEvents();
-    DrainQueue(messageWindow_, kProductionProcessExit, [](WPARAM w)
-        { delete reinterpret_cast<ProductionProcessExitUpdate*>(w); });
 }
 
 // --- App orchestration entry points ------------------------------------
@@ -242,11 +220,6 @@ void GameSessionController::EnsureRenderVerification()
     const auto evaluation = foregroundGameDetector_.Evaluate(
         ObserveGameScreen(current.window, current.processId));
     ApplyForegroundEvaluation(evaluation, L"ensure-verifier");
-}
-
-void GameSessionController::StartCandidateRenderVerification()
-{
-    EnsureRenderVerification();
 }
 
 void GameSessionController::StopRenderVerification(const wchar_t* reason,
@@ -460,200 +433,6 @@ void GameSessionController::HandleProductionWindowEvent(
         EvaluateCurrentForeground(L"window-event");
 }
 
-void GameSessionController::ApplyProductionEvidence(GameDetectionTrigger trigger,
-    HWND window, DWORD processId)
-{
-    const DWORD previousProcessId =
-        gameDetectionCoordinator_.Context().candidateProcessId;
-    const auto previousGeneration = gameDetectionCoordinator_.Context().generation;
-    const auto disposition = DecideCandidateDisposition(
-        gameDetectionCoordinator_.Context(), trigger, processId);
-    if (disposition == CandidateDisposition::Ignore)
-        return;
-    GameDetectionTransitionResult transition;
-    if (disposition == CandidateDisposition::Replace)
-        transition = gameDetectionCoordinator_.ReplaceCandidate(processId, window, trigger);
-    else if (trigger == GameDetectionTrigger::MicrosoftGameIdentity)
-        transition = microsoftGameTrigger_.ApplyEvidence(
-            gameDetectionCoordinator_, {0, window, processId});
-    else
-        transition = genericForegroundTrigger_.ApplyEvidence(
-            gameDetectionCoordinator_, {window, processId});
-    if (trigger == GameDetectionTrigger::GenericForeground)
-        RuntimeLogger::Log(RuntimeLogLevel::Debug,
-            L"[GameDetection] generic.candidate pid=" +
-            std::to_wstring(processId) + L" hwnd=" + HwndText(window));
-    HandleGameDetectionTransition(
-        transition, trigger, previousProcessId, previousGeneration);
-}
-
-void GameSessionController::HandleGameDetectionTransition(
-    const GameDetectionTransitionResult& transition,
-    GameDetectionTrigger trigger,
-    DWORD previousProcessId, std::uint64_t previousGeneration)
-{
-    switch (transition.transition)
-    {
-    case GameDetectionTransition::Armed:
-        Log(L"[GameDetection] transition old=Idle new=Armed "
-            L"transition=Armed trigger=Steam appId=" +
-            std::to_wstring(gameDetectionCoordinator_.Context().steamAppId));
-        Log(L"[GameDetection] steam.armed appId=" +
-            std::to_wstring(gameDetectionCoordinator_.Context().steamAppId));
-        break;
-    case GameDetectionTransition::CandidateStarted:
-        ArmProductionProcessLifetime(transition.processId,
-            transition.generation);
-        hooks_.stopFpsSampling();
-        Log(L"[GameDetection] candidate.start trigger=" +
-            std::wstring(GameDetectionTriggerName(trigger)) +
-            L" pid=" + std::to_wstring(transition.processId) + L" gen=" +
-            std::to_wstring(transition.generation) + L" steamAppId=" +
-            std::to_wstring(gameDetectionCoordinator_.Context().steamAppId) +
-            L" microsoft=" + std::to_wstring(
-                gameDetectionCoordinator_.Context().evidence.microsoftGameIdentity ? 1 : 0) +
-            L" generic=" + std::to_wstring(
-                gameDetectionCoordinator_.Context().evidence.genericForeground ? 1 : 0) +
-            L" hwnd=" + HwndText(
-                gameDetectionCoordinator_.Context().candidateWindow));
-        Log(L"[GameDetection] transition old=" +
-            std::wstring(gameDetectionCoordinator_.Context().steamAppId != 0
-                ? L"Armed" : L"Idle") + L" new=Verifying "
-            L"transition=CandidateStarted pid=" +
-            std::to_wstring(transition.processId) + L" gen=" +
-            std::to_wstring(transition.generation));
-        StartCandidateRenderVerification();
-        break;
-    case GameDetectionTransition::CandidateUpdated:
-    {
-        const auto& context = gameDetectionCoordinator_.Context();
-        const std::wstring state(GameDetectionStateName(context.state));
-        RuntimeLogger::Log(RuntimeLogLevel::Debug,
-            L"[GameDetection] candidate.merge trigger=" +
-            std::wstring(GameDetectionTriggerName(trigger)) +
-            L" pid=" + std::to_wstring(transition.processId) + L" gen=" +
-            std::to_wstring(transition.generation) + L" generic=" +
-            std::to_wstring(context.evidence.genericForeground ? 1 : 0) +
-            L" microsoft=" + std::to_wstring(
-                context.evidence.microsoftGameIdentity ? 1 : 0));
-        Log(L"[GameDetection] transition old=" + state + L" new=" + state +
-            L" "
-            L"transition=CandidateUpdated pid=" +
-            std::to_wstring(transition.processId) + L" gen=" +
-            std::to_wstring(transition.generation));
-        break;
-    }
-    case GameDetectionTransition::CandidateReplaced:
-        ArmProductionProcessLifetime(transition.processId,
-            transition.generation);
-        StopRenderVerification(L"candidate-replaced", true);
-        hooks_.stopGraphicsApiProbe();
-        Log(L"[GameDetection] candidate.replace oldPid=" +
-            std::to_wstring(previousProcessId) + L" newPid=" +
-            std::to_wstring(transition.processId) + L" trigger=" +
-            std::wstring(GameDetectionTriggerName(trigger)) +
-            L" oldGen=" + std::to_wstring(previousGeneration) +
-            L" newGen=" + std::to_wstring(transition.generation));
-        Log(L"[GameDetection] transition old=Verifying new=Verifying "
-            L"transition=CandidateReplaced pid=" +
-            std::to_wstring(transition.processId) + L" gen=" +
-            std::to_wstring(transition.generation));
-        StartCandidateRenderVerification();
-        break;
-    case GameDetectionTransition::RendererReady:
-        Log(L"[GameDetection] transition old=Verifying new=Ready "
-            L"transition=RendererReady pid=" +
-            std::to_wstring(transition.processId) + L" gen=" +
-            std::to_wstring(transition.generation));
-        break;
-    case GameDetectionTransition::Committed:
-        Log(L"[GameDetection] transition old=Ready new=Committed "
-            L"transition=Committed pid=" +
-            std::to_wstring(transition.processId) + L" gen=" +
-            std::to_wstring(transition.generation));
-        Log(L"[GameDetection] committed pid=" +
-            std::to_wstring(transition.processId) + L" gen=" +
-            std::to_wstring(transition.generation) + L" foregroundPid=" +
-            std::to_wstring(transition.processId) + L" steam=" +
-            std::to_wstring(gameDetectionCoordinator_.Context().evidence.steamSession ? 1 : 0) +
-            L" generic=" + std::to_wstring(
-                gameDetectionCoordinator_.Context().evidence.genericForeground ? 1 : 0) +
-            L" microsoft=" + std::to_wstring(
-                gameDetectionCoordinator_.Context().evidence.microsoftGameIdentity ? 1 : 0) +
-            L" renderer=" + std::to_wstring(
-                gameDetectionCoordinator_.Context().rendererObserved ? 1 : 0));
-        break;
-    case GameDetectionTransition::CandidateCleared:
-        productionProcessLifetimeWatcher_.Disarm();
-        RuntimeLogger::Log(RuntimeLogLevel::Debug,
-            L"[GameDetection] transition=CandidateCleared");
-        break;
-    case GameDetectionTransition::Reset:
-        productionProcessLifetimeWatcher_.Disarm();
-        RuntimeLogger::Log(RuntimeLogLevel::Debug,
-            L"[GameDetection] reset");
-        break;
-    case GameDetectionTransition::None:
-        break;
-    }
-}
-
-void GameSessionController::ArmProductionProcessLifetime(DWORD processId,
-    std::uint64_t generation)
-{
-    const HWND messageWindow = messageWindow_;
-    if (!productionProcessLifetimeWatcher_.Arm(processId, generation,
-        [messageWindow](DWORD exitedProcessId, std::uint64_t exitedGeneration)
-        {
-            auto* update = new ProductionProcessExitUpdate{
-                exitedProcessId, exitedGeneration};
-            if (!PostMessageW(messageWindow, kProductionProcessExit,
-                reinterpret_cast<WPARAM>(update), 0))
-                delete update;
-        }))
-    {
-        RuntimeLogger::Log(RuntimeLogLevel::Warn,
-            L"[GameDetection] process-watch.arm-failed pid=" +
-            std::to_wstring(processId) + L" gen=" +
-            std::to_wstring(generation));
-        return;
-    }
-    RuntimeLogger::Log(RuntimeLogLevel::Debug,
-        L"[GameDetection] process-watch.arm pid=" +
-        std::to_wstring(processId) + L" gen=" +
-        std::to_wstring(generation));
-}
-
-void GameSessionController::HandleProductionProcessExit(DWORD processId,
-    std::uint64_t generation)
-{
-    const auto& context = gameDetectionCoordinator_.Context();
-    if (context.candidateProcessId != processId ||
-        context.generation != generation)
-    {
-        RuntimeLogger::Log(RuntimeLogLevel::Debug,
-            L"[GameDetection] process.exit-stale pid=" +
-            std::to_wstring(processId) + L" gen=" +
-            std::to_wstring(generation));
-        return;
-    }
-
-    const auto action = DecideProductionProcessExit(
-        context, processId, generation);
-    if (action == ProductionProcessExitAction::Ignore)
-        return;
-    const auto state = std::wstring(GameDetectionStateName(context.state));
-    Log(L"[GameDetection] process.exit pid=" + std::to_wstring(processId) +
-        L" gen=" + std::to_wstring(generation) + L" state=" + state);
-    if (action == ProductionProcessExitAction::ReleaseCommitted)
-        ReleaseCommittedProductionTarget(L"game-exited");
-    else
-        ReleaseProductionGameCandidate(L"process-exited");
-    const auto runtime = Runtime();
-    if (runtime.hudEnabled && !runtime.suspended)
-        ReevaluateForeground();
-}
-
 void GameSessionController::HandleGameRenderVerifierUpdate(
     const RendererVerificationRequest& request, GameRenderVerifierEventType type)
 {
@@ -674,90 +453,5 @@ void GameSessionController::HandleGameRenderVerifierUpdate(
     const auto runtime = Runtime();
     if (!runtime.suspended && !runtime.resumeRecoveryActive)
         EvaluateCurrentForeground(L"renderer-completion");
-}
-
-bool GameSessionController::TryCommitReadyCandidateFromForeground(HWND,
-    DWORD foregroundProcessId)
-{
-    const auto& context = gameDetectionCoordinator_.Context();
-    const auto runtime = Runtime();
-    if (!ShouldCommitReadyCandidate(
-            context, foregroundProcessId, ProcessAlive(context.candidateProcessId)) ||
-        !runtime.hudEnabled || runtime.suspended)
-        return false;
-    const DWORD processId = context.candidateProcessId;
-    const auto generation = context.generation;
-    if (!gameDetectionCoordinator_.CommitCandidate(processId, generation))
-        return false;
-    foregroundTracker_.SetTrackedProcessId(processId);
-    hooks_.startGraphicsApiProbe(processId);
-    hooks_.setInGameForegroundProcess(processId);
-    hooks_.startProductionSampling();
-    HandleGameDetectionTransition({
-        GameDetectionTransition::Committed, generation, processId});
-    hooks_.reconcileHudVisibility();
-    return true;
-}
-
-void GameSessionController::ReleaseProductionGameCandidate(const wchar_t* reason)
-{
-    const auto& context = gameDetectionCoordinator_.Context();
-    if (!context.candidateProcessId)
-        return;
-    StopRenderVerification(reason, true);
-    hooks_.stopGraphicsApiProbeIfTarget(context.candidateProcessId);
-    ClearProductionCandidate(reason);
-}
-
-void GameSessionController::ClearProductionCandidate(const wchar_t* reason)
-{
-    const auto& context = gameDetectionCoordinator_.Context();
-    const DWORD processId = context.candidateProcessId;
-    const auto generation = context.generation;
-    const auto transition = gameDetectionCoordinator_.ClearCandidatePreservingSession();
-    HandleGameDetectionTransition(transition);
-    if (processId)
-        Log(L"[GameDetection] candidate.clear pid=" + std::to_wstring(processId) +
-            L" gen=" + std::to_wstring(generation) + L" reason=" + reason);
-}
-
-void GameSessionController::ReleaseCommittedProductionTarget(const wchar_t* reason)
-{
-    const auto& context = gameDetectionCoordinator_.Context();
-    const DWORD processId = context.candidateProcessId;
-    const auto generation = context.generation;
-    if (!processId)
-        return;
-    hooks_.clearInGameForegroundProcess();
-    const auto release = PlanCommittedTargetRelease();
-    CommittedTargetReleaseOps ops;
-    ops.stopRenderVerification = [this, reason]
-    {
-        StopRenderVerification(reason, true);
-    };
-    ops.stopGraphicsApiProbe = [this]
-    {
-        hooks_.stopGraphicsApiProbe();
-    };
-    ops.clearTrackedProcess = [this]
-    {
-        foregroundTracker_.SetTrackedProcessId(0);
-    };
-    ops.startGlobalTelemetry = [this]
-    {
-        hooks_.startProductionSampling();
-    };
-    ops.stopGlobalTelemetry = [this, reason]
-    {
-        hooks_.stopProductionSampling(false, reason);
-    };
-    ops.reconcileHudVisibility = [this]
-    {
-        hooks_.reconcileHudVisibility();
-    };
-    ClearProductionCandidate(L"game-exited");
-    ApplyCommittedTargetReleasePlan(release, ops);
-    Log(L"[GameDetection] released pid=" + std::to_wstring(processId) +
-        L" gen=" + std::to_wstring(generation) + L" reason=" + reason);
 }
 }

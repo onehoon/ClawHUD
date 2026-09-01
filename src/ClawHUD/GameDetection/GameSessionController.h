@@ -9,14 +9,11 @@
 #include "ForegroundTracker.h"
 #include "ForegroundGameDetector.h"
 #include "GameSessionCutoverPolicy.h"
-#include "GameDetectionCoordinator.h"
 #include "GameRenderVerifier.h"
-#include "GenericForegroundTrigger.h"
 #include "KnownGameProcessCache.h"
 #include "MicrosoftGameTrigger.h"
 #include "ProductionGameWindowSource.h"
 #include "ProductionProcessLifetime.h"
-#include "SteamRunningAppTrigger.h"
 #include "SteamRunningAppIdSource.h"
 #include "PresentMonTelemetryProvider.h"
 
@@ -64,14 +61,14 @@ struct GameSessionHooks
     std::function<void(bool stopRenderVerification, const wchar_t* reason)> stopProductionSampling;
 };
 
-// Owns all production game-session detection: the three triggers, the
-// GameDetectionCoordinator state machine, the event sources
-// (ProductionGameWindowSource, ProductionProcessLifetimeWatcher,
-// ForegroundTracker, SteamRunningAppIdSource), GameRenderVerifier, the Steam
-// RunningAppID session context, and every production game-session WM_APP
-// payload / message. It holds a non-owning reference to the one shared
-// PresentMonTelemetryProvider (for GameRenderVerifier only). It never touches
-// HudPresentation, EC, or Settings UI: cross-domain effects go through hooks.
+// Owns all production game-session detection: the foreground-first
+// ForegroundGameDetector, the known-game cache, the Microsoft identity trigger,
+// the event sources (ProductionGameWindowSource, ForegroundTracker,
+// SteamRunningAppIdSource), GameRenderVerifier, the Steam RunningAppID session
+// context, and every production game-session WM_APP payload / message. It holds
+// a non-owning reference to the one shared PresentMonTelemetryProvider (for
+// GameRenderVerifier only). It never touches HudPresentation, EC, or Settings
+// UI: cross-domain effects go through hooks.
 class GameSessionController
 {
 public:
@@ -134,7 +131,6 @@ private:
     void HandleProductionForegroundChanged(HWND window, DWORD processId);
     void HandleProductionWindowEvent(const ProductionWindowEvent& event);
     void HandleMicrosoftGameEvidence(const MicrosoftGameTriggerEvidence& evidence);
-    void HandleProductionProcessExit(DWORD processId, std::uint64_t generation);
     void HandleGameRenderVerifierUpdate(const RendererVerificationRequest& request,
         GameRenderVerifierEventType type);
     void HandleSteamRunningAppIdChanged();
@@ -143,17 +139,6 @@ private:
         const wchar_t* reason);
     bool WindowEventAffectsCurrentForeground(
         const ProductionWindowEvent& event) const;
-    void ApplyProductionEvidence(GameDetectionTrigger trigger, HWND window, DWORD processId);
-    void HandleGameDetectionTransition(
-        const GameDetectionTransitionResult& transition,
-        GameDetectionTrigger trigger = GameDetectionTrigger::GenericForeground,
-        DWORD previousProcessId = 0, std::uint64_t previousGeneration = 0);
-    void StartCandidateRenderVerification();
-    void ArmProductionProcessLifetime(DWORD processId, std::uint64_t generation);
-    bool TryCommitReadyCandidateFromForeground(HWND foreground, DWORD foregroundProcessId);
-    void ReleaseProductionGameCandidate(const wchar_t* reason);
-    void ClearProductionCandidate(const wchar_t* reason);
-    void ReleaseCommittedProductionTarget(const wchar_t* reason);
 
     GameSessionRuntimeState Runtime() const;
 
@@ -162,9 +147,6 @@ private:
     GameSessionHooks hooks_;
 
     ForegroundTracker foregroundTracker_;
-    GameDetectionCoordinator gameDetectionCoordinator_;
-    SteamRunningAppTrigger steamRunningAppTrigger_{gameDetectionCoordinator_};
-    GenericForegroundTrigger genericForegroundTrigger_;
     KnownGameProcessCache knownGameProcesses_;
     ForegroundGameDetector foregroundGameDetector_{knownGameProcesses_};
     MicrosoftGameTrigger microsoftGameTrigger_{knownGameProcesses_};

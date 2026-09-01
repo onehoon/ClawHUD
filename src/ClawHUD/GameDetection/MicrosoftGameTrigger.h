@@ -1,6 +1,5 @@
 #pragma once
 
-#include "GameDetectionCoordinator.h"
 #include "GameProcessInstance.h"
 #include "KnownGameProcessCache.h"
 #include "ProductionGameWindowSource.h"
@@ -38,10 +37,6 @@ public:
 
     std::optional<MicrosoftGameTriggerEvidence> InspectWindowEvent(
         const ProductionWindowEvent& event) noexcept;
-
-    static GameDetectionTransitionResult ApplyEvidence(
-        GameDetectionCoordinator& coordinator,
-        const MicrosoftGameTriggerEvidence& evidence) noexcept;
 
 private:
     WindowsGameIdentityProbe probe_;
