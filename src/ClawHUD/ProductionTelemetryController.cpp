@@ -373,6 +373,13 @@ void ProductionTelemetryController::SetVisibilityMode(HudVisibilityMode mode,
     alwaysFpsTarget_.Release();
     latestProcessFps_.reset();
     fpsStaleHold_.Reset();
+    // The FPS authority changed. Release the PID-bound PresentMon query too, so
+    // the next authority rebuilds tracking/query state even when it happens to
+    // reuse the same numeric PID for a different process generation (a game
+    // target change observed while Always was active never released it). The
+    // shared process tracking is reference-counted, so this only drops the FPS
+    // query's hold and never disturbs a concurrent render-verification lease.
+    (void)provider_.ReadProcess(0);
     if (mode == HudVisibilityMode::Always)
     {
         // Adopt the currently known foreground PID immediately instead of

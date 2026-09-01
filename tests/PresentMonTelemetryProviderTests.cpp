@@ -395,6 +395,36 @@ void CheckPidReuseAfterExplicitRelease(bool& ok)
         "registered query, never generation A's stale query/value");
 }
 
+// R5: ProductionTelemetryController::SetVisibilityMode also releases the target
+// (Read(0)) on a visibility-authority change. A game target change observed
+// while Always was active never released the query, so Always PID 5000/gen A ->
+// current game PID 5000/gen B -> switch to InGameOnly would otherwise let the
+// first InGameOnly sample reuse generation A's PID-5000 query. This walks that
+// exact sequence at the telemetry seam.
+void CheckModeSwitchReleasesPidReusedTarget(bool& ok)
+{
+    FakeClient client;
+    PresentMonProcessTelemetry telemetry;
+    telemetry.Initialize(client, Capabilities());
+
+    // Always mode has been sampling PID 5000 / generation A.
+    client.displayed = 240.0;
+    telemetry.Read(client, 5000);
+    const int registersAfterAlways = client.registerCount;
+
+    // Windows reused PID 5000 for generation B while Always was active (no
+    // release happened). Switching visibility mode now releases the target.
+    ok &= Check(!telemetry.Read(client, 0) && telemetry.TrackedProcessId() == 0,
+        "a visibility-mode change releases the prior authority's PID-bound query");
+
+    // First InGameOnly sample: same numeric PID, new process generation.
+    client.displayed = 72.0;
+    auto firstInGameOnly = telemetry.Read(client, 5000);
+    ok &= Check(firstInGameOnly && firstInGameOnly->displayedFps == 72.0 &&
+        client.registerCount == registersAfterAlways + 1,
+        "the first InGameOnly sample rebuilds the PID-5000 query for generation B");
+}
+
 void CheckSharedTracking(bool& ok)
 {
     ProcessTrackingRefCounts refs;
@@ -510,6 +540,7 @@ int main()
     CheckProcessLifecycle(ok);
     CheckStaleValueProtection(ok);
     CheckPidReuseAfterExplicitRelease(ok);
+    CheckModeSwitchReleasesPidReusedTarget(ok);
     CheckSharedTracking(ok);
     CheckSystemTelemetry(ok);
     return ok ? 0 : 1;
