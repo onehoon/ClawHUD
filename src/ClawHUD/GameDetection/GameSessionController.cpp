@@ -104,15 +104,6 @@ void GameSessionController::InitializeSteamSession(bool steamWatcherStarted)
 bool GameSessionController::StartForegroundTracking()
 {
     return foregroundTracker_.Start(messageWindow_, kForegroundChanged,
-        [this](bool matches)
-        {
-            if (matches)
-                Log(L"Foreground target pid=" +
-                    std::to_wstring(foregroundTracker_.TrackedProcessId()));
-            else
-                Log(L"Foreground target cleared");
-            hooks_.reconcileHudVisibility();
-        },
         [this](HWND window, DWORD processId)
         {
             hooks_.onForegroundChanged(window, processId);
@@ -256,7 +247,6 @@ void GameSessionController::ResetForegroundGameSession(const wchar_t* reason)
     if (currentForegroundGameProcess_)
         hooks_.stopGraphicsApiProbeIfTarget(currentForegroundGameProcess_->processId);
     currentForegroundGameProcess_.reset();
-    foregroundTracker_.SetTrackedProcessId(0);
     hooks_.clearInGameForegroundProcess();
     hooks_.reconcileHudVisibility();
 }
@@ -285,11 +275,6 @@ DWORD GameSessionController::VerifierProcessId() const noexcept
     return gameRenderVerifier_.ProcessId();
 }
 
-std::uint64_t GameSessionController::VerifierGeneration() const noexcept
-{
-    return gameRenderVerifier_.Generation();
-}
-
 bool GameSessionController::VerifierRunning() const noexcept
 {
     return gameRenderVerifier_.Running();
@@ -300,7 +285,6 @@ bool GameSessionController::VerifierRunning() const noexcept
 void GameSessionController::StopSources()
 {
     productionGameWindowSource_.Stop();
-    productionProcessLifetimeWatcher_.Disarm();
     foregroundTracker_.Stop();
     StopRenderVerification(L"app-shutdown", true);
     steamRunningAppIdSource_.Stop();
@@ -344,7 +328,6 @@ void GameSessionController::ApplyForegroundEvaluation(
         if (currentForegroundGameProcess_)
             hooks_.stopGraphicsApiProbeIfTarget(currentForegroundGameProcess_->processId);
         currentForegroundGameProcess_ = current.process;
-        foregroundTracker_.SetTrackedProcessId(processId);
         hooks_.setInGameForegroundProcess(processId);
         hooks_.startGraphicsApiProbe(processId);
         hooks_.startProductionSampling();
@@ -364,7 +347,6 @@ void GameSessionController::ApplyForegroundEvaluation(
             std::to_wstring(currentForegroundGameProcess_->processId) + L" reason=" + reason);
         hooks_.stopGraphicsApiProbeIfTarget(currentForegroundGameProcess_->processId);
         currentForegroundGameProcess_.reset();
-        foregroundTracker_.SetTrackedProcessId(0);
         hooks_.clearInGameForegroundProcess();
         hooks_.reconcileHudVisibility();
     }

@@ -120,7 +120,6 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/GameDetection/WindowsGameIdentityProbe.cpp
     src/ClawHUD/GameDetection/MicrosoftGameTrigger.cpp
     src/ClawHUD/GameDetection/GameRenderVerifier.cpp
-    src/ClawHUD/GameDetection/ProductionProcessLifetime.cpp
     src/ClawHUD/ProductionTargetPolicy.cpp
     src/ClawHUD/SteamRunningAppIdSource.cpp)
 target_compile_features(ClawHUD PRIVATE cxx_std_20)

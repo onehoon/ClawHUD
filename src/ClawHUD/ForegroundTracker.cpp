@@ -10,13 +10,12 @@ ForegroundTracker::~ForegroundTracker()
 }
 
 bool ForegroundTracker::Start(HWND dispatchWindow, UINT reconcileMessage,
-    ChangedCallback callback, ForegroundChangedCallback foregroundChanged)
+    ForegroundChangedCallback foregroundChanged)
 {
     if (hook_ || !dispatchWindow || !reconcileMessage)
         return hook_ != nullptr;
     dispatchWindow_ = dispatchWindow;
     reconcileMessage_ = reconcileMessage;
-    changed_ = std::move(callback);
     foregroundChanged_ = std::move(foregroundChanged);
     active_ = this;
     hook_ = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND,
@@ -24,7 +23,6 @@ bool ForegroundTracker::Start(HWND dispatchWindow, UINT reconcileMessage,
     if (!hook_)
     {
         active_ = nullptr;
-        changed_ = {};
         foregroundChanged_ = {};
         return false;
     }
@@ -39,39 +37,11 @@ void ForegroundTracker::Stop() noexcept
     hook_ = nullptr;
     if (active_ == this)
         active_ = nullptr;
-    if (trackedProcess_)
-        CloseHandle(trackedProcess_);
-    trackedProcess_ = nullptr;
     dispatchWindow_ = nullptr;
     reconcileMessage_ = 0;
-    trackedProcessId_ = 0;
     lastForegroundWindow_ = nullptr;
     lastForegroundProcessId_ = 0;
-    foregroundMatches_ = false;
-    changed_ = {};
     foregroundChanged_ = {};
-}
-
-void ForegroundTracker::SetTrackedProcessId(DWORD processId)
-{
-    if (trackedProcess_)
-        CloseHandle(trackedProcess_);
-    trackedProcess_ = nullptr;
-    trackedProcessId_ = processId;
-    if (processId)
-        trackedProcess_ = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
-            FALSE, processId);
-    Reconcile();
-}
-
-bool ForegroundTracker::PidsMatch(DWORD foregroundProcessId, DWORD trackedProcessId) noexcept
-{
-    return trackedProcessId != 0 && foregroundProcessId == trackedProcessId;
-}
-
-bool ForegroundTracker::TrackedProcessIsAlive() const noexcept
-{
-    return !trackedProcess_ || WaitForSingleObject(trackedProcess_, 0) == WAIT_TIMEOUT;
 }
 
 void ForegroundTracker::Reconcile()
@@ -80,21 +50,13 @@ void ForegroundTracker::Reconcile()
     DWORD foregroundProcessId{};
     if (foreground)
         GetWindowThreadProcessId(foreground, &foregroundProcessId);
-    if (foreground != lastForegroundWindow_ ||
-        foregroundProcessId != lastForegroundProcessId_)
-    {
-        lastForegroundWindow_ = foreground;
-        lastForegroundProcessId_ = foregroundProcessId;
-        if (foregroundChanged_)
-            foregroundChanged_(foreground, foregroundProcessId);
-    }
-    const bool matches = PidsMatch(foregroundProcessId, trackedProcessId_) &&
-        TrackedProcessIsAlive();
-    if (matches == foregroundMatches_)
+    if (foreground == lastForegroundWindow_ &&
+        foregroundProcessId == lastForegroundProcessId_)
         return;
-    foregroundMatches_ = matches;
-    if (changed_)
-        changed_(matches);
+    lastForegroundWindow_ = foreground;
+    lastForegroundProcessId_ = foregroundProcessId;
+    if (foregroundChanged_)
+        foregroundChanged_(foreground, foregroundProcessId);
 }
 
 void CALLBACK ForegroundTracker::WinEventProc(HWINEVENTHOOK, DWORD, HWND,
