@@ -40,6 +40,19 @@ struct ProductionTargetProcess
     std::wstring imageName;
 };
 
+enum class ProductionTargetInspectionStatus
+{
+    Unavailable,
+    Excluded,
+    Eligible,
+};
+
+struct ProductionTargetInspection
+{
+    ProductionTargetInspectionStatus status{ProductionTargetInspectionStatus::Unavailable};
+    ProductionTargetProcess process;
+};
+
 constexpr CommittedTargetReleasePlan PlanCommittedTargetRelease() noexcept
 {
     return {};
@@ -85,6 +98,8 @@ inline void ApplyCommittedTargetReleasePlan(
 bool IsRejectedProductionTargetImage(std::wstring_view image) noexcept;
 bool IsEligibleProductionTargetImage(std::wstring_view image) noexcept;
 std::optional<ProductionTargetProcess> InspectProductionTargetProcess(
+    DWORD processId, DWORD ownProcessId = GetCurrentProcessId()) noexcept;
+ProductionTargetInspection InspectProductionTargetProcessDetailed(
     DWORD processId, DWORD ownProcessId = GetCurrentProcessId()) noexcept;
 CandidateDisposition DecideCandidateDisposition(
     const GameDetectionContext& context,
