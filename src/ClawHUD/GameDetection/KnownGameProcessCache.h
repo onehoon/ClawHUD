@@ -22,6 +22,9 @@ public:
     // Owned and mutated by GameSessionController's message-handling path.
     void MarkMicrosoftGame(const GameProcessInstance& process) noexcept;
     void MarkRendererVerified(const GameProcessInstance& process) noexcept;
+    // Late async completions must not replace a newer generation for the PID.
+    bool TryMarkRendererVerified(
+        const GameProcessInstance& process) noexcept;
     void MarkObservedDuringSteamSession(
         const GameProcessInstance& process) noexcept;
 
