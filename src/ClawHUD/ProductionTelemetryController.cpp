@@ -400,16 +400,19 @@ void ProductionTelemetryController::OnForegroundProcessChanged(DWORD processId)
 
 void ProductionTelemetryController::SetInGameForegroundProcess(DWORD processId)
 {
-    if (inGameForegroundProcessId_ == processId)
-        return;
+    // No numeric-PID early return: the caller (GameSessionController) only
+    // calls this for a genuine ForegroundGameTargetAction::SetEligible - a new
+    // exact GameProcessInstance. Windows PID reuse can make that a *different*
+    // process generation while the numeric PID stays the same, so gating on
+    // PID equality here would silently keep a prior generation's stale FPS.
     inGameForegroundProcessId_ = processId;
-    // The In-Game Only target changed: an FPS value retained for the previous
-    // PID must never be displayed for the new target. The same-PID stale hold
-    // is only meant to bridge brief misses for one unchanged target. But this
-    // target keeps changing under Always mode too (game detection is
-    // visibility-mode independent), so only invalidate the shared FPS
-    // state/query when InGameOnly is actually its active authority - Always
-    // mode's FPS must stay fully decoupled from game-detection transitions.
+    // An FPS value retained for the previous target must never be displayed
+    // for the new one. The same-PID stale hold is only meant to bridge brief
+    // misses for one unchanged target. But this target keeps changing under
+    // Always mode too (game detection is visibility-mode independent), so
+    // only invalidate the shared FPS state/query when InGameOnly is actually
+    // its active authority - Always mode's FPS must stay fully decoupled from
+    // game-detection transitions.
     if (InGameTargetChangeInvalidatesFps(visibilityMode_))
     {
         latestProcessFps_.reset();

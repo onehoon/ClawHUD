@@ -1,4 +1,5 @@
 #include "GameDetection/GameSessionCutoverPolicy.h"
+#include "AlwaysModeFpsTarget.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -62,6 +63,19 @@ int main()
         Game(ForegroundGameDecision::Eligible, 200, 21)) ==
         ForegroundGameTargetAction::SetEligible,
         "PID reuse with a different creation time is treated as a target change");
+
+    // End-to-end PID-reuse -> InGameOnly FPS invalidation contract: prior
+    // target PID 5000/creation A, Windows reuses PID 5000 for a new process
+    // generation B. The exact-generation transition must still be SetEligible
+    // (never collapsed by numeric-PID equality), and while InGameOnly is
+    // active every SetEligible must invalidate the shared FPS state -
+    // ProductionTelemetryController::SetInGameForegroundProcess must never
+    // gate that invalidation on the numeric PID being unchanged.
+    Check(PlanForegroundGameTargetAction(Process(5000, 10),
+        Game(ForegroundGameDecision::Eligible, 5000, 11)) ==
+        ForegroundGameTargetAction::SetEligible &&
+        InGameTargetChangeInvalidatesFps(HudVisibilityMode::InGameOnly),
+        "PID reuse on the same numeric PID is a SetEligible transition that invalidates InGameOnly FPS");
 
     const HWND minecraft = reinterpret_cast<HWND>(0x1000);
     const HWND other = reinterpret_cast<HWND>(0x2000);

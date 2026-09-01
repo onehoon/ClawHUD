@@ -70,6 +70,7 @@ public:
     // immediately so an old game's FPS never shows for a new target.
     void SetInGameForegroundProcess(DWORD processId);
     void ClearInGameForegroundProcess();
+    DWORD InGameForegroundProcessId() const noexcept { return inGameForegroundProcessId_; }
 
     // --- graphics-API probe --------------------------------------------
     void StartGraphicsApiProbe(DWORD processId);
