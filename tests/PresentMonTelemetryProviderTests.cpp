@@ -362,6 +362,39 @@ void CheckStaleValueProtection(bool& ok)
         "tracking follows the new PID");
 }
 
+// R5: ProductionTelemetryController::SetInGameForegroundProcess explicitly
+// releases the target (Read(0)) whenever the InGameOnly target semantically
+// changes, even when Windows reuses the same numeric PID for a new process
+// generation - Read()/RetargetProcess only rebuild the query when the numeric
+// PID itself changes, so without that explicit release a PID-reuse transition
+// would otherwise keep the old generation's query/tracking alive.
+void CheckPidReuseAfterExplicitRelease(bool& ok)
+{
+    FakeClient client;
+    PresentMonProcessTelemetry telemetry;
+    telemetry.Initialize(client, Capabilities());
+
+    client.displayed = 144.0;
+    auto generationA = telemetry.Read(client, 5000);
+    ok &= Check(generationA && generationA->displayedFps == 144.0,
+        "PID 5000 generation A gets a fresh query and its own value");
+    const int registersAfterA = client.registerCount;
+    const std::size_t stopsAfterA = client.stopped.size();
+
+    // The In-Game Only target semantically changed (PID 5000 reused for a new
+    // process generation): the caller explicitly releases the target first.
+    ok &= Check(!telemetry.Read(client, 0) && telemetry.TrackedProcessId() == 0 &&
+        client.stopped.size() == stopsAfterA + 1 && client.stopped.back() == 5000,
+        "explicit release stops tracking the old generation's PID");
+
+    client.displayed = 60.0;
+    auto generationB = telemetry.Read(client, 5000);
+    ok &= Check(generationB && generationB->displayedFps == 60.0 &&
+        client.registerCount == registersAfterA + 1,
+        "the same numeric PID after an explicit release gets a freshly "
+        "registered query, never generation A's stale query/value");
+}
+
 void CheckSharedTracking(bool& ok)
 {
     ProcessTrackingRefCounts refs;
@@ -476,6 +509,7 @@ int main()
     CheckDecoding(ok);
     CheckProcessLifecycle(ok);
     CheckStaleValueProtection(ok);
+    CheckPidReuseAfterExplicitRelease(ok);
     CheckSharedTracking(ok);
     CheckSystemTelemetry(ok);
     return ok ? 0 : 1;

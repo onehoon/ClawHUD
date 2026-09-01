@@ -417,6 +417,12 @@ void ProductionTelemetryController::SetInGameForegroundProcess(DWORD processId)
     {
         latestProcessFps_.reset();
         fpsStaleHold_.Reset();
+        // PresentMonProcessTelemetry only rebuilds its target-bound query when
+        // the numeric PID actually changes; PID reuse (same PID, new process
+        // generation) would otherwise keep the old generation's frame-metric
+        // tracking/query alive. Releasing the target here forces the next
+        // ReadProcess(processId) in SampleFps() to retarget cleanly.
+        (void)provider_.ReadProcess(0);
     }
     Log(L"[PresentMonFPS] mode=InGameOnly targetPid=" +
         std::to_wstring(processId));
