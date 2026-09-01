@@ -124,6 +124,19 @@ void SharedSamplerTargetSelection(bool& ok)
         foregroundPid, 0) == 0,
         "In-Game Only mode does not fall back to the foreground PID");
 }
+
+// Game detection keeps running and changing the cached In-Game Only target
+// regardless of visibility mode (renderer verification, admission, foreground
+// transitions). Only InGameOnly may treat that as authoritative and invalidate
+// the shared FPS state/query on a target change/clear; Always mode's FPS must
+// stay fully decoupled from game-detection transitions.
+void InGameTargetInvalidationIsModeGated(bool& ok)
+{
+    ok &= Check(InGameTargetChangeInvalidatesFps(HudVisibilityMode::InGameOnly),
+        "In-Game Only target changes invalidate the shared FPS state while InGameOnly is active");
+    ok &= Check(!InGameTargetChangeInvalidatesFps(HudVisibilityMode::Always),
+        "In-Game Only target changes must not disturb the independent Always-mode FPS while Always is active");
+}
 }
 
 int main()
@@ -136,5 +149,6 @@ int main()
     ZeroPid(ok);
     ModeSwitching(ok);
     SharedSamplerTargetSelection(ok);
+    InGameTargetInvalidationIsModeGated(ok);
     return ok ? 0 : 1;
 }

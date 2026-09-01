@@ -23,6 +23,17 @@ inline DWORD ResolveProductionFpsTargetPid(HudVisibilityMode mode,
         : inGameForegroundProcessId;
 }
 
+// The cached In-Game Only target (GameSessionController authority) keeps
+// changing under Always mode too - renderer verification, admission, and
+// foreground transitions all keep running regardless of visibility mode. That
+// must never disturb the independent Always-mode FPS query/value: only
+// InGameOnly is the shared FPS state's active authority, so only InGameOnly
+// may invalidate it on a target change/clear.
+inline bool InGameTargetChangeInvalidatesFps(HudVisibilityMode mode) noexcept
+{
+    return mode == HudVisibilityMode::InGameOnly;
+}
+
 // FPS result explicitly associated with the PID it was queried for.
 struct PublishedProcessFps
 {

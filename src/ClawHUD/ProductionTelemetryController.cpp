@@ -405,9 +405,16 @@ void ProductionTelemetryController::SetInGameForegroundProcess(DWORD processId)
     inGameForegroundProcessId_ = processId;
     // The In-Game Only target changed: an FPS value retained for the previous
     // PID must never be displayed for the new target. The same-PID stale hold
-    // is only meant to bridge brief misses for one unchanged target.
-    latestProcessFps_.reset();
-    fpsStaleHold_.Reset();
+    // is only meant to bridge brief misses for one unchanged target. But this
+    // target keeps changing under Always mode too (game detection is
+    // visibility-mode independent), so only invalidate the shared FPS
+    // state/query when InGameOnly is actually its active authority - Always
+    // mode's FPS must stay fully decoupled from game-detection transitions.
+    if (InGameTargetChangeInvalidatesFps(visibilityMode_))
+    {
+        latestProcessFps_.reset();
+        fpsStaleHold_.Reset();
+    }
     Log(L"[PresentMonFPS] mode=InGameOnly targetPid=" +
         std::to_wstring(processId));
 }
@@ -417,9 +424,12 @@ void ProductionTelemetryController::ClearInGameForegroundProcess()
     if (inGameForegroundProcessId_ == 0)
         return;
     inGameForegroundProcessId_ = 0;
-    latestProcessFps_.reset();
-    fpsStaleHold_.Reset();
-    (void)provider_.ReadProcess(0);
+    if (InGameTargetChangeInvalidatesFps(visibilityMode_))
+    {
+        latestProcessFps_.reset();
+        fpsStaleHold_.Reset();
+        (void)provider_.ReadProcess(0);
+    }
     Log(L"[PresentMonFPS] mode=InGameOnly target-cleared");
 }
 
