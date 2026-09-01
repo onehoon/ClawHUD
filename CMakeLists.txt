@@ -118,12 +118,8 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/ForegroundTracker.cpp
     src/ClawHUD/GameDetection/WindowsGameIdentitySource.cpp
     src/ClawHUD/GameDetection/WindowsGameIdentityProbe.cpp
-    src/ClawHUD/GameDetection/GameDetectionCoordinator.cpp
-    src/ClawHUD/GameDetection/GameDetectionTrace.cpp
-    src/ClawHUD/GameDetection/SteamRunningAppTrigger.cpp
     src/ClawHUD/GameDetection/MicrosoftGameTrigger.cpp
     src/ClawHUD/GameDetection/GameRenderVerifier.cpp
-    src/ClawHUD/GameDetection/GenericForegroundTrigger.cpp
     src/ClawHUD/GameDetection/ProductionProcessLifetime.cpp
     src/ClawHUD/ProductionTargetPolicy.cpp
     src/ClawHUD/SteamRunningAppIdSource.cpp)

@@ -87,13 +87,4 @@ void GameRenderVerifier::PollLoop(DWORD processId, std::uint64_t generation)
     }
     running_.store(false);
 }
-
-bool GameRenderVerifier::ApplyRendererEvidence(
-    GameDetectionCoordinator& coordinator,
-    const GameRenderVerifierEvent& event) noexcept
-{
-    if (event.type != GameRenderVerifierEventType::FirstDisplayedFrame)
-        return false;
-    return coordinator.MarkRendererReady(event.processId, event.generation);
-}
 }

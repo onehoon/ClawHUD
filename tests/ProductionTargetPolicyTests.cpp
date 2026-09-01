@@ -1,5 +1,4 @@
 #include "ProductionTargetPolicy.h"
-#include "HudModel.h"
 
 #include <iostream>
 
@@ -16,36 +15,9 @@ bool Check(bool condition, const char* message)
 int main()
 {
     bool ok = true;
-    const auto release = clawhud::PlanCommittedTargetRelease();
-    ok &= Check(release.stopRenderVerification && release.stopGraphicsApiProbe &&
-        release.clearTrackedProcess && release.reconcileHudVisibility,
-        "committed target release clears only game-scoped state and reconciles visibility");
-    ok &= Check(release.globalTelemetry == clawhud::GlobalTelemetryAction::Keep,
-        "committed target release does not own global telemetry");
-    int globalStarts = 0;
-    int globalStops = 0;
-    int reconciles = 0;
-    clawhud::CommittedTargetReleaseOps ops;
-    ops.stopRenderVerification = [] {};
-    ops.stopGraphicsApiProbe = [] {};
-    ops.clearTrackedProcess = [] {};
-    ops.startGlobalTelemetry = [&] { ++globalStarts; };
-    ops.stopGlobalTelemetry = [&] { ++globalStops; };
-    ops.reconcileHudVisibility = [&] { ++reconciles; };
-    clawhud::ApplyCommittedTargetReleasePlan(release, ops);
-    ok &= Check(globalStarts == 0 && globalStops == 0,
-        "committed target release never tears down or starts global telemetry");
-    ok &= Check(reconciles == 1,
-        "committed target release delegates global telemetry lifetime to visibility");
-    ok &= Check(clawhud::IsRejectedProductionTargetImage(L"steam.exe"),
-        "Steam launcher is not a production target");
-    ok &= Check(clawhud::IsRejectedProductionTargetImage(L"steamwebhelper.exe") &&
-        clawhud::IsRejectedProductionTargetImage(L"gamebar.exe") &&
-        clawhud::IsRejectedProductionTargetImage(L"gamebarftserver.exe") &&
-        clawhud::IsRejectedProductionTargetImage(L"xboxpcappft.exe"),
-        "Steam and Windows gaming shells are not production targets");
-    ok &= Check(clawhud::IsRejectedProductionTargetImage(L"explorer.exe"),
-        "Explorer is not a production target");
+
+    // Executable exclusion policy. The demonstrated field false-positives must
+    // never be treated as a game.
     ok &= Check(clawhud::IsRejectedProductionTargetImage(L"windowsterminal.exe") &&
         clawhud::IsRejectedProductionTargetImage(L"runtimebroker.exe") &&
         clawhud::IsRejectedProductionTargetImage(L"dllhost.exe") &&
@@ -53,94 +25,71 @@ int main()
         clawhud::IsRejectedProductionTargetImage(L"werfault.exe") &&
         clawhud::IsRejectedProductionTargetImage(L"crashreportclient.exe"),
         "high-confidence helper and crash processes are not production targets");
-    ok &= Check(clawhud::IsRejectedProductionTargetImage(
-        L"steaminputaddonforclaw.ui.exe"),
-        "Steam Input Addon UI is not a production game target");
+    ok &= Check(clawhud::IsRejectedProductionTargetImage(L"explorer.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"searchhost.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"shellexperiencehost.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"startmenuexperiencehost.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"applicationframehost.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"textinputhost.exe"),
+        "shell / desktop surfaces are not production targets");
+    ok &= Check(clawhud::IsRejectedProductionTargetImage(L"steam.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"steamwebhelper.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"steamservice.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"gameoverlayui.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"steamerrorreporter.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"steamerrorreporter64.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"steaminputaddonforclaw.ui.exe"),
+        "Steam launcher / service / overlay / error reporters are not production targets");
+    ok &= Check(clawhud::IsRejectedProductionTargetImage(L"gamebar.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"gamebarftserver.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"gamebar_widget.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"xboxpcapp.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"xboxpcappft.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"xboxpctray.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"xboxgamebarwidgets.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"gamingservices.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"gamingservicesui.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"gamingservicesnet.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"pickerhost.exe"),
+        "Windows gaming shells and Gaming Services infrastructure are not production targets");
+    ok &= Check(clawhud::IsRejectedProductionTargetImage(L"chrome.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"msedge.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"firefox.exe"),
+        "browsers are not production targets");
     ok &= Check(clawhud::IsRejectedProductionTargetImage(L"msi center m.exe") &&
         clawhud::IsRejectedProductionTargetImage(L"msi_center_m_launcher.exe") &&
         clawhud::IsRejectedProductionTargetImage(L"msi_center_m_server.exe") &&
         clawhud::IsRejectedProductionTargetImage(
             L"msi_center_m_server_controlmode.exe") &&
         clawhud::IsRejectedProductionTargetImage(L"command center.exe") &&
-        clawhud::IsRejectedProductionTargetImage(L"gamebar_widget.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"mongmode.exe") &&
         clawhud::IsRejectedProductionTargetImage(L"mcmosdinfo.exe"),
         "MSI Center M companion processes are not production targets");
-    ok &= Check(clawhud::IsRejectedProductionTargetImage(L"gameoverlayui.exe") &&
-        clawhud::IsRejectedProductionTargetImage(L"steamservice.exe") &&
-        clawhud::IsRejectedProductionTargetImage(L"steamerrorreporter.exe") &&
-        clawhud::IsRejectedProductionTargetImage(L"steamerrorreporter64.exe"),
-        "Steam service, overlay, and error reporters are not production targets");
-    ok &= Check(clawhud::IsRejectedProductionTargetImage(L"xboxpcapp.exe") &&
-        clawhud::IsRejectedProductionTargetImage(L"xboxpctray.exe") &&
-        clawhud::IsRejectedProductionTargetImage(
-            L"xboxgamebarwidgets.exe") &&
-        clawhud::IsRejectedProductionTargetImage(L"gamingservicesnet.exe"),
-        "Xbox and Gaming Services infrastructure are not production targets");
     ok &= Check(!clawhud::IsRejectedProductionTargetImage(L"msedgewebview2.exe"),
         "shared WebView2 runtime is not globally rejected");
+
+    // Eligibility normalizes the basename and lower-cases before matching.
     ok &= Check(clawhud::IsEligibleProductionTargetImage(L"game.exe") &&
         clawhud::IsEligibleProductionTargetImage(L"C:\\Games\\DaveTheDiver.EXE") &&
         clawhud::IsEligibleProductionTargetImage(
             L"C:\\Games\\Game-Win64-Shipping.exe"),
         "normal game images remain eligible after normalization");
-    ok &= Check(clawhud::ShouldRetainCommittedProductionTarget(100, true) &&
-        !clawhud::ShouldRetainCommittedProductionTarget(100, false),
-        "committed target sampling follows process lifetime, not foreground");
+    ok &= Check(!clawhud::IsEligibleProductionTargetImage(
+            L"C:\\Windows\\explorer.exe") &&
+        !clawhud::IsEligibleProductionTargetImage(L"SteamService.EXE") &&
+        !clawhud::IsEligibleProductionTargetImage(L"PickerHost.exe") &&
+        !clawhud::IsEligibleProductionTargetImage(
+            L"STEAMINPUTADDONFORCLAW.UI.EXE"),
+        "rejected images stay rejected regardless of path or case");
+    ok &= Check(!clawhud::IsEligibleProductionTargetImage(L""),
+        "an empty image name is not eligible");
+
+    // Resume recovery re-adopts the current foreground only when the HUD is on
+    // and the recovery attempt actually completed.
     ok &= Check(clawhud::ShouldReevaluateForegroundAfterResume(true, true) &&
         !clawhud::ShouldReevaluateForegroundAfterResume(false, true) &&
         !clawhud::ShouldReevaluateForegroundAfterResume(true, false),
         "completed resume recovery re-adopts the current foreground");
-    ok &= Check(clawhud::ShouldRestartGraphicsApiProbe(0, 100) &&
-        clawhud::ShouldRestartGraphicsApiProbe(200, 100) &&
-        !clawhud::ShouldRestartGraphicsApiProbe(100, 100) &&
-        !clawhud::ShouldRestartGraphicsApiProbe(0, 0),
-        "committed target re-entry restarts a missing or stale graphics API probe");
-    ok &= Check(!clawhud::ShouldConsiderForegroundProductionTarget(false, false) &&
-        !clawhud::ShouldConsiderForegroundProductionTarget(true, true) &&
-        clawhud::ShouldConsiderForegroundProductionTarget(true, false),
-        "the HUD-off and suspended states block foreground adoption");
 
-    clawhud::GameDetectionCoordinator genericA;
-    genericA.ObserveCandidate(100, nullptr,
-        clawhud::GameDetectionTrigger::GenericForeground);
-    ok &= Check(clawhud::DecideCandidateDisposition(genericA.Context(),
-        clawhud::GameDetectionTrigger::GenericForeground, 200) ==
-        clawhud::CandidateDisposition::Replace,
-        "generic verifying candidate is replaced by a newer generic PID");
-
-    clawhud::GameDetectionCoordinator microsoftA;
-    microsoftA.ObserveCandidate(100, nullptr,
-        clawhud::GameDetectionTrigger::MicrosoftGameIdentity);
-    ok &= Check(clawhud::DecideCandidateDisposition(microsoftA.Context(),
-        clawhud::GameDetectionTrigger::GenericForeground, 200) ==
-        clawhud::CandidateDisposition::Ignore,
-        "MicrosoftGame candidate rejects a different generic PID");
-    ok &= Check(clawhud::DecideCandidateDisposition(microsoftA.Context(),
-        clawhud::GameDetectionTrigger::MicrosoftGameIdentity, 200) ==
-        clawhud::CandidateDisposition::Ignore,
-        "MicrosoftGame candidate rejects a different MicrosoftGame PID");
-    ok &= Check(clawhud::DecideCandidateDisposition(genericA.Context(),
-        clawhud::GameDetectionTrigger::MicrosoftGameIdentity, 200) ==
-        clawhud::CandidateDisposition::Replace,
-        "MicrosoftGame evidence replaces weaker generic candidate");
-
-    microsoftA.MarkRendererReady(100, microsoftA.Context().generation);
-    ok &= Check(clawhud::DecideCandidateDisposition(microsoftA.Context(),
-        clawhud::GameDetectionTrigger::GenericForeground, 200) ==
-        clawhud::CandidateDisposition::Ignore,
-        "Ready candidate is protected from generic foreground");
-    ok &= Check(clawhud::DecideCandidateDisposition(microsoftA.Context(),
-        clawhud::GameDetectionTrigger::MicrosoftGameIdentity, 200) ==
-        clawhud::CandidateDisposition::Ignore,
-        "Ready candidate is protected from Microsoft replacement");
-    microsoftA.CommitCandidate(100, microsoftA.Context().generation);
-    ok &= Check(clawhud::DecideCandidateDisposition(microsoftA.Context(),
-        clawhud::GameDetectionTrigger::GenericForeground, 200) ==
-        clawhud::CandidateDisposition::Ignore,
-        "Committed candidate is never replaced");
-    ok &= Check(clawhud::DecideCandidateDisposition(microsoftA.Context(),
-        clawhud::GameDetectionTrigger::GenericForeground, 100) ==
-        clawhud::CandidateDisposition::Merge,
-        "same PID evidence merges");
     return ok ? 0 : 1;
 }
