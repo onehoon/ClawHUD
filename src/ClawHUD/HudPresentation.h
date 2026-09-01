@@ -17,6 +17,7 @@
 #include <cmath>
 #include <cstddef>
 #include <memory>
+#include <string_view>
 
 namespace clawhud
 {
@@ -84,6 +85,13 @@ private:
     HRESULT TryAcquireAvailableBuffer(HudFrameBuffer*& selected) noexcept;
     HRESULT RefreshDisplayIfNeeded();
     HRESULT CommitVisibility(bool visible);
+
+    // Debug-only diagnostic: snapshots the real HUD HWND visibility / topmost /
+    // Z-order state alongside the logical visible_ flag. Emits one
+    // [HudWindowState] record at RuntimeLogLevel::Debug. Never changes HUD
+    // behavior; on any probe failure it logs a neutral value and continues.
+    void LogDebugWindowState(std::wstring_view reason,
+        const WINDOWPOS* windowPos = nullptr) const noexcept;
 
     HINSTANCE instance_{};
     HWND window_{};
