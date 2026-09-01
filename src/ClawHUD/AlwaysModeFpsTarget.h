@@ -12,14 +12,26 @@ namespace clawhud
 // Chooses the production FPS target PID for the active visibility mode. This is
 // the only mode-dependent part of the shared PresentMon API2 FPS sampler:
 //   - Always     -> the current foreground PID (no game-detection input),
-//   - InGameOnly -> the committed game PID (unchanged legacy behavior).
-// The two modes never share a fallback: an unavailable target yields PID 0.
+//   - InGameOnly -> the current eligible foreground game PID.
+// The two modes never share a fallback: an unavailable target yields PID 0, so
+// a background game is never used when the current foreground is not a game.
 inline DWORD ResolveProductionFpsTargetPid(HudVisibilityMode mode,
-    DWORD foregroundProcessId, DWORD committedGameProcessId) noexcept
+    DWORD foregroundProcessId, DWORD inGameForegroundProcessId) noexcept
 {
     return mode == HudVisibilityMode::Always
         ? foregroundProcessId
-        : committedGameProcessId;
+        : inGameForegroundProcessId;
+}
+
+// The cached In-Game Only target (GameSessionController authority) keeps
+// changing under Always mode too - renderer verification, admission, and
+// foreground transitions all keep running regardless of visibility mode. That
+// must never disturb the independent Always-mode FPS query/value: only
+// InGameOnly is the shared FPS state's active authority, so only InGameOnly
+// may invalidate it on a target change/clear.
+inline bool InGameTargetChangeInvalidatesFps(HudVisibilityMode mode) noexcept
+{
+    return mode == HudVisibilityMode::InGameOnly;
 }
 
 // FPS result explicitly associated with the PID it was queried for.
@@ -34,8 +46,8 @@ struct PublishedProcessFps
 // This type is deliberately independent from the game-detection pipeline. It
 // only knows a PID and the most recent PresentMon API2 result that was queried
 // for that exact PID. It has no knowledge of game identity, Steam, Microsoft
-// Store, committed targets, RendererTargetSelector, or fullscreen state, and it
-// never falls back to any other PID.
+// Store, the In-Game Only game target, RendererTargetSelector, or fullscreen
+// state, and it never falls back to any other PID.
 class AlwaysModeFpsTarget
 {
 public:
