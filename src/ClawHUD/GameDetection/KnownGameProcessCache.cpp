@@ -39,6 +39,25 @@ void KnownGameProcessCache::MarkRendererVerified(
         { evidence.rendererVerified = true; });
 }
 
+bool KnownGameProcessCache::TryMarkRendererVerified(
+    const GameProcessInstance& process) noexcept
+{
+    try
+    {
+        auto found = entries_.find(process.processId);
+        if (found != entries_.end() && found->second.process != process)
+            return false;
+        if (found == entries_.end())
+            found = entries_.emplace(process.processId, Entry{process, {}}).first;
+        found->second.evidence.rendererVerified = true;
+        return true;
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
 void KnownGameProcessCache::MarkObservedDuringSteamSession(
     const GameProcessInstance& process) noexcept
 {

@@ -158,6 +158,14 @@ int main()
     detector.CompleteRendererVerification({RendererVerificationRequest{999, Process(7000, 21)}, true});
     Check(!cache.IsKnownGame(Process(7000, 22)),
         "old generation completion cannot mark reused PID generation");
+    const auto oldGeneration = Process(7001, 24);
+    const auto newGeneration = Process(7001, 25);
+    cache.MarkMicrosoftGame(newGeneration);
+    detector.CompleteRendererVerification({RendererVerificationRequest{1000, oldGeneration}, true});
+    const auto newerEvidence = cache.Lookup(newGeneration);
+    Check(newerEvidence && newerEvidence->microsoftGameIdentity &&
+        !newerEvidence->rendererVerified,
+        "late old-generation completion preserves newer-generation evidence");
 
     KnownGameProcessCache steamCache;
     generation = 23;

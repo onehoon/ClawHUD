@@ -57,7 +57,7 @@ void ForegroundGameDetector::CompleteRendererVerification(
     const RendererVerificationCompletion& completion) noexcept
 {
     if (completion.verified)
-        knownGames_.MarkRendererVerified(completion.request.process);
+        knownGames_.TryMarkRendererVerified(completion.request.process);
     if (outstandingRequest_ && *outstandingRequest_ == completion.request)
         outstandingRequest_.reset();
 }
