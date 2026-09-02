@@ -1,7 +1,7 @@
 #include "SettingsWindow.h"
 #include "SettingsWindowInternal.h"
 
-#include "App.h"
+#include "RuntimeControl.h"
 
 #include <commctrl.h>
 
@@ -62,8 +62,9 @@ void SettingsWindow::LayoutTweaks()
 
 void SettingsWindow::UpdateTweaksControls()
 {
-    if (intelVrrToggle_) SendMessageW(intelVrrToggle_, BM_SETCHECK, app_.IntelVrrRangeFixEnabled() ? BST_CHECKED : BST_UNCHECKED, 0);
-    const auto result = app_.IntelVrrLastResult();
+    const auto snapshot = runtimeControl_.GetSettingsSnapshot();
+    if (intelVrrToggle_) SendMessageW(intelVrrToggle_, BM_SETCHECK, snapshot.intelVrrRangeFixEnabled ? BST_CHECKED : BST_UNCHECKED, 0);
+    const auto& result = snapshot.intelVrrLastResult;
     if (!result) { if (intelVrrResult_) SetWindowTextW(intelVrrResult_, L"Last result: No result yet"); return; }
     const auto panel = std::wstring(result->panelName.begin(), result->panelName.end());
     const auto before = std::wstring(result->rangeBefore.begin(), result->rangeBefore.end());

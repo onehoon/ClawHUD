@@ -2,7 +2,7 @@
 #include "SettingsWindowInternal.h"
 #include "SettingsWindowGeometry.h"
 
-#include "App.h"
+#include "RuntimeControl.h"
 #include "HudSize.h"
 #include "resource.h"
 #include <commctrl.h>
@@ -10,6 +10,7 @@
 #include <windowsx.h>
 
 #include <algorithm>
+#include <utility>
 
 namespace
 {
@@ -46,7 +47,9 @@ using settings_internal::kVisibilityInGameOnly;
 using settings_internal::kWheelStep;
 }
 
-SettingsWindow::SettingsWindow(App& app) : app_(app)
+SettingsWindow::SettingsWindow(clawhud::IRuntimeControl& runtimeControl,
+    std::function<void()> onDestroyed)
+    : runtimeControl_(runtimeControl), onDestroyed_(std::move(onDestroyed))
 {
 }
 
@@ -417,40 +420,62 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
         {
             const bool requested =
                 SendMessageW(reinterpret_cast<HWND>(lParam), BM_GETCHECK, 0, 0) == BST_CHECKED;
-            self->app_.SetStartWithWindows(
-                requested);
+            self->runtimeControl_.SetStartWithWindows(requested);
             self->UpdateGeneralControls();
             return 0;
         }
         case kEnableHud:
-            self->app_.SetHudEnabled(
+            self->runtimeControl_.SetHudEnabled(
                 SendMessageW(reinterpret_cast<HWND>(lParam), BM_GETCHECK, 0, 0) == BST_CHECKED);
             self->UpdateHudControls();
             return 0;
         case kVisibilityAlways:
-            self->app_.SetHudVisibilityMode(clawhud::HudVisibilityMode::Always);
+            self->runtimeControl_.SetHudVisibilityMode(clawhud::HudVisibilityMode::Always);
             self->UpdateHudControls();
             return 0;
         case kVisibilityInGameOnly:
-            self->app_.SetHudVisibilityMode(clawhud::HudVisibilityMode::InGameOnly);
+            self->runtimeControl_.SetHudVisibilityMode(clawhud::HudVisibilityMode::InGameOnly);
             self->UpdateHudControls();
             return 0;
-        case kFontUnispace: self->app_.SetHudFont(clawhud::HudFont::Unispace); return 0;
-        case kFontSegoeUiVariable: self->app_.SetHudFont(clawhud::HudFont::SegoeUiVariable); return 0;
-        case kAlignmentLeft: self->app_.SetHudAlignment(clawhud::HudAlignment::Left); return 0;
-        case kAlignmentCenter: self->app_.SetHudAlignment(clawhud::HudAlignment::Center); return 0;
-        case kAlignmentRight: self->app_.SetHudAlignment(clawhud::HudAlignment::Right); return 0;
-        case kBackgroundFull: self->app_.SetHudBackgroundMode(clawhud::HudBackgroundMode::FullWidth); return 0;
-        case kBackgroundContent: self->app_.SetHudBackgroundMode(clawhud::HudBackgroundMode::ContentWidth); return 0;
+        case kFontUnispace:
+            self->runtimeControl_.SetHudFont(clawhud::HudFont::Unispace);
+            self->UpdateHudControls();
+            return 0;
+        case kFontSegoeUiVariable:
+            self->runtimeControl_.SetHudFont(clawhud::HudFont::SegoeUiVariable);
+            self->UpdateHudControls();
+            return 0;
+        case kAlignmentLeft:
+            self->runtimeControl_.SetHudAlignment(clawhud::HudAlignment::Left);
+            self->UpdateHudControls();
+            return 0;
+        case kAlignmentCenter:
+            self->runtimeControl_.SetHudAlignment(clawhud::HudAlignment::Center);
+            self->UpdateHudControls();
+            return 0;
+        case kAlignmentRight:
+            self->runtimeControl_.SetHudAlignment(clawhud::HudAlignment::Right);
+            self->UpdateHudControls();
+            return 0;
+        case kBackgroundFull:
+            self->runtimeControl_.SetHudBackgroundMode(clawhud::HudBackgroundMode::FullWidth);
+            self->UpdateHudControls();
+            return 0;
+        case kBackgroundContent:
+            self->runtimeControl_.SetHudBackgroundMode(clawhud::HudBackgroundMode::ContentWidth);
+            self->UpdateHudControls();
+            return 0;
         case kHudSizeMinus:
-            self->app_.SetHudSizeOffset(self->app_.HudSizeOffset() - 1);
+            self->runtimeControl_.SetHudSizeOffset(
+                self->runtimeControl_.GetSettingsSnapshot().hudSizeOffset - 1);
             self->UpdateHudControls();
             return 0;
         case kHudSizePlus:
-            self->app_.SetHudSizeOffset(self->app_.HudSizeOffset() + 1);
+            self->runtimeControl_.SetHudSizeOffset(
+                self->runtimeControl_.GetSettingsSnapshot().hudSizeOffset + 1);
             self->UpdateHudControls();
             return 0;
-        case kIntelVrrToggle: self->app_.SetIntelVrrRangeFixEnabled(SendMessageW(self->intelVrrToggle_, BM_GETCHECK, 0, 0) == BST_CHECKED); return 0;
+        case kIntelVrrToggle: self->runtimeControl_.SetIntelVrrRangeFixEnabled(SendMessageW(self->intelVrrToggle_, BM_GETCHECK, 0, 0) == BST_CHECKED); return 0;
         default: break;
         }
     }
@@ -463,8 +488,11 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
             clawhud::kHudOpacityMinimumPercent;
         position = static_cast<int>(clawhud::ClampHudOpacityPercent(position));
         SendMessageW(self->opacitySlider_, TBM_SETPOS, TRUE, position);
-        const bool persist = LOWORD(wParam) != TB_THUMBTRACK;
-        self->app_.SetHudOpacity(position / 100.0f, persist);
+        const float opacity = position / 100.0f;
+        if (LOWORD(wParam) == TB_THUMBTRACK)
+            self->runtimeControl_.PreviewHudOpacity(opacity);
+        else
+            self->runtimeControl_.CommitHudOpacity(opacity);
         self->UpdateHudControls();
         return 0;
     }
@@ -526,7 +554,8 @@ LRESULT CALLBACK SettingsWindow::WindowProc(HWND window, UINT message, WPARAM wP
         }
         self->window_ = nullptr;
         self->tabs_ = nullptr;
-        self->app_.PostSettingsDestroyed();
+        if (self->onDestroyed_)
+            self->onDestroyed_();
     }
     return DefWindowProcW(window, message, wParam, lParam);
 }

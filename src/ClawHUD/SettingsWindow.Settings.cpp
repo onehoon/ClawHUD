@@ -1,7 +1,7 @@
 #include "SettingsWindow.h"
 #include "SettingsWindowInternal.h"
 
-#include "App.h"
+#include "RuntimeControl.h"
 #include "HudSize.h"
 
 #include <commctrl.h>
@@ -172,12 +172,14 @@ void SettingsWindow::UpdateGeneralControls()
 {
     if (startWithWindows_)
         SendMessageW(startWithWindows_, BM_SETCHECK,
-            app_.StartWithWindows() ? BST_CHECKED : BST_UNCHECKED, 0);
+            runtimeControl_.GetSettingsSnapshot().startWithWindows
+                ? BST_CHECKED : BST_UNCHECKED, 0);
 }
 
 void SettingsWindow::UpdateHudControls()
 {
-    const auto& options = app_.HudOptions();
+    const auto snapshot = runtimeControl_.GetSettingsSnapshot();
+    const auto& options = snapshot.hudOptions;
     if (alignmentLeft_) SendMessageW(alignmentLeft_, BM_SETCHECK,
         options.alignment == clawhud::HudAlignment::Left ? BST_CHECKED : BST_UNCHECKED, 0);
     if (alignmentCenter_) SendMessageW(alignmentCenter_, BM_SETCHECK,
@@ -185,11 +187,11 @@ void SettingsWindow::UpdateHudControls()
     if (alignmentRight_) SendMessageW(alignmentRight_, BM_SETCHECK,
         options.alignment == clawhud::HudAlignment::Right ? BST_CHECKED : BST_UNCHECKED, 0);
     if (fontUnispace_) SendMessageW(fontUnispace_, BM_SETCHECK,
-        app_.HudFont() == clawhud::HudFont::Unispace ? BST_CHECKED : BST_UNCHECKED, 0);
+        snapshot.hudFont == clawhud::HudFont::Unispace ? BST_CHECKED : BST_UNCHECKED, 0);
     if (fontSegoeUiVariable_) SendMessageW(fontSegoeUiVariable_, BM_SETCHECK,
-        app_.HudFont() == clawhud::HudFont::SegoeUiVariable ? BST_CHECKED : BST_UNCHECKED, 0);
+        snapshot.hudFont == clawhud::HudFont::SegoeUiVariable ? BST_CHECKED : BST_UNCHECKED, 0);
     if (enableHud_) SendMessageW(enableHud_, BM_SETCHECK,
-        app_.HudEnabled() ? BST_CHECKED : BST_UNCHECKED, 0);
+        snapshot.hudEnabled ? BST_CHECKED : BST_UNCHECKED, 0);
     if (visibilityAlways_) SendMessageW(visibilityAlways_, BM_SETCHECK,
         options.visibilityMode == clawhud::HudVisibilityMode::Always ? BST_CHECKED : BST_UNCHECKED, 0);
     if (visibilityInGameOnly_) SendMessageW(visibilityInGameOnly_, BM_SETCHECK,
@@ -207,7 +209,7 @@ void SettingsWindow::UpdateHudControls()
         swprintf_s(text, L"%d%%", percent);
         SetWindowTextW(opacityLabel_, text);
     }
-    const int size = app_.HudSizeOffset();
+    const int size = snapshot.hudSizeOffset;
     if (hudSizeValue_)
     {
         const wchar_t* text = size == 0 ? L"Default" :

@@ -2,14 +2,19 @@
 
 #include <windows.h>
 
+#include <functional>
 #include <string>
 
-class App;
+namespace clawhud
+{
+class IRuntimeControl;
+}
 
 class SettingsWindow
 {
 public:
-    explicit SettingsWindow(App& app);
+    SettingsWindow(clawhud::IRuntimeControl& runtimeControl,
+        std::function<void()> onDestroyed);
     ~SettingsWindow();
 
     bool Show(HINSTANCE instance);
@@ -44,7 +49,8 @@ private:
     int ViewportHeight() const noexcept;
     int& ScrollOffsetForTab(int tab) noexcept;
 
-    App& app_;
+    clawhud::IRuntimeControl& runtimeControl_;
+    std::function<void()> onDestroyed_;
     HINSTANCE instance_{};
     HWND window_{};
     HWND tabs_{};

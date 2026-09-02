@@ -221,6 +221,29 @@ std::optional<clawhud::IntelVrrRunResult> App::IntelVrrLastResult() const
     return clawhud::IntelVrrResultStore::Load();
 }
 
+clawhud::RuntimeSettingsSnapshot App::GetSettingsSnapshot() const
+{
+    clawhud::RuntimeSettingsSnapshot snapshot;
+    snapshot.startWithWindows = startWithWindows_;
+    snapshot.hudEnabled = hudController_.Enabled();
+    snapshot.hudSizeOffset = hudController_.SizeOffset();
+    snapshot.hudFont = hudController_.Font();
+    snapshot.hudOptions = hudController_.Options();
+    snapshot.intelVrrRangeFixEnabled = intelVrrRangeFixEnabled_;
+    snapshot.intelVrrLastResult = IntelVrrLastResult();
+    return snapshot;
+}
+
+bool App::PreviewHudOpacity(float opacity)
+{
+    return SetHudOpacity(opacity, false);
+}
+
+bool App::CommitHudOpacity(float opacity)
+{
+    return SetHudOpacity(opacity, true);
+}
+
 void App::SetStartWithWindows(bool enabled)
 {
     if (startWithWindows_ == enabled)
@@ -409,12 +432,11 @@ void App::SetHudAlignment(clawhud::HudAlignment alignment)
 
 void App::SetHudFont(clawhud::HudFont font)
 {
+    // The Settings frontend refreshes its own controls from the authoritative
+    // snapshot after this call (including the SetFont-failed path), so the
+    // runtime setter no longer reaches back into the Win32 window.
     if (hudController_.SetFont(font))
-    {
         SaveHudSettings();
-        if (settings_)
-            settings_->UpdateHudControls();
-    }
 }
 
 void App::SetHudBackgroundMode(clawhud::HudBackgroundMode mode)
@@ -698,7 +720,9 @@ void App::OpenSettings()
         settings_->Show(instance_);
         return;
     }
-    settings_ = std::make_unique<SettingsWindow>(*this);
+    settings_ = std::make_unique<SettingsWindow>(
+        static_cast<clawhud::IRuntimeControl&>(*this),
+        [this] { PostSettingsDestroyed(); });
     if (!settings_->Show(instance_)) settings_.reset();
 }
 

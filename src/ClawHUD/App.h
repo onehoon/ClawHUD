@@ -8,6 +8,7 @@
 
 #include "TrayIcon.h"
 #include "RuntimeMessageWindow.h"
+#include "RuntimeControl.h"
 #include "HudModel.h"
 #include "GameDetection/GameSessionController.h"
 #include "PresentMonTelemetryProvider.h"
@@ -30,7 +31,7 @@ constexpr int kHudToggleHotkeyId = 1;
 // App-internal in App.cpp; the numeric values stay globally distinct because
 // they all target the one runtime message window.
 
-class App
+class App : public clawhud::IRuntimeControl
 {
 public:
     explicit App(HINSTANCE instance);
@@ -49,25 +50,24 @@ public:
     // Asynchronous notification that the lazy SettingsWindow's HWND is gone.
     void PostSettingsDestroyed();
 
-    // SettingsWindow facade.
-    bool StartWithWindows() const noexcept { return startWithWindows_; }
-    void SetStartWithWindows(bool enabled);
-    bool HudEnabled() const noexcept { return hudController_.Enabled(); }
-    int HudSizeOffset() const noexcept { return hudController_.SizeOffset(); }
-    bool SetHudEnabled(bool enabled);
-    const clawhud::HudLayoutOptions& HudOptions() const noexcept { return hudController_.Options(); }
-    clawhud::HudFont HudFont() const noexcept { return hudController_.Font(); }
-    void SetHudAlignment(clawhud::HudAlignment alignment);
-    void SetHudFont(clawhud::HudFont font);
-    void SetHudBackgroundMode(clawhud::HudBackgroundMode mode);
-    bool SetHudOpacity(float opacity, bool persist = true);
-    void SetHudSizeOffset(int offset);
-    void SetHudVisibilityMode(clawhud::HudVisibilityMode mode);
-    bool IntelVrrRangeFixEnabled() const noexcept { return intelVrrRangeFixEnabled_; }
-    void SetIntelVrrRangeFixEnabled(bool enabled);
-    std::optional<clawhud::IntelVrrRunResult> IntelVrrLastResult() const;
+    // clawhud::IRuntimeControl — the semantic control boundary the legacy Win32
+    // Settings frontend (and future frontends) use. App stays the implementation
+    // authority; these delegate to the existing product methods below.
+    clawhud::RuntimeSettingsSnapshot GetSettingsSnapshot() const override;
+    void SetStartWithWindows(bool enabled) override;
+    bool SetHudEnabled(bool enabled) override;
+    void SetHudVisibilityMode(clawhud::HudVisibilityMode mode) override;
+    void SetHudSizeOffset(int offset) override;
+    void SetHudFont(clawhud::HudFont font) override;
+    void SetHudAlignment(clawhud::HudAlignment alignment) override;
+    void SetHudBackgroundMode(clawhud::HudBackgroundMode mode) override;
+    bool PreviewHudOpacity(float opacity) override;
+    bool CommitHudOpacity(float opacity) override;
+    void SetIntelVrrRangeFixEnabled(bool enabled) override;
 
 private:
+    std::optional<clawhud::IntelVrrRunResult> IntelVrrLastResult() const;
+    bool SetHudOpacity(float opacity, bool persist);
     bool AcquireSingleInstance();
     void CheckForUpdates();
     int ProcessMessages();
