@@ -535,6 +535,12 @@ std::optional<std::vector<std::uint8_t>> EncodeControlResponse(const ControlResp
     if (!IsKnownStatus(static_cast<std::uint32_t>(response.status))) return std::nullopt;
 
     const bool knownOperation = IsKnownOperation(response.operationId);
+    // Operation/status pairing must match what DecodeControlResponse accepts:
+    // an unknown raw operation id is only legal on an UnknownOperation error.
+    if (!knownOperation && response.status != ControlStatus::UnknownOperation)
+        return std::nullopt;
+    if (response.status == ControlStatus::Ok && !knownOperation) return std::nullopt;
+
     const bool wantsRuntimeInfo = response.status == ControlStatus::Ok &&
         response.operationId == static_cast<std::uint16_t>(Operation::GetRuntimeInfo);
     const bool wantsSnapshot = response.status == ControlStatus::Ok && knownOperation &&
@@ -547,8 +553,7 @@ std::optional<std::vector<std::uint8_t>> EncodeControlResponse(const ControlResp
     std::vector<std::uint8_t> payload;
     if (response.status == ControlStatus::Ok)
     {
-        // A successful response must name a known v1 operation.
-        if (!knownOperation) return std::nullopt;
+        // knownOperation is guaranteed here by the pairing check above.
         const auto operation = static_cast<Operation>(response.operationId);
         if (operation == Operation::GetRuntimeInfo)
         {

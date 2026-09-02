@@ -575,6 +575,15 @@ void VersionSkewCorrelation()
     Check(!EncodeControlResponse(bogusOk).has_value(),
         "Ok response with an unknown operation is refused");
 
+    // An unknown operation paired with a non-UnknownOperation error is refused
+    // by the encoder (the decoder would classify that exact frame InvalidFrame).
+    ControlResponse invalidPair;
+    invalidPair.operationId = kFutureOperation;
+    invalidPair.requestId = 42;
+    invalidPair.status = ControlStatus::OperationFailed;
+    Check(!EncodeControlResponse(invalidPair).has_value(),
+        "unknown operation + non-UnknownOperation error is refused");
+
     // A non-UnknownOperation status paired with an unknown operation is a
     // malformed frame on decode.
     Bytes badPair = errorFrame.value();
@@ -676,6 +685,84 @@ void EncoderRejectsInvalidResponseDtos()
             "well-formed error response round-trips");
     }
 }
+
+// Invariant: every frame EncodeControlResponse returns decodes cleanly.
+void EveryEncodedResponseRoundTrips()
+{
+    WireRuntimeInfo info;
+    info.applicationVersion = "9.9.9";
+    info.minimumProtocolVersion = 1;
+    info.maximumProtocolVersion = 1;
+    info.launchMode = static_cast<std::uint8_t>(WireLaunchMode::Managed);
+    info.runtimeState = static_cast<std::uint8_t>(WireRuntimeState::Starting);
+
+    std::vector<ControlResponse> matrix;
+
+    // GetRuntimeInfo Ok.
+    {
+        ControlResponse r;
+        r.operationId = static_cast<std::uint16_t>(Operation::GetRuntimeInfo);
+        r.requestId = 1;
+        r.status = ControlStatus::Ok;
+        r.runtimeInfo = info;
+        matrix.push_back(r);
+    }
+    // Every snapshot-carrying Ok response.
+    for (Operation op : {Operation::GetSettingsSnapshot, Operation::SetStartWithWindows,
+             Operation::SetHudEnabled, Operation::SetHudVisibilityMode,
+             Operation::SetHudSizeOffset, Operation::SetHudFont, Operation::SetHudAlignment,
+             Operation::SetHudBackgroundMode, Operation::PreviewHudOpacity,
+             Operation::CommitHudOpacity, Operation::SetIntelVrrRangeFixEnabled})
+    {
+        ControlResponse r;
+        r.operationId = static_cast<std::uint16_t>(op);
+        r.requestId = 2;
+        r.status = ControlStatus::Ok;
+        r.snapshot = SampleSnapshot();
+        matrix.push_back(r);
+    }
+    // RequestShutdown Ok (empty).
+    {
+        ControlResponse r;
+        r.operationId = static_cast<std::uint16_t>(Operation::RequestShutdown);
+        r.requestId = 3;
+        r.status = ControlStatus::Ok;
+        matrix.push_back(r);
+    }
+    // Every non-Ok error status on a known operation.
+    for (ControlStatus status : {ControlStatus::InvalidFrame, ControlStatus::UnsupportedVersion,
+             ControlStatus::UnknownOperation, ControlStatus::InvalidPayload,
+             ControlStatus::InvalidValue, ControlStatus::RuntimeUnavailable,
+             ControlStatus::OperationFailed, ControlStatus::ShuttingDown})
+    {
+        ControlResponse r;
+        r.operationId = static_cast<std::uint16_t>(Operation::SetHudEnabled);
+        r.requestId = 4;
+        r.status = status;
+        matrix.push_back(r);
+    }
+    // Version-skew: unknown operation + UnknownOperation.
+    {
+        ControlResponse r;
+        r.operationId = 250;
+        r.requestId = 5;
+        r.status = ControlStatus::UnknownOperation;
+        matrix.push_back(r);
+    }
+
+    for (const auto& response : matrix)
+    {
+        const auto frame = EncodeControlResponse(response);
+        Check(frame.has_value(), "matrix response encodes");
+        if (!frame) continue;
+        const auto decoded = DecodeControlResponse(frame.value());
+        Check(decoded.ok, "every encoded response decodes cleanly");
+        Check(decoded.value.operationId == response.operationId &&
+            decoded.value.requestId == response.requestId &&
+            decoded.value.status == response.status,
+            "decoded response identity matches the encoded DTO");
+    }
+}
 }
 
 int main()
@@ -689,6 +776,7 @@ int main()
     RuntimeInfoRoundTrip();
     VersionSkewCorrelation();
     EncoderRejectsInvalidResponseDtos();
+    EveryEncodedResponseRoundTrips();
 
     if (g_failures != 0)
     {
