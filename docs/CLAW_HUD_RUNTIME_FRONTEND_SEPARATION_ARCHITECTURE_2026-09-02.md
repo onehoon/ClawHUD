@@ -2,7 +2,7 @@
 
 > **Decision date:** 2026-09-02  
 > **Status:** Architecture direction selected; implementation not started.  
-> **Scope:** ClawHUD runtime isolation, control IPC, Standalone/Managed launch modes, SteamAddonforClaw integration boundary, and future standalone frontend options.  
+> **Scope:** ClawHUD runtime isolation, Control IPC, Standalone/Managed launch modes, SteamAddonforClaw integration boundary, lifecycle policy, and future standalone frontend options.  
 > **Related document:** `docs/SETTINGS_WINUI3_MIGRATION_HANDOFF_2026-09-02.md`
 
 ---
@@ -11,9 +11,7 @@
 
 The next ClawHUD architecture step is **not a WinUI 3 migration**.
 
-The first priority is to separate the HUD runtime from its user-interface shell and expose a small, stable local control protocol.
-
-The selected direction is:
+The first priority is to separate the HUD runtime from its UI/Tray shell and expose a small, stable local control protocol.
 
 ```text
 ClawHUD.exe
@@ -50,49 +48,37 @@ ClawHUD.exe --managed
     -> controlled through local IPC by an external frontend such as SteamAddonforClaw
 ```
 
-The important architectural decision is therefore:
+The architectural decision is therefore:
 
-> **The HUD runtime and its control contract are the product core. The choice of standalone UI technology is a replaceable frontend decision.**
+> **The HUD runtime and its control contract are the product core. The standalone UI technology is a replaceable frontend decision.**
 
 After this separation, the standalone frontend may remain Win32, move to WPF, move to WinUI 3, or use a browser-based local Web UI without redesigning the HUD runtime.
 
 ---
 
-## 2. Why this decision changed from the earlier WinUI 3 handoff
+## 2. Why this supersedes the earlier WinUI 3 handoff
 
-The previous handoff selected a separate `ClawHUD.Settings.exe` implemented with C++/WinRT + WinUI 3.
+The earlier handoff selected a separate WinUI 3 Settings process because the problem was framed as modernizing the standalone Settings UI.
 
-That recommendation was reasonable when the problem was framed only as:
+The product requirement has since expanded:
 
-```text
-legacy Win32 Settings
-        ->
-modern standalone Settings UI
-```
+- ClawHUD must remain a fully independent, separately installed and separately updated application.
+- SteamAddonforClaw should also be able to control an independently installed ClawHUD from its own HUD page.
+- SteamAddon must not bundle or update ClawHUD.
 
-The product requirement has since expanded.
-
-ClawHUD must remain a fully independent standalone application, while `SteamAddonforClaw` should also be able to control an independently installed ClawHUD from a dedicated HUD page.
-
-The two products remain separately installed and separately updated.
-
-That creates a more important boundary than the UI toolkit boundary:
+That makes the runtime/frontend boundary more important than the UI toolkit boundary.
 
 ```text
                 ClawHUD standalone frontend
                          │
-                         │
                          ▼
-                 stable control contract
+                 stable Control IPC
                          ▲
-                         │
                          │
               SteamAddon HUD frontend
 ```
 
-Once this boundary exists, WinUI 3 is no longer an architectural requirement. It becomes only one possible implementation of the standalone frontend.
-
-Therefore the earlier handoff is **not discarded as technically invalid**. Its UI/process-separation reasoning remains useful, but its implementation sequence is superseded by this document:
+The earlier WinUI 3 handoff is **not technically invalid**. Its process-separation reasoning remains useful. The implementation sequence is simply superseded:
 
 ```text
 OLD PRIORITY
@@ -104,11 +90,12 @@ NEW PRIORITY
 Runtime isolation
 -> stable Control IPC
 -> Standalone / Managed modes
+-> lifecycle policy
 -> SteamAddon integration
 -> choose/replace standalone frontend later
 ```
 
-Do not start the WinUI 3 migration before the runtime/frontend boundary is established.
+Do not begin a WinUI 3 migration before the runtime/frontend boundary is complete.
 
 ---
 
@@ -116,7 +103,7 @@ Do not start the WinUI 3 migration before the runtime/frontend boundary is estab
 
 The large ClawHUD application refactor is already complete.
 
-The current architecture already contains useful runtime owners such as:
+Current runtime owners include:
 
 ```text
 App
@@ -131,7 +118,7 @@ App
 └─ legacy SettingsWindow / Tray shell
 ```
 
-The important point is that this work must **not trigger another broad refactor of the already-separated production domains**.
+This work must **not trigger another broad refactor of the already-separated production domains**.
 
 The current owners remain valid:
 
@@ -143,15 +130,13 @@ The current owners remain valid:
 - `HudSettingsStore` remains the ClawHUD settings persistence authority.
 - diagnostics remain outside the production app in `ClawHUD.Diag`.
 
-The new work is primarily a **shell/control-boundary refactor**, not another telemetry/game-detection/rendering redesign.
+The new work is a **shell/control-boundary refactor**, not another telemetry/game-detection/rendering redesign.
 
 ---
 
-## 4. Product goals
+## 4. Product goals and ownership rules
 
-The architecture must satisfy all of the following at the same time.
-
-### 4.1 ClawHUD remains an independent product
+### 4.1 ClawHUD remains independent
 
 ClawHUD must continue to be:
 
@@ -162,15 +147,9 @@ ClawHUD must continue to be:
 - able to run from Windows startup as a standalone application;
 - the sole owner of its HUD implementation and settings semantics.
 
-SteamAddonforClaw must **not** become ClawHUD's package manager or update authority.
+SteamAddonforClaw must not become ClawHUD's package manager or update authority.
 
-### 4.2 SteamAddonforClaw does not bundle ClawHUD
-
-SteamAddonforClaw must not include a ClawHUD build in its installer or release payload.
-
-The Addon only determines whether ClawHUD is installed.
-
-Conceptually:
+### 4.2 SteamAddon does not bundle ClawHUD
 
 ```text
 ClawHUD not installed
@@ -182,28 +161,15 @@ ClawHUD installed
     -> HUD Integration controls become available
 ```
 
-The exact installation-discovery mechanism belongs to the SteamAddon implementation and is not part of the ClawHUD runtime contract.
+ClawHUD itself never probes for SteamAddon installation.
 
-ClawHUD itself must never inspect whether SteamAddonforClaw is installed.
+### 4.3 HUD integration is independent of existing Addon features
 
-### 4.3 SteamAddon HUD functionality is separate from existing Addon functionality
-
-The HUD integration is intentionally independent from SteamAddon's existing controller/routing/QAM/profile features.
-
-Do not couple ClawHUD runtime state to:
-
-- controller routing;
-- OEM1 behavior;
-- QAM;
-- Steam controller presentation;
-- profile runtime;
-- Center M ownership.
-
-SteamAddon should treat ClawHUD as a separate installed capability that happens to have a frontend inside the same application.
+Do not couple ClawHUD to SteamAddon's controller routing, OEM1, QAM, profile runtime, Steam controller presentation, or Center M ownership.
 
 ### 4.4 One ClawHUD settings authority
 
-ClawHUD remains the authority for:
+ClawHUD remains authoritative for:
 
 - runtime HUD state;
 - settings validation;
@@ -212,7 +178,7 @@ ClawHUD remains the authority for:
 - tweak state;
 - runtime shutdown.
 
-External frontends send commands. They do not own the state.
+External frontends send commands. They do not own the state and do not write `settings.ini` directly.
 
 ---
 
@@ -256,7 +222,7 @@ Standalone frontend       SteamAddonforClaw HUD page
 
 There is only one production HUD implementation.
 
-Both modes use exactly the same:
+Standalone and Managed use exactly the same:
 
 ```text
 HudController
@@ -268,17 +234,13 @@ telemetry decoders
 settings persistence
 ```
 
-`--managed` is **not a second HUD implementation** and must never create a different renderer/presentation path.
+`--managed` is **not a second HUD implementation** and must never create a different renderer or presentation path.
 
 ---
 
 ## 6. Runtime separation boundary
 
-The goal is to make the runtime usable without any knowledge of which frontend is controlling it.
-
-A narrow runtime-facing service/facade should expose the operations that frontends need.
-
-Illustrative responsibility split:
+The runtime must be usable without knowing which frontend controls it.
 
 ```text
 ClawHudRuntime
@@ -307,25 +269,21 @@ StandaloneShell
 
 This should be a **minimal extraction from the current `App` composition root**.
 
-Do not introduce a generic service container, DI framework, plugin system, generic RPC framework, or another deep host hierarchy simply because two frontends will exist.
-
-The objective is a clean product boundary, not abstraction for its own sake.
+Do not introduce a generic service container, DI framework, plugin system, generic RPC framework, or deep host hierarchy merely because two frontends will exist.
 
 ---
 
 ## 7. Launch modes
 
-## 7.1 Standalone is always the default
+### 7.1 Standalone is always the default
 
-A normal user launch remains standalone:
+A normal launch is always:
 
 ```text
 ClawHUD.exe
 ```
 
-No installation probe or SteamAddon detection is involved.
-
-Standalone composition includes:
+Standalone composition:
 
 ```text
 Runtime         ON
@@ -334,11 +292,7 @@ Tray            ON
 Standalone UI   available
 ```
 
-This preserves ClawHUD as an independent application.
-
-### Non-goal
-
-Never implement behavior such as:
+Never implement:
 
 ```text
 if (SteamAddonIsInstalled())
@@ -347,15 +301,13 @@ if (SteamAddonIsInstalled())
 
 ClawHUD does not know or care whether SteamAddon exists.
 
-## 7.2 Managed mode
-
-Managed mode is entered only through an explicit launch argument:
+### 7.2 Managed mode is explicit
 
 ```text
 ClawHUD.exe --managed
 ```
 
-Managed composition is:
+Managed composition:
 
 ```text
 Runtime         ON
@@ -364,94 +316,360 @@ Tray            OFF
 Standalone UI   not automatically opened
 ```
 
-Everything below the shell boundary remains identical to Standalone.
+Managed mode is **not persisted by ClawHUD**. A later ordinary launch always means Standalone unless an external owner explicitly supplies `--managed` again.
 
-The initial Managed-mode implementation should be intentionally narrow. Do not add a different settings store, telemetry pipeline, renderer, logger, PresentMon path, or tweak implementation.
+### 7.3 One runtime per user session
 
-## 7.3 Switching Standalone -> Managed
+Standalone and Managed must never coexist.
 
-When the user enables HUD Integration from SteamAddon:
+A single-runtime mutex/authority should enforce one ClawHUD runtime per user session.
 
-```text
-SteamAddon HUD page
-    ↓
-confirm ClawHUD is installed
-    ↓
-connect to existing ClawHUD Control IPC if present
-    ↓
-if existing process is Standalone:
-    request graceful ClawHUD shutdown
-    wait for bounded process exit
-    launch installed ClawHUD.exe --managed
-    reconnect Control IPC
-
-if ClawHUD is not running:
-    launch installed ClawHUD.exe --managed
-    connect Control IPC
-
-if ClawHUD is already Managed:
-    reuse the existing runtime
-```
-
-Do not implement an in-process hot transition that dynamically destroys the tray and changes ownership in place merely to avoid a restart.
-
-A clean controlled restart is simpler and gives a deterministic composition.
-
-## 7.4 Integration disable
-
-The simple initial policy is:
-
-```text
-Integration OFF
-    -> request shutdown of the Managed ClawHUD runtime
-    -> do not automatically relaunch Standalone
-```
-
-A later direct user launch of `ClawHUD.exe` naturally returns to Standalone because Standalone is always the default.
-
-This avoids hidden mode persistence inside ClawHUD.
-
-Whether SteamAddon also stops a Managed runtime when the entire Addon exits should be decided in the Addon integration work. If Managed mode is bound to Addon ownership, graceful shutdown and unexpected owner-loss behavior must avoid leaving a permanently headless runtime. Do not complicate the first runtime-isolation PR with this policy before the Addon-side lifecycle is implemented.
+A normal `ClawHUD.exe` launch while Managed is already active must **not** replace Managed with Standalone. The second launch simply detects the existing runtime and exits/activates according to the final shell policy.
 
 ---
 
-## 8. Control IPC is the stable integration boundary
+## 8. Managed lifetime and state-transition policy
 
-The most important artifact produced by this refactor is a small versioned control contract.
+This section is a product lifecycle contract, not an implementation detail.
 
-It should work in both Standalone and Managed modes.
+### 8.1 Core lifetime rule
 
-### 8.1 Why the IPC is permanent
+> **Standalone is owned by ClawHUD/the user. Managed is owned by the currently running SteamAddon process that launched or adopted it.**
 
-Unlike the earlier WinUI Settings handoff, this IPC is not merely a temporary Settings-session transport.
+```text
+Standalone
+==========
+Owner: ClawHUD / user
+Started by:
+- direct normal launch
+- ClawHUD Windows startup
+Lifetime:
+- independent of SteamAddon
 
-It is the stable boundary between ClawHUD and any external frontend:
+Managed
+=======
+Owner: currently running SteamAddon process
+Started by:
+- SteamAddon only
+- explicit ClawHUD.exe --managed
+Lifetime:
+- while Integration remains ON
+- AND the owning SteamAddon process remains alive
+```
+
+Managed mode must not be left as a permanently headless orphan after its owner is gone.
+
+### 8.2 Integration OFF -> ON
+
+If no ClawHUD is running:
+
+```text
+Integration ON
+-> launch ClawHUD.exe --managed
+-> connect Control IPC
+```
+
+If Standalone is running:
+
+```text
+Integration ON
+-> connect IPC
+-> verify launch mode = Standalone
+-> RequestShutdown
+-> wait for bounded process exit
+-> launch ClawHUD.exe --managed
+-> reconnect IPC
+```
+
+If Managed is already running under the current owner, reuse it.
+
+Do not hot-switch the shell in place merely to avoid a restart.
+
+### 8.3 Integration ON -> OFF
+
+```text
+Integration OFF
+-> request Managed ClawHUD shutdown
+-> do not automatically relaunch Standalone
+```
+
+`Integration OFF` means the Addon stops managing ClawHUD. It does not mean "start standalone ClawHUD now".
+
+A later ordinary user launch naturally returns to Standalone.
+
+### 8.4 SteamAddon normal exit
+
+If the Addon owns a Managed runtime:
+
+```text
+SteamAddon exit
+-> Managed ClawHUD exits
+```
+
+Do not relaunch Standalone automatically.
+
+### 8.5 SteamAddon crash / kill / abnormal loss
+
+Managed must not remain as a trayless orphan.
+
+The implementation should provide owner-loss cleanup with normal Windows process-lifetime primitives where practical. A Job Object with kill-on-close semantics is one candidate and should be evaluated during implementation rather than assumed blindly.
+
+Required behavioral result:
+
+```text
+owning SteamAddon process disappears
+-> owned Managed ClawHUD terminates
+```
+
+### 8.6 Managed ClawHUD unexpected exit
+
+If:
+
+```text
+SteamAddon alive
+Integration ON
+Managed ClawHUD exits unexpectedly
+```
+
+then the Addon should attempt to restore the requested state by restarting:
+
+```text
+ClawHUD.exe --managed
+```
+
+However, do not create an infinite crash loop.
+
+Use bounded/reasonable restart protection. Repeated fast failures should transition the Addon HUD page into an error/unavailable state until the user retries or conditions change.
+
+A user killing Managed ClawHUD in Task Manager is also an unexpected runtime exit. With Integration still ON, the Addon may restart it. To intentionally stop management, the user should turn Integration OFF.
+
+### 8.7 SteamAddon restart or update
+
+The simple ownership model is preferred over cross-process ownership handoff.
+
+```text
+old Addon instance exits
+-> its Managed ClawHUD exits
+
+new Addon instance starts
+-> Integration ON is read from Addon settings
+-> launch new ClawHUD.exe --managed
+```
+
+A brief HUD gap during Addon update/restart is acceptable and is much simpler than transferring ownership of an existing Managed process between Addon generations.
+
+### 8.8 ClawHUD update/restart while Managed
+
+ClawHUD is separately installed and separately updated, but Managed mode must not accidentally turn into Standalone during an update restart.
+
+Required rule:
+
+> **A Managed ClawHUD update that requires process restart must not autonomously relaunch itself as a normal Standalone instance.**
+
+Preferred behavior:
+
+```text
+Managed ClawHUD update requires restart
+-> Managed process exits cleanly
+-> owning Addon observes the exit/update transition
+-> Addon launches the newly installed ClawHUD.exe --managed
+```
+
+If the existing updater architecture performs an automatic self-restart, the restart must preserve Managed semantics and owner binding. Prefer owner-driven relaunch if it avoids special updater coupling.
+
+The implementation work must inspect the actual Velopack/update lifecycle before choosing the exact mechanism.
+
+### 8.9 Windows shutdown / reboot
+
+No mode persistence is required in ClawHUD.
+
+At shutdown, normal process teardown occurs.
+
+At the next boot, the final mode is derived again from normal startup behavior and Addon settings.
+
+This intentionally makes boot order irrelevant.
+
+#### Integration OFF
+
+ClawHUD behavior depends only on its own `Start with Windows` setting:
+
+| Addon starts | ClawHUD Start with Windows | Final ClawHUD state |
+|---|---:|---|
+| No | Off | Not running |
+| No | On | Standalone |
+| Yes | Off | Not running |
+| Yes | On | Standalone |
+
+#### Integration ON, ClawHUD startup OFF
+
+```text
+Addon starts
+-> no ClawHUD runtime exists
+-> Addon launches Managed
+```
+
+If the Addon itself does not auto-start, no HUD is expected until the Addon is launched.
+
+#### Integration ON, ClawHUD startup ON
+
+Boot order does not change the final state.
+
+If ClawHUD starts first:
+
+```text
+ClawHUD startup -> Standalone
+Addon starts -> detects Standalone
+-> graceful shutdown
+-> launch Managed
+```
+
+If Addon starts first:
+
+```text
+Addon -> launch Managed
+later ClawHUD startup invocation -> sees existing runtime
+-> does not replace Managed
+-> exits
+```
+
+If both start nearly simultaneously, whichever obtains runtime authority first wins temporarily, but Addon reconciliation with Integration ON must converge the final state to Managed.
+
+Do not introduce fixed startup delays merely to control boot order.
+
+### 8.10 ClawHUD `Start with Windows` remains independent
+
+SteamAddon must not rewrite, disable, or restore ClawHUD's own startup preference merely because Integration is enabled.
+
+This avoids ownership problems on:
+
+- Integration disable;
+- Addon uninstall;
+- Addon crash;
+- user preference changes.
+
+A temporary Standalone -> Managed transition during boot is acceptable when both startup mechanisms are enabled.
+
+### 8.11 SteamAddon uninstall while Integration is enabled
+
+Normal Addon uninstall/termination should end the owned Managed runtime.
+
+SteamAddon uninstall must not modify ClawHUD's own startup preference or uninstall/update ClawHUD.
+
+After the Addon is gone:
+
+- if ClawHUD `Start with Windows` is ON, the next boot starts Standalone;
+- if it is OFF, ClawHUD stays stopped until the user launches it.
+
+### 8.12 ClawHUD uninstall while SteamAddon is running
+
+If the installed ClawHUD disappears or its Managed process exits because of uninstall:
+
+```text
+Addon detects runtime loss
+-> re-check ClawHUD installation
+-> installation absent
+-> do NOT enter restart loop
+-> HUD integration controls become unavailable/disabled
+```
+
+The Addon's Integration preference may remain stored as a user preference so a later reinstall can be reconciled, but the runtime state is `Unavailable` until ClawHUD exists again.
+
+### 8.13 Temporary IPC unavailability during startup/restart
+
+IPC absence does not immediately mean the installed product is broken.
+
+During controlled transitions such as:
+
+- Standalone -> Managed restart;
+- Addon restart;
+- ClawHUD update restart;
+- process startup before pipe creation;
+
+there may be a short interval where the pipe is unavailable.
+
+Use bounded connection/retry behavior around known transitions. Do not introduce an always-running polling subsystem merely for this.
+
+Outside a known transition, persistent IPC failure should surface as an unavailable/error state rather than causing uncontrolled process churn.
+
+### 8.14 Manual normal launch while Managed is active
+
+A user may directly launch the ClawHUD shortcut while SteamAddon owns a Managed runtime.
+
+Required result:
+
+```text
+existing runtime = Managed
+normal ClawHUD.exe launched
+-> do not replace Managed
+-> do not create Tray
+-> second process exits/activates according to shell policy
+```
+
+This preserves Managed ownership and the one-runtime invariant.
+
+### 8.15 Lifecycle convergence summary
+
+The desired invariant while SteamAddon is alive is:
+
+```text
+Integration ON
+    -> exactly one ClawHUD runtime
+    -> mode = Managed
+
+Integration OFF
+    -> Addon owns no ClawHUD runtime
+```
+
+The desired invariant without SteamAddon ownership is:
+
+```text
+normal ClawHUD launch/startup
+    -> Standalone
+```
+
+---
+
+## 9. Lifecycle state table
+
+| Situation | Required result |
+|---|---|
+| Normal ClawHUD launch, no runtime | Start Standalone + Tray |
+| `--managed`, no runtime | Start Managed, no Tray |
+| Normal launch while Managed active | Keep Managed; second launch does not replace it |
+| Integration ON, ClawHUD not running | Start Managed |
+| Integration ON, Standalone running | Gracefully stop Standalone, start Managed |
+| Integration OFF, Managed running | Stop Managed; do not start Standalone |
+| Addon exits normally | Owned Managed stops |
+| Addon crashes/is killed | Owned Managed must not remain orphaned |
+| Managed crashes while Addon alive + Integration ON | Bounded restart as Managed |
+| Addon restart/update | Old Managed ends; new Addon starts new Managed if Integration ON |
+| ClawHUD update restart while Managed | Return to Managed through owner-driven/preserved managed restart, never accidental Standalone |
+| Boot: Integration OFF | ClawHUD startup preference alone decides Standalone/not running |
+| Boot: Integration ON + ClawHUD startup OFF | Addon starts Managed when it starts |
+| Boot: Integration ON + ClawHUD startup ON | Any start order converges to Managed while Addon is alive |
+| Addon uninstall | Managed ends; ClawHUD installation/startup preference untouched |
+| ClawHUD uninstall while Addon alive | Stop restart attempts after install re-check; mark integration unavailable |
+| Known restart window with missing IPC | Bounded reconnect/retry |
+| Persistent unexpected IPC failure | Surface unavailable/error; do not churn processes indefinitely |
+
+---
+
+## 10. Control IPC is the stable integration boundary
+
+The Control IPC works in both Standalone and Managed modes and is a permanent product boundary, not merely a temporary Settings-session transport.
 
 ```text
 Standalone native/WPF/WinUI/Web frontend
 SteamAddon HUD page
-future test/diagnostic client if explicitly needed
         ↓
 ClawHUD Control IPC
         ↓
 ClawHUD runtime authority
 ```
 
-### 8.2 Recommended transport
+### 10.1 Recommended transport
 
 Use a local Windows Named Pipe.
-
-Reasons:
-
-- same-machine desktop processes;
-- tiny request volume;
-- no network requirement;
-- appropriate Windows ACL/security model;
-- easy process/session isolation;
-- works from native C++, C#, WPF, WinUI, or another local client;
-- avoids making HTTP part of the external product integration contract.
-
-The exact pipe naming scheme can be finalized during implementation, but it should be discoverable for an independently installed authorized frontend while remaining scoped to the current interactive user/session.
 
 Recommended security properties:
 
@@ -463,9 +681,7 @@ Recommended security properties:
 - strict payload validation;
 - no raw C++ ABI layouts, pointers, `std::string`, or compiler-dependent enums on the wire.
 
-### 8.3 Suggested protocol surface
-
-The first protocol should remain small.
+### 10.2 Suggested protocol surface
 
 #### Runtime information
 
@@ -490,7 +706,7 @@ GetSettingsSnapshot
     -> background width/mode
     -> background opacity
     -> Intel VRR Range Fix enabled
-    -> any other currently public production Settings values
+    -> other public production Settings values
 ```
 
 #### Settings mutations
@@ -507,7 +723,7 @@ CommitHudOpacity
 SetIntelVrrRangeFixEnabled
 ```
 
-If `Start with Windows` remains exposed through an external frontend, keep its semantics explicitly Standalone-oriented and do not make Managed mode secretly own startup registration.
+If `Start with Windows` remains exposed through an external frontend, keep its semantics explicitly Standalone-oriented. Managed mode must not secretly own startup registration.
 
 #### Lifecycle
 
@@ -515,65 +731,39 @@ If `Start with Windows` remains exposed through an external frontend, keep its s
 RequestShutdown
 ```
 
-Do not expose renderer internals, PresentMon commands, EC commands, game-detection internals, or arbitrary file operations merely because the pipe exists.
+Do not expose renderer internals, PresentMon commands, EC commands, game-detection internals, or arbitrary filesystem/helper operations merely because the pipe exists.
 
-### 8.4 Authoritative responses
+### 10.3 Authoritative mutation responses
 
-Mutation responses must report the **authoritative post-mutation state**, not just `success=true`.
+Mutation responses must report the authoritative post-mutation state, not just `success=true`, because existing runtime mutations may reject or roll back an attempted change.
 
-This matters because existing runtime mutations may reject or roll back an attempted change if presentation recreation or another required operation fails.
-
-Conceptually:
-
-```text
-frontend requests opacity/font/etc.
-        ↓
-runtime validates + applies
-        ↓
-runtime persists only when appropriate
-        ↓
-runtime returns current authoritative snapshot/value
-        ↓
-frontend renders what actually happened
-```
-
-### 8.5 Opacity preview / commit semantics must be preserved
-
-The current Win32 Settings implementation distinguishes live slider tracking from persistent commit.
-
-That behavior should survive the protocol boundary:
+### 10.4 Preserve opacity preview / commit
 
 ```text
 SetHudOpacityPreview(value)
     -> update runtime presentation
-    -> do not write settings.ini repeatedly while dragging
+    -> no repeated settings.ini writes while dragging
 
 CommitHudOpacity(value)
-    -> apply authoritative value
+    -> apply authoritative final value
     -> persist final value
 ```
 
-Do not collapse this into continuous disk writes.
+### 10.5 Runtime-originated changes
 
-### 8.6 State changes that originate outside the frontend
-
-Examples include F8 HUD toggling or runtime rollback.
+Examples include F8 HUD toggling or rollback.
 
 The first implementation does not need a generic event bus.
 
 At minimum:
 
-- each mutation response returns authoritative state;
-- a frontend refreshes its snapshot when opened/activated;
-- protocol design leaves room for a narrow future `StateChanged` notification if exact live synchronization is later required.
-
-Do not create a large publish/subscribe subsystem before a real need appears.
+- mutation responses return authoritative state;
+- frontend refreshes on open/activation;
+- protocol leaves room for a narrow future `StateChanged` notification.
 
 ---
 
-## 9. Settings ownership and persistence
-
-ClawHUD remains the only settings authority.
+## 11. Settings ownership and persistence
 
 Current persistence remains conceptually:
 
@@ -581,11 +771,7 @@ Current persistence remains conceptually:
 %LOCALAPPDATA%\ClawHUD\settings.ini
 ```
 
-The important rule is:
-
-> **External frontends must not become independent writers of `settings.ini`.**
-
-Preferred flow:
+External frontends must not become independent writers.
 
 ```text
 Standalone frontend
@@ -596,26 +782,20 @@ Control IPC
         ↓
 ClawHUD runtime settings facade
         ↓
-existing HudController / runtime mutations
+existing runtime mutation
         ↓
 HudSettingsStore
         ↓
 settings.ini
 ```
 
-This avoids duplicating settings semantics in two repositories.
-
-It also means an INI format change does not automatically require SteamAddon to implement the same parser/migration logic.
-
-The cross-product compatibility boundary is the IPC protocol, not the physical settings-file schema.
+The cross-product compatibility boundary is the IPC protocol, not the physical INI schema.
 
 ---
 
-## 10. SteamAddonforClaw integration model
+## 12. SteamAddonforClaw integration model
 
-SteamAddonforClaw and ClawHUD remain independent products.
-
-### 10.1 Distribution
+### 12.1 Distribution
 
 ```text
 ClawHUD installer / updater
@@ -626,18 +806,16 @@ SteamAddon installer / updater
     -> does NOT contain ClawHUD binaries
 ```
 
-The developer may release compatible versions of both projects together, but there is no binary packaging dependency.
+The developer may release compatible versions together, but there is no binary packaging dependency.
 
-### 10.2 Addon HUD page behavior
-
-Conceptual states:
+### 12.2 HUD page states
 
 ```text
 ClawHUD not installed
 ----------------------
 ClawHUD Integration     unavailable
 HUD settings            disabled
-installation guidance   shown by Addon UX
+installation guidance   Addon UX concern
 
 ClawHUD installed
 -----------------
@@ -645,50 +823,36 @@ ClawHUD Integration     available
 
 Integration OFF
 ---------------
-Addon does not manage a ClawHUD runtime
+Addon does not own/manage a ClawHUD runtime
 
 Integration ON
 --------------
-Addon ensures ClawHUD runs as:
-    ClawHUD.exe --managed
+Addon ensures exactly one Managed ClawHUD while it is alive
 Addon HUD page talks to ClawHUD Control IPC
 ```
 
-### 10.3 Compatibility handling
+### 12.3 Compatibility handling
 
-Because the two applications update independently, the first handshake should expose:
+Handshake exposes at least:
 
 ```text
 ClawHUD app version
 Control protocol version
 ```
 
-If an installed ClawHUD is too old/new for the Addon frontend contract, the Addon should disable unsupported controls and present an update/incompatibility state instead of guessing at settings semantics.
+If the installed ClawHUD is incompatible, disable unsupported controls and present an update/incompatibility state rather than guessing at semantics.
 
-Compatibility should be additive where practical:
-
-```text
-Protocol v1
-- baseline settings
-
-Protocol v2
-- baseline commands remain valid
-- new setting/command added
-```
-
-Do not make every ClawHUD UI change require a breaking protocol version.
+Keep protocol evolution additive where practical.
 
 ---
 
-## 11. EC Helper decision
+## 13. EC Helper decision
 
 Shared EC-helper architecture was considered because SteamAddon already has its own MSI helper path.
 
-The current decision is:
+Current decision:
 
-> **Do not merge or share the EC helper as part of the initial Integration work.**
-
-Initial architecture remains:
+> **Do not merge or share the EC helper as part of the initial integration work.**
 
 ```text
 ClawHUD
@@ -700,22 +864,20 @@ SteamAddon
 
 Reasons:
 
-- ClawHUD and SteamAddon are intentionally independent products;
-- their current helper protocols and selector allowlists are not identical;
-- a shared privileged multi-client service would add ownership, recovery, protocol, versioning, and security complexity;
-- no real user-impacting contention has yet been demonstrated that requires this complexity.
+- products remain intentionally independent;
+- protocols/selector allowlists are not identical;
+- a shared privileged multi-client service adds ownership, recovery, security, and versioning complexity;
+- no demonstrated user-impacting contention currently requires it.
 
-If later measurements show real WMI/EC contention, latency, reliability, or duplicate-elevation problems, helper sharing can be designed as a separate project.
-
-Do not preemptively couple the two products through the privileged helper.
+Revisit only if real contention, latency, reliability, or duplicate-elevation problems are observed.
 
 ---
 
-## 12. PresentMon and production HUD path
+## 14. PresentMon and production HUD path
 
 Managed mode must not change the PresentMon architecture.
 
-Both launch modes use the existing production path:
+Both modes use the existing production path:
 
 ```text
 PresentMonRuntimeBootstrap
@@ -725,21 +887,17 @@ ProductionTelemetryController
 GameSessionController / GameRenderVerifier
 ```
 
-If PresentMon runtime prerequisite handling currently lives too close to standalone update/startup callbacks, the launch-shell work may move the **invocation point** so both modes can ensure readiness.
+If prerequisite handling currently lives too close to Standalone update/startup callbacks, the shell refactor may move only the invocation point so both modes can ensure readiness.
 
-That does not justify creating a second telemetry implementation.
-
-The runtime must remain identical after bootstrap.
+Do not create a second telemetry implementation.
 
 ---
 
-## 13. HUD presentation / VRR safety contract
+## 15. HUD presentation / VRR safety contract
 
-This refactor is a shell/control architecture change.
+This work is a shell/control architecture change. It is **not** permission to alter the production HUD presentation contract.
 
-It is **not** permission to alter the production HUD presentation contract.
-
-The following remain non-negotiable and must be preserved exactly:
+The following remain non-negotiable:
 
 - HUD `windowExStyle`;
 - `WS_EX_TRANSPARENT`;
@@ -755,95 +913,51 @@ The following remain non-negotiable and must be preserved exactly:
 
 `Background Opacity` continues to mean background-only opacity.
 
-Do not implement Managed mode, IPC, or future UI work by changing window-wide/visual-wide opacity, activation, hit testing, click-through, topmost, independent flip, or the production presentation path.
-
 Existing regression assertions/tests for these invariants must remain intact.
 
 ---
 
-## 14. Standalone frontend technology is intentionally undecided
+## 16. Standalone frontend technology is intentionally undecided
 
-After runtime isolation, the standalone frontend can be replaced without touching production HUD code.
+After runtime isolation, standalone UI technology is replaceable.
 
-The architecture should support all of the following options.
-
-### 14.1 Keep native Win32
-
-```text
-Standalone Tray
-    -> native Win32 Settings
-    -> runtime control facade / IPC
-```
+### 16.1 Keep native Win32
 
 Advantages:
 
 - no new framework dependency;
-- smallest distribution change;
-- existing UI can be retained temporarily.
+- lowest distribution change;
+- current UI can remain as regression reference.
 
 Disadvantages:
 
 - manual DPI/layout/touch work;
 - higher maintenance cost for modern UI polish.
 
-This remains a valid low-risk option.
-
-### 14.2 WPF frontend
+### 16.2 WPF frontend
 
 ```text
 ClawHUD.UI.exe
     WPF
-        ↓
-Named Pipe
-        ↓
+      ↓ Named Pipe
 ClawHUD.exe
 ```
 
-Advantages:
+Advantages: mature layout/binding and fast settings UI development.  
+Disadvantages: .NET desktop runtime/deployment and visual stack differs from SteamAddon WinUI.
 
-- fast desktop UI development;
-- mature binding/layout controls;
-- easy settings-page implementation;
-- UI process can exit when closed.
+### 16.3 WinUI 3 frontend
 
-Disadvantages:
+The earlier handoff remains a viable frontend option.
 
-- .NET desktop runtime/deployment consideration;
-- visual stack differs from SteamAddon WinUI.
+Advantages: modern Windows 11 visual language, touch/DPI, similar direction to SteamAddon.  
+Disadvantages: Windows App SDK packaging/runtime complexity.
 
-After runtime separation there is no architectural reason to reject WPF solely because the HUD runtime is native C++.
+WinUI 3 is optional, not the architecture itself.
 
-### 14.3 WinUI 3 frontend
+### 16.4 Browser-based local Web UI — reviewed option
 
-The earlier handoff remains a viable frontend option:
-
-```text
-ClawHUD.UI.exe / ClawHUD.Settings.exe
-    WinUI 3
-        ↓
-Named Pipe
-        ↓
-ClawHUD.exe
-```
-
-Advantages:
-
-- modern Windows 11 visual language;
-- good touch/DPI controls;
-- similar visual/tooling direction to SteamAddon.
-
-Disadvantages:
-
-- Windows App SDK packaging/runtime handling;
-- more deployment complexity than a pure native shell.
-
-The major change from the earlier handoff is that WinUI 3 is now **optional**, not the architecture itself.
-
-### 14.4 Browser-based local Web UI — reviewed option
-
-A browser-based standalone Settings frontend was also considered.
-
-Conceptual model:
+A browser-based standalone Settings frontend was explicitly reviewed.
 
 ```text
 ClawHUD.exe Standalone
@@ -857,71 +971,41 @@ http://127.0.0.1:<ephemeral-port>/<random-session>/
 default browser
 ```
 
-Tray -> Settings would open the local Settings page in the user's default browser.
-
-#### Advantages
+Advantages:
 
 - no WPF/WinUI/XAML dependency;
-- no standalone UI executable required if HTML resources are hosted by ClawHUD;
-- browser handles DPI, scrolling, touch, responsive layout, and text rendering;
-- UI can be simple HTML/CSS/JavaScript;
-- easy visual iteration;
-- Settings UI memory largely belongs to the browser instead of the always-running HUD process.
+- browser handles DPI, scrolling, touch, responsive layout;
+- simple HTML/CSS/JavaScript is sufficient for current Settings scope;
+- UI memory largely belongs to the browser.
 
-For the current small Settings surface, a large web framework is unnecessary. Plain HTML/CSS/JavaScript would likely be sufficient.
+Disadvantages:
 
-#### Disadvantages
+- browser tab rather than dedicated app window;
+- local HTTP adds security considerations;
+- loopback/session lifecycle must be implemented.
 
-- Settings opens as a browser tab rather than a dedicated app window;
-- default-browser behavior varies by user environment;
-- local HTTP introduces a separate security surface;
-- localhost CSRF/cross-origin considerations must be handled correctly;
-- a loopback listener and session lifecycle must be implemented;
-- the HTTP API should not accidentally become the cross-application integration contract.
+If chosen later, require at least:
 
-#### Required security if this option is chosen later
+- loopback-only bind;
+- random ephemeral port where practical;
+- unpredictable per-session token/path;
+- token validation on state changes;
+- appropriate Origin/Host checks;
+- no remote interface;
+- finite session lifetime;
+- no arbitrary filesystem/process/helper exposure.
 
-At minimum:
+Even if Web UI is chosen, **Named Pipe remains the external application integration contract**. The Web server is only a Standalone frontend adapter.
 
-- bind only to `127.0.0.1` / loopback;
-- use a random ephemeral port rather than a globally predictable fixed port where practical;
-- issue a cryptographically unpredictable per-session token/path;
-- validate token on state-changing requests;
-- enforce appropriate Origin/Host checks;
-- do not accept remote interfaces;
-- stop or invalidate the Web session when no longer needed;
-- do not expose arbitrary filesystem/process/helper operations.
-
-#### Architectural rule
-
-Even if Web UI is selected later:
-
-> **Named Pipe remains the external application integration contract.**
-
-The Web server is only a Standalone frontend adapter.
-
-Do not require SteamAddon to use localhost HTTP merely because the standalone UI happens to use a browser.
-
-#### Current decision
-
-Web UI is **considered viable but not selected now**.
-
-Runtime separation comes first. After that, Win32/WPF/WinUI3/Web can be compared as independent frontend choices using an already-stable runtime contract.
+Current decision: Web UI is viable but not selected now.
 
 ---
 
-## 15. What happens to the existing Win32 Settings
+## 17. Existing Win32 Settings transition
 
-Do not delete the current Win32 Settings at the start of this work.
-
-It is the regression reference while the runtime boundary is extracted.
-
-Recommended transition:
+Do not delete the current Win32 Settings at the start.
 
 ```text
-Current
-App + Runtime + Tray + Win32 Settings intertwined at shell boundary
-
 Phase 1
 Runtime responsibilities isolated behind a narrow control facade
 Existing Win32 Settings still works
@@ -940,109 +1024,86 @@ Choose standalone frontend technology
     Win32 / WPF / WinUI3 / Web
 
 Phase 5
-Replace/remove legacy Win32 Settings only after the selected frontend reaches parity
+Replace/remove legacy Win32 Settings only after parity
 ```
 
-The existing Settings code should not dictate the new IPC message shape. The protocol should describe product settings semantics rather than Win32 control IDs or page implementation details.
+The protocol must describe product settings semantics, not Win32 control IDs.
 
 ---
 
-## 16. Recommended implementation sequence
+## 18. Recommended implementation sequence
 
 ### Phase RTF-0 — lock regression baseline
 
-Before architectural movement:
-
-- confirm current ClawHUD production tests pass;
+- confirm current production tests pass;
 - preserve HUD presentation/VRR contract tests;
-- preserve settings behavior tests where present;
+- preserve settings behavior;
 - record current Standalone tray/settings behavior;
 - do not change rendering/presentation behavior.
 
 ### Phase RTF-1 — isolate runtime from UI shell
 
-Goal:
-
-> runtime code can exist without depending on SettingsWindow/Tray implementation details.
-
-Work:
+Goal: runtime can exist without depending on SettingsWindow/Tray implementation details.
 
 - define a narrow runtime control/settings facade;
 - move shell-only responsibilities out of the runtime-facing layer;
 - keep current production domain controllers intact;
-- keep existing Win32 Settings operational through the new boundary;
-- no Managed mode yet if it would complicate proving behavioral equivalence.
+- keep existing Win32 Settings operational through the new boundary.
 
-Acceptance:
-
-- Standalone behavior is unchanged;
-- current Settings still controls the same authoritative state;
-- HUD/PresentMon/game detection behave identically;
-- VRR tests remain unchanged and passing.
+Acceptance: Standalone behavior remains unchanged and VRR/PresentMon/game detection behavior is identical.
 
 ### Phase RTF-2 — add stable Control IPC
 
-Work:
+- shared protocol definitions;
+- current-user local Named Pipe server;
+- `GetRuntimeInfo`;
+- settings snapshot;
+- field-level settings mutations;
+- opacity preview/commit;
+- graceful `RequestShutdown`;
+- protocol/security tests.
 
-- add shared protocol definitions;
-- add current-user local Named Pipe server;
-- add `GetRuntimeInfo`;
-- add settings snapshot;
-- add field-level settings mutations;
-- preserve opacity preview/commit;
-- add graceful `RequestShutdown`;
-- add protocol/security tests.
-
-Acceptance:
-
-- a small test client can control a running ClawHUD without touching INI directly;
-- invalid frames/versions are rejected safely;
-- runtime remains authoritative.
+Acceptance: a small client can control a running ClawHUD without touching INI directly.
 
 ### Phase RTF-3 — Standalone / Managed launch composition
 
-Work:
-
 - parse explicit `--managed`;
-- default to Standalone for every ordinary launch;
+- default every ordinary launch to Standalone;
 - Standalone creates Tray;
 - Managed does not create Tray;
-- both modes start identical runtime + Control IPC;
-- preserve single-runtime-instance policy;
-- support graceful Standalone -> Managed restart flow.
+- both modes run identical runtime + Control IPC;
+- preserve single-runtime policy;
+- implement deterministic Standalone -> Managed restart flow;
+- ensure normal launch cannot displace an active Managed runtime.
 
-Acceptance:
+### Phase RTF-4 — Managed lifecycle ownership
 
-```text
-ClawHUD.exe
-    -> Standalone + Tray
+- define/implement owner binding from SteamAddon to Managed ClawHUD;
+- normal Addon exit ends Managed;
+- owner-loss cleanup prevents orphaned headless runtime;
+- Managed unexpected exit can be restarted with crash-loop protection;
+- Addon restart/update uses terminate-and-recreate, not ownership handoff;
+- inspect ClawHUD updater behavior and preserve Managed semantics across update-required restart;
+- verify boot-order convergence with both startup options;
+- verify uninstall and temporary IPC-unavailability cases.
 
-ClawHUD.exe --managed
-    -> same HUD runtime
-    -> no Tray
-```
+### Phase RTF-5 — SteamAddon HUD integration
 
-HUD presentation output and game/telemetry behavior must be identical between modes.
+Primarily SteamAddon repository work:
 
-### Phase RTF-4 — SteamAddon integration
-
-This phase belongs primarily to the SteamAddon repository.
-
-Work conceptually:
-
-- determine whether ClawHUD is installed;
-- disable HUD integration controls if absent;
-- connect and read protocol/runtime version if present;
-- Integration ON performs graceful restart into `--managed` when needed;
-- expose HUD controls through the Addon HUD page;
-- send settings commands over ClawHUD Control IPC;
-- do not parse/write ClawHUD INI directly;
+- detect installed ClawHUD;
+- disable integration controls if absent;
+- read protocol/runtime version if present;
+- Integration ON reconciles to Managed;
+- Integration OFF releases/stops Managed ownership;
+- HUD page uses ClawHUD Control IPC;
+- do not parse/write ClawHUD INI;
 - do not bundle/update ClawHUD;
-- handle protocol incompatibility explicitly.
+- handle incompatibility and not-installed states explicitly.
 
-### Phase RTF-5 — choose standalone frontend
+### Phase RTF-6 — choose standalone frontend
 
-Only after the above is proven, compare:
+Only after the runtime boundary is proven, compare:
 
 ```text
 keep Win32
@@ -1051,13 +1112,13 @@ WinUI 3
 browser Web UI
 ```
 
-The choice should be based on UX, packaging, maintenance, memory, and development effort—not on runtime architecture constraints.
+Choose based on UX, packaging, maintenance, memory, and development effort—not runtime architecture constraints.
 
 ---
 
-## 17. Explicit non-goals
+## 19. Explicit non-goals
 
-The first runtime separation work must **not** include:
+The initial separation work must not include:
 
 - rewriting HUD renderer/presentation;
 - changing the VRR presentation contract;
@@ -1071,26 +1132,36 @@ The first runtime separation work must **not** include:
 - replacing all existing Settings UI in the first runtime refactor;
 - selecting WinUI3/WPF/Web before the runtime boundary is proven;
 - introducing a generic service/DI/plugin/RPC framework;
-- turning localhost HTTP into the cross-product integration API.
+- turning localhost HTTP into the cross-product integration API;
+- adding fixed boot delays to force launch ordering;
+- persisting Managed mode in ClawHUD;
+- implementing cross-generation Addon ownership handoff unless a real requirement later demands it.
 
 ---
 
-## 18. Key design rules for future PRs
+## 20. Key design rules for future PRs
 
-1. **Standalone is the default.** `ClawHUD.exe` without an explicit integration argument always behaves as the independent product.
-2. **Managed mode is explicit.** Only `--managed` suppresses the ClawHUD Tray for external management.
-3. **One runtime implementation.** Standalone and Managed use the same production HUD, telemetry, game detection, settings, tweaks, and PresentMon code.
-4. **ClawHUD owns settings.** Frontends never become independent `settings.ini` authorities.
-5. **Named Pipe is the app-integration boundary.** UI technology may change without changing the runtime architecture.
-6. **SteamAddon does not distribute ClawHUD.** Installation/update lifecycle remains separate.
-7. **No SteamAddon knowledge in ClawHUD.** ClawHUD only knows Standalone vs explicit Managed launch mode.
-8. **Do not prematurely share EC helpers.** Revisit only after a real runtime problem is demonstrated.
-9. **Frontend technology is replaceable.** Win32, WPF, WinUI3, and Web UI remain valid post-separation options.
-10. **VRR-critical presentation is untouched.** Integration/UI work must remain above the renderer/presentation contract.
+1. **Standalone is the default.** Ordinary `ClawHUD.exe` always means the independent product.
+2. **Managed is explicit and not persisted.** Only `--managed` creates the no-Tray externally owned composition.
+3. **One runtime implementation.** Standalone and Managed use the same HUD, telemetry, game detection, settings, tweaks, and PresentMon code.
+4. **One runtime per user session.** Normal launches never displace an already-owned Managed runtime.
+5. **Managed lifetime follows its Addon owner.** Owner exit/loss must not leave a permanent headless ClawHUD.
+6. **Integration ON converges to Managed while Addon is alive.** Boot order is irrelevant; no fixed delays.
+7. **Integration OFF ends Addon ownership.** Stop Managed; do not auto-launch Standalone.
+8. **Managed crashes may be recovered only with bounded restart protection.** No infinite loops.
+9. **ClawHUD updates must preserve Managed semantics.** Never accidentally self-restart into Standalone while externally owned.
+10. **ClawHUD startup preference remains independent.** SteamAddon does not rewrite/restore it.
+11. **ClawHUD owns settings.** Frontends never become independent INI authorities.
+12. **Named Pipe is the app-integration boundary.** UI technology may change without changing runtime architecture.
+13. **SteamAddon does not distribute ClawHUD.** Installation/update lifecycle remains separate.
+14. **No SteamAddon knowledge in ClawHUD.** ClawHUD only knows Standalone vs explicit Managed launch mode.
+15. **Do not prematurely share EC helpers.** Revisit only after a real runtime problem is demonstrated.
+16. **Frontend technology is replaceable.** Win32, WPF, WinUI3, and Web remain valid post-separation options.
+17. **VRR-critical presentation is untouched.** Integration/UI work stays above the renderer/presentation contract.
 
 ---
 
-## 19. Final architecture summary
+## 21. Final architecture and lifetime summary
 
 ```text
                          ClawHUD INSTALL
@@ -1102,6 +1173,8 @@ The first runtime separation work must **not** include:
               │                     │
         Standalone mode        Managed mode
          (default)             (--managed)
+              │                     │
+     owner=user/ClawHUD       owner=SteamAddon
               │                     │
            Tray ON                Tray OFF
               │                     │
@@ -1127,8 +1200,22 @@ The first runtime separation work must **not** include:
      WinUI3 / Web
 ```
 
-The immediate development objective is therefore:
+Lifecycle invariant:
 
-> **Separate ClawHUD runtime from the UI/Tray shell first, add a stable Control IPC, and introduce an explicit Managed no-Tray mode. Do not commit to a standalone UI framework until that boundary is complete and proven.**
+```text
+SteamAddon alive + Integration ON
+    -> exactly one ClawHUD runtime
+    -> Managed
+    -> no Tray
+    -> owner loss ends Managed
 
-This gives ClawHUD a durable architecture for both independent Standalone use and SteamAddon integration while keeping the production HUD/VRR path single, native, and unchanged.
+No SteamAddon ownership
+    -> normal launch/startup = Standalone
+    -> mode is never persisted by ClawHUD
+```
+
+The immediate development objective is:
+
+> **Separate ClawHUD runtime from the UI/Tray shell, add stable Control IPC, introduce explicit Standalone/Managed composition, and then implement the owner-bound lifecycle before any standalone UI framework migration.**
+
+This gives ClawHUD a durable architecture for independent Standalone use and SteamAddon integration while keeping the production HUD/VRR path single, native, and unchanged.
