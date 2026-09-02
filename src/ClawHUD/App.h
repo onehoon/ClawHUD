@@ -10,6 +10,7 @@
 #include "RuntimeMessageWindow.h"
 #include "RuntimeControl.h"
 #include "RuntimeControlDispatchBridge.h"
+#include "RuntimeControlPipeServer.h"
 #include "HudModel.h"
 #include "GameDetection/GameSessionController.h"
 #include "PresentMonTelemetryProvider.h"
@@ -113,6 +114,10 @@ private:
     // thread and runs them through the IRuntimeControl path. Started near the
     // end of Run(); stopped first in StopRuntimeSources(). No transport here.
     clawhud::RuntimeControlDispatchBridge runtimeControlBridge_;
+    // Secure read-only Named Pipe transport (GetRuntimeInfo /
+    // GetSettingsSnapshot only). Forwards read-only requests to the bridge;
+    // stopped right after the bridge in StopRuntimeSources().
+    clawhud::RuntimeControlPipeServer runtimeControlPipeServer_;
     // Owns HUD user state + the existing concrete HudPresentation object and
     // every Initialize / Render / Show / Hide / Shutdown call site. Presentation
     // stays lazily allocated.

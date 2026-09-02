@@ -85,7 +85,10 @@ App::~App()
 
 void App::StopRuntimeSources()
 {
+    // Bridge first so a pipe worker waiting in Dispatch() is released with
+    // ShuttingDown before we join the pipe worker (both run on this thread).
     runtimeControlBridge_.Stop();
+    runtimeControlPipeServer_.Stop();
     CancelResumeRecovery();
     StopProductionSampling(false, L"app-shutdown");
     productionTelemetry_.StopGraphicsApiProbe();
@@ -222,6 +225,13 @@ int App::Run()
             metadata.applicationVersion = CLAWHUD_VERSION_UTF8;
             return clawhud::ExecuteRuntimeControlRequest(request, *this, metadata);
         });
+    if (!runtimeControlPipeServer_.Start(
+            [this](const clawhud::control::ControlRequest& request)
+            {
+                return runtimeControlBridge_.Dispatch(request);
+            }))
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
+            L"Control pipe server did not start; continuing without external Control IPC");
     return ProcessMessages();
 }
 
