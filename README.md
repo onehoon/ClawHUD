@@ -5,13 +5,13 @@
 
 ClawHUD is a lightweight performance HUD built specifically for supported **MSI Claw** handhelds on **Windows 11**.
 
-It displays FPS, CPU/GPU telemetry, memory usage, fan speed, power, and battery information without injecting into games or hooking their rendering pipeline. The production HUD is designed around preserving **VRR**, **Intel XeFG**, and **OptiScaler** compatibility.
+It displays FPS, CPU/GPU telemetry, memory usage, fan speed, power, and battery information without injecting into games or hooking their rendering pipeline. The production HUD is designed around preserving **VRR** compatibility.
 
 ---
 
 ## Supported devices
 
-ClawHUD currently supports only the following MSI Claw board IDs:
+ClawHUD currently supports only the following MSI Claw model:
 
 | Device | Board ID |
 | --- | --- |
