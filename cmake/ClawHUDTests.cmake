@@ -10,6 +10,14 @@
     set_target_properties(ClawHUD.HudModelTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.HudModelTests COMMAND ClawHUD.HudModelTests)
 
+    add_executable(ClawHUD.ControlProtocolTests
+        tests/ClawHudControlCodecTests.cpp
+        src/shared/ClawHudControlCodec.cpp)
+    target_compile_features(ClawHUD.ControlProtocolTests PRIVATE cxx_std_20)
+    target_include_directories(ClawHUD.ControlProtocolTests PRIVATE src/shared)
+    set_target_properties(ClawHUD.ControlProtocolTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.ControlProtocolTests COMMAND ClawHUD.ControlProtocolTests)
+
     add_executable(ClawHUD.RuntimeLoggerTests
         tests/RuntimeLoggerTests.cpp
         src/ClawHUD/RuntimeLogger.cpp)
