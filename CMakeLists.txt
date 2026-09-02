@@ -63,6 +63,8 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/App.cpp
     src/ClawHUD/RuntimeControlDispatchBridge.cpp
     src/ClawHUD/RuntimeControlWireMapping.cpp
+    src/ClawHUD/RuntimeControlPipeServer.cpp
+    src/ClawHUD/RuntimeControlPipeSecurity.cpp
     src/shared/ClawHudControlCodec.cpp
     src/ClawHUD/ProductionTelemetryController.cpp
     src/ClawHUD/HudController.cpp

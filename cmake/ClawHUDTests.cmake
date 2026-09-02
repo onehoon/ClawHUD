@@ -31,6 +31,22 @@
     set_target_properties(ClawHUD.RuntimeControlDispatchTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.RuntimeControlDispatchTests COMMAND ClawHUD.RuntimeControlDispatchTests)
 
+    add_executable(ClawHUD.RuntimeControlPipeServerTests
+        tests/RuntimeControlPipeServerTests.cpp
+        src/ClawHUD/RuntimeControlPipeServer.cpp
+        src/ClawHUD/RuntimeControlPipeSecurity.cpp
+        src/ClawHUD/RuntimeControlDispatchBridge.cpp
+        src/ClawHUD/RuntimeLogger.cpp
+        src/shared/ClawHudControlCodec.cpp)
+    target_compile_features(ClawHUD.RuntimeControlPipeServerTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.RuntimeControlPipeServerTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX CLAWHUD_RUNTIME_LOGGER_TESTS)
+    target_include_directories(ClawHUD.RuntimeControlPipeServerTests PRIVATE src/ClawHUD src/shared)
+    target_link_libraries(ClawHUD.RuntimeControlPipeServerTests PRIVATE advapi32 shell32 ole32)
+    set_target_properties(ClawHUD.RuntimeControlPipeServerTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.RuntimeControlPipeServerTests COMMAND ClawHUD.RuntimeControlPipeServerTests)
+    set_tests_properties(ClawHUD.RuntimeControlPipeServerTests PROPERTIES TIMEOUT 60)
+
     add_executable(ClawHUD.RuntimeLoggerTests
         tests/RuntimeLoggerTests.cpp
         src/ClawHUD/RuntimeLogger.cpp)
