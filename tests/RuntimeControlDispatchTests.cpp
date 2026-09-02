@@ -141,13 +141,13 @@ struct Harness
 
     // Runs the request from a worker thread while this thread acts as the
     // message loop, draining until the worker's Dispatch() has returned.
-    ctl::ControlResponse FromWorker(const ctl::ControlRequest& request)
+    clawhud::RuntimeControlExecutionResult FromWorkerResult(const ctl::ControlRequest& request)
     {
-        ctl::ControlResponse response;
+        clawhud::RuntimeControlExecutionResult result;
         std::atomic<bool> done{false};
         std::thread worker([&]
         {
-            response = bridge.Dispatch(request);
+            result = bridge.Dispatch(request);
             done = true;
         });
         while (!done.load())
@@ -156,7 +156,12 @@ struct Harness
             std::this_thread::yield();
         }
         worker.join();
-        return response;
+        return result;
+    }
+
+    ctl::ControlResponse FromWorker(const ctl::ControlRequest& request)
+    {
+        return FromWorkerResult(request).response;
     }
 };
 
@@ -360,17 +365,23 @@ void RuntimeInfo()
     }
 }
 
-// ---- 19.7 RequestShutdown disabled --------------------------
+// ---- 17.1 RequestShutdown approval (Ok + shutdownAfterResponse) --------
 
-void RequestShutdownDisabled()
+void RequestShutdownApproval()
 {
     Harness h;
-    std::atomic<bool> exitCalled{false};
-    // No exit callback is wired into the bridge at all in CH-RTF-5.
-    const auto response = h.FromWorker(Request(ctl::Operation::RequestShutdown));
-    Check(response.status == ctl::ControlStatus::RuntimeUnavailable,
-        "RequestShutdown returns RuntimeUnavailable in CH-RTF-5");
-    Check(!exitCalled.load(), "RequestShutdown does not trigger any exit");
+    const auto result = h.FromWorkerResult(Request(ctl::Operation::RequestShutdown, 7));
+    Check(result.response.status == ctl::ControlStatus::Ok,
+        "RequestShutdown is approved with Ok");
+    Check(result.response.requestId == 7, "RequestShutdown requestId preserved");
+    Check(!result.response.snapshot.has_value() && !result.response.runtimeInfo.has_value(),
+        "RequestShutdown response payload is empty");
+    Check(result.shutdownAfterResponse, "RequestShutdown arms shutdownAfterResponse");
+    // The bridge/mapping never invokes any exit; that is the pipe server's job.
+
+    // Every non-shutdown operation leaves the flag false.
+    const auto info = h.FromWorkerResult(Request(ctl::Operation::GetRuntimeInfo));
+    Check(!info.shutdownAfterResponse, "GetRuntimeInfo does not arm shutdown");
 }
 
 // ---- 19.8 shutdown cancellation --------------------------
@@ -387,16 +398,17 @@ void ShutdownCancellation()
         [&](const ctl::ControlRequest& request)
         { return clawhud::ExecuteRuntimeControlRequest(request, fake, Metadata()); });
 
-    ctl::ControlResponse response;
-    std::thread worker([&] { response = bridge.Dispatch(Request(ctl::Operation::GetSettingsSnapshot)); });
+    clawhud::RuntimeControlExecutionResult result;
+    std::thread worker([&] { result = bridge.Dispatch(Request(ctl::Operation::GetSettingsSnapshot)); });
 
     while (!submitted.load())
         std::this_thread::yield();
     bridge.Stop();
     worker.join();
 
-    Check(response.status == ctl::ControlStatus::ShuttingDown,
+    Check(result.response.status == ctl::ControlStatus::ShuttingDown,
         "pending request completes with ShuttingDown when the bridge stops");
+    Check(!result.shutdownAfterResponse, "Stop cancellation does not arm shutdown");
 }
 
 // ---- 19.9 submission after stop ----------------------------
@@ -406,8 +418,8 @@ void SubmissionAfterStop()
     Harness h;
     h.bridge.Stop();
     const int wakesBefore = h.wakeCount.load();
-    const auto response = h.bridge.Dispatch(Request(ctl::Operation::GetSettingsSnapshot));
-    Check(response.status == ctl::ControlStatus::ShuttingDown,
+    const auto result = h.bridge.Dispatch(Request(ctl::Operation::GetSettingsSnapshot));
+    Check(result.response.status == ctl::ControlStatus::ShuttingDown,
         "dispatch after stop returns ShuttingDown immediately");
     Check(h.wakeCount.load() == wakesBefore, "dispatch after stop does not wake the main thread");
     Check(!h.bridge.Accepting(), "bridge is not accepting after stop");
@@ -422,10 +434,10 @@ void WakeFailure()
     // Mimic production: a failed PostMessage means the main loop never drains,
     // so there is no concurrent drain - just the worker and Dispatch's own
     // failure completion.
-    ctl::ControlResponse response;
-    std::thread worker([&] { response = h.bridge.Dispatch(Request(ctl::Operation::GetSettingsSnapshot)); });
+    clawhud::RuntimeControlExecutionResult result;
+    std::thread worker([&] { result = h.bridge.Dispatch(Request(ctl::Operation::GetSettingsSnapshot)); });
     worker.join(); // hangs instead of failing if the waiter never completes
-    Check(response.status == ctl::ControlStatus::RuntimeUnavailable,
+    Check(result.response.status == ctl::ControlStatus::RuntimeUnavailable,
         "a failed wake completes the waiter with RuntimeUnavailable");
     Check(h.fake.snapshotCalls == 0, "a failed wake never reaches the semantic call");
 }
@@ -437,8 +449,8 @@ void SelfDispatch()
     Harness h; // constructed on this thread => this is the registered main thread
     auto r = Request(ctl::Operation::SetHudSizeOffset);
     r.sizeOffset = 1;
-    const auto response = h.bridge.Dispatch(r); // same thread, must not deadlock
-    Check(response.status == ctl::ControlStatus::Ok, "self-dispatch runs synchronously");
+    const auto result = h.bridge.Dispatch(r); // same thread, must not deadlock
+    Check(result.response.status == ctl::ControlStatus::Ok, "self-dispatch runs synchronously");
     Check(h.fake.state.hudSizeOffset == 1, "self-dispatch reached the semantic call");
     Check(h.wakeCount.load() == 0, "self-dispatch does not post a wake message");
 }
@@ -453,7 +465,7 @@ int main()
     OpacityPreviewCommit();
     HudEnableFailure();
     RuntimeInfo();
-    RequestShutdownDisabled();
+    RequestShutdownApproval();
     ShutdownCancellation();
     SubmissionAfterStop();
     WakeFailure();

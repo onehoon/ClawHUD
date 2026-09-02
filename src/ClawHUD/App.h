@@ -37,6 +37,9 @@ constexpr int kHudToggleHotkeyId = 1;
 // the Settings-destroyed message and WM_APP + 2/5/6/7/8/9 are game-session
 // messages, so this sits clear of both.
 constexpr UINT kRuntimeControlDispatchMessage = WM_APP + 11;
+// Posted by the pipe worker after a RequestShutdown response has been delivered;
+// the main-thread handler enters the normal App::Exit() path.
+constexpr UINT kRuntimeControlShutdownReadyMessage = WM_APP + 12;
 
 class App : public clawhud::IRuntimeControl
 {
@@ -59,6 +62,8 @@ public:
 
     // Main-thread wake handler for the runtime-control dispatch bridge.
     void HandleRuntimeControlDispatch();
+    // Main-thread handler for a delivered IPC RequestShutdown; enters Exit().
+    void HandleRuntimeControlShutdownReady();
 
     // clawhud::IRuntimeControl — the semantic control boundary the legacy Win32
     // Settings frontend (and future frontends) use. App stays the implementation

@@ -16,6 +16,7 @@
 #include <thread>
 
 #include "ClawHudControlProtocol.h"
+#include "RuntimeControlExecutionResult.h"
 
 namespace clawhud
 {
@@ -24,7 +25,8 @@ class RuntimeControlDispatchBridge
 public:
     // Executes one validated request on the main thread. Called by App from the
     // main-thread wake handler.
-    using Handler = std::function<control::ControlResponse(const control::ControlRequest&)>;
+    using Handler =
+        std::function<RuntimeControlExecutionResult(const control::ControlRequest&)>;
     // Wakes the main thread (App: PostMessage to the runtime window). Returns
     // false if the wake could not be delivered.
     using WakeCallback = std::function<bool()>;
@@ -46,8 +48,9 @@ public:
     bool Accepting() const;
 
     // Any thread. Blocks until the request is executed on the main thread or
-    // fails deterministically (ShuttingDown / RuntimeUnavailable).
-    control::ControlResponse Dispatch(const control::ControlRequest& request);
+    // fails deterministically (ShuttingDown / RuntimeUnavailable). Terminal
+    // failures always carry shutdownAfterResponse = false.
+    RuntimeControlExecutionResult Dispatch(const control::ControlRequest& request);
 
     // Main thread only. Runs every currently queued request.
     void DrainOnMainThread();
@@ -59,13 +62,13 @@ private:
         std::mutex mutex;
         std::condition_variable done;
         bool completed{};
-        control::ControlResponse response;
+        RuntimeControlExecutionResult result;
     };
 
-    control::ControlResponse TerminalResponse(
+    RuntimeControlExecutionResult TerminalResult(
         const control::ControlRequest& request, control::ControlStatus status) const;
     static void Complete(const std::shared_ptr<Pending>& pending,
-        control::ControlResponse response);
+        RuntimeControlExecutionResult result);
 
     mutable std::mutex mutex_;
     std::deque<std::shared_ptr<Pending>> queue_;

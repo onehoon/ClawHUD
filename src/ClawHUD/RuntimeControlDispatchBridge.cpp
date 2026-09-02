@@ -31,7 +31,7 @@ void RuntimeControlDispatchBridge::Stop()
         pending.swap(queue_);
     }
     for (const auto& request : pending)
-        Complete(request, TerminalResponse(request->request, ctl::ControlStatus::ShuttingDown));
+        Complete(request, TerminalResult(request->request, ctl::ControlStatus::ShuttingDown));
 }
 
 bool RuntimeControlDispatchBridge::Accepting() const
@@ -40,28 +40,30 @@ bool RuntimeControlDispatchBridge::Accepting() const
     return accepting_;
 }
 
-ctl::ControlResponse RuntimeControlDispatchBridge::TerminalResponse(
+RuntimeControlExecutionResult RuntimeControlDispatchBridge::TerminalResult(
     const ctl::ControlRequest& request, ctl::ControlStatus status) const
 {
-    ctl::ControlResponse response;
-    response.operationId = static_cast<std::uint16_t>(request.operation);
-    response.requestId = request.requestId;
-    response.status = status;
-    return response;
+    RuntimeControlExecutionResult result;
+    result.response.operationId = static_cast<std::uint16_t>(request.operation);
+    result.response.requestId = request.requestId;
+    result.response.status = status;
+    result.shutdownAfterResponse = false;
+    return result;
 }
 
 void RuntimeControlDispatchBridge::Complete(const std::shared_ptr<Pending>& pending,
-    ctl::ControlResponse response)
+    RuntimeControlExecutionResult result)
 {
     std::lock_guard<std::mutex> lock(pending->mutex);
     if (pending->completed)
         return;
-    pending->response = std::move(response);
+    pending->result = std::move(result);
     pending->completed = true;
     pending->done.notify_all();
 }
 
-ctl::ControlResponse RuntimeControlDispatchBridge::Dispatch(const ctl::ControlRequest& request)
+RuntimeControlExecutionResult RuntimeControlDispatchBridge::Dispatch(
+    const ctl::ControlRequest& request)
 {
     std::shared_ptr<Pending> pending;
     Handler handler;
@@ -69,7 +71,7 @@ ctl::ControlResponse RuntimeControlDispatchBridge::Dispatch(const ctl::ControlRe
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (!accepting_)
-            return TerminalResponse(request, ctl::ControlStatus::ShuttingDown);
+            return TerminalResult(request, ctl::ControlStatus::ShuttingDown);
 
         if (std::this_thread::get_id() == mainThreadId_)
         {
@@ -88,7 +90,7 @@ ctl::ControlResponse RuntimeControlDispatchBridge::Dispatch(const ctl::ControlRe
 
     if (!pending)
         return handler ? handler(request)
-                       : TerminalResponse(request, ctl::ControlStatus::RuntimeUnavailable);
+                       : TerminalResult(request, ctl::ControlStatus::RuntimeUnavailable);
 
     // Wake outside the lock: the wake callback (or the main thread it releases)
     // may re-enter the bridge.
@@ -99,12 +101,12 @@ ctl::ControlResponse RuntimeControlDispatchBridge::Dispatch(const ctl::ControlRe
             std::lock_guard<std::mutex> lock(mutex_);
             std::erase(queue_, pending);
         }
-        Complete(pending, TerminalResponse(request, ctl::ControlStatus::RuntimeUnavailable));
+        Complete(pending, TerminalResult(request, ctl::ControlStatus::RuntimeUnavailable));
     }
 
     std::unique_lock<std::mutex> lock(pending->mutex);
     pending->done.wait(lock, [&] { return pending->completed; });
-    return pending->response;
+    return pending->result;
 }
 
 void RuntimeControlDispatchBridge::DrainOnMainThread()
@@ -123,10 +125,10 @@ void RuntimeControlDispatchBridge::DrainOnMainThread()
             if (pending->completed)
                 continue;
         }
-        ctl::ControlResponse response = handler
+        RuntimeControlExecutionResult result = handler
             ? handler(pending->request)
-            : TerminalResponse(pending->request, ctl::ControlStatus::RuntimeUnavailable);
-        Complete(pending, std::move(response));
+            : TerminalResult(pending->request, ctl::ControlStatus::RuntimeUnavailable);
+        Complete(pending, std::move(result));
     }
 }
 }

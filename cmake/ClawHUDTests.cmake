@@ -36,6 +36,8 @@
         src/ClawHUD/RuntimeControlPipeServer.cpp
         src/ClawHUD/RuntimeControlPipeSecurity.cpp
         src/ClawHUD/RuntimeControlDispatchBridge.cpp
+        src/ClawHUD/RuntimeControlWireMapping.cpp
+        src/ClawHUD/HudModel.cpp
         src/ClawHUD/RuntimeLogger.cpp
         src/shared/ClawHudControlCodec.cpp)
     target_compile_features(ClawHUD.RuntimeControlPipeServerTests PRIVATE cxx_std_20)
