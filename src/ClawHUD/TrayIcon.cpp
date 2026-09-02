@@ -43,12 +43,6 @@ bool TrayIcon::Create(HINSTANCE instance)
         0, 0, 0, 0, nullptr, nullptr, instance_, this);
     if (!window_) return false;
 
-    suspendResumeNotification_ = RegisterSuspendResumeNotification(
-        window_, DEVICE_NOTIFY_WINDOW_HANDLE);
-    if (!suspendResumeNotification_)
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
-            L"Suspend/resume notification registration failed; recovery may be unavailable");
-
     notifyIcon_.cbSize = sizeof(notifyIcon_);
     notifyIcon_.hWnd = window_;
     notifyIcon_.uID = 1;
@@ -69,11 +63,6 @@ bool TrayIcon::AddIcon()
 
 void TrayIcon::Destroy()
 {
-    if (suspendResumeNotification_)
-    {
-        UnregisterSuspendResumeNotification(suspendResumeNotification_);
-        suspendResumeNotification_ = nullptr;
-    }
     if (created_)
     {
         Shell_NotifyIconW(NIM_DELETE, &notifyIcon_);
@@ -118,37 +107,10 @@ LRESULT CALLBACK TrayIcon::WindowProc(HWND window, UINT message, WPARAM wParam, 
         SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
     }
     if (!self) return DefWindowProcW(window, message, wParam, lParam);
-    if (message == WM_HOTKEY && wParam == kHudToggleHotkeyId)
-    {
-        self->app_.HandleHudToggleHotkey();
-        return 0;
-    }
-    if (message == WM_POWERBROADCAST)
-    {
-        switch (wParam)
-        {
-        case PBT_APMSUSPEND:
-            self->app_.HandleSystemSuspend();
-            break;
-        case PBT_APMRESUMEAUTOMATIC:
-            self->app_.HandleSystemResume();
-            break;
-        case PBT_APMRESUMESUSPEND:
-            break;
-        default:
-            break;
-        }
-        return TRUE;
-    }
     if (message == self->taskbarCreatedMessage_)
     {
         self->created_ = false;
         self->AddIcon();
-        return 0;
-    }
-    if (message == WM_TIMER)
-    {
-        self->app_.HandleTimer(static_cast<UINT_PTR>(wParam));
         return 0;
     }
     if (message == kTrayMessage && lParam == WM_LBUTTONUP)

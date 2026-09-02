@@ -79,6 +79,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/GameDetection/KnownGameProcessCache.cpp
     src/ClawHUD/GameDetection/ForegroundGameDetector.cpp
     src/ClawHUD/TrayIcon.cpp
+    src/ClawHUD/RuntimeMessageWindow.cpp
     src/ClawHUD/SettingsWindow.cpp
     src/ClawHUD/SettingsWindow.Tweaks.cpp
     src/ClawHUD/SettingsWindow.About.cpp
