@@ -9,6 +9,7 @@
 #include "TrayIcon.h"
 #include "RuntimeMessageWindow.h"
 #include "RuntimeControl.h"
+#include "RuntimeControlDispatchBridge.h"
 #include "HudModel.h"
 #include "GameDetection/GameSessionController.h"
 #include "PresentMonTelemetryProvider.h"
@@ -30,6 +31,11 @@ constexpr int kHudToggleHotkeyId = 1;
 // ProductionTelemetryController.h and the resume-recovery timer id (5) is
 // App-internal in App.cpp; the numeric values stay globally distinct because
 // they all target the one runtime message window.
+//
+// Runtime-control dispatch wake-up on the runtime message window. WM_APP + 1 is
+// the Settings-destroyed message and WM_APP + 2/5/6/7/8/9 are game-session
+// messages, so this sits clear of both.
+constexpr UINT kRuntimeControlDispatchMessage = WM_APP + 11;
 
 class App : public clawhud::IRuntimeControl
 {
@@ -49,6 +55,9 @@ public:
 
     // Asynchronous notification that the lazy SettingsWindow's HWND is gone.
     void PostSettingsDestroyed();
+
+    // Main-thread wake handler for the runtime-control dispatch bridge.
+    void HandleRuntimeControlDispatch();
 
     // clawhud::IRuntimeControl — the semantic control boundary the legacy Win32
     // Settings frontend (and future frontends) use. App stays the implementation
@@ -100,6 +109,10 @@ private:
     // runtime component is bound to an HWND.
     RuntimeMessageWindow runtimeMessageWindow_;
     TrayIcon tray_;
+    // Moves validated Control requests from a background producer to this
+    // thread and runs them through the IRuntimeControl path. Started near the
+    // end of Run(); stopped first in StopRuntimeSources(). No transport here.
+    clawhud::RuntimeControlDispatchBridge runtimeControlBridge_;
     // Owns HUD user state + the existing concrete HudPresentation object and
     // every Initialize / Render / Show / Hide / Shutdown call site. Presentation
     // stays lazily allocated.

@@ -18,6 +18,19 @@
     set_target_properties(ClawHUD.ControlProtocolTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.ControlProtocolTests COMMAND ClawHUD.ControlProtocolTests)
 
+    add_executable(ClawHUD.RuntimeControlDispatchTests
+        tests/RuntimeControlDispatchTests.cpp
+        src/ClawHUD/RuntimeControlDispatchBridge.cpp
+        src/ClawHUD/RuntimeControlWireMapping.cpp
+        src/ClawHUD/HudModel.cpp
+        src/shared/ClawHudControlCodec.cpp)
+    target_compile_features(ClawHUD.RuntimeControlDispatchTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.RuntimeControlDispatchTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.RuntimeControlDispatchTests PRIVATE src/ClawHUD src/shared)
+    set_target_properties(ClawHUD.RuntimeControlDispatchTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.RuntimeControlDispatchTests COMMAND ClawHUD.RuntimeControlDispatchTests)
+
     add_executable(ClawHUD.RuntimeLoggerTests
         tests/RuntimeLoggerTests.cpp
         src/ClawHUD/RuntimeLogger.cpp)

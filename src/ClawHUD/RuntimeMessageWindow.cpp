@@ -92,5 +92,10 @@ LRESULT CALLBACK RuntimeMessageWindow::WindowProc(HWND window, UINT message, WPA
         self->app_.HandleTimer(static_cast<UINT_PTR>(wParam));
         return 0;
     }
+    if (message == kRuntimeControlDispatchMessage)
+    {
+        self->app_.HandleRuntimeControlDispatch();
+        return 0;
+    }
     return DefWindowProcW(window, message, wParam, lParam);
 }
