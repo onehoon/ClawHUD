@@ -582,6 +582,100 @@ void VersionSkewCorrelation()
     Check(!DecodeControlResponse(badPair).ok,
         "unknown operation with a non-UnknownOperation status is rejected");
 }
+
+// ---- EncodeControlResponse refuses DTOs the decoder would reject --------
+
+void EncoderRejectsInvalidResponseDtos()
+{
+    const auto snapshotOp = static_cast<std::uint16_t>(Operation::GetSettingsSnapshot);
+    const auto runtimeInfoOp = static_cast<std::uint16_t>(Operation::GetRuntimeInfo);
+    const auto shutdownOp = static_cast<std::uint16_t>(Operation::RequestShutdown);
+
+    WireRuntimeInfo info;
+    info.applicationVersion = "1.0.0";
+    info.minimumProtocolVersion = 1;
+    info.maximumProtocolVersion = 1;
+    info.launchMode = static_cast<std::uint8_t>(WireLaunchMode::Standalone);
+    info.runtimeState = static_cast<std::uint8_t>(WireRuntimeState::Ready);
+
+    // Ok snapshot response with no snapshot payload.
+    {
+        ControlResponse r;
+        r.operationId = snapshotOp;
+        r.requestId = 1;
+        r.status = ControlStatus::Ok;
+        Check(!EncodeControlResponse(r).has_value(),
+            "Ok snapshot response without a snapshot is refused");
+    }
+
+    // Ok snapshot response that also carries runtime info.
+    {
+        ControlResponse r;
+        r.operationId = snapshotOp;
+        r.requestId = 1;
+        r.status = ControlStatus::Ok;
+        r.snapshot = SampleSnapshot();
+        r.runtimeInfo = info;
+        Check(!EncodeControlResponse(r).has_value(),
+            "Ok snapshot response with stray runtime info is refused");
+    }
+
+    // Ok runtime-info response that also carries a snapshot.
+    {
+        ControlResponse r;
+        r.operationId = runtimeInfoOp;
+        r.requestId = 1;
+        r.status = ControlStatus::Ok;
+        r.runtimeInfo = info;
+        r.snapshot = SampleSnapshot();
+        Check(!EncodeControlResponse(r).has_value(),
+            "Ok runtime-info response with a stray snapshot is refused");
+    }
+
+    // Error response carrying a payload optional.
+    {
+        ControlResponse r;
+        r.operationId = snapshotOp;
+        r.requestId = 1;
+        r.status = ControlStatus::OperationFailed;
+        r.snapshot = SampleSnapshot();
+        Check(!EncodeControlResponse(r).has_value(),
+            "error response with a snapshot is refused");
+    }
+
+    // Ok RequestShutdown carrying a payload optional.
+    {
+        ControlResponse r;
+        r.operationId = shutdownOp;
+        r.requestId = 1;
+        r.status = ControlStatus::Ok;
+        r.snapshot = SampleSnapshot();
+        Check(!EncodeControlResponse(r).has_value(),
+            "Ok shutdown response with a snapshot is refused");
+    }
+
+    // Unknown status value.
+    {
+        ControlResponse r;
+        r.operationId = snapshotOp;
+        r.requestId = 1;
+        r.status = static_cast<ControlStatus>(99);
+        Check(!EncodeControlResponse(r).has_value(),
+            "response with an unknown status value is refused");
+    }
+
+    // Sanity: the well-formed error response still encodes and round-trips.
+    {
+        ControlResponse r;
+        r.operationId = snapshotOp;
+        r.requestId = 5;
+        r.status = ControlStatus::OperationFailed;
+        const auto frame = EncodeControlResponse(r);
+        Check(frame.has_value(), "well-formed error response still encodes");
+        Check(DecodeControlResponse(frame.value()).ok,
+            "well-formed error response round-trips");
+    }
+}
 }
 
 int main()
@@ -594,6 +688,7 @@ int main()
     StringRejection();
     RuntimeInfoRoundTrip();
     VersionSkewCorrelation();
+    EncoderRejectsInvalidResponseDtos();
 
     if (g_failures != 0)
     {

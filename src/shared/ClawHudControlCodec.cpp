@@ -530,8 +530,19 @@ RequestDecode DecodeControlRequest(std::span<const std::uint8_t> bytes)
 std::optional<std::vector<std::uint8_t>> EncodeControlResponse(const ControlResponse& response)
 {
     if (response.requestId == 0) return std::nullopt;
+    // Every frame this returns must decode back cleanly, so reject any DTO the
+    // decoder would refuse rather than emit it.
+    if (!IsKnownStatus(static_cast<std::uint32_t>(response.status))) return std::nullopt;
 
     const bool knownOperation = IsKnownOperation(response.operationId);
+    const bool wantsRuntimeInfo = response.status == ControlStatus::Ok &&
+        response.operationId == static_cast<std::uint16_t>(Operation::GetRuntimeInfo);
+    const bool wantsSnapshot = response.status == ControlStatus::Ok && knownOperation &&
+        ResponseCarriesSnapshot(static_cast<Operation>(response.operationId));
+
+    // A payload optional may be set only for the response that carries it.
+    if (response.runtimeInfo.has_value() != wantsRuntimeInfo) return std::nullopt;
+    if (response.snapshot.has_value() != wantsSnapshot) return std::nullopt;
 
     std::vector<std::uint8_t> payload;
     if (response.status == ControlStatus::Ok)
@@ -541,12 +552,10 @@ std::optional<std::vector<std::uint8_t>> EncodeControlResponse(const ControlResp
         const auto operation = static_cast<Operation>(response.operationId);
         if (operation == Operation::GetRuntimeInfo)
         {
-            if (!response.runtimeInfo) return std::nullopt;
             if (!EncodeRuntimeInfoPayload(*response.runtimeInfo, payload)) return std::nullopt;
         }
-        else if (ResponseCarriesSnapshot(operation))
+        else if (wantsSnapshot)
         {
-            if (!response.snapshot) return std::nullopt;
             if (!EncodeSnapshotPayload(*response.snapshot, payload)) return std::nullopt;
         }
         else if (operation == Operation::RequestShutdown)
