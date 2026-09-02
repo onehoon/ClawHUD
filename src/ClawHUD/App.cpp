@@ -45,7 +45,8 @@ using clawhud::ProcessAlive;
 
 }
 
-App::App(HINSTANCE instance) : instance_(instance), tray_(*this)
+App::App(HINSTANCE instance)
+    : instance_(instance), runtimeMessageWindow_(*this), tray_(*this)
 {
     clawhud::RuntimeLogger::Initialize();
     wchar_t path[MAX_PATH]{}; const DWORD length = GetModuleFileNameW(instance_, path, ARRAYSIZE(path));
@@ -71,6 +72,7 @@ App::~App()
     hudController_.DestroyPresentation();
     settings_.reset();
     tray_.Destroy();
+    runtimeMessageWindow_.Destroy();
     if (instanceMutex_)
     {
         ReleaseMutex(instanceMutex_);
@@ -86,8 +88,8 @@ void App::StopRuntimeSources()
     gameSession_.StopSources();
     if (debugObservation_)
         debugObservation_->Stop();
-    if (hudHotkeyRegistered_ && tray_.Window())
-        UnregisterHotKey(tray_.Window(), kHudToggleHotkeyId);
+    if (hudHotkeyRegistered_ && runtimeMessageWindow_.Window())
+        UnregisterHotKey(runtimeMessageWindow_.Window(), kHudToggleHotkeyId);
     hudHotkeyRegistered_ = false;
 }
 
@@ -142,14 +144,20 @@ int App::Run()
     if (!ApplyStartupRegistration())
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
             L"Startup registration failed");
+    if (!runtimeMessageWindow_.Create(instance_))
+    {
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
+            L"Runtime message window initialization failed");
+        return 1;
+    }
     if (!tray_.Create(instance_))
     {
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
             L"Tray initialization failed");
         return 1;
     }
-    productionTelemetry_.Bind(tray_.Window(), [this] { RenderProductionHud(); });
-    gameSession_.BindMessageWindow(tray_.Window());
+    productionTelemetry_.Bind(runtimeMessageWindow_.Window(), [this] { RenderProductionHud(); });
+    gameSession_.BindMessageWindow(runtimeMessageWindow_.Window());
     if (!gameSession_.StartWindowSource())
     {
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
@@ -166,7 +174,7 @@ int App::Run()
             presentMonTelemetryProvider_);
         debugObservation_->Start();
     }
-    hudHotkeyRegistered_ = RegisterHotKey(tray_.Window(), kHudToggleHotkeyId,
+    hudHotkeyRegistered_ = RegisterHotKey(runtimeMessageWindow_.Window(), kHudToggleHotkeyId,
         MOD_NOREPEAT, VK_F8) != FALSE;
     if (!hudHotkeyRegistered_)
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
@@ -254,7 +262,7 @@ void App::HandleSystemResume()
     suspended_ = false;
     resumeRecoveryActive_ = true;
     resumeRecoveryAttempts_ = 0;
-    SetTimer(tray_.Window(), kResumeRecoveryTimerId,
+    SetTimer(runtimeMessageWindow_.Window(), kResumeRecoveryTimerId,
         clawhud::kResumeRecoveryIntervalMs, nullptr);
     Log(L"System resume detected");
     Log(L"HUD resume recovery started");
@@ -290,7 +298,7 @@ void App::TryResumeRecovery()
         hudEnabled, visibilityUsesForeground, processAlive,
         rendererForegroundActive, resumeRecoveryAttempts_))
     {
-        SetTimer(tray_.Window(), kResumeRecoveryTimerId,
+        SetTimer(runtimeMessageWindow_.Window(), kResumeRecoveryTimerId,
             clawhud::kResumeRecoveryIntervalMs, nullptr);
         return;
     }
@@ -318,7 +326,7 @@ void App::TryResumeRecovery()
                 L"HUD resume recovery exhausted");
             return;
         }
-        SetTimer(tray_.Window(), kResumeRecoveryTimerId,
+        SetTimer(runtimeMessageWindow_.Window(), kResumeRecoveryTimerId,
             clawhud::kResumeRecoveryIntervalMs, nullptr);
         return;
     }
@@ -360,7 +368,7 @@ void App::TryResumeRecovery()
             L"HUD resume recovery exhausted");
         return;
     }
-    SetTimer(tray_.Window(), kResumeRecoveryTimerId,
+    SetTimer(runtimeMessageWindow_.Window(), kResumeRecoveryTimerId,
         clawhud::kResumeRecoveryIntervalMs, nullptr);
 }
 
@@ -485,7 +493,7 @@ void App::PauseProductionSamplingForSuspend()
 
 void App::CancelResumeRecovery()
 {
-    KillTimer(tray_.Window(), kResumeRecoveryTimerId);
+    KillTimer(runtimeMessageWindow_.Window(), kResumeRecoveryTimerId);
     resumeRecoveryActive_ = false;
     resumeRecoveryAttempts_ = 0;
 }
@@ -695,7 +703,7 @@ void App::OpenSettings()
 
 void App::PostSettingsDestroyed()
 {
-    if (const HWND window = tray_.Window())
+    if (const HWND window = runtimeMessageWindow_.Window())
         PostMessageW(window, kSettingsDestroyed, 0, 0);
 }
 
@@ -711,6 +719,7 @@ void App::Exit()
     StopRuntimeSources();
     settings_.reset();
     tray_.Destroy();
+    runtimeMessageWindow_.Destroy();
     PostQuitMessage(0);
 }
 

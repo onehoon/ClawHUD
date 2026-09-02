@@ -7,6 +7,7 @@
 #include <string>
 
 #include "TrayIcon.h"
+#include "RuntimeMessageWindow.h"
 #include "HudModel.h"
 #include "GameDetection/GameSessionController.h"
 #include "PresentMonTelemetryProvider.h"
@@ -27,7 +28,7 @@ constexpr int kHudToggleHotkeyId = 1;
 // The production telemetry timer ids (2, 3, 4, 6) live in
 // ProductionTelemetryController.h and the resume-recovery timer id (5) is
 // App-internal in App.cpp; the numeric values stay globally distinct because
-// they all target the one application message window.
+// they all target the one runtime message window.
 
 class App
 {
@@ -93,6 +94,11 @@ private:
     HINSTANCE instance_{};
     HANDLE instanceMutex_{};
     clawhud::HudSettingsStore hudSettingsStore_;
+    // Runtime-owned hidden message window: F8 hotkey, suspend/resume power
+    // notifications and the production WM_TIMER stream. Independent of the tray
+    // so a future no-tray mode keeps this infrastructure. Created before any
+    // runtime component is bound to an HWND.
+    RuntimeMessageWindow runtimeMessageWindow_;
     TrayIcon tray_;
     // Owns HUD user state + the existing concrete HudPresentation object and
     // every Initialize / Render / Show / Hide / Shutdown call site. Presentation

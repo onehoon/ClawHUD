@@ -25,7 +25,6 @@ private:
     HINSTANCE instance_{};
     HWND window_{};
     NOTIFYICONDATAW notifyIcon_{};
-    HPOWERNOTIFY suspendResumeNotification_{};
     UINT taskbarCreatedMessage_{};
     bool created_{};
 };
