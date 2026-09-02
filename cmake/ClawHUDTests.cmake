@@ -10,6 +10,16 @@
     set_target_properties(ClawHUD.HudModelTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.HudModelTests COMMAND ClawHUD.HudModelTests)
 
+    add_executable(ClawHUD.LaunchModeTests
+        tests/LaunchModeTests.cpp
+        src/ClawHUD/LaunchMode.cpp)
+    target_compile_features(ClawHUD.LaunchModeTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.LaunchModeTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.LaunchModeTests PRIVATE src/ClawHUD src/shared)
+    set_target_properties(ClawHUD.LaunchModeTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.LaunchModeTests COMMAND ClawHUD.LaunchModeTests)
+
     add_executable(ClawHUD.ControlProtocolTests
         tests/ClawHudControlCodecTests.cpp
         src/shared/ClawHudControlCodec.cpp)

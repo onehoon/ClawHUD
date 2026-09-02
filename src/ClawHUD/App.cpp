@@ -47,8 +47,8 @@ using clawhud::ProcessAlive;
 
 }
 
-App::App(HINSTANCE instance)
-    : instance_(instance), runtimeMessageWindow_(*this),
+App::App(HINSTANCE instance, clawhud::LaunchMode launchMode)
+    : instance_(instance), launchMode_(launchMode), runtimeMessageWindow_(*this),
       tray_(TrayActions{[this] { OpenSettings(); }, [this] { Exit(); }})
 {
     clawhud::RuntimeLogger::Initialize();
@@ -61,7 +61,8 @@ App::App(HINSTANCE instance)
     productionTelemetry_.SyncVisibilityMode(hudController_.Options().visibilityMode);
     clawhud::RuntimeLogger::SetDebugLogging(debugLoggingEnabled_);
     Log(L"ClawHUD started version=" CLAWHUD_VERSION L" pid=" +
-        std::to_wstring(GetCurrentProcessId()));
+        std::to_wstring(GetCurrentProcessId()) + L" launchMode=" +
+        clawhud::LaunchModeName(launchMode_));
     clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
         L"Runtime settings HUDEnabled=" + std::to_wstring(hudController_.Enabled() ? 1 : 0) +
         L" HUDSizeOffset=" + std::to_wstring(hudController_.SizeOffset()) +
@@ -157,7 +158,9 @@ int App::Run()
             L"Runtime message window initialization failed");
         return 1;
     }
-    if (!tray_.Create(instance_))
+    // Standalone gets the system tray (and, through it, the legacy Settings
+    // entry point). Managed has no shell surface; the runtime below is identical.
+    if (launchMode_ == clawhud::LaunchMode::Standalone && !tray_.Create(instance_))
     {
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
             L"Tray initialization failed");
@@ -223,6 +226,7 @@ int App::Run()
         {
             clawhud::RuntimeControlMetadata metadata;
             metadata.applicationVersion = CLAWHUD_VERSION_UTF8;
+            metadata.launchMode = clawhud::ToWireLaunchMode(launchMode_);
             return clawhud::ExecuteRuntimeControlRequest(request, *this, metadata);
         });
     if (!runtimeControlPipeServer_.Start(
@@ -745,6 +749,14 @@ void App::CheckForUpdates()
 
 void App::OpenSettings()
 {
+    if (launchMode_ != clawhud::LaunchMode::Standalone)
+    {
+        // Managed mode has no standalone shell frontend; guard here too so a
+        // future accidental internal call cannot create the legacy window.
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
+            L"OpenSettings ignored in Managed mode");
+        return;
+    }
     if (settings_)
     {
         settings_->Show(instance_);
