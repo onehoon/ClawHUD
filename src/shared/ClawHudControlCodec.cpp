@@ -330,15 +330,16 @@ ControlStatus ParseHeader(std::span<const std::uint8_t> bytes, MessageKind expec
     return ControlStatus::Ok;
 }
 
-void WriteHeader(std::vector<std::uint8_t>& out, MessageKind kind, Operation op,
-    std::uint32_t requestId, ControlStatus status, std::uint32_t payloadSize)
+void WriteHeader(std::vector<std::uint8_t>& out, MessageKind kind,
+    std::uint16_t operationId, std::uint32_t requestId, ControlStatus status,
+    std::uint32_t payloadSize)
 {
     Writer w(out);
     w.Bytes(std::string_view(reinterpret_cast<const char*>(kMagic), 4));
     w.U16(kProtocolVersion);
     w.U16(kHeaderSize);
     w.U16(static_cast<std::uint16_t>(kind));
-    w.U16(static_cast<std::uint16_t>(op));
+    w.U16(operationId);
     w.U32(requestId);
     w.U32(static_cast<std::uint32_t>(status));
     w.U32(payloadSize);
@@ -456,7 +457,8 @@ std::optional<std::vector<std::uint8_t>> EncodeControlRequest(const ControlReque
     }
 
     std::vector<std::uint8_t> frame;
-    WriteHeader(frame, MessageKind::Request, request.operation, request.requestId,
+    WriteHeader(frame, MessageKind::Request,
+        static_cast<std::uint16_t>(request.operation), request.requestId,
         ControlStatus::Ok, static_cast<std::uint32_t>(payload.size()));
     frame.insert(frame.end(), payload.begin(), payload.end());
     return frame;
@@ -471,8 +473,11 @@ RequestDecode DecodeControlRequest(std::span<const std::uint8_t> bytes)
     if (headerStatus != ControlStatus::Ok)
         return RequestDecode::Failure(headerStatus);
 
+    // Header validated: from here every failure stays correlated to the request.
+    const FrameIdentity id{header.operation, header.requestId};
+
     if (!IsKnownOperation(header.operation))
-        return RequestDecode::Failure(ControlStatus::UnknownOperation);
+        return RequestDecode::Failure(ControlStatus::UnknownOperation, id);
 
     ControlRequest request;
     request.operation = static_cast<Operation>(header.operation);
@@ -482,65 +487,69 @@ RequestDecode DecodeControlRequest(std::span<const std::uint8_t> bytes)
     switch (ShapeOf(request.operation))
     {
     case RequestPayloadShape::Empty:
-        if (payload.size() != 0) return RequestDecode::Failure(ControlStatus::InvalidPayload);
+        if (payload.size() != 0) return RequestDecode::Failure(ControlStatus::InvalidPayload, id);
         break;
     case RequestPayloadShape::Bool:
     {
-        if (payload.size() != 1) return RequestDecode::Failure(ControlStatus::InvalidPayload);
+        if (payload.size() != 1) return RequestDecode::Failure(ControlStatus::InvalidPayload, id);
         if (!ReadBoolByte(r, request.flag))
-            return RequestDecode::Failure(ControlStatus::InvalidValue);
+            return RequestDecode::Failure(ControlStatus::InvalidValue, id);
         break;
     }
     case RequestPayloadShape::Enum:
     {
-        if (payload.size() != 1) return RequestDecode::Failure(ControlStatus::InvalidPayload);
+        if (payload.size() != 1) return RequestDecode::Failure(ControlStatus::InvalidPayload, id);
         r.U8(request.wireEnum);
         if (!ValidateRequestEnum(request.operation, request.wireEnum))
-            return RequestDecode::Failure(ControlStatus::InvalidValue);
+            return RequestDecode::Failure(ControlStatus::InvalidValue, id);
         break;
     }
     case RequestPayloadShape::SizeOffset:
     {
-        if (payload.size() != 4) return RequestDecode::Failure(ControlStatus::InvalidPayload);
+        if (payload.size() != 4) return RequestDecode::Failure(ControlStatus::InvalidPayload, id);
         r.I32(request.sizeOffset);
         if (!IsValidHudSizeOffset(request.sizeOffset))
-            return RequestDecode::Failure(ControlStatus::InvalidValue);
+            return RequestDecode::Failure(ControlStatus::InvalidValue, id);
         break;
     }
     case RequestPayloadShape::Opacity:
     {
-        if (payload.size() != 2) return RequestDecode::Failure(ControlStatus::InvalidPayload);
+        if (payload.size() != 2) return RequestDecode::Failure(ControlStatus::InvalidPayload, id);
         r.U16(request.opacityPercent);
         if (!IsValidOpacityPercent(request.opacityPercent))
-            return RequestDecode::Failure(ControlStatus::InvalidValue);
+            return RequestDecode::Failure(ControlStatus::InvalidValue, id);
         break;
     }
     }
 
-    return RequestDecode::Success(std::move(request));
+    return RequestDecode::Success(std::move(request), id);
 }
 
 // ---- Response codec --------------------------------------------------
 
 std::optional<std::vector<std::uint8_t>> EncodeControlResponse(const ControlResponse& response)
 {
-    if (!IsKnownOperation(static_cast<std::uint16_t>(response.operation))) return std::nullopt;
     if (response.requestId == 0) return std::nullopt;
+
+    const bool knownOperation = IsKnownOperation(response.operationId);
 
     std::vector<std::uint8_t> payload;
     if (response.status == ControlStatus::Ok)
     {
-        if (response.operation == Operation::GetRuntimeInfo)
+        // A successful response must name a known v1 operation.
+        if (!knownOperation) return std::nullopt;
+        const auto operation = static_cast<Operation>(response.operationId);
+        if (operation == Operation::GetRuntimeInfo)
         {
             if (!response.runtimeInfo) return std::nullopt;
             if (!EncodeRuntimeInfoPayload(*response.runtimeInfo, payload)) return std::nullopt;
         }
-        else if (ResponseCarriesSnapshot(response.operation))
+        else if (ResponseCarriesSnapshot(operation))
         {
             if (!response.snapshot) return std::nullopt;
             if (!EncodeSnapshotPayload(*response.snapshot, payload)) return std::nullopt;
         }
-        else if (response.operation == Operation::RequestShutdown)
+        else if (operation == Operation::RequestShutdown)
         {
             // empty successful response
         }
@@ -549,12 +558,13 @@ std::optional<std::vector<std::uint8_t>> EncodeControlResponse(const ControlResp
             return std::nullopt;
         }
     }
-    // Non-Ok responses always carry an empty payload in v1.
+    // Non-Ok responses always carry an empty payload in v1, and may echo an
+    // unknown raw operation id (e.g. UnknownOperation to a version-skewed client).
 
     if (payload.size() > kMaxPayloadBytes) return std::nullopt;
 
     std::vector<std::uint8_t> frame;
-    WriteHeader(frame, MessageKind::Response, response.operation, response.requestId,
+    WriteHeader(frame, MessageKind::Response, response.operationId, response.requestId,
         response.status, static_cast<std::uint32_t>(payload.size()));
     frame.insert(frame.end(), payload.begin(), payload.end());
     return frame;
@@ -569,46 +579,57 @@ ResponseDecode DecodeControlResponse(std::span<const std::uint8_t> bytes)
     if (headerStatus != ControlStatus::Ok)
         return ResponseDecode::Failure(headerStatus);
 
-    if (!IsKnownOperation(header.operation))
-        return ResponseDecode::Failure(ControlStatus::UnknownOperation);
+    const FrameIdentity id{header.operation, header.requestId};
+
     if (!IsKnownStatus(header.status))
-        return ResponseDecode::Failure(ControlStatus::InvalidFrame);
+        return ResponseDecode::Failure(ControlStatus::InvalidFrame, id);
+
+    const auto status = static_cast<ControlStatus>(header.status);
+    const bool knownOperation = IsKnownOperation(header.operation);
+    // An unknown operation is only meaningful on an UnknownOperation error
+    // (the version-skew case). A successful response must name a known op;
+    // any other status paired with an unknown op is a malformed frame.
+    if (status == ControlStatus::Ok && !knownOperation)
+        return ResponseDecode::Failure(ControlStatus::UnknownOperation, id);
+    if (!knownOperation && status != ControlStatus::UnknownOperation)
+        return ResponseDecode::Failure(ControlStatus::InvalidFrame, id);
 
     ControlResponse response;
-    response.operation = static_cast<Operation>(header.operation);
+    response.operationId = header.operation;
     response.requestId = header.requestId;
-    response.status = static_cast<ControlStatus>(header.status);
+    response.status = status;
 
     Reader r(payload);
-    if (response.status != ControlStatus::Ok)
+    if (status != ControlStatus::Ok)
     {
-        if (payload.size() != 0) return ResponseDecode::Failure(ControlStatus::InvalidPayload);
-        return ResponseDecode::Success(std::move(response));
+        if (payload.size() != 0) return ResponseDecode::Failure(ControlStatus::InvalidPayload, id);
+        return ResponseDecode::Success(std::move(response), id);
     }
 
-    if (response.operation == Operation::GetRuntimeInfo)
+    const auto operation = static_cast<Operation>(header.operation);
+    if (operation == Operation::GetRuntimeInfo)
     {
         WireRuntimeInfo info;
         if (!DecodeRuntimeInfoPayload(r, info) || !r.AtEnd())
-            return ResponseDecode::Failure(ControlStatus::InvalidPayload);
+            return ResponseDecode::Failure(ControlStatus::InvalidPayload, id);
         response.runtimeInfo = std::move(info);
     }
-    else if (ResponseCarriesSnapshot(response.operation))
+    else if (ResponseCarriesSnapshot(operation))
     {
         WireSettingsSnapshot snapshot;
         if (!DecodeSnapshotPayload(r, snapshot) || !r.AtEnd())
-            return ResponseDecode::Failure(ControlStatus::InvalidPayload);
+            return ResponseDecode::Failure(ControlStatus::InvalidPayload, id);
         response.snapshot = std::move(snapshot);
     }
-    else if (response.operation == Operation::RequestShutdown)
+    else if (operation == Operation::RequestShutdown)
     {
-        if (payload.size() != 0) return ResponseDecode::Failure(ControlStatus::InvalidPayload);
+        if (payload.size() != 0) return ResponseDecode::Failure(ControlStatus::InvalidPayload, id);
     }
     else
     {
-        return ResponseDecode::Failure(ControlStatus::UnknownOperation);
+        return ResponseDecode::Failure(ControlStatus::InvalidFrame, id);
     }
 
-    return ResponseDecode::Success(std::move(response));
+    return ResponseDecode::Success(std::move(response), id);
 }
 }

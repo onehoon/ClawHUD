@@ -122,7 +122,7 @@ void HeaderRoundTrip()
     Check(decoded.value.requestId == 4242, "requestId preserved");
 
     ControlResponse response;
-    response.operation = Operation::GetSettingsSnapshot;
+    response.operationId = static_cast<std::uint16_t>(Operation::GetSettingsSnapshot);
     response.requestId = 4242;
     response.status = ControlStatus::Ok;
     response.snapshot = SampleSnapshot();
@@ -212,6 +212,9 @@ void OperationRejection()
     auto result = DecodeControlRequest(unknownOp);
     Check(!result.ok, "unknown operation rejected");
     Check(result.error == ControlStatus::UnknownOperation, "unknown operation reports UnknownOperation");
+    Check(result.identity.has_value() && result.identity->operationId == 99 &&
+        result.identity->requestId == 3,
+        "unknown operation preserves frame identity");
 
     // Non-empty payload for an empty operation.
     Bytes emptyWithPayload = WithPayloadResized(
@@ -339,7 +342,7 @@ void ValueValidation()
 void SnapshotRoundTrip()
 {
     ControlResponse response;
-    response.operation = Operation::GetSettingsSnapshot;
+    response.operationId = static_cast<std::uint16_t>(Operation::GetSettingsSnapshot);
     response.requestId = 11;
     response.status = ControlStatus::Ok;
 
@@ -379,7 +382,7 @@ void SnapshotRoundTrip()
 
     // A successful mutation response carries the authoritative snapshot.
     ControlResponse mutation;
-    mutation.operation = Operation::SetStartWithWindows;
+    mutation.operationId = static_cast<std::uint16_t>(Operation::SetStartWithWindows);
     mutation.requestId = 12;
     mutation.status = ControlStatus::Ok;
     mutation.snapshot = SampleSnapshot();
@@ -389,7 +392,7 @@ void SnapshotRoundTrip()
 
     // An error response is empty.
     ControlResponse error;
-    error.operation = Operation::SetStartWithWindows;
+    error.operationId = static_cast<std::uint16_t>(Operation::SetStartWithWindows);
     error.requestId = 13;
     error.status = ControlStatus::OperationFailed;
     const auto errorFrame = Encode(error);
@@ -401,7 +404,7 @@ void SnapshotRoundTrip()
 
     // RequestShutdown success is empty.
     ControlResponse shutdown;
-    shutdown.operation = Operation::RequestShutdown;
+    shutdown.operationId = static_cast<std::uint16_t>(Operation::RequestShutdown);
     shutdown.requestId = 14;
     shutdown.status = ControlStatus::Ok;
     const auto shutdownFrame = Encode(shutdown);
@@ -419,7 +422,7 @@ Bytes SnapshotResponseWithVrrStrings(const std::string& panel)
     r.panelName = panel;
     s.intelVrrLastResult = r;
     ControlResponse response;
-    response.operation = Operation::GetSettingsSnapshot;
+    response.operationId = static_cast<std::uint16_t>(Operation::GetSettingsSnapshot);
     response.requestId = 21;
     response.status = ControlStatus::Ok;
     response.snapshot = s;
@@ -443,7 +446,7 @@ void StringRejection()
         r.panelName = std::string("has\0nul", 7);
         s.intelVrrLastResult = r;
         ControlResponse response;
-        response.operation = Operation::GetSettingsSnapshot;
+        response.operationId = static_cast<std::uint16_t>(Operation::GetSettingsSnapshot);
         response.requestId = 21;
         response.status = ControlStatus::Ok;
         response.snapshot = s;
@@ -482,7 +485,7 @@ void StringRejection()
 void RuntimeInfoRoundTrip()
 {
     ControlResponse response;
-    response.operation = Operation::GetRuntimeInfo;
+    response.operationId = static_cast<std::uint16_t>(Operation::GetRuntimeInfo);
     response.requestId = 31;
     response.status = ControlStatus::Ok;
 
@@ -526,6 +529,59 @@ void RuntimeInfoRoundTrip()
         Check(!DecodeControlResponse(badState).ok, "invalid runtime state rejected");
     }
 }
+
+// ---- version skew: header-valid request with an unknown operation --------
+
+void VersionSkewCorrelation()
+{
+    // A newer client sends a valid v1 frame carrying an operation an older
+    // ClawHUD does not know, with requestId 42.
+    constexpr std::uint16_t kFutureOperation = 250;
+    Bytes frame = Encode(EmptyRequest(Operation::GetRuntimeInfo, 42));
+    frame[10] = static_cast<std::uint8_t>(kFutureOperation & 0xFF);
+    frame[11] = static_cast<std::uint8_t>((kFutureOperation >> 8) & 0xFF);
+
+    const auto decoded = DecodeControlRequest(frame);
+    Check(!decoded.ok && decoded.error == ControlStatus::UnknownOperation,
+        "version-skew request decodes as UnknownOperation");
+    Check(decoded.identity.has_value(), "version-skew request keeps identity");
+    Check(decoded.identity->operationId == kFutureOperation &&
+        decoded.identity->requestId == 42,
+        "version-skew identity preserves raw operationId and requestId");
+
+    // The server encodes a correlated error response echoing the raw operation.
+    ControlResponse error;
+    error.operationId = decoded.identity->operationId;
+    error.requestId = decoded.identity->requestId;
+    error.status = ControlStatus::UnknownOperation;
+    const auto errorFrame = EncodeControlResponse(error);
+    Check(errorFrame.has_value(),
+        "error response for an unknown operation encodes");
+
+    // The client decodes it: status + requestId recovered, no timeout needed.
+    const auto clientView = DecodeControlResponse(errorFrame.value());
+    Check(clientView.ok, "client decodes the correlated error response");
+    Check(clientView.value.status == ControlStatus::UnknownOperation,
+        "client sees UnknownOperation");
+    Check(clientView.value.operationId == kFutureOperation &&
+        clientView.value.requestId == 42,
+        "client recovers raw operationId and requestId 42");
+
+    // An Ok response must still name a known operation.
+    ControlResponse bogusOk;
+    bogusOk.operationId = kFutureOperation;
+    bogusOk.requestId = 42;
+    bogusOk.status = ControlStatus::Ok;
+    Check(!EncodeControlResponse(bogusOk).has_value(),
+        "Ok response with an unknown operation is refused");
+
+    // A non-UnknownOperation status paired with an unknown operation is a
+    // malformed frame on decode.
+    Bytes badPair = errorFrame.value();
+    badPair[16] = static_cast<std::uint8_t>(ControlStatus::OperationFailed);
+    Check(!DecodeControlResponse(badPair).ok,
+        "unknown operation with a non-UnknownOperation status is rejected");
+}
 }
 
 int main()
@@ -537,6 +593,7 @@ int main()
     SnapshotRoundTrip();
     StringRejection();
     RuntimeInfoRoundTrip();
+    VersionSkewCorrelation();
 
     if (g_failures != 0)
     {

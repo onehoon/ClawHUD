@@ -185,14 +185,18 @@ struct WireRuntimeInfo
     std::uint8_t runtimeState{};  // WireRuntimeState value
 };
 
-// A decoded response. On a non-Ok status both optionals are empty. On Ok:
+// A decoded response. `operationId` is the raw wire operation echoed from the
+// request, so an error response (e.g. UnknownOperation from a version-skewed
+// client) can still be correlated even when the operation is not a known v1
+// Operation. On a non-Ok status both optionals are empty. On Ok (which always
+// implies a known operation):
 //   GetRuntimeInfo      -> runtimeInfo set
 //   GetSettingsSnapshot -> snapshot set
 //   Set*/Preview/Commit -> snapshot set (authoritative post-mutation state)
 //   RequestShutdown     -> both empty (empty payload)
 struct ControlResponse
 {
-    Operation operation{};
+    std::uint16_t operationId{};
     std::uint32_t requestId{};
     ControlStatus status{};
 

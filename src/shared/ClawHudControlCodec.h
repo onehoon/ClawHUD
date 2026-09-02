@@ -17,15 +17,35 @@
 
 namespace clawhud::control
 {
+// Raw wire identity of a frame whose fixed header has fully validated. Kept so
+// a protocol error discovered after the header (unknown operation, bad payload)
+// can still be returned correlated to the request.
+struct FrameIdentity
+{
+    std::uint16_t operationId{};
+    std::uint32_t requestId{};
+};
+
 template <class T>
 struct DecodeOutcome
 {
     bool ok{};
     ControlStatus error{ControlStatus::InvalidFrame}; // meaningful only when !ok
+    std::optional<FrameIdentity> identity;            // set once the header is trustworthy
     T value{};
 
-    static DecodeOutcome Failure(ControlStatus status) { return {false, status, {}}; }
-    static DecodeOutcome Success(T v) { return {true, ControlStatus::Ok, std::move(v)}; }
+    static DecodeOutcome Failure(ControlStatus status)
+    {
+        return {false, status, std::nullopt, {}};
+    }
+    static DecodeOutcome Failure(ControlStatus status, FrameIdentity id)
+    {
+        return {false, status, id, {}};
+    }
+    static DecodeOutcome Success(T v, FrameIdentity id)
+    {
+        return {true, ControlStatus::Ok, id, std::move(v)};
+    }
 };
 
 using RequestDecode = DecodeOutcome<ControlRequest>;
