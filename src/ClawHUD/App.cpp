@@ -229,6 +229,11 @@ int App::Run()
             [this](const clawhud::control::ControlRequest& request)
             {
                 return runtimeControlBridge_.Dispatch(request);
+            },
+            [this]
+            {
+                return PostMessageW(runtimeMessageWindow_.Window(),
+                    kRuntimeControlShutdownReadyMessage, 0, 0) != FALSE;
             }))
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
             L"Control pipe server did not start; continuing without external Control IPC");
@@ -765,6 +770,13 @@ void App::SettingsDestroyed()
 void App::HandleRuntimeControlDispatch()
 {
     runtimeControlBridge_.DrainOnMainThread();
+}
+
+void App::HandleRuntimeControlShutdownReady()
+{
+    // The IPC RequestShutdown response was already delivered on the pipe
+    // worker; enter the normal idempotent shutdown path.
+    Exit();
 }
 
 void App::Exit()

@@ -185,9 +185,10 @@ ctl::ControlResponse SnapshotResponse(const ctl::ControlRequest& request, IRunti
     response.snapshot = std::move(*wire);
     return response;
 }
-}
 
-control::ControlResponse ExecuteRuntimeControlRequest(
+// The wire response for one request; the shutdown flag is decided by the
+// public wrapper below.
+ctl::ControlResponse ExecuteControlResponse(
     const control::ControlRequest& request, IRuntimeControl& rc,
     const RuntimeControlMetadata& metadata)
 {
@@ -277,11 +278,25 @@ control::ControlResponse ExecuteRuntimeControlRequest(
         return SnapshotResponse(request, rc);
 
     case Operation::RequestShutdown:
-        // CH-RTF-5 does not connect shutdown to App::Exit(); the
-        // response-before-exit lifecycle lands with the mutation pipe in CH-RTF-7.
-        return StatusResponse(request, ControlStatus::RuntimeUnavailable);
+        // Main-thread approval only: Ok + empty payload. The pipe worker
+        // delivers this, then posts the shutdown-ready message. App::Exit()
+        // is never called from here.
+        return StatusResponse(request, ControlStatus::Ok);
     }
 
     return StatusResponse(request, ControlStatus::UnknownOperation);
+}
+} // namespace
+
+RuntimeControlExecutionResult ExecuteRuntimeControlRequest(
+    const control::ControlRequest& request, IRuntimeControl& runtimeControl,
+    const RuntimeControlMetadata& metadata)
+{
+    const control::ControlResponse response =
+        ExecuteControlResponse(request, runtimeControl, metadata);
+    const bool shutdownAfterResponse =
+        request.operation == control::Operation::RequestShutdown &&
+        response.status == control::ControlStatus::Ok;
+    return {response, shutdownAfterResponse};
 }
 }

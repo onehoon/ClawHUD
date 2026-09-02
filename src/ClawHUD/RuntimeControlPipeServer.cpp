@@ -18,12 +18,6 @@ void Log(clawhud::RuntimeLogLevel level, const std::wstring& message)
     clawhud::RuntimeLogger::Log(level, message);
 }
 
-bool IsReadOnlyOperation(ctl::Operation operation) noexcept
-{
-    return operation == ctl::Operation::GetRuntimeInfo ||
-        operation == ctl::Operation::GetSettingsSnapshot;
-}
-
 ctl::ControlResponse StatusResponse(std::uint16_t operationId, std::uint32_t requestId,
     ctl::ControlStatus status)
 {
@@ -40,7 +34,8 @@ RuntimeControlPipeServer::~RuntimeControlPipeServer()
     Stop();
 }
 
-bool RuntimeControlPipeServer::Start(DispatchCallback dispatch, const std::wstring& pipeNameOverride)
+bool RuntimeControlPipeServer::Start(DispatchCallback dispatch,
+    ShutdownReadyCallback shutdownReady, const std::wstring& pipeNameOverride)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     if (running_.load())
@@ -97,6 +92,7 @@ bool RuntimeControlPipeServer::Start(DispatchCallback dispatch, const std::wstri
     }
 
     dispatch_ = std::move(dispatch);
+    shutdownReady_ = std::move(shutdownReady);
     running_.store(true);
     worker_ = std::thread([this, firstPipe] { WorkerMain(firstPipe); });
 
@@ -209,12 +205,22 @@ void RuntimeControlPipeServer::WorkerMain(HANDLE firstPipe)
             break;
         }
 
+        bool armShutdown = false;
         if (ready)
-            ServeClient(pipe);
+            armShutdown = ServeClient(pipe);
 
+        // Close the acknowledged connection before posting shutdown so App
+        // teardown cannot destroy the server while unread response bytes remain.
         DisconnectNamedPipe(pipe);
         CloseHandle(pipe);
         pipe = INVALID_HANDLE_VALUE;
+
+        if (armShutdown && WaitForSingleObject(stopEvent_, 0) != WAIT_OBJECT_0)
+        {
+            if (shutdownReady_ && !shutdownReady_())
+                Log(clawhud::RuntimeLogLevel::Warn,
+                    L"Control pipe shutdown-ready post failed; runtime stays alive");
+        }
     }
 
     if (pipe != INVALID_HANDLE_VALUE)
@@ -224,18 +230,18 @@ void RuntimeControlPipeServer::WorkerMain(HANDLE firstPipe)
     }
 }
 
-void RuntimeControlPipeServer::ServeClient(HANDLE pipe)
+bool RuntimeControlPipeServer::ServeClient(HANDLE pipe)
 {
     DWORD clientPid{};
     if (!GetNamedPipeClientProcessId(pipe, &clientPid))
-        return;
+        return false;
     DWORD clientSession{};
     if (!ProcessIdToSessionId(clientPid, &clientSession))
-        return;
+        return false;
     if (!ctl::SessionsMatch(sessionId_, clientSession))
     {
         Log(clawhud::RuntimeLogLevel::Warn, L"Control pipe client rejected session mismatch");
-        return;
+        return false;
     }
 
     // Bounded read: never allocate from a wire length.
@@ -252,44 +258,37 @@ void RuntimeControlPipeServer::ServeClient(HANDLE pipe)
     if (readError == ERROR_MORE_DATA)
     {
         Log(clawhud::RuntimeLogLevel::Warn, L"Control pipe oversized message rejected");
-        return;
+        return false;
     }
     if (readError != ERROR_SUCCESS || bytesRead == 0)
-        return; // client gone / aborted / empty
+        return false; // client gone / aborted / empty
 
     const std::span<const std::uint8_t> frame(buffer.data(), bytesRead);
     const auto decoded = ctl::DecodeControlRequest(frame);
 
-    ctl::ControlResponse response;
+    RuntimeControlExecutionResult execution;
     if (decoded.ok)
     {
-        const auto& request = decoded.value;
-        if (IsReadOnlyOperation(request.operation))
-        {
-            response = dispatch_(request);
-        }
-        else
-        {
-            // Read-only gate: a mutation never reaches the dispatch bridge.
-            response = StatusResponse(static_cast<std::uint16_t>(request.operation),
-                request.requestId, ctl::ControlStatus::RuntimeUnavailable);
-        }
+        // Every decoded protocol-v1 operation (reads and mutations) goes to the
+        // main thread through the dispatch bridge. The codec + mapping own the
+        // operation policy; the pipe server does not.
+        execution = dispatch_(decoded.value);
     }
     else if (decoded.identity)
     {
-        response = StatusResponse(decoded.identity->operationId, decoded.identity->requestId,
-            decoded.error);
+        execution.response = StatusResponse(decoded.identity->operationId,
+            decoded.identity->requestId, decoded.error);
     }
     else
     {
-        return; // uncorrelatable malformed frame: no fabricated response
+        return false; // uncorrelatable malformed frame: no fabricated response
     }
 
-    const auto encoded = ctl::EncodeControlResponse(response);
+    const auto encoded = ctl::EncodeControlResponse(execution.response);
     if (!encoded)
     {
         Log(clawhud::RuntimeLogLevel::Warn, L"Control pipe response encode failed");
-        return;
+        return false; // a failed response never arms shutdown
     }
 
     OVERLAPPED writeOv{};
@@ -301,7 +300,7 @@ void RuntimeControlPipeServer::ServeClient(HANDLE pipe)
         bytesWritten);
     CloseHandle(writeOv.hEvent);
     if (writeError != ERROR_SUCCESS)
-        return;
+        return false; // response not delivered -> shutdown not armed
 
     // Wait for the client to consume the response and close its end before
     // disconnecting (DisconnectNamedPipe discards unread data). Cancellable by
@@ -314,5 +313,7 @@ void RuntimeControlPipeServer::ServeClient(HANDLE pipe)
     DWORD drained{};
     AwaitOverlapped(pipe, drainOv, drainStarted, GetLastError(), drained);
     CloseHandle(drainOv.hEvent);
+
+    return execution.shutdownAfterResponse;
 }
 }

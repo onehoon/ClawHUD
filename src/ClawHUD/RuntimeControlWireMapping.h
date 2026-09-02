@@ -10,6 +10,7 @@
 #include <string>
 
 #include "RuntimeControl.h"
+#include "RuntimeControlExecutionResult.h"
 #include "ClawHudControlProtocol.h"
 
 namespace clawhud
@@ -23,11 +24,13 @@ struct RuntimeControlMetadata
     control::WireRuntimeState runtimeState{control::WireRuntimeState::Ready};
 };
 
-// Executes one validated request against `runtimeControl` and returns the
-// response. Must be called on the main thread. A request that a later
-// hand-built caller left in an out-of-range state fails with InvalidValue
-// rather than casting an unknown value onto the wire.
-control::ControlResponse ExecuteRuntimeControlRequest(
+// Executes one validated request against `runtimeControl` on the main thread.
+// Returns the authoritative response plus, for a successfully approved
+// RequestShutdown only, shutdownAfterResponse = true (main-thread approval of
+// the shutdown request; the caller must deliver the response before starting
+// teardown). A request a later hand-built caller left out of range fails with
+// InvalidValue rather than casting an unknown value onto the wire.
+RuntimeControlExecutionResult ExecuteRuntimeControlRequest(
     const control::ControlRequest& request,
     IRuntimeControl& runtimeControl,
     const RuntimeControlMetadata& metadata);

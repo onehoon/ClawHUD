@@ -97,5 +97,10 @@ LRESULT CALLBACK RuntimeMessageWindow::WindowProc(HWND window, UINT message, WPA
         self->app_.HandleRuntimeControlDispatch();
         return 0;
     }
+    if (message == kRuntimeControlShutdownReadyMessage)
+    {
+        self->app_.HandleRuntimeControlShutdownReady();
+        return 0;
+    }
     return DefWindowProcW(window, message, wParam, lParam);
 }

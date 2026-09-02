@@ -1,6 +1,9 @@
 #include "RuntimeControlPipeServer.h"
 #include "RuntimeControlPipeSecurity.h"
 #include "RuntimeControlDispatchBridge.h"
+#include "RuntimeControlWireMapping.h"
+#include "RuntimeControl.h"
+#include "RuntimeControlExecutionResult.h"
 #include "ClawHudControlCodec.h"
 #include "ClawHudControlProtocol.h"
 
@@ -8,6 +11,7 @@
 
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
@@ -18,6 +22,8 @@
 
 namespace ctl = clawhud::control;
 using Bytes = std::vector<std::uint8_t>;
+using clawhud::RuntimeControlExecutionResult;
+using clawhud::RuntimeControlPipeServer;
 
 namespace
 {
@@ -47,20 +53,44 @@ ctl::ControlRequest EmptyRequest(ctl::Operation op, std::uint32_t id)
     return r;
 }
 
-ctl::ControlRequest BoolRequest(ctl::Operation op, std::uint32_t id, bool flag)
-{
-    ctl::ControlRequest r;
-    r.operation = op;
-    r.requestId = id;
-    r.flag = flag;
-    return r;
-}
-
 Bytes Encode(const ctl::ControlRequest& request)
 {
     auto frame = ctl::EncodeControlRequest(request);
     Check(frame.has_value(), "test helper: request encodes");
     return frame.value_or(Bytes{});
+}
+
+RuntimeControlExecutionResult Exec(ctl::ControlResponse response, bool shutdown = false)
+{
+    return {std::move(response), shutdown};
+}
+
+ctl::ControlResponse OkRuntimeInfoResponse(const ctl::ControlRequest& request)
+{
+    ctl::ControlResponse response;
+    response.operationId = static_cast<std::uint16_t>(request.operation);
+    response.requestId = request.requestId;
+    response.status = ctl::ControlStatus::Ok;
+    ctl::WireRuntimeInfo info;
+    info.applicationVersion = "0.1.0";
+    info.minimumProtocolVersion = 1;
+    info.maximumProtocolVersion = 1;
+    info.launchMode = static_cast<std::uint8_t>(ctl::WireLaunchMode::Standalone);
+    info.runtimeState = static_cast<std::uint8_t>(ctl::WireRuntimeState::Ready);
+    response.runtimeInfo = info;
+    return response;
+}
+
+ctl::WireSettingsSnapshot SampleSnapshot()
+{
+    ctl::WireSettingsSnapshot s;
+    s.hudSizeOffset = 1;
+    s.hudFont = static_cast<std::uint8_t>(ctl::WireFont::Unispace);
+    s.visibilityMode = static_cast<std::uint8_t>(ctl::WireVisibilityMode::Always);
+    s.alignment = static_cast<std::uint8_t>(ctl::WireAlignment::Center);
+    s.backgroundMode = static_cast<std::uint8_t>(ctl::WireBackgroundMode::ContentWidth);
+    s.backgroundOpacityPercent = 70;
+    return s;
 }
 
 HANDLE ConnectClient(const std::wstring& name)
@@ -103,33 +133,142 @@ std::optional<Bytes> Roundtrip(const std::wstring& name, const Bytes& request)
     return Bytes(buffer.begin(), buffer.begin() + read);
 }
 
-ctl::ControlResponse OkRuntimeInfoResponse(const ctl::ControlRequest& request)
+std::optional<ctl::ControlResponse> RoundtripDecoded(const std::wstring& name, const Bytes& request)
 {
-    ctl::ControlResponse response;
-    response.operationId = static_cast<std::uint16_t>(request.operation);
-    response.requestId = request.requestId;
-    response.status = ctl::ControlStatus::Ok;
-    ctl::WireRuntimeInfo info;
-    info.applicationVersion = "0.1.0";
-    info.minimumProtocolVersion = 1;
-    info.maximumProtocolVersion = 1;
-    info.launchMode = static_cast<std::uint8_t>(ctl::WireLaunchMode::Standalone);
-    info.runtimeState = static_cast<std::uint8_t>(ctl::WireRuntimeState::Ready);
-    response.runtimeInfo = info;
-    return response;
+    const auto raw = Roundtrip(name, request);
+    if (!raw)
+        return std::nullopt;
+    const auto decoded = ctl::DecodeControlResponse(*raw);
+    if (!decoded.ok)
+        return std::nullopt;
+    return decoded.value;
 }
 
-ctl::WireSettingsSnapshot SampleSnapshot()
+// Records what the semantic boundary was asked to do and from which thread.
+class FakeRuntimeControl : public clawhud::IRuntimeControl
 {
-    ctl::WireSettingsSnapshot s;
-    s.hudSizeOffset = 1;
-    s.hudFont = static_cast<std::uint8_t>(ctl::WireFont::Unispace);
-    s.visibilityMode = static_cast<std::uint8_t>(ctl::WireVisibilityMode::Always);
-    s.alignment = static_cast<std::uint8_t>(ctl::WireAlignment::Center);
-    s.backgroundMode = static_cast<std::uint8_t>(ctl::WireBackgroundMode::ContentWidth);
-    s.backgroundOpacityPercent = 70;
-    return s;
-}
+public:
+    clawhud::RuntimeSettingsSnapshot state;
+    std::atomic<std::thread::id> lastCallThread{};
+    std::optional<bool> lastStartWithWindows;
+    std::optional<float> lastPreview;
+    std::optional<float> lastCommit;
+    float persistedOpacity{0.70f};
+    bool hudEnableResult{true};
+    bool opacityResult{true};
+
+    clawhud::RuntimeSettingsSnapshot GetSettingsSnapshot() const override
+    {
+        const_cast<FakeRuntimeControl*>(this)->lastCallThread = std::this_thread::get_id();
+        return state;
+    }
+    void SetStartWithWindows(bool enabled) override
+    {
+        lastCallThread = std::this_thread::get_id();
+        lastStartWithWindows = enabled; // deliberately does NOT adopt it (rollback sim)
+    }
+    bool SetHudEnabled(bool enabled) override
+    {
+        lastCallThread = std::this_thread::get_id();
+        if (hudEnableResult) state.hudEnabled = enabled;
+        return hudEnableResult;
+    }
+    void SetHudVisibilityMode(clawhud::HudVisibilityMode mode) override
+    {
+        lastCallThread = std::this_thread::get_id();
+        state.hudOptions.visibilityMode = mode;
+    }
+    void SetHudSizeOffset(int offset) override
+    {
+        lastCallThread = std::this_thread::get_id();
+        state.hudSizeOffset = offset;
+    }
+    void SetHudFont(clawhud::HudFont font) override
+    {
+        lastCallThread = std::this_thread::get_id();
+        state.hudFont = font;
+    }
+    void SetHudAlignment(clawhud::HudAlignment alignment) override
+    {
+        lastCallThread = std::this_thread::get_id();
+        state.hudOptions.alignment = alignment;
+    }
+    void SetHudBackgroundMode(clawhud::HudBackgroundMode mode) override
+    {
+        lastCallThread = std::this_thread::get_id();
+        state.hudOptions.backgroundMode = mode;
+    }
+    bool PreviewHudOpacity(float opacity) override
+    {
+        lastCallThread = std::this_thread::get_id();
+        lastPreview = opacity;
+        if (opacityResult) state.hudOptions.backgroundOpacity = opacity; // no persist
+        return opacityResult;
+    }
+    bool CommitHudOpacity(float opacity) override
+    {
+        lastCallThread = std::this_thread::get_id();
+        lastCommit = opacity;
+        if (opacityResult)
+        {
+            state.hudOptions.backgroundOpacity = opacity;
+            persistedOpacity = opacity;
+        }
+        return opacityResult;
+    }
+    void SetIntelVrrRangeFixEnabled(bool enabled) override
+    {
+        lastCallThread = std::this_thread::get_id();
+        state.intelVrrRangeFixEnabled = enabled;
+    }
+};
+
+// Real bridge + real mapping + fake IRuntimeControl, drained on a dedicated
+// "main" thread. Pipe server dispatch callback -> bridge.Dispatch.
+struct EndToEnd
+{
+    FakeRuntimeControl fake;
+    clawhud::RuntimeControlDispatchBridge bridge;
+    std::thread drain;
+    std::atomic<bool> running{true};
+    std::atomic<bool> started{false};
+    std::thread::id mainThreadId;
+
+    EndToEnd()
+    {
+        drain = std::thread([this]
+        {
+            mainThreadId = std::this_thread::get_id();
+            bridge.Start(mainThreadId, [] { return true; },
+                [this](const ctl::ControlRequest& request)
+                {
+                    clawhud::RuntimeControlMetadata metadata;
+                    metadata.applicationVersion = "0.1.0";
+                    return clawhud::ExecuteRuntimeControlRequest(request, fake, metadata);
+                });
+            started = true;
+            while (running.load())
+            {
+                bridge.DrainOnMainThread();
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            bridge.DrainOnMainThread();
+        });
+        while (!started.load())
+            std::this_thread::yield();
+    }
+    ~EndToEnd()
+    {
+        running = false;
+        if (drain.joinable())
+            drain.join();
+        bridge.Stop();
+    }
+    RuntimeControlPipeServer::DispatchCallback Callback()
+    {
+        return [this](const ctl::ControlRequest& request) { return bridge.Dispatch(request); };
+    }
+};
 
 // ---- 18.1 endpoint derivation --------------------------------------
 
@@ -137,19 +276,13 @@ void EndpointDerivation()
 {
     const auto first = ctl::ControlPipeName();
     const auto second = ctl::ControlPipeName();
-    Check(first.has_value() && second.has_value(), "production pipe name resolves");
-    Check(first == second, "production pipe name is deterministic");
-
+    Check(first.has_value() && first == second, "production pipe name is deterministic");
     const auto session = ctl::CurrentProcessSessionId();
     Check(session.has_value(), "session id resolves");
     if (first && session)
     {
-        const std::wstring expected =
-            L"\\\\.\\pipe\\ClawHUD.Control." + std::to_wstring(*session);
-        Check(*first == expected, "pipe name is \\\\.\\pipe\\ClawHUD.Control.<sessionId>");
-        Check(first->find(std::to_wstring(GetCurrentProcessId())) == std::wstring::npos ||
-            std::to_wstring(GetCurrentProcessId()) == std::to_wstring(*session),
-            "pipe name has no PID component");
+        Check(*first == L"\\\\.\\pipe\\ClawHUD.Control." + std::to_wstring(*session),
+            "pipe name is \\\\.\\pipe\\ClawHUD.Control.<sessionId>");
         Check(first->find(L"test") == std::wstring::npos, "production name has no test suffix");
     }
 }
@@ -158,10 +291,9 @@ void EndpointDerivation()
 
 void SecurityDescriptor()
 {
-    clawhud::control::ControlPipeSecurity security;
+    ctl::ControlPipeSecurity security;
     Check(security.Build(), "security descriptor builds");
     Check(security.Attributes() != nullptr, "security attributes available after build");
-
     const std::wstring sddl = security.Sddl();
     const auto sid = ctl::CurrentUserSidString();
     Check(sid.has_value(), "current user SID resolves");
@@ -184,122 +316,259 @@ void SessionGate()
     Check(!ctl::SessionsMatch(1, 2), "different session rejected");
 }
 
-// ---- 18.2 / 18.3 read-only round trips --------------------------
+// ---- 18.2 / 18.3 read-only round trips (fake dispatch) ---------
 
 void ReadOnlyRoundTrips()
 {
-    clawhud::RuntimeControlPipeServer server;
+    RuntimeControlPipeServer server;
     std::atomic<int> dispatchCount{0};
     const std::wstring name = TestPipeName();
-    const bool started = server.Start(
-        [&](const ctl::ControlRequest& request) -> ctl::ControlResponse
-        {
-            dispatchCount.fetch_add(1);
-            if (request.operation == ctl::Operation::GetRuntimeInfo)
-                return OkRuntimeInfoResponse(request);
-            ctl::ControlResponse response;
-            response.operationId = static_cast<std::uint16_t>(request.operation);
-            response.requestId = request.requestId;
-            response.status = ctl::ControlStatus::Ok;
-            response.snapshot = SampleSnapshot();
-            return response;
-        },
-        name);
-    Check(started, "pipe server starts on a test endpoint");
-    Check(server.PipeName() == name, "server reports the test endpoint");
+    Check(server.Start(
+              [&](const ctl::ControlRequest& request) -> RuntimeControlExecutionResult
+              {
+                  dispatchCount.fetch_add(1);
+                  if (request.operation == ctl::Operation::GetRuntimeInfo)
+                      return Exec(OkRuntimeInfoResponse(request));
+                  ctl::ControlResponse response;
+                  response.operationId = static_cast<std::uint16_t>(request.operation);
+                  response.requestId = request.requestId;
+                  response.status = ctl::ControlStatus::Ok;
+                  response.snapshot = SampleSnapshot();
+                  return Exec(std::move(response));
+              },
+              {}, name),
+        "pipe server starts on a test endpoint");
 
+    const auto info = RoundtripDecoded(name, Encode(EmptyRequest(ctl::Operation::GetRuntimeInfo, 101)));
+    Check(info && info->status == ctl::ControlStatus::Ok && info->requestId == 101 &&
+            info->runtimeInfo.has_value(),
+        "GetRuntimeInfo round trip");
+
+    const auto snap = RoundtripDecoded(name,
+        Encode(EmptyRequest(ctl::Operation::GetSettingsSnapshot, 202)));
+    Check(snap && snap->status == ctl::ControlStatus::Ok && snap->snapshot.has_value(),
+        "GetSettingsSnapshot round trip");
+    Check(dispatchCount.load() == 2, "each read-only request reached dispatch once");
+    server.Stop();
+}
+
+// ---- 17.2 / 17.3 / 17.4 external mutation round trips (end to end) --
+
+ctl::ControlRequest EnumReq(ctl::Operation op, std::uint8_t wire, std::uint32_t id)
+{
+    ctl::ControlRequest r;
+    r.operation = op;
+    r.requestId = id;
+    r.wireEnum = wire;
+    return r;
+}
+ctl::ControlRequest OpacityReq(ctl::Operation op, std::uint16_t pct, std::uint32_t id)
+{
+    ctl::ControlRequest r;
+    r.operation = op;
+    r.requestId = id;
+    r.opacityPercent = pct;
+    return r;
+}
+
+void ExternalMutations()
+{
+    EndToEnd e2e;
+    RuntimeControlPipeServer server;
+    const std::wstring name = TestPipeName();
+    Check(server.Start(e2e.Callback(), {}, name), "end-to-end pipe server starts");
+
+    struct Case { ctl::ControlRequest request; };
+    std::vector<ctl::ControlRequest> requests;
+    { ctl::ControlRequest r; r.operation = ctl::Operation::SetStartWithWindows; r.requestId = 1; r.flag = true; requests.push_back(r); }
+    { ctl::ControlRequest r; r.operation = ctl::Operation::SetHudEnabled; r.requestId = 2; r.flag = true; requests.push_back(r); }
+    requests.push_back(EnumReq(ctl::Operation::SetHudVisibilityMode,
+        static_cast<std::uint8_t>(ctl::WireVisibilityMode::InGameOnly), 3));
+    { ctl::ControlRequest r; r.operation = ctl::Operation::SetHudSizeOffset; r.requestId = 4; r.sizeOffset = -2; requests.push_back(r); }
+    requests.push_back(EnumReq(ctl::Operation::SetHudFont,
+        static_cast<std::uint8_t>(ctl::WireFont::SegoeUiVariable), 5));
+    requests.push_back(EnumReq(ctl::Operation::SetHudAlignment,
+        static_cast<std::uint8_t>(ctl::WireAlignment::Right), 6));
+    requests.push_back(EnumReq(ctl::Operation::SetHudBackgroundMode,
+        static_cast<std::uint8_t>(ctl::WireBackgroundMode::FullWidth), 7));
+    requests.push_back(OpacityReq(ctl::Operation::PreviewHudOpacity, 60, 8));
+    requests.push_back(OpacityReq(ctl::Operation::CommitHudOpacity, 90, 9));
+    { ctl::ControlRequest r; r.operation = ctl::Operation::SetIntelVrrRangeFixEnabled; r.requestId = 10; r.flag = true; requests.push_back(r); }
+
+    for (const auto& request : requests)
     {
-        const auto raw = Roundtrip(name, Encode(EmptyRequest(ctl::Operation::GetRuntimeInfo, 101)));
-        Check(raw.has_value(), "GetRuntimeInfo produced a response");
-        if (raw)
-        {
-            const auto decoded = ctl::DecodeControlResponse(*raw);
-            Check(decoded.ok && decoded.value.status == ctl::ControlStatus::Ok,
-                "GetRuntimeInfo response is Ok");
-            Check(decoded.value.requestId == 101, "GetRuntimeInfo requestId preserved");
-            Check(decoded.value.runtimeInfo.has_value(), "GetRuntimeInfo payload present");
-        }
+        const auto response = RoundtripDecoded(name, Encode(request));
+        Check(response && response->status == ctl::ControlStatus::Ok,
+            "mutation round trip returns Ok");
+        Check(response && response->requestId == request.requestId, "mutation requestId preserved");
+        Check(response && response->snapshot.has_value(), "mutation returns authoritative snapshot");
     }
-    {
-        const auto raw = Roundtrip(name,
-            Encode(EmptyRequest(ctl::Operation::GetSettingsSnapshot, 202)));
-        Check(raw.has_value(), "GetSettingsSnapshot produced a response");
-        if (raw)
-        {
-            const auto decoded = ctl::DecodeControlResponse(*raw);
-            Check(decoded.ok && decoded.value.status == ctl::ControlStatus::Ok,
-                "GetSettingsSnapshot response is Ok");
-            Check(decoded.value.snapshot.has_value(), "authoritative snapshot returned");
-        }
-    }
-    Check(dispatchCount.load() == 2, "each read-only request reached the dispatch callback once");
+    Check(e2e.fake.lastCallThread.load() == e2e.mainThreadId,
+        "mutations executed on the drain/main thread, not the pipe worker");
+
+    // 17.4: opacity preview vs commit routed to distinct semantic calls.
+    Check(e2e.fake.lastPreview.has_value() && *e2e.fake.lastPreview > 0.599f &&
+            *e2e.fake.lastPreview < 0.601f,
+        "PreviewHudOpacity(60) -> 0.60f");
+    Check(e2e.fake.lastCommit.has_value() && *e2e.fake.lastCommit > 0.899f &&
+            *e2e.fake.lastCommit < 0.901f,
+        "CommitHudOpacity(90) -> 0.90f");
+    Check(e2e.fake.persistedOpacity > 0.899f, "only commit changed the persisted value");
 
     server.Stop();
 }
 
-// ---- 18.4 mutation gate ---------------------------------------
+// ---- 17.3 authoritative rollback / failure ---------------------
 
-void MutationGate()
+void AuthoritativeAndFailure()
 {
-    clawhud::RuntimeControlPipeServer server;
-    std::atomic<int> dispatchCount{0};
-    const std::wstring name = TestPipeName();
-    server.Start([&](const ctl::ControlRequest&) -> ctl::ControlResponse
-        {
-            dispatchCount.fetch_add(1);
-            return {};
-        }, name);
-
-    const ctl::Operation mutations[] = {
-        ctl::Operation::SetStartWithWindows, ctl::Operation::SetHudEnabled,
-        ctl::Operation::SetHudVisibilityMode, ctl::Operation::SetHudSizeOffset,
-        ctl::Operation::SetHudFont, ctl::Operation::SetHudAlignment,
-        ctl::Operation::SetHudBackgroundMode, ctl::Operation::PreviewHudOpacity,
-        ctl::Operation::CommitHudOpacity, ctl::Operation::SetIntelVrrRangeFixEnabled,
-        ctl::Operation::RequestShutdown,
-    };
-
-    for (ctl::Operation op : mutations)
     {
-        ctl::ControlRequest request;
-        request.operation = op;
-        request.requestId = 55;
-        switch (op)
-        {
-        case ctl::Operation::SetStartWithWindows:
-        case ctl::Operation::SetHudEnabled:
-        case ctl::Operation::SetIntelVrrRangeFixEnabled:
-            request.flag = true;
-            break;
-        case ctl::Operation::SetHudVisibilityMode:
-        case ctl::Operation::SetHudFont:
-        case ctl::Operation::SetHudAlignment:
-        case ctl::Operation::SetHudBackgroundMode:
-            request.wireEnum = 1;
-            break;
-        case ctl::Operation::SetHudSizeOffset:
-            request.sizeOffset = 1;
-            break;
-        case ctl::Operation::PreviewHudOpacity:
-        case ctl::Operation::CommitHudOpacity:
-            request.opacityPercent = 70;
-            break;
-        default:
-            break;
-        }
+        EndToEnd e2e;
+        e2e.fake.state.startWithWindows = false; // effective state stays false
+        RuntimeControlPipeServer server;
+        const std::wstring name = TestPipeName();
+        server.Start(e2e.Callback(), {}, name);
 
-        const auto raw = Roundtrip(name, Encode(request));
-        Check(raw.has_value(), "mutation op received a response");
-        if (raw)
+        ctl::ControlRequest request;
+        request.operation = ctl::Operation::SetStartWithWindows;
+        request.requestId = 1;
+        request.flag = true;
+        const auto response = RoundtripDecoded(name, Encode(request));
+        Check(response && response->status == ctl::ControlStatus::Ok, "rollback case Ok");
+        Check(response && response->snapshot && response->snapshot->startWithWindows == false,
+            "response reflects rolled-back authoritative state, not the request");
+        server.Stop();
+    }
+    {
+        EndToEnd e2e;
+        e2e.fake.hudEnableResult = false;
+        RuntimeControlPipeServer server;
+        const std::wstring name = TestPipeName();
+        server.Start(e2e.Callback(), {}, name);
+        ctl::ControlRequest request;
+        request.operation = ctl::Operation::SetHudEnabled;
+        request.requestId = 1;
+        request.flag = true;
+        const auto response = RoundtripDecoded(name, Encode(request));
+        Check(response && response->status == ctl::ControlStatus::OperationFailed,
+            "SetHudEnabled failure -> OperationFailed");
+        Check(response && !response->snapshot.has_value(), "enable failure carries no snapshot");
+        server.Stop();
+    }
+    {
+        EndToEnd e2e;
+        e2e.fake.opacityResult = false;
+        RuntimeControlPipeServer server;
+        const std::wstring name = TestPipeName();
+        server.Start(e2e.Callback(), {}, name);
+        const auto response = RoundtripDecoded(name,
+            Encode(OpacityReq(ctl::Operation::CommitHudOpacity, 80, 1)));
+        Check(response && response->status == ctl::ControlStatus::OperationFailed,
+            "opacity failure -> OperationFailed");
+        server.Stop();
+    }
+    {
+        EndToEnd e2e;
+        RuntimeControlPipeServer server;
+        const std::wstring name = TestPipeName();
+        server.Start(e2e.Callback(), {}, name);
+        // 53% is not a 5% step -> InvalidValue from the mapper.
+        ctl::ControlRequest request;
+        request.operation = ctl::Operation::PreviewHudOpacity;
+        request.requestId = 1;
+        request.opacityPercent = 55;
+        Bytes frame = Encode(request);
+        frame[24] = 53; // payload u16 low byte
+        const auto response = RoundtripDecoded(name, frame);
+        Check(response && response->status == ctl::ControlStatus::InvalidValue,
+            "out-of-step opacity -> InvalidValue");
+        server.Stop();
+    }
+}
+
+// ---- 17.5 RequestShutdown response before shutdown-ready callback ---
+
+void RequestShutdownOrdering()
+{
+    EndToEnd e2e;
+    RuntimeControlPipeServer server;
+    const std::wstring name = TestPipeName();
+
+    std::atomic<int> shutdownCallbackCount{0};
+    std::atomic<bool> responseConsumed{false};
+
+    server.Start(e2e.Callback(),
+        [&]() -> bool
         {
-            const auto decoded = ctl::DecodeControlResponse(*raw);
-            Check(decoded.ok && decoded.value.status == ctl::ControlStatus::RuntimeUnavailable,
-                "blocked mutation returns RuntimeUnavailable");
-            Check(decoded.value.requestId == 55, "blocked mutation preserves requestId");
+            Check(responseConsumed.load(),
+                "shutdown-ready callback fires only after the response is delivered");
+            shutdownCallbackCount.fetch_add(1);
+            return true; // do not actually post anything in the test
+        },
+        name);
+
+    const HANDLE handle = ConnectClient(name);
+    Check(handle != INVALID_HANDLE_VALUE, "shutdown-test client connects");
+    if (handle != INVALID_HANDLE_VALUE)
+    {
+        const Bytes frame = Encode(EmptyRequest(ctl::Operation::RequestShutdown, 321));
+        DWORD written{};
+        WriteFile(handle, frame.data(), static_cast<DWORD>(frame.size()), &written, nullptr);
+
+        std::array<std::uint8_t, ctl::kMaxFrameBytes> buffer{};
+        DWORD read{};
+        const BOOL ok = ReadFile(handle, buffer.data(), static_cast<DWORD>(buffer.size()),
+            &read, nullptr);
+        Check(ok && read > 0, "client reads the RequestShutdown response");
+        if (ok && read > 0)
+        {
+            const auto decoded = ctl::DecodeControlResponse(Bytes(buffer.begin(), buffer.begin() + read));
+            Check(decoded.ok && decoded.value.status == ctl::ControlStatus::Ok,
+                "RequestShutdown response is Ok");
+            Check(decoded.value.requestId == 321, "RequestShutdown requestId preserved");
+            Check(!decoded.value.snapshot.has_value() && !decoded.value.runtimeInfo.has_value(),
+                "RequestShutdown response payload is empty");
         }
+        responseConsumed = true;
+        CloseHandle(handle);
     }
 
-    Check(dispatchCount.load() == 0, "no blocked mutation ever reached the dispatch callback");
+    // Give the worker time to complete its drain and fire the callback.
+    for (int i = 0; i < 200 && shutdownCallbackCount.load() == 0; ++i)
+        Sleep(5);
+    Check(shutdownCallbackCount.load() == 1, "shutdown-ready callback fired exactly once");
+
+    server.Stop();
+}
+
+// ---- 17.6 failed response does not arm shutdown -------------------
+
+void FailedShutdownResponseDoesNotArm()
+{
+    RuntimeControlPipeServer server;
+    const std::wstring name = TestPipeName();
+    std::atomic<int> shutdownCallbackCount{0};
+
+    // Dispatch returns shutdownAfterResponse=true but with a response the codec
+    // refuses to encode (Ok status + unknown raw operation id).
+    server.Start(
+        [](const ctl::ControlRequest& request) -> RuntimeControlExecutionResult
+        {
+            ctl::ControlResponse response;
+            response.operationId = 250; // unknown -> EncodeControlResponse refuses an Ok
+            response.requestId = request.requestId;
+            response.status = ctl::ControlStatus::Ok;
+            return {response, true};
+        },
+        [&] { shutdownCallbackCount.fetch_add(1); return true; },
+        name);
+
+    const auto raw = Roundtrip(name, Encode(EmptyRequest(ctl::Operation::RequestShutdown, 1)));
+    Check(!raw.has_value(), "no response is sent when encoding the shutdown ack fails");
+    for (int i = 0; i < 40; ++i)
+        Sleep(5);
+    Check(shutdownCallbackCount.load() == 0,
+        "a failed shutdown response never arms the shutdown-ready callback");
     server.Stop();
 }
 
@@ -307,23 +576,18 @@ void MutationGate()
 
 void UnknownOperationCorrelation()
 {
-    clawhud::RuntimeControlPipeServer server;
+    RuntimeControlPipeServer server;
     const std::wstring name = TestPipeName();
-    server.Start([](const ctl::ControlRequest&) -> ctl::ControlResponse { return {}; }, name);
+    server.Start([](const ctl::ControlRequest&) { return RuntimeControlExecutionResult{}; }, {}, name);
 
     Bytes frame = Encode(EmptyRequest(ctl::Operation::GetRuntimeInfo, 42));
-    frame[10] = 250; // operation low byte -> unknown
+    frame[10] = 250; // unknown operation
 
-    const auto raw = Roundtrip(name, frame);
-    Check(raw.has_value(), "unknown operation produced a correlated response");
-    if (raw)
-    {
-        const auto decoded = ctl::DecodeControlResponse(*raw);
-        Check(decoded.ok && decoded.value.status == ctl::ControlStatus::UnknownOperation,
-            "unknown operation returns UnknownOperation");
-        Check(decoded.value.operationId == 250, "raw unknown operationId echoed");
-        Check(decoded.value.requestId == 42, "requestId echoed");
-    }
+    const auto response = RoundtripDecoded(name, frame);
+    Check(response && response->status == ctl::ControlStatus::UnknownOperation,
+        "unknown operation -> UnknownOperation");
+    Check(response && response->operationId == 250 && response->requestId == 42,
+        "raw operationId + requestId echoed");
     server.Stop();
 }
 
@@ -331,26 +595,18 @@ void UnknownOperationCorrelation()
 
 void InvalidValueCorrelation()
 {
-    clawhud::RuntimeControlPipeServer server;
+    RuntimeControlPipeServer server;
     const std::wstring name = TestPipeName();
-    server.Start([](const ctl::ControlRequest&) -> ctl::ControlResponse { return {}; }, name);
+    server.Start([](const ctl::ControlRequest&) { return RuntimeControlExecutionResult{}; }, {}, name);
 
-    ctl::ControlRequest request;
-    request.operation = ctl::Operation::SetHudFont;
-    request.requestId = 77;
-    request.wireEnum = 1;
-    Bytes frame = Encode(request);
-    frame[24] = 9; // payload byte: invalid font value
+    Bytes frame = Encode(EnumReq(ctl::Operation::SetHudFont,
+        static_cast<std::uint8_t>(ctl::WireFont::Unispace), 77));
+    frame[24] = 9; // invalid font value
 
-    const auto raw = Roundtrip(name, frame);
-    Check(raw.has_value(), "invalid known value produced a correlated response");
-    if (raw)
-    {
-        const auto decoded = ctl::DecodeControlResponse(*raw);
-        Check(decoded.ok && decoded.value.status == ctl::ControlStatus::InvalidValue,
-            "invalid value returns InvalidValue");
-        Check(decoded.value.requestId == 77, "requestId preserved on InvalidValue");
-    }
+    const auto response = RoundtripDecoded(name, frame);
+    Check(response && response->status == ctl::ControlStatus::InvalidValue,
+        "invalid known value -> InvalidValue");
+    Check(response && response->requestId == 77, "requestId preserved on InvalidValue");
     server.Stop();
 }
 
@@ -358,26 +614,24 @@ void InvalidValueCorrelation()
 
 void UncorrelatableMalformed()
 {
-    clawhud::RuntimeControlPipeServer server;
+    RuntimeControlPipeServer server;
     std::atomic<int> dispatchCount{0};
     const std::wstring name = TestPipeName();
-    server.Start([&](const ctl::ControlRequest&) -> ctl::ControlResponse
+    server.Start(
+        [&](const ctl::ControlRequest&) -> RuntimeControlExecutionResult
         {
             dispatchCount.fetch_add(1);
-            return OkRuntimeInfoResponse(EmptyRequest(ctl::Operation::GetRuntimeInfo, 1));
-        }, name);
+            return Exec(OkRuntimeInfoResponse(EmptyRequest(ctl::Operation::GetRuntimeInfo, 1)));
+        },
+        {}, name);
 
-    Bytes frame = Encode(EmptyRequest(ctl::Operation::GetRuntimeInfo, 5));
-    frame[0] = 'X'; // bad magic -> no trustworthy identity
-    const auto raw = Roundtrip(name, frame);
-    Check(!raw.has_value(), "bad-magic frame gets no fabricated response");
+    Bytes bad = Encode(EmptyRequest(ctl::Operation::GetRuntimeInfo, 5));
+    bad[0] = 'X';
+    Check(!Roundtrip(name, bad).has_value(), "bad-magic frame gets no fabricated response");
 
-    // Server still serves the next valid client.
-    const auto good = Roundtrip(name, Encode(EmptyRequest(ctl::Operation::GetRuntimeInfo, 6)));
-    Check(good.has_value(), "server stays alive after a malformed frame");
-    if (good)
-        Check(ctl::DecodeControlResponse(*good).value.status == ctl::ControlStatus::Ok,
-            "next valid client still gets Ok");
+    const auto good = RoundtripDecoded(name, Encode(EmptyRequest(ctl::Operation::GetRuntimeInfo, 6)));
+    Check(good && good->status == ctl::ControlStatus::Ok, "server stays alive after a malformed frame");
+    Check(dispatchCount.load() == 1, "only the valid frame was dispatched");
     server.Stop();
 }
 
@@ -385,14 +639,16 @@ void UncorrelatableMalformed()
 
 void OversizedMessage()
 {
-    clawhud::RuntimeControlPipeServer server;
+    RuntimeControlPipeServer server;
     std::atomic<int> dispatchCount{0};
     const std::wstring name = TestPipeName();
-    server.Start([&](const ctl::ControlRequest&) -> ctl::ControlResponse
+    server.Start(
+        [&](const ctl::ControlRequest&) -> RuntimeControlExecutionResult
         {
             dispatchCount.fetch_add(1);
-            return OkRuntimeInfoResponse(EmptyRequest(ctl::Operation::GetRuntimeInfo, 1));
-        }, name);
+            return Exec(OkRuntimeInfoResponse(EmptyRequest(ctl::Operation::GetRuntimeInfo, 1)));
+        },
+        {}, name);
 
     const HANDLE handle = ConnectClient(name);
     Check(handle != INVALID_HANDLE_VALUE, "oversized-test client connects");
@@ -408,36 +664,32 @@ void OversizedMessage()
         Check(!ok || read == 0, "oversized message gets no response");
         CloseHandle(handle);
     }
-
     Check(dispatchCount.load() == 0, "oversized message never dispatched");
-    const auto good = Roundtrip(name, Encode(EmptyRequest(ctl::Operation::GetRuntimeInfo, 9)));
+    const auto good = RoundtripDecoded(name, Encode(EmptyRequest(ctl::Operation::GetRuntimeInfo, 9)));
     Check(good.has_value(), "server accepts a valid client after an oversized message");
     server.Stop();
 }
 
-// ---- 18.9 stop while waiting for a connection ------------------
+// ---- 18.9 / 18.10 stop lifecycle -----------------------------
 
 void StopWhileWaitingForConnection()
 {
-    clawhud::RuntimeControlPipeServer server;
-    server.Start([](const ctl::ControlRequest&) -> ctl::ControlResponse { return {}; },
+    RuntimeControlPipeServer server;
+    server.Start([](const ctl::ControlRequest&) { return RuntimeControlExecutionResult{}; }, {},
         TestPipeName());
     Check(server.Running(), "server running with no client");
-    server.Stop(); // must return; ctest timeout catches a hang
+    server.Stop();
     Check(!server.Running(), "server stopped with no client");
 }
 
-// ---- 18.10 stop while client connected but idle ---------------
-
 void StopWhileClientIdle()
 {
-    clawhud::RuntimeControlPipeServer server;
+    RuntimeControlPipeServer server;
     const std::wstring name = TestPipeName();
-    server.Start([](const ctl::ControlRequest&) -> ctl::ControlResponse { return {}; }, name);
-
+    server.Start([](const ctl::ControlRequest&) { return RuntimeControlExecutionResult{}; }, {}, name);
     const HANDLE handle = ConnectClient(name);
     Check(handle != INVALID_HANDLE_VALUE, "idle client connects");
-    Sleep(30); // let the worker enter its blocking read
+    Sleep(30);
     server.Stop();
     Check(!server.Running(), "server stopped while a client was connected and idle");
     if (handle != INVALID_HANDLE_VALUE)
@@ -450,19 +702,20 @@ void RestartOnSameEndpoint()
 {
     const std::wstring name = TestPipeName();
     {
-        clawhud::RuntimeControlPipeServer server;
-        Check(server.Start([](const ctl::ControlRequest& r) { return OkRuntimeInfoResponse(r); },
-                  name),
+        RuntimeControlPipeServer server;
+        Check(server.Start([](const ctl::ControlRequest& r) { return Exec(OkRuntimeInfoResponse(r)); },
+                  {}, name),
             "first server starts");
         server.Stop();
     }
     {
-        clawhud::RuntimeControlPipeServer server;
-        Check(server.Start([](const ctl::ControlRequest& r) { return OkRuntimeInfoResponse(r); },
-                  name),
+        RuntimeControlPipeServer server;
+        Check(server.Start([](const ctl::ControlRequest& r) { return Exec(OkRuntimeInfoResponse(r)); },
+                  {}, name),
             "restarted server starts on the same endpoint");
-        const auto raw = Roundtrip(name, Encode(EmptyRequest(ctl::Operation::GetRuntimeInfo, 1)));
-        Check(raw.has_value() && ctl::DecodeControlResponse(*raw).value.status == ctl::ControlStatus::Ok,
+        const auto response = RoundtripDecoded(name,
+            Encode(EmptyRequest(ctl::Operation::GetRuntimeInfo, 1)));
+        Check(response && response->status == ctl::ControlStatus::Ok,
             "restarted server serves a valid request");
         server.Stop();
     }
@@ -473,8 +726,6 @@ void RestartOnSameEndpoint()
 void DispatchWaitShutdownOrdering()
 {
     clawhud::RuntimeControlDispatchBridge bridge;
-    // Registered "main thread" is one that never drains: a dispatched request
-    // stays pending until bridge.Stop().
     bridge.Start(std::thread::id{}, [] { return true; },
         [](const ctl::ControlRequest& request)
         {
@@ -483,12 +734,12 @@ void DispatchWaitShutdownOrdering()
             response.requestId = request.requestId;
             response.status = ctl::ControlStatus::Ok;
             response.snapshot = SampleSnapshot();
-            return response;
+            return RuntimeControlExecutionResult{response, false};
         });
 
-    clawhud::RuntimeControlPipeServer server;
+    RuntimeControlPipeServer server;
     const std::wstring name = TestPipeName();
-    server.Start([&](const ctl::ControlRequest& request) { return bridge.Dispatch(request); }, name);
+    server.Start([&](const ctl::ControlRequest& request) { return bridge.Dispatch(request); }, {}, name);
 
     std::atomic<bool> clientDone{false};
     std::thread client([&]
@@ -496,11 +747,9 @@ void DispatchWaitShutdownOrdering()
         Roundtrip(name, Encode(EmptyRequest(ctl::Operation::GetSettingsSnapshot, 1)));
         clientDone = true;
     });
+    Sleep(50);
 
-    Sleep(50); // let the pipe worker reach bridge.Dispatch()
-
-    // Production shutdown order.
-    bridge.Stop();
+    bridge.Stop();  // production order: bridge first
     server.Stop();
     client.join();
 
@@ -515,7 +764,10 @@ int main()
     SecurityDescriptor();
     SessionGate();
     ReadOnlyRoundTrips();
-    MutationGate();
+    ExternalMutations();
+    AuthoritativeAndFailure();
+    RequestShutdownOrdering();
+    FailedShutdownResponseDoesNotArm();
     UnknownOperationCorrelation();
     InvalidValueCorrelation();
     UncorrelatableMalformed();
