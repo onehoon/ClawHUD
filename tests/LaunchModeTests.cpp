@@ -1,4 +1,5 @@
 #include "LaunchMode.h"
+#include "RuntimeLifecyclePolicy.h"
 
 #include <array>
 #include <cstdlib>
@@ -9,6 +10,8 @@
 
 using clawhud::LaunchMode;
 using clawhud::ResolveLaunchMode;
+using clawhud::ShouldReconcileStartupRegistration;
+using clawhud::ShouldRestartAfterVelopackUpdate;
 using clawhud::ToWireLaunchMode;
 namespace ctl = clawhud::control;
 
@@ -59,6 +62,25 @@ void WireMapping()
         "Managed -> WireLaunchMode::Managed");
 }
 
+void LifecyclePolicy()
+{
+    // Startup shortcut reconciliation at launch: Standalone only.
+    Check(ShouldReconcileStartupRegistration(LaunchMode::Standalone),
+        "Standalone reconciles the startup shortcut at launch");
+    Check(!ShouldReconcileStartupRegistration(LaunchMode::Managed),
+        "Managed launch does not touch the startup shortcut");
+
+    // Velopack restart-after-apply: Standalone only. The same predicate drives
+    // both the pending-update and newly-downloaded-update paths.
+    Check(ShouldRestartAfterVelopackUpdate(LaunchMode::Standalone),
+        "Standalone update restarts ClawHUD after apply");
+    Check(!ShouldRestartAfterVelopackUpdate(LaunchMode::Managed),
+        "Managed update applies with restart=false");
+
+    static_assert(ShouldReconcileStartupRegistration(LaunchMode::Standalone));
+    static_assert(!ShouldRestartAfterVelopackUpdate(LaunchMode::Managed));
+}
+
 void EmptySpan()
 {
     // A null / empty span must not read out of bounds.
@@ -71,6 +93,7 @@ int main()
 {
     ParserRules();
     WireMapping();
+    LifecyclePolicy();
     EmptySpan();
 
     if (g_failures != 0)

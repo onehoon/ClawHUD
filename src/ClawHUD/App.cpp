@@ -8,6 +8,7 @@
 #include "Version.h"
 #include "ProductionTargetPolicy.h"
 #include "RuntimeControlWireMapping.h"
+#include "RuntimeLifecyclePolicy.h"
 #include "SuspendResumePolicy.h"
 #include "ProcessLiveness.h"
 #include "HudSettingsStore.h"
@@ -149,9 +150,20 @@ int App::Run()
             L"ClawHUD", MB_OK | MB_ICONWARNING);
         return 0;
     }
-    if (!ApplyStartupRegistration())
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
-            L"Startup registration failed");
+    // Managed launch is not the owner of the Standalone startup shortcut and
+    // must not create / delete / rewrite it; explicit SetStartWithWindows over
+    // IPC still can (see RuntimeLifecyclePolicy.h).
+    if (clawhud::ShouldReconcileStartupRegistration(launchMode_))
+    {
+        if (!ApplyStartupRegistration())
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
+                L"Startup registration failed");
+    }
+    else
+    {
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info,
+            L"Startup registration reconciliation skipped launchMode=Managed");
+    }
     if (!runtimeMessageWindow_.Create(instance_))
     {
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
@@ -723,11 +735,18 @@ void App::CheckForUpdates()
     try
     {
         Velopack::UpdateManager manager(std::make_unique<Velopack::GithubSource>(CLAWHUD_UPDATE_REPOSITORY));
+        // Standalone lets Velopack restart ClawHUD normally; Managed applies and
+        // exits so the external owner relaunches `ClawHUD.exe --managed` itself.
+        // Both update sources use this one decision.
+        const bool restart = clawhud::ShouldRestartAfterVelopackUpdate(launchMode_);
+        const std::wstring modeLog = std::wstring(L" launchMode=") +
+            clawhud::LaunchModeName(launchMode_) + L" restart=" +
+            (restart ? L"1" : L"0");
         const auto pending = manager.UpdatePendingRestart();
         if (pending.has_value())
         {
-            Log(L"Velopack: applying pending update silently");
-            manager.WaitExitThenApplyUpdates(*pending, true, true);
+            Log(L"Velopack: applying pending update silently" + modeLog);
+            manager.WaitExitThenApplyUpdates(*pending, true, restart);
             std::exit(0);
         }
         const auto update = manager.CheckForUpdates();
@@ -736,9 +755,9 @@ void App::CheckForUpdates()
             Log(L"Velopack: no update available");
             return;
         }
-        Log(L"Velopack: update available; downloading silently");
+        Log(L"Velopack: downloaded update apply silently" + modeLog);
         manager.DownloadUpdates(*update);
-        manager.WaitExitThenApplyUpdates(*update, true, true);
+        manager.WaitExitThenApplyUpdates(*update, true, restart);
         std::exit(0);
     }
     catch (const std::exception&)
