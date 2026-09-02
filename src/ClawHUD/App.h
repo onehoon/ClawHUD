@@ -7,6 +7,7 @@
 #include <string>
 
 #include "TrayIcon.h"
+#include "LaunchMode.h"
 #include "RuntimeMessageWindow.h"
 #include "RuntimeControl.h"
 #include "RuntimeControlDispatchBridge.h"
@@ -44,7 +45,7 @@ constexpr UINT kRuntimeControlShutdownReadyMessage = WM_APP + 12;
 class App : public clawhud::IRuntimeControl
 {
 public:
-    explicit App(HINSTANCE instance);
+    App(HINSTANCE instance, clawhud::LaunchMode launchMode);
     ~App();
 
     int Run();
@@ -108,6 +109,11 @@ private:
 
     HINSTANCE instance_{};
     HANDLE instanceMutex_{};
+    // Process-lifetime shell composition state. Standalone builds the tray and
+    // allows the legacy Settings window; Managed does neither. The runtime
+    // (window, telemetry, game detection, HUD, tweaks, Control IPC) is identical
+    // in both modes. Never persisted; never mutated after construction.
+    const clawhud::LaunchMode launchMode_;
     clawhud::HudSettingsStore hudSettingsStore_;
     // Runtime-owned hidden message window: F8 hotkey, suspend/resume power
     // notifications and the production WM_TIMER stream. Independent of the tray
