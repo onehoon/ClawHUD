@@ -46,7 +46,8 @@ using clawhud::ProcessAlive;
 }
 
 App::App(HINSTANCE instance)
-    : instance_(instance), runtimeMessageWindow_(*this), tray_(*this)
+    : instance_(instance), runtimeMessageWindow_(*this),
+      tray_(TrayActions{[this] { OpenSettings(); }, [this] { Exit(); }})
 {
     clawhud::RuntimeLogger::Initialize();
     wchar_t path[MAX_PATH]{}; const DWORD length = GetModuleFileNameW(instance_, path, ARRAYSIZE(path));

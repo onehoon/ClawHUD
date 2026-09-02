@@ -4,12 +4,20 @@
 #include <dbt.h>
 #include <shellapi.h>
 
-class App;
+#include <functional>
+
+// The two shell intents the Standalone tray emits. App supplies these at
+// construction; TrayIcon does not know the application type.
+struct TrayActions
+{
+    std::function<void()> openSettings;
+    std::function<void()> exit;
+};
 
 class TrayIcon
 {
 public:
-    explicit TrayIcon(App& app);
+    explicit TrayIcon(TrayActions actions);
     ~TrayIcon();
 
     bool Create(HINSTANCE instance);
@@ -21,7 +29,7 @@ private:
     bool AddIcon();
     void ShowMenu();
 
-    App& app_;
+    TrayActions actions_;
     HINSTANCE instance_{};
     HWND window_{};
     NOTIFYICONDATAW notifyIcon_{};

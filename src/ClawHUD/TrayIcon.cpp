@@ -1,11 +1,9 @@
 #include "TrayIcon.h"
 
-#include "App.h"
 #include "resource.h"
-#include "RuntimeLogger.h"
 
-#include <dbt.h>
 #include <shellapi.h>
+#include <utility>
 
 namespace
 {
@@ -15,7 +13,7 @@ constexpr UINT kExitCommand = 1002;
 constexpr wchar_t kTrayClassName[] = L"ClawHUD.TrayMessageWindow";
 }
 
-TrayIcon::TrayIcon(App& app) : app_(app)
+TrayIcon::TrayIcon(TrayActions actions) : actions_(std::move(actions))
 {
 }
 
@@ -91,8 +89,8 @@ void TrayIcon::ShowMenu()
     DestroyMenu(menu);
     switch (command)
     {
-    case kSettingsCommand: app_.OpenSettings(); break;
-    case kExitCommand: app_.Exit(); break;
+    case kSettingsCommand: if (actions_.openSettings) actions_.openSettings(); break;
+    case kExitCommand: if (actions_.exit) actions_.exit(); break;
     default: break;
     }
 }
@@ -115,7 +113,8 @@ LRESULT CALLBACK TrayIcon::WindowProc(HWND window, UINT message, WPARAM wParam, 
     }
     if (message == kTrayMessage && lParam == WM_LBUTTONUP)
     {
-        self->app_.OpenSettings();
+        if (self->actions_.openSettings)
+            self->actions_.openSettings();
         return 0;
     }
     if (message == kTrayMessage && lParam == WM_RBUTTONUP)
