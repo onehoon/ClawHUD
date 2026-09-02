@@ -7,6 +7,7 @@
 #include "RuntimeLogger.h"
 #include "Version.h"
 #include "ProductionTargetPolicy.h"
+#include "RuntimeControlWireMapping.h"
 #include "SuspendResumePolicy.h"
 #include "ProcessLiveness.h"
 #include "HudSettingsStore.h"
@@ -24,6 +25,7 @@
 #include <cwctype>
 #include <sstream>
 #include <string>
+#include <thread>
 
 namespace
 {
@@ -83,6 +85,7 @@ App::~App()
 
 void App::StopRuntimeSources()
 {
+    runtimeControlBridge_.Stop();
     CancelResumeRecovery();
     StopProductionSampling(false, L"app-shutdown");
     productionTelemetry_.StopGraphicsApiProbe();
@@ -207,6 +210,18 @@ int App::Run()
         }
     }
     tweakStartupCoordinator_.Start(intelVrrRangeFixEnabled_);
+    runtimeControlBridge_.Start(std::this_thread::get_id(),
+        [this]
+        {
+            return PostMessageW(runtimeMessageWindow_.Window(),
+                kRuntimeControlDispatchMessage, 0, 0) != FALSE;
+        },
+        [this](const clawhud::control::ControlRequest& request)
+        {
+            clawhud::RuntimeControlMetadata metadata;
+            metadata.applicationVersion = CLAWHUD_VERSION_UTF8;
+            return clawhud::ExecuteRuntimeControlRequest(request, *this, metadata);
+        });
     return ProcessMessages();
 }
 
@@ -735,6 +750,11 @@ void App::PostSettingsDestroyed()
 void App::SettingsDestroyed()
 {
     settings_.reset();
+}
+
+void App::HandleRuntimeControlDispatch()
+{
+    runtimeControlBridge_.DrainOnMainThread();
 }
 
 void App::Exit()
