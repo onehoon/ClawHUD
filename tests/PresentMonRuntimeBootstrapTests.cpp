@@ -46,5 +46,18 @@ int main()
     ok &= Check(ClassifyPresentMonRuntimeMsiExit(1603) ==
         PresentMonRuntimeMsiExit::Failed,
         "other MSI failures are rejected");
+
+    // Installer wait policy (Cleanup 2). The timeout path must classify as
+    // TimedOut -> InstallTimedOut -> exit; RunInstaller closes only ClawHUD's
+    // handle and never calls TerminateProcess on msiexec.
+    ok &= Check(ClassifyInstallerWait(WAIT_OBJECT_0) ==
+        InstallerWaitOutcome::Completed,
+        "signalled installer wait is Completed");
+    ok &= Check(ClassifyInstallerWait(WAIT_TIMEOUT) ==
+        InstallerWaitOutcome::TimedOut,
+        "expired installer wait is TimedOut, not Failed");
+    ok &= Check(ClassifyInstallerWait(WAIT_FAILED) ==
+        InstallerWaitOutcome::Failed,
+        "failed installer wait is Failed");
     return ok ? 0 : 1;
 }

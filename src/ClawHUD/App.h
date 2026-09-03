@@ -17,6 +17,7 @@
 #include "PresentMonTelemetryProvider.h"
 #include "ProductionTelemetryController.h"
 #include "EcHelperLifetimePolicy.h"
+#include "PresentMonRuntimeBootstrap.h"
 #include "HudController.h"
 #include "HudSettingsStore.h"
 #include "Tweaks/TweakStartupCoordinator.h"
@@ -87,6 +88,12 @@ private:
     bool SetHudOpacity(float opacity, bool persist);
     bool AcquireSingleInstance();
     void CheckForUpdates();
+    // PresentMon shared-runtime prerequisite gate. Runs after the single-instance
+    // and supported-hardware gates and before any startup side effect. Returns
+    // true to continue; false means a Win32 message was shown and Run() must exit
+    // without initializing the tray / runtime window / provider / HUD.
+    bool HandlePresentMonRuntimeBootstrapResult(
+        clawhud::PresentMonRuntimeBootstrapResult result);
     int ProcessMessages();
     void LoadHudSettings();
     void SaveHudEnabledSetting(bool enabled) const;
