@@ -16,6 +16,7 @@
 #include "GameDetection/GameSessionController.h"
 #include "PresentMonTelemetryProvider.h"
 #include "ProductionTelemetryController.h"
+#include "EcHelperLifetimePolicy.h"
 #include "HudController.h"
 #include "HudSettingsStore.h"
 #include "Tweaks/TweakStartupCoordinator.h"
@@ -96,8 +97,8 @@ private:
     void StartProductionSampling();
     void PauseProductionSamplingForSuspend();
     void CancelResumeRecovery();
-    void StopProductionSampling(bool stopRenderVerification = true,
-        const wchar_t* reason = L"explicit-reset");
+    void StopProductionSampling(clawhud::SamplingStopCause cause,
+        bool stopRenderVerification = true);
     // Shared runtime-source stop sequence for ~App() and Exit(). Same effective
     // order both callers used inline before R7.
     void StopRuntimeSources();

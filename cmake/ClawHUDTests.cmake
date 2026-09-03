@@ -20,6 +20,29 @@
     set_target_properties(ClawHUD.LaunchModeTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.LaunchModeTests COMMAND ClawHUD.LaunchModeTests)
 
+    add_executable(ClawHUD.EcHelperLifetimePolicyTests
+        tests/EcHelperLifetimePolicyTests.cpp)
+    target_compile_features(ClawHUD.EcHelperLifetimePolicyTests PRIVATE cxx_std_20)
+    target_include_directories(ClawHUD.EcHelperLifetimePolicyTests PRIVATE src/ClawHUD)
+    set_target_properties(ClawHUD.EcHelperLifetimePolicyTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.EcHelperLifetimePolicyTests
+        COMMAND ClawHUD.EcHelperLifetimePolicyTests)
+
+    add_executable(ClawHUD.EcHelperClientLifetimeTests
+        tests/EcHelperClientLifetimeTests.cpp
+        src/ClawHUD/EcHelperClient.cpp
+        src/ClawHUD/RuntimeLogger.cpp)
+    target_compile_features(ClawHUD.EcHelperClientLifetimeTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.EcHelperClientLifetimeTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX
+        CLAWHUD_RUNTIME_LOGGER_TESTS CLAWHUD_EC_HELPER_CLIENT_TESTS)
+    target_include_directories(ClawHUD.EcHelperClientLifetimeTests PRIVATE
+        src/ClawHUD src/shared)
+    target_link_libraries(ClawHUD.EcHelperClientLifetimeTests PRIVATE shell32 ole32)
+    set_target_properties(ClawHUD.EcHelperClientLifetimeTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.EcHelperClientLifetimeTests
+        COMMAND ClawHUD.EcHelperClientLifetimeTests)
+
     add_executable(ClawHUD.ControlProtocolTests
         tests/ClawHudControlCodecTests.cpp
         src/shared/ClawHudControlCodec.cpp)
