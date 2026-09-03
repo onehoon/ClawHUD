@@ -6,7 +6,7 @@ using ClawHUD.Settings.Protocol;
 
 namespace ClawHUD.Settings.Services;
 
-internal enum ControlClientOutcome
+public enum ControlClientOutcome
 {
     Success,
     ProtocolError,
@@ -15,7 +15,7 @@ internal enum ControlClientOutcome
     TimedOut,
 }
 
-internal sealed record ControlClientResult<T>(
+public sealed record ControlClientResult<T>(
     ControlClientOutcome Outcome,
     T? Value = default,
     ControlStatus Status = ControlStatus.Ok)
@@ -31,12 +31,25 @@ internal sealed record ControlClientResult<T>(
 }
 
 /// <summary>
-/// Read-only client for the ClawHUD Control Named Pipe. Every call opens a fresh
-/// connection, sends one request, reads one response and closes — matching the
-/// native server's single-instance, one-request-per-connection lifetime. No
-/// persistent connection, no retry/reconnect state machine (PR2 scope).
+/// Client for the ClawHUD Control Named Pipe. Reads and mutations share one
+/// transport path: every call opens a fresh connection, sends one request, reads
+/// one response and closes — matching the native server's single-instance,
+/// one-request-per-connection lifetime. No persistent connection, no polling, no
+/// retry/reconnect state machine.
 /// </summary>
-internal sealed class RuntimeControlClient
+public interface IRuntimeControlClient
+{
+    Task<ControlClientResult<RuntimeInfo>> GetRuntimeInfoAsync(CancellationToken cancellationToken = default);
+    Task<ControlClientResult<SettingsSnapshot>> GetSettingsSnapshotAsync(CancellationToken cancellationToken = default);
+    Task<ControlClientResult<SettingsSnapshot>> SetHudEnabledAsync(bool enabled, CancellationToken cancellationToken = default);
+    Task<ControlClientResult<SettingsSnapshot>> SetHudVisibilityModeAsync(WireVisibilityMode mode, CancellationToken cancellationToken = default);
+    Task<ControlClientResult<SettingsSnapshot>> SetHudSizeOffsetAsync(int offset, CancellationToken cancellationToken = default);
+    Task<ControlClientResult<SettingsSnapshot>> SetHudFontAsync(WireFont font, CancellationToken cancellationToken = default);
+    Task<ControlClientResult<SettingsSnapshot>> SetHudAlignmentAsync(WireAlignment alignment, CancellationToken cancellationToken = default);
+    Task<ControlClientResult<SettingsSnapshot>> SetHudBackgroundModeAsync(WireBackgroundMode mode, CancellationToken cancellationToken = default);
+}
+
+public sealed class RuntimeControlClient : IRuntimeControlClient
 {
     private static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(3);
 
@@ -56,13 +69,50 @@ internal sealed class RuntimeControlClient
         _timeout = timeout ?? DefaultTimeout;
     }
 
-    internal Task<ControlClientResult<RuntimeInfo>> GetRuntimeInfoAsync(
+    public Task<ControlClientResult<RuntimeInfo>> GetRuntimeInfoAsync(
         CancellationToken cancellationToken = default) =>
-        ExecuteAsync(ControlOperation.GetRuntimeInfo, r => r.RuntimeInfo, cancellationToken);
+        ExecuteAsync(ControlOperation.GetRuntimeInfo,
+            id => new ControlRequest(ControlOperation.GetRuntimeInfo, id),
+            r => r.RuntimeInfo, cancellationToken);
 
-    internal Task<ControlClientResult<SettingsSnapshot>> GetSettingsSnapshotAsync(
+    public Task<ControlClientResult<SettingsSnapshot>> GetSettingsSnapshotAsync(
         CancellationToken cancellationToken = default) =>
-        ExecuteAsync(ControlOperation.GetSettingsSnapshot, r => r.Snapshot, cancellationToken);
+        Snapshot(ControlOperation.GetSettingsSnapshot,
+            id => new ControlRequest(ControlOperation.GetSettingsSnapshot, id), cancellationToken);
+
+    public Task<ControlClientResult<SettingsSnapshot>> SetHudEnabledAsync(bool enabled,
+        CancellationToken cancellationToken = default) =>
+        Snapshot(ControlOperation.SetHudEnabled,
+            id => new ControlRequest(ControlOperation.SetHudEnabled, id, Flag: enabled), cancellationToken);
+
+    public Task<ControlClientResult<SettingsSnapshot>> SetHudVisibilityModeAsync(WireVisibilityMode mode,
+        CancellationToken cancellationToken = default) =>
+        Snapshot(ControlOperation.SetHudVisibilityMode,
+            id => new ControlRequest(ControlOperation.SetHudVisibilityMode, id, WireEnum: (byte)mode), cancellationToken);
+
+    public Task<ControlClientResult<SettingsSnapshot>> SetHudSizeOffsetAsync(int offset,
+        CancellationToken cancellationToken = default) =>
+        Snapshot(ControlOperation.SetHudSizeOffset,
+            id => new ControlRequest(ControlOperation.SetHudSizeOffset, id, SizeOffset: offset), cancellationToken);
+
+    public Task<ControlClientResult<SettingsSnapshot>> SetHudFontAsync(WireFont font,
+        CancellationToken cancellationToken = default) =>
+        Snapshot(ControlOperation.SetHudFont,
+            id => new ControlRequest(ControlOperation.SetHudFont, id, WireEnum: (byte)font), cancellationToken);
+
+    public Task<ControlClientResult<SettingsSnapshot>> SetHudAlignmentAsync(WireAlignment alignment,
+        CancellationToken cancellationToken = default) =>
+        Snapshot(ControlOperation.SetHudAlignment,
+            id => new ControlRequest(ControlOperation.SetHudAlignment, id, WireEnum: (byte)alignment), cancellationToken);
+
+    public Task<ControlClientResult<SettingsSnapshot>> SetHudBackgroundModeAsync(WireBackgroundMode mode,
+        CancellationToken cancellationToken = default) =>
+        Snapshot(ControlOperation.SetHudBackgroundMode,
+            id => new ControlRequest(ControlOperation.SetHudBackgroundMode, id, WireEnum: (byte)mode), cancellationToken);
+
+    private Task<ControlClientResult<SettingsSnapshot>> Snapshot(ControlOperation operation,
+        Func<uint, ControlRequest> build, CancellationToken cancellationToken) =>
+        ExecuteAsync(operation, build, r => r.Snapshot, cancellationToken);
 
     private uint NextRequestId()
     {
@@ -73,11 +123,12 @@ internal sealed class RuntimeControlClient
     }
 
     private async Task<ControlClientResult<T>> ExecuteAsync<T>(ControlOperation operation,
-        Func<ResponseDecodeResult, T?> select, CancellationToken cancellationToken)
+        Func<uint, ControlRequest> build, Func<ResponseDecodeResult, T?> select,
+        CancellationToken cancellationToken)
         where T : class
     {
         uint requestId = NextRequestId();
-        byte[] request = ControlCodec.EncodeReadRequest(operation, requestId);
+        byte[] request = ControlCodec.EncodeRequest(build(requestId));
 
         using var timeoutSource = new CancellationTokenSource(_timeout);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(
