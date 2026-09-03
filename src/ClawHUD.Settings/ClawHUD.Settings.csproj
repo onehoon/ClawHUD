@@ -16,4 +16,8 @@
     <NoWarn>$(NoWarn);WPF0001</NoWarn>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="ClawHUD.Settings.Tests" />
+  </ItemGroup>
+
 </Project>
