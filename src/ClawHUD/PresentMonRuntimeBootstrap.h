@@ -11,9 +11,11 @@ enum class PresentMonRuntimeBootstrapResult
     AlreadyReady,
     Installed,
     InstalledRebootRequired,
-    NeedsInstall,
     MsiMissing,
     ElevationCancelled,
+    // ClawHUD's bounded wait on msiexec expired. The installer is deliberately
+    // left running under Windows Installer ownership -- never TerminateProcess'd.
+    InstallTimedOut,
     InstallFailed,
     ValidationFailed,
 };
@@ -33,6 +35,25 @@ enum class PresentMonRuntimeMsiExit
     RebootRequiredCandidate,
     Failed,
 };
+
+// Outcome of ClawHUD's bounded WaitForSingleObject on the msiexec process.
+// TimedOut must NOT lead to TerminateProcess: Windows Installer keeps ownership
+// of the in-flight transaction and the next launch re-validates readiness.
+enum class InstallerWaitOutcome
+{
+    Completed,
+    TimedOut,
+    Failed,
+};
+
+constexpr InstallerWaitOutcome ClassifyInstallerWait(DWORD waitResult) noexcept
+{
+    if (waitResult == WAIT_OBJECT_0)
+        return InstallerWaitOutcome::Completed;
+    if (waitResult == WAIT_TIMEOUT)
+        return InstallerWaitOutcome::TimedOut;
+    return InstallerWaitOutcome::Failed;
+}
 
 PresentMonRuntimeBootstrapResult EnsurePresentMonRuntime() noexcept;
 bool IsPresentMonRuntimeReady() noexcept;

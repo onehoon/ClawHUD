@@ -3,6 +3,7 @@
 #include "SettingsWindow.h"
 #include "Tweaks/IntelVrr/IntelVrrResultStore.h"
 #include "SupportedHardware.h"
+#include "PresentMonRuntimeStartupPolicy.h"
 #include "UninstallCleanup.h"
 #include "RuntimeLogger.h"
 #include "Version.h"
@@ -150,6 +151,11 @@ int App::Run()
             L"ClawHUD", MB_OK | MB_ICONWARNING);
         return 0;
     }
+    // PresentMon shared-runtime prerequisite. Gated here so an unsupported device
+    // or a losing second instance never reaches the elevated MSI path, and so a
+    // fatal result stops startup before any runtime side effect below.
+    if (!HandlePresentMonRuntimeBootstrapResult(clawhud::EnsurePresentMonRuntime()))
+        return 0;
     // Managed launch is not the owner of the Standalone startup shortcut and
     // must not create / delete / rewrite it; explicit SetStartWithWindows over
     // IPC still can (see RuntimeLifecyclePolicy.h).
@@ -771,6 +777,52 @@ void App::CheckForUpdates()
     {
         Log(L"Velopack update unavailable; continuing with the installed version");
     }
+}
+
+bool App::HandlePresentMonRuntimeBootstrapResult(
+    clawhud::PresentMonRuntimeBootstrapResult result)
+{
+    using clawhud::PresentMonRuntimeStartupAction;
+    const auto action = clawhud::PresentMonRuntimeStartupActionForResult(result);
+    if (action == PresentMonRuntimeStartupAction::Continue)
+        return true;
+
+    clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
+        std::wstring(L"PresentMon runtime prerequisite failed result=") +
+        clawhud::PresentMonRuntimeBootstrapResultName(result));
+
+    const wchar_t* message = nullptr;
+    switch (result)
+    {
+    case clawhud::PresentMonRuntimeBootstrapResult::InstalledRebootRequired:
+        message = L"ClawHUD installed the required PresentMon runtime, but Windows "
+            L"reports that a restart is required before it can be used.\n\n"
+            L"Restart Windows, then launch ClawHUD again.";
+        break;
+    case clawhud::PresentMonRuntimeBootstrapResult::ElevationCancelled:
+        message = L"ClawHUD requires the PresentMon runtime for HUD telemetry.\n\n"
+            L"Installation was cancelled, so ClawHUD will exit without starting "
+            L"the HUD.";
+        break;
+    case clawhud::PresentMonRuntimeBootstrapResult::MsiMissing:
+        message = L"The required PresentMon runtime installer is missing from this "
+            L"ClawHUD installation.\n\nReinstall or update ClawHUD.";
+        break;
+    case clawhud::PresentMonRuntimeBootstrapResult::InstallTimedOut:
+        message = L"PresentMon runtime installation is taking longer than expected. "
+            L"ClawHUD will exit, but Windows Installer has not been stopped.\n\n"
+            L"Launch ClawHUD again once the installation finishes.";
+        break;
+    default:
+        message = L"ClawHUD could not prepare the required PresentMon runtime.\n\n"
+            L"ClawHUD will exit without starting the HUD.";
+        break;
+    }
+    const UINT icon = action == PresentMonRuntimeStartupAction::ExitInformational
+        ? MB_ICONWARNING
+        : MB_ICONERROR;
+    MessageBoxW(nullptr, message, L"ClawHUD", MB_OK | icon);
+    return false;
 }
 
 void App::OpenSettings()

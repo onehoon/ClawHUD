@@ -519,6 +519,16 @@
     add_test(NAME ClawHUD.PresentMonRuntimeBootstrapTests
         COMMAND ClawHUD.PresentMonRuntimeBootstrapTests)
 
+    add_executable(ClawHUD.PresentMonRuntimeStartupPolicyTests
+        tests/PresentMonRuntimeStartupPolicyTests.cpp)
+    target_compile_features(ClawHUD.PresentMonRuntimeStartupPolicyTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.PresentMonRuntimeStartupPolicyTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.PresentMonRuntimeStartupPolicyTests PRIVATE src/ClawHUD)
+    set_target_properties(ClawHUD.PresentMonRuntimeStartupPolicyTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.PresentMonRuntimeStartupPolicyTests
+        COMMAND ClawHUD.PresentMonRuntimeStartupPolicyTests)
+
 # --- ClawHUD.Diag standalone diagnostic test targets ---------------------
 # Added with the diagnostic foundation (PR #190); kept here so the root
 # CMakeLists.txt stays production-focused (R8).

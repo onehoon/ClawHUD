@@ -1,6 +1,5 @@
 #include "App.h"
 #include "LaunchMode.h"
-#include "PresentMonRuntimeBootstrap.h"
 #include "UninstallCleanup.h"
 
 #include <Velopack.hpp>
@@ -23,13 +22,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
         .Run();
 
     // Reached only for a normal ClawHUD launch (Standalone, a Velopack restart,
-    // or a future owner-driven `--managed` launch after a restart=false Managed
-    // update). EnsurePresentMonRuntime() is a cheap readiness check that only
-    // reaches the elevated MSI path when the runtime is actually missing or
-    // incompatible, so it no longer depends on Velopack's OnFirstRun /
-    // OnRestarted hooks.
-    clawhud::EnsurePresentMonRuntime();
-
+    // or an owner-driven `--managed` launch after a restart=false Managed
+    // update). The PresentMon shared-runtime prerequisite is now gated inside
+    // App::Run() -- after the single-instance and supported-hardware gates -- so
+    // an unsupported device or a losing second instance never triggers the
+    // elevated MSI path.
     if (!SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2))
         return 1;
 

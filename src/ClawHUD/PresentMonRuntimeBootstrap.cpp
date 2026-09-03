@@ -97,7 +97,20 @@ PresentMonRuntimeReadinessEvidence ReadinessEvidence()
     return evidence;
 }
 
-bool RunInstaller(const std::filesystem::path& msi, DWORD& exitCode) noexcept
+// How the elevated msiexec launch resolved. ElevationFailed carries the
+// ShellExecuteExW error in launchError (ERROR_CANCELLED == user declined UAC).
+enum class InstallerLaunch
+{
+    Completed,
+    ElevationFailed,
+    TimedOut,
+    WaitFailed,
+};
+
+constexpr DWORD kInstallerWaitMs = 5 * 60 * 1000;
+
+InstallerLaunch RunInstaller(const std::filesystem::path& msi, DWORD& exitCode,
+    DWORD& launchError) noexcept
 {
     std::wstring arguments = L"/i \"" + msi.wstring() + L"\" /qn /norestart";
     SHELLEXECUTEINFOW info{};
@@ -107,20 +120,29 @@ bool RunInstaller(const std::filesystem::path& msi, DWORD& exitCode) noexcept
     info.lpFile = L"msiexec.exe";
     info.lpParameters = arguments.c_str();
     info.nShow = SW_HIDE;
-    if (!ShellExecuteExW(&info)) return false;
-
-    const DWORD wait = WaitForSingleObject(info.hProcess, 5 * 60 * 1000);
-    if (wait != WAIT_OBJECT_0)
+    if (!ShellExecuteExW(&info))
     {
-        TerminateProcess(info.hProcess, ERROR_TIMEOUT);
-        WaitForSingleObject(info.hProcess, 5000);
+        launchError = GetLastError();
+        return InstallerLaunch::ElevationFailed;
+    }
+
+    switch (ClassifyInstallerWait(
+        WaitForSingleObject(info.hProcess, kInstallerWaitMs)))
+    {
+    case InstallerWaitOutcome::TimedOut:
+        // ClawHUD's wait budget expired. Release only ClawHUD's handle and leave
+        // the in-flight Windows Installer transaction alone -- no TerminateProcess.
         CloseHandle(info.hProcess);
-        SetLastError(ERROR_TIMEOUT);
-        return false;
+        return InstallerLaunch::TimedOut;
+    case InstallerWaitOutcome::Failed:
+        CloseHandle(info.hProcess);
+        return InstallerLaunch::WaitFailed;
+    case InstallerWaitOutcome::Completed:
+        break;
     }
     const bool read = GetExitCodeProcess(info.hProcess, &exitCode) != FALSE;
     CloseHandle(info.hProcess);
-    return read;
+    return read ? InstallerLaunch::Completed : InstallerLaunch::WaitFailed;
 }
 }
 
@@ -176,33 +198,46 @@ PresentMonRuntimeBootstrapResult EnsurePresentMonRuntime() noexcept
 
         Log(L"elevation=requested");
         DWORD exitCode{};
-        if (!RunInstaller(msi, exitCode))
+        DWORD launchError{};
+        switch (RunInstaller(msi, exitCode, launchError))
         {
-            const auto error = GetLastError();
-            if (error == ERROR_CANCELLED)
+        case InstallerLaunch::ElevationFailed:
+            if (launchError == ERROR_CANCELLED)
             {
-                Log(L"elevation=cancelled");
+                Log(L"elevation=cancelled startup=abort");
                 return PresentMonRuntimeBootstrapResult::ElevationCancelled;
             }
-            Log(L"installer_exit=unavailable validation=failed");
+            Log(L"elevation=failed error=" + std::to_wstring(launchError) +
+                L" startup=abort");
             return PresentMonRuntimeBootstrapResult::InstallFailed;
+        case InstallerLaunch::TimedOut:
+            Log(L"installer_wait=timeout action=leave-installer-running startup=abort");
+            return PresentMonRuntimeBootstrapResult::InstallTimedOut;
+        case InstallerLaunch::WaitFailed:
+            Log(L"installer_wait=failed validation=failed startup=abort");
+            return PresentMonRuntimeBootstrapResult::InstallFailed;
+        case InstallerLaunch::Completed:
+            break;
         }
         Log(L"installer_exit=" + std::to_wstring(exitCode));
         const auto classification = ClassifyPresentMonRuntimeMsiExit(exitCode);
         if (classification == PresentMonRuntimeMsiExit::Failed)
         {
-            Log(L"validation=failed");
+            Log(L"validation=failed startup=abort");
             return PresentMonRuntimeBootstrapResult::InstallFailed;
+        }
+        if (classification == PresentMonRuntimeMsiExit::RebootRequiredCandidate)
+        {
+            Log(L"installer_exit=3010 startup=reboot-required");
+            return PresentMonRuntimeBootstrapResult::InstalledRebootRequired;
         }
         if (!IsPresentMonRuntimeReady())
         {
-            Log(L"validation=failed");
+            Log(L"validation=failed startup=abort");
             return PresentMonRuntimeBootstrapResult::ValidationFailed;
         }
         Log(L"validation=ready");
-        return classification == PresentMonRuntimeMsiExit::RebootRequiredCandidate
-            ? PresentMonRuntimeBootstrapResult::InstalledRebootRequired
-            : PresentMonRuntimeBootstrapResult::Installed;
+        return PresentMonRuntimeBootstrapResult::Installed;
     }
     catch (...)
     {
