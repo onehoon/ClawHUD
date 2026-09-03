@@ -3,8 +3,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="ClawHUD"
         Icon="Resources/clawhud.ico"
-        Width="700" Height="600"
-        MinWidth="700" MaxWidth="700"
+        Width="600" Height="600"
+        MinWidth="600" MaxWidth="600"
         MinHeight="600" MaxHeight="600"
         ResizeMode="NoResize"
         WindowStartupLocation="CenterScreen">
@@ -15,7 +15,7 @@
          PreviewHudOpacity during a drag and one CommitHudOpacity on release; its
          thumb follows the gesture, not the snapshot, while dragging. Discrete
          controls and the opacity slider are mutually exclusive. Fixed
-         700x600 DIP, compact Windows 11 desktop density, no scrolling. -->
+         600x600 DIP, compact Windows 11 desktop density, no scrolling. -->
     <Grid Margin="12">
         <StackPanel>
 
@@ -92,7 +92,7 @@
                         </UniformGrid>
                     </StackPanel>
                     <StackPanel>
-                        <TextBlock Style="{StaticResource SettingLabel}" Margin="0,6,0,2" Text="Background opacity" />
+                        <TextBlock Style="{StaticResource SettingLabel}" Margin="0,6,0,2" Text="HUD opacity" />
                         <DockPanel>
                             <TextBlock DockPanel.Dock="Right" Text="{Binding BackgroundOpacityText}" VerticalAlignment="Center"
                                        Margin="12,0,0,0" Foreground="{DynamicResource TextFillColorPrimaryBrush}" />

@@ -17,9 +17,6 @@ DebugObservationController::~DebugObservationController()
 
 void DebugObservationController::Start()
 {
-    if (!processLifecycleSource_.Start())
-        RuntimeLogger::Log(RuntimeLogLevel::Warn,
-            L"Process lifecycle diagnostic source failed to start; continuing");
     if (!windowLifecycleSource_.Start())
         RuntimeLogger::Log(RuntimeLogLevel::Warn,
             L"Window lifecycle diagnostic source failed to start; continuing");
@@ -36,6 +33,5 @@ void DebugObservationController::Stop() noexcept
 {
     windowLifecycleSource_.Stop();
     presentActivitySource_.Stop();
-    processLifecycleSource_.Stop();
 }
 }

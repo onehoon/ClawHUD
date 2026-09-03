@@ -58,8 +58,8 @@ public class MainWindowStartupTests
         Assert.DoesNotContain(ControlOperation.PreviewHudOpacity, fake.Calls);
         Assert.DoesNotContain(ControlOperation.CommitHudOpacity, fake.Calls);
 
-        // Compact fixed window (700 x 600 DIP), non-resizable.
-        Assert.Equal(700, width);
+        // Compact fixed window (600 x 600 DIP), non-resizable.
+        Assert.Equal(600, width);
         Assert.Equal(600, height);
         Assert.Equal(ResizeMode.NoResize, resizeMode);
     }
