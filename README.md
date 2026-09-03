@@ -11,7 +11,7 @@ It displays FPS, CPU/GPU telemetry, memory usage, fan speed, power, and battery 
 
 ## Supported devices
 
-ClawHUD currently supports only the following MSI Claw model:
+ClawHUD currently supports only the following MSI Claw models:
 
 | Device | Board ID |
 | --- | --- |
@@ -28,7 +28,7 @@ ClawHUD checks the baseboard ID at startup. Unsupported devices are rejected ins
 
 - Lightweight, tray-first performance HUD
 - FPS and system/hardware telemetry
-- `Always on` and `In-game only` display modes
+- `Always` and `In-game only` display modes
 - Automatic foreground game detection
 - Global `F8` hotkey to show or hide the HUD
 - Start ClawHUD with Windows
@@ -36,7 +36,7 @@ ClawHUD checks the baseboard ID at startup. Unsupported devices are rejected ins
 - `Unispace` and `Segoe UI Variable` fonts
 - Left / Center / Right alignment
 - Full-width or content-width HUD background
-- HUD Opacity adjustment
+- HUD opacity adjustment
 - Intel VRR Range Fix for affected MSI Claw displays
 - Silent application update checks at startup
 
@@ -50,7 +50,7 @@ ClawHUD combines PresentMon API2, Windows telemetry, and MSI-specific EC telemet
 
 | HUD item | Displayed information | Source |
 | --- | --- | --- |
-| **FPS** | Displayed FPS for the current target game | [PresentMon API2](https://github.com/GameTechDev/PresentMon) |
+| **FPS** | Displayed FPS for the active FPS target | [PresentMon API2](https://github.com/GameTechDev/PresentMon) |
 | **CPU** | CPU usage + CPU temperature | PresentMon API2 + MSI EC |
 | **GPU** | GPU usage + GPU clock | PresentMon API2 |
 | **TDP** | CPU package power | MSI EC |
@@ -75,7 +75,7 @@ ClawHUD automatically tries to identify the game that currently owns the foregro
 
 Game detection is still under development and **may not work perfectly with every game, launcher, or unusual window configuration**.
 
-- **Always on** does not depend on game detection to keep the HUD visible.
+- **Always** keeps the HUD visible without depending on game detection. FPS follows the current eligible foreground application when PresentMon can provide a valid stream.
 - **In-game only** depends on automatic game detection. If a game is not detected correctly, the HUD may not appear automatically.
 - `F8` can be used to manually show or hide the HUD.
 
@@ -83,18 +83,19 @@ The implementation intentionally avoids continuous process polling for game dete
 
 ---
 
-## HUD settings
+## Settings
 
-The **Settings** tab provides the user-facing HUD controls:
+Settings opens from the system tray as a single compact page. There are no separate Settings, Tweaks, or About tabs.
 
-- **Start ClawHUD with Windows**
-- **Enable HUD**
-- **Display mode** — `In-game only` / `Always on`
-- **HUD size**
-- **Font** — `Unispace` / `Segoe UI Variable`
-- **Alignment** — Left / Center / Right
-- **Background width** — Full width / Content width
-- **HUD Opacity**
+The page is organized into five simple cards:
+
+1. **HUD** — Enable HUD and choose `In-game only` or `Always`.
+2. **Appearance** — HUD size, font, and Left / Center / Right alignment.
+3. **HUD background / opacity** — Full width or Content width, plus HUD opacity.
+4. **Intel VRR Range Fix** — Enable or disable the display tweak.
+5. **Start with Windows** — Choose whether ClawHUD starts with Windows.
+
+**HUD opacity applies to the complete HUD**, including the background, text, values, units, and separators.
 
 Settings are persisted between launches.
 
@@ -102,9 +103,9 @@ Settings are persisted between launches.
 
 ## Intel VRR Range Fix
 
-The **Tweaks** tab contains **Intel VRR Range Fix**.
+**Intel VRR Range Fix** is available directly on the main Settings page.
 
-This tweak restores the native VRR range on affected MSI Claw displays and is applied at application startup when enabled. The UI reports the detected panel, the range before and after the operation, and the last apply result.
+This tweak restores the native VRR range on affected MSI Claw displays and is applied at application startup when enabled.
 
 The tweak is enabled by default in the current development build.
 
@@ -165,13 +166,14 @@ Current limitations include:
 
 ## Development
 
-ClawHUD is a Windows-native C++ project.
+ClawHUD consists of a native **C++ runtime/HUD** and a **.NET 10 WPF Settings frontend**.
 
 Build requirements:
 
 - Windows 11
 - MSVC / Visual Studio 2026
 - Windows SDK
+- .NET 10 SDK
 
 MinGW is not supported.
 
