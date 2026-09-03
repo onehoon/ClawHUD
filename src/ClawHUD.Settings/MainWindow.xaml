@@ -2,16 +2,16 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="ClawHUD"
-        Width="700" Height="720"
+        Width="700" Height="744"
         MinWidth="700" MaxWidth="700"
-        MinHeight="720" MaxHeight="720"
+        MinHeight="744" MaxHeight="744"
         ResizeMode="NoResize"
         WindowStartupLocation="CenterScreen">
 
     <!-- PR1 foundation: the whole page is a static visual shell. Interactive-looking
          controls carry touch-sized geometry and representative state only; hit
          testing is disabled per card until runtime wiring lands in a later PR. -->
-    <Grid Margin="16">
+    <Grid Margin="12">
         <StackPanel>
 
             <!-- Card 1: HUD enable + display mode -->
@@ -21,7 +21,7 @@
                         <ToggleButton DockPanel.Dock="Right" Style="{StaticResource SettingToggleSwitch}" IsChecked="True" />
                         <TextBlock Style="{StaticResource SettingLabel}" Margin="0" Text="Enable HUD" />
                     </DockPanel>
-                    <TextBlock Style="{StaticResource SettingLabel}" Margin="0,10,0,4" Text="Display mode" />
+                    <TextBlock Style="{StaticResource SettingLabel}" Margin="0,8,0,3" Text="Display mode" />
                     <UniformGrid Rows="1" Columns="2">
                         <ToggleButton Style="{StaticResource SegmentToggle}" Margin="0,0,3,0" Content="In-game only" />
                         <ToggleButton Style="{StaticResource SegmentToggle}" Margin="3,0,0,0" IsChecked="True" Content="Always" />
@@ -41,12 +41,12 @@
                         </StackPanel>
                         <TextBlock Style="{StaticResource SettingLabel}" Margin="0" Text="HUD size" />
                     </DockPanel>
-                    <TextBlock Style="{StaticResource SettingLabel}" Margin="0,10,0,4" Text="Font" />
+                    <TextBlock Style="{StaticResource SettingLabel}" Margin="0,8,0,3" Text="Font" />
                     <UniformGrid Rows="1" Columns="2">
                         <ToggleButton Style="{StaticResource SegmentToggle}" Margin="0,0,3,0" IsChecked="True" Content="Unispace" />
                         <ToggleButton Style="{StaticResource SegmentToggle}" Margin="3,0,0,0" Content="Segoe UI Variable" />
                     </UniformGrid>
-                    <TextBlock Style="{StaticResource SettingLabel}" Margin="0,10,0,4" Text="Alignment" />
+                    <TextBlock Style="{StaticResource SettingLabel}" Margin="0,8,0,3" Text="Alignment" />
                     <UniformGrid Rows="1" Columns="3">
                         <ToggleButton Style="{StaticResource SegmentToggle}" Margin="0,0,3,0" Content="Left" />
                         <ToggleButton Style="{StaticResource SegmentToggle}" Margin="3,0" IsChecked="True" Content="Center" />
@@ -58,12 +58,12 @@
             <!-- Card 3: background width + background opacity -->
             <Border Style="{StaticResource SettingsCard}">
                 <StackPanel IsHitTestVisible="False">
-                    <TextBlock Style="{StaticResource SettingLabel}" Margin="0,0,0,4" Text="Background width" />
+                    <TextBlock Style="{StaticResource SettingLabel}" Margin="0,0,0,3" Text="Background width" />
                     <UniformGrid Rows="1" Columns="2">
                         <ToggleButton Style="{StaticResource SegmentToggle}" Margin="0,0,3,0" Content="Full width" />
                         <ToggleButton Style="{StaticResource SegmentToggle}" Margin="3,0,0,0" IsChecked="True" Content="Content width" />
                     </UniformGrid>
-                    <TextBlock Style="{StaticResource SettingLabel}" Margin="0,10,0,4" Text="Background opacity" />
+                    <TextBlock Style="{StaticResource SettingLabel}" Margin="0,8,0,3" Text="Background opacity" />
                     <DockPanel>
                         <TextBlock DockPanel.Dock="Right" Text="70%" VerticalAlignment="Center" Margin="12,0,0,0"
                                    Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
