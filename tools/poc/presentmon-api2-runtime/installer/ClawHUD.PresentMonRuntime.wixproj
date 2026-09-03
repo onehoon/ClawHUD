@@ -11,8 +11,12 @@
     <WixToolPath Condition="'$(WixToolPath)' == ''">$(WIX)bin\</WixToolPath>
     <ProjectGuid>{A8B4EE22-FA4B-479E-A4D4-3D394CA4A4B0}</ProjectGuid>
   </PropertyGroup>
+  <!-- Supplied by build-runtime.ps1 from the CMake PRESENTMON_VERSION pin. -->
+  <PropertyGroup>
+    <PresentMonRuntimeVersion Condition="'$(PresentMonRuntimeVersion)' == ''">0.0.0</PresentMonRuntimeVersion>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x86'">
-    <DefineConstants>PresentMonSharedServiceModule=$(PresentMonSharedServiceModule)</DefineConstants>
+    <DefineConstants>PresentMonSharedServiceModule=$(PresentMonSharedServiceModule);PresentMonRuntimeVersion=$(PresentMonRuntimeVersion)</DefineConstants>
     <SuppressIces>ICE60</SuppressIces>
   </PropertyGroup>
   <ItemGroup>

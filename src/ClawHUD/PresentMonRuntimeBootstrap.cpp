@@ -1,6 +1,7 @@
 #include "PresentMonRuntimeBootstrap.h"
 
 #include "PresentMonApi2Api.h"
+#include "PresentMonRuntimeVersion.h"
 #include "RuntimeLogger.h"
 
 #include <shellapi.h>
@@ -8,6 +9,7 @@
 
 #include <filesystem>
 #include <string>
+#include <vector>
 
 #pragma comment(lib, "version.lib")
 
@@ -87,12 +89,35 @@ PresentMonRuntimeReadinessEvidence ReadinessEvidence()
 {
     const auto registryPath = RegistryMiddlewarePath();
     const std::filesystem::path middleware(registryPath);
+    const bool middlewarePresent = !middleware.empty() &&
+        std::filesystem::exists(middleware);
+
+    bool versionFloorMet = false;
+    if (middlewarePresent)
+    {
+        const auto installed = ReadRuntimeVersionResource(middleware);
+        const auto required = RequiredPresentMonRuntimeVersion();
+        versionFloorMet = installed &&
+            RuntimeVersionAtLeast(*installed, required);
+        Log(L"installedVersion=" +
+            (installed
+                ? std::to_wstring(installed->major) + L"." +
+                    std::to_wstring(installed->minor) + L"." +
+                    std::to_wstring(installed->patch)
+                : std::wstring(L"unknown")) +
+            L" requiredVersion=" + std::to_wstring(required.major) + L"." +
+            std::to_wstring(required.minor) + L"." +
+            std::to_wstring(required.patch) +
+            L" action=" + (versionFloorMet ? L"reuse" : L"upgrade"));
+    }
+
     PresentMonRuntimeReadinessEvidence evidence{
         ServiceRunning(),
         !registryPath.empty(),
-        !middleware.empty() && std::filesystem::exists(middleware),
+        middlewarePresent,
         !middleware.empty() && middleware.filename() == L"PresentMonAPI2.dll",
         !middleware.empty() && MiddlewareCompatible(middleware),
+        versionFloorMet,
     };
     return evidence;
 }
@@ -154,12 +179,51 @@ std::filesystem::path PresentMonRuntimeMsiPathForModule(
         L"ClawHUD.PresentMonRuntime.msi";
 }
 
+RuntimeVersion RequiredPresentMonRuntimeVersion() noexcept
+{
+    return RuntimeVersion{
+        static_cast<std::uint16_t>(CLAWHUD_PRESENTMON_RUNTIME_VERSION_MAJOR),
+        static_cast<std::uint16_t>(CLAWHUD_PRESENTMON_RUNTIME_VERSION_MINOR),
+        static_cast<std::uint16_t>(CLAWHUD_PRESENTMON_RUNTIME_VERSION_PATCH)};
+}
+
+std::optional<RuntimeVersion> ReadRuntimeVersionResource(
+    const std::filesystem::path& binary) noexcept
+{
+    try
+    {
+        DWORD ignored{};
+        const DWORD size = GetFileVersionInfoSizeW(binary.c_str(), &ignored);
+        if (size == 0) return std::nullopt;
+        std::vector<std::byte> data(size);
+        if (!GetFileVersionInfoW(binary.c_str(), 0, size, data.data()))
+            return std::nullopt;
+        VS_FIXEDFILEINFO* fixed{};
+        UINT fixedLength{};
+        if (!VerQueryValueW(data.data(), L"\\",
+                reinterpret_cast<LPVOID*>(&fixed), &fixedLength) ||
+            !fixed || fixed->dwSignature != 0xFEEF04BD)
+            return std::nullopt;
+        return RuntimeVersion{
+            static_cast<std::uint16_t>(HIWORD(fixed->dwFileVersionMS)),
+            static_cast<std::uint16_t>(LOWORD(fixed->dwFileVersionMS)),
+            static_cast<std::uint16_t>(HIWORD(fixed->dwFileVersionLS))};
+    }
+    catch (...)
+    {
+        return std::nullopt;
+    }
+}
+
 bool IsPresentMonRuntimeReady(
     const PresentMonRuntimeReadinessEvidence& evidence) noexcept
 {
+    // ABI compatibility and the product-version floor are separate predicates;
+    // readiness requires both. A newer compatible runtime satisfies the floor
+    // and is reused (RuntimeVersionAtLeast never downgrades).
     return evidence.serviceRunning && evidence.registryPathPresent &&
         evidence.middlewareExists && evidence.middlewareNameValid &&
-        evidence.compatible;
+        evidence.compatible && evidence.versionFloorMet;
 }
 
 bool IsPresentMonRuntimeReady() noexcept

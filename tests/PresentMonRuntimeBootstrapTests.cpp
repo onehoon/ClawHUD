@@ -24,15 +24,32 @@ int main()
     ok &= Check(PresentMonRuntimeMsiPathForModule({}).empty(),
         "empty module path returns no MSI path");
 
-    const PresentMonRuntimeReadinessEvidence ready{ true, true, true, true, true };
+    // Evidence order: service, registryPath, middlewareExists, nameValid,
+    // compatible (ABI), versionFloorMet.
+    const PresentMonRuntimeReadinessEvidence ready{ true, true, true, true, true, true };
     ok &= Check(IsPresentMonRuntimeReady(ready),
-        "healthy compatible runtime is ready");
-    ok &= Check(!IsPresentMonRuntimeReady({ true, true, true, true, false }),
-        "incompatible runtime is not ready");
-    ok &= Check(!IsPresentMonRuntimeReady({ false, true, true, true, true }),
+        "healthy compatible in-floor runtime is ready");
+    ok &= Check(!IsPresentMonRuntimeReady({ true, true, true, true, false, true }),
+        "ABI-incompatible runtime is not ready");
+    ok &= Check(!IsPresentMonRuntimeReady({ false, true, true, true, true, true }),
         "missing service is not ready");
-    ok &= Check(!IsPresentMonRuntimeReady({ true, false, true, true, true }),
+    ok &= Check(!IsPresentMonRuntimeReady({ true, false, true, true, true, true }),
         "missing registry path is not ready");
+    ok &= Check(!IsPresentMonRuntimeReady({ true, true, true, true, true, false }),
+        "ABI-compatible but below the runtime version floor is not ready");
+
+    // Runtime version floor (Cleanup 3, work order 10.2). Separate from ABI.
+    ok &= Check(RuntimeVersionAtLeast({2,5,1}, {2,5,1}), "2.5.1 >= 2.5.1");
+    ok &= Check(RuntimeVersionAtLeast({2,5,2}, {2,5,1}), "2.5.2 >= 2.5.1");
+    ok &= Check(RuntimeVersionAtLeast({2,6,0}, {2,5,1}), "2.6.0 >= 2.5.1");
+    ok &= Check(RuntimeVersionAtLeast({3,0,0}, {2,5,1}), "3.0.0 >= 2.5.1");
+    ok &= Check(!RuntimeVersionAtLeast({2,5,0}, {2,5,1}), "2.5.0 < 2.5.1");
+    ok &= Check(!RuntimeVersionAtLeast({2,4,99}, {2,5,1}), "2.4.99 < 2.5.1");
+    {
+        const auto required = RequiredPresentMonRuntimeVersion();
+        ok &= Check(required.major == 2 && required.minor == 5 && required.patch == 1,
+            "required runtime version tracks the CMake PRESENTMON_VERSION pin");
+    }
 
     ok &= Check(ClassifyPresentMonRuntimeMsiExit(0) ==
         PresentMonRuntimeMsiExit::SuccessCandidate,

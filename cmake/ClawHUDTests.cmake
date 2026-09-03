@@ -512,12 +512,35 @@
     target_compile_features(ClawHUD.PresentMonRuntimeBootstrapTests PRIVATE cxx_std_20)
     target_compile_definitions(ClawHUD.PresentMonRuntimeBootstrapTests PRIVATE
         UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-    target_include_directories(ClawHUD.PresentMonRuntimeBootstrapTests PRIVATE src/ClawHUD)
+    target_include_directories(ClawHUD.PresentMonRuntimeBootstrapTests PRIVATE
+        src/ClawHUD "${CMAKE_BINARY_DIR}/generated")
     target_link_libraries(ClawHUD.PresentMonRuntimeBootstrapTests PRIVATE
         shell32 advapi32 version ole32)
     set_target_properties(ClawHUD.PresentMonRuntimeBootstrapTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.PresentMonRuntimeBootstrapTests
         COMMAND ClawHUD.PresentMonRuntimeBootstrapTests)
+
+    add_executable(ClawHUD.ClawHudUpdateUrlTests
+        tests/ClawHudUpdateUrlTests.cpp
+        src/ClawHUD/ClawHudUpdateUrl.cpp)
+    target_compile_features(ClawHUD.ClawHudUpdateUrlTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.ClawHudUpdateUrlTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.ClawHudUpdateUrlTests PRIVATE src/ClawHUD)
+    set_target_properties(ClawHUD.ClawHudUpdateUrlTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.ClawHudUpdateUrlTests
+        COMMAND ClawHUD.ClawHudUpdateUrlTests)
+
+    add_executable(ClawHUD.StartupExecutablePathTests
+        tests/StartupExecutablePathTests.cpp
+        src/ClawHUD/StartupExecutablePath.cpp)
+    target_compile_features(ClawHUD.StartupExecutablePathTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.StartupExecutablePathTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.StartupExecutablePathTests PRIVATE src/ClawHUD)
+    set_target_properties(ClawHUD.StartupExecutablePathTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.StartupExecutablePathTests
+        COMMAND ClawHUD.StartupExecutablePathTests)
 
     add_executable(ClawHUD.PresentMonRuntimeStartupPolicyTests
         tests/PresentMonRuntimeStartupPolicyTests.cpp)

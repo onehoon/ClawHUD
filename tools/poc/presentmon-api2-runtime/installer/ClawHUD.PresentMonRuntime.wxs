@@ -1,15 +1,24 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <!-- ProductVersion tracks the bundled PresentMon shared-runtime revision, not
+       the ClawHUD app version. The value is supplied by the runtime build
+       tooling from the single CMake PRESENTMON_VERSION pin. -->
   <Product Id="*"
            Name="ClawHUD PresentMon Shared Runtime"
            Language="1033"
-           Version="1.0.0.0"
+           Version="$(var.PresentMonRuntimeVersion)"
            Manufacturer="ClawHUD"
            UpgradeCode="{4E9BE59E-7CC7-4F8F-BD00-22A44EC8B9A9}">
     <Package InstallerVersion="500"
              Compressed="yes"
              InstallScope="perMachine"
              Platform="x64" />
+
+    <!-- A higher wrapper ProductVersion (same UpgradeCode) replaces the older
+         wrapper product; a lower version is blocked so a newer compatible
+         shared runtime is never downgraded. New ProductCode per package. -->
+    <MajorUpgrade
+        DowngradeErrorMessage="A newer ClawHUD PresentMon Shared Runtime is already installed." />
 
     <MediaTemplate EmbedCab="yes" />
 
