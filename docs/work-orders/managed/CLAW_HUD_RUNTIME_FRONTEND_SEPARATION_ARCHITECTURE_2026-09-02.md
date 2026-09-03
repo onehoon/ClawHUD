@@ -1,9 +1,17 @@
 # ClawHUD Runtime / Frontend Separation Architecture
 
+> **Completion note (CH-RTF-10):** the ClawHUD side of this architecture is
+> implemented and complete as CH-RTF-1..10. This document is the canonical
+> description of the completed ClawHUD foundation. SteamAddon integration is
+> outside this completion target and may be planned separately later; no
+> SteamAddon PR is required as a follow-up to CH-RTF-10. Where this document
+> mentions a "future external owner" / SteamAddon, treat it as future
+> compatibility context, not the next required implementation step.
+
 > **Decision date:** 2026-09-02  
-> **Status:** Architecture direction selected; implementation not started.  
+> **Status:** Implemented — ClawHUD-side complete (CH-RTF-1..10).  
 > **Scope:** ClawHUD runtime isolation, Control IPC, Standalone/Managed launch modes, SteamAddonforClaw integration boundary, lifecycle policy, and future standalone frontend options.  
-> **Related document:** `docs/SETTINGS_WINUI3_MIGRATION_HANDOFF_2026-09-02.md`
+> **Related document:** `docs/SETTINGS_WINUI3_MIGRATION_HANDOFF_2026-09-02.md` (superseded implementation sequence)
 
 ---
 

@@ -1,10 +1,15 @@
 # ClawHUD Runtime / Frontend Separation — Detailed PR Plan
 
+> **Completion note (CH-RTF-10):** the ClawHUD PR series below is complete as
+> CH-RTF-1..10. `SA-HUD-*` is not part of this completion target and is not the
+> next required implementation sequence; any SteamAddon integration will be
+> planned separately later.
+
 > **Plan date:** 2026-09-02  
 > **Repository:** `onehoon/ClawHUD`  
 > **Analyzed main HEAD:** `6c3ef9c4618dd281482e4dfe938691fda388cdeb`  
 > **Architecture source:** `docs/CLAW_HUD_RUNTIME_FRONTEND_SEPARATION_ARCHITECTURE_2026-09-02.md`  
-> **Status:** Planning only; implementation has not started.  
+> **Status:** Complete (CH-RTF-1..10).  
 > **Planning constraint:** keep each implementation PR comfortably below roughly 500 changed LOC. This is a PR-design constraint used to choose boundaries; individual future work orders do not need to restate it.
 
 ---

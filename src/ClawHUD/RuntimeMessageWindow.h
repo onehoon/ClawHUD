@@ -5,9 +5,10 @@
 class App;
 
 // Owns the runtime-only hidden Win32 message window: the HWND that hosts the F8
-// hotkey, WM_POWERBROADCAST suspend/resume notifications and the production
-// WM_TIMER stream. It is deliberately independent of TrayIcon so a future
-// no-tray launch mode can keep all runtime message infrastructure alive.
+// hotkey, WM_POWERBROADCAST suspend/resume notifications, the production
+// WM_TIMER stream and the runtime-control dispatch / shutdown-ready wakes. It is
+// deliberately independent of TrayIcon so Managed mode keeps all runtime
+// message infrastructure alive without a tray.
 //
 // This window is not the HUD presentation window and must never touch any HUD
 // presentation styles or presentation code.

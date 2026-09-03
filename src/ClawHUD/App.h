@@ -116,18 +116,21 @@ private:
     const clawhud::LaunchMode launchMode_;
     clawhud::HudSettingsStore hudSettingsStore_;
     // Runtime-owned hidden message window: F8 hotkey, suspend/resume power
-    // notifications and the production WM_TIMER stream. Independent of the tray
-    // so a future no-tray mode keeps this infrastructure. Created before any
-    // runtime component is bound to an HWND.
+    // notifications, the production WM_TIMER stream and the runtime-control
+    // dispatch / shutdown-ready wakes. Independent of the tray so Managed mode
+    // keeps this infrastructure without a tray. Created before any runtime
+    // component is bound to an HWND.
     RuntimeMessageWindow runtimeMessageWindow_;
     TrayIcon tray_;
     // Moves validated Control requests from a background producer to this
     // thread and runs them through the IRuntimeControl path. Started near the
     // end of Run(); stopped first in StopRuntimeSources(). No transport here.
     clawhud::RuntimeControlDispatchBridge runtimeControlBridge_;
-    // Secure read-only Named Pipe transport (GetRuntimeInfo /
-    // GetSettingsSnapshot only). Forwards read-only requests to the bridge;
-    // stopped right after the bridge in StopRuntimeSources().
+    // Secure local current-user/session Control Named Pipe transport. Decodes
+    // protocol-v1 requests and forwards every validated runtime operation
+    // (reads, settings mutations, RequestShutdown) to the main-thread dispatch
+    // bridge; owns transport/security only. Stopped right after the bridge in
+    // StopRuntimeSources().
     clawhud::RuntimeControlPipeServer runtimeControlPipeServer_;
     // Owns HUD user state + the existing concrete HudPresentation object and
     // every Initialize / Render / Show / Hide / Shutdown call site. Presentation

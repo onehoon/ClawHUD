@@ -15,8 +15,9 @@
 
 namespace clawhud
 {
-// Truthful runtime metadata for GetRuntimeInfo. CH-RTF-5 always reports
-// Standalone/Ready; CH-RTF-8 replaces the launch-mode source.
+// Truthful runtime metadata for GetRuntimeInfo. App fills `launchMode` from the
+// resolved process launch mode; `runtimeState` is Ready while the runtime is
+// serving (Starting is reserved for later lifecycle work).
 struct RuntimeControlMetadata
 {
     std::string applicationVersion;
