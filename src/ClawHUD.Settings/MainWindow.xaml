@@ -96,12 +96,14 @@
                             <TextBlock DockPanel.Dock="Right" Text="{Binding BackgroundOpacityText}" VerticalAlignment="Center"
                                        Margin="12,0,0,0" Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
                             <!-- Value is pushed from code-behind under a guard so a
-                                 programmatic snapshot update never looks like user input. -->
+                                 programmatic snapshot update never looks like user input.
+                                 ValueChanged is wired in the constructor AFTER the ViewModel
+                                 exists — never in XAML — so the Minimum 0 -> 50 coercion
+                                 during InitializeComponent is not a user opacity mutation. -->
                             <Slider x:Name="OpacitySlider" Minimum="50" Maximum="100"
                                     TickFrequency="5" IsSnapToTickEnabled="True" IsMoveToPointEnabled="True"
                                     VerticalAlignment="Center" MinHeight="40"
                                     IsEnabled="{Binding IsOpacitySliderEnabled}"
-                                    ValueChanged="OnOpacityValueChanged"
                                     Thumb.DragStarted="OnOpacityDragStarted"
                                     Thumb.DragCompleted="OnOpacityDragCompleted" />
                         </DockPanel>

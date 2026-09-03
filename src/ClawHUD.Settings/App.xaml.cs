@@ -17,6 +17,21 @@ public partial class App : Application
     private SettingsInstanceCoordinator? _coordinator;
     private bool _pendingActivation;
 
+    public App()
+    {
+        // Best-effort managed-crash diagnostics. Native clawhud.log can only see
+        // WER / ghost-window side effects; this captures the actual exception.
+        DispatcherUnhandledException += (_, args) =>
+            SettingsCrashLogger.LogFatal("DispatcherUnhandledException", args.Exception);
+        // Deliberately not args.Handled = true: an unknown fatal exception must not
+        // be swallowed and the UI pretended healthy.
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+        {
+            if (args.ExceptionObject is Exception exception)
+                SettingsCrashLogger.LogFatal("AppDomain.UnhandledException", exception);
+        };
+    }
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
