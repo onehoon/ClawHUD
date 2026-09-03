@@ -92,7 +92,7 @@ void App::StopRuntimeSources()
     runtimeControlBridge_.Stop();
     runtimeControlPipeServer_.Stop();
     CancelResumeRecovery();
-    StopProductionSampling(false, L"app-shutdown");
+    StopProductionSampling(clawhud::SamplingStopCause::AppShutdown, false);
     productionTelemetry_.StopGraphicsApiProbe();
     gameSession_.StopSources();
     if (debugObservation_)
@@ -445,7 +445,7 @@ void App::TryResumeRecovery()
 void App::StopHud()
 {
     hudController_.MarkDisabled();
-    StopProductionSampling(true, L"hud-disabled");
+    StopProductionSampling(clawhud::SamplingStopCause::HudDisabled, true);
     productionTelemetry_.StopGraphicsApiProbe();
     gameSession_.ResetForegroundGameSession(L"hud-disabled");
     productionTelemetry_.StopFpsSampling();
@@ -557,7 +557,11 @@ void App::PauseProductionSamplingForSuspend()
     productionTelemetry_.StopSamplingTimersAndFps();
     gameSession_.StopRenderVerification(L"suspend", false);
     productionTelemetry_.StopGraphicsApiProbe();
-    productionTelemetry_.ResetSamplingState(L"suspend");
+    // Suspend is a transient gate: preserve the elevated EC helper so resume does
+    // not re-prompt for UAC. If the OS invalidated the pipe across sleep, the
+    // first post-resume read fails once and stays launch-suppressed.
+    productionTelemetry_.ResetSamplingState(
+        clawhud::SamplingStopCauseReason(clawhud::SamplingStopCause::Suspend));
 }
 
 void App::CancelResumeRecovery()
@@ -567,12 +571,15 @@ void App::CancelResumeRecovery()
     resumeRecoveryAttempts_ = 0;
 }
 
-void App::StopProductionSampling(bool stopRenderVerification, const wchar_t* reason)
+void App::StopProductionSampling(clawhud::SamplingStopCause cause,
+    bool stopRenderVerification)
 {
     productionTelemetry_.StopSamplingTimersAndFps();
     if (stopRenderVerification)
         gameSession_.StopRenderVerification();
-    productionTelemetry_.ResetSamplingState(reason);
+    productionTelemetry_.ResetSamplingState(clawhud::SamplingStopCauseReason(cause));
+    if (clawhud::EcHelperLifetimeForStop(cause) == clawhud::EcHelperLifetime::Release)
+        productionTelemetry_.ReleaseEcHelper();
 }
 
 void App::SetHudVisibilityMode(clawhud::HudVisibilityMode mode)
@@ -640,7 +647,7 @@ void App::ReconcileHudVisibility()
     if (effects.startProductionSampling)
         StartProductionSampling();
     if (effects.stopProductionSampling)
-        StopProductionSampling(false, L"hud-hidden");
+        StopProductionSampling(clawhud::SamplingStopCause::HudHidden, false);
 }
 
 bool App::AcquireSingleInstance()

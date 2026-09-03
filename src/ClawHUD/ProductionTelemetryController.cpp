@@ -58,6 +58,11 @@ MsiEcHudTelemetry ProductionTelemetryController::ReadEcTelemetry()
     if (!ecClient_)
         ecClient_ = std::make_unique<EcHelperClient>();
 
+    // Session-level failures only abort the current sample. EcHelperClient has
+    // already closed its own broken transport and kept the launch attempt
+    // consumed, so this controller must not call Close() here: that would re-arm
+    // an automatic runas on the next 1 s sample. A new elevated helper lifetime
+    // begins only via ReleaseEcHelper() at an explicit boundary.
     const auto abortAfterFailure = [this]()
     {
         return ShouldAbortEcTelemetrySample(ecClient_->LastStage());
@@ -67,10 +72,7 @@ MsiEcHudTelemetry ProductionTelemetryController::ReadEcTelemetry()
     if (ecClient_->ReadTemperature(payload))
         result.cpuTempC = DecodeCpuTempC(payload);
     else if (abortAfterFailure())
-    {
-        ecClient_->Close();
         return result;
-    }
 
     payload.clear();
     if (ecClient_->ReadFan(payload))
@@ -82,19 +84,13 @@ MsiEcHudTelemetry ProductionTelemetryController::ReadEcTelemetry()
         }
     }
     else if (abortAfterFailure())
-    {
-        ecClient_->Close();
         return result;
-    }
 
     payload.clear();
     if (ecClient_->ReadData(221, payload))
         result.cpuPackagePowerW = DecodeCpuPackagePowerW(payload);
     else if (abortAfterFailure())
-    {
-        ecClient_->Close();
         return result;
-    }
 
     if (!latestPower_ || !latestPower_->onBattery.value_or(false))
         return result;
@@ -105,32 +101,16 @@ MsiEcHudTelemetry ProductionTelemetryController::ReadEcTelemetry()
     std::vector<std::uint8_t> voltageHigh;
     const bool c0 = ecClient_->ReadData(70, currentLow);
     if (!c0 || currentLow.empty())
-    {
-        if (abortAfterFailure())
-            ecClient_->Close();
         return result;
-    }
     const bool c1 = ecClient_->ReadData(71, currentHigh);
     if (!c1 || currentHigh.empty())
-    {
-        if (abortAfterFailure())
-            ecClient_->Close();
         return result;
-    }
     const bool v0 = ecClient_->ReadData(74, voltageLow);
     if (!v0 || voltageLow.empty())
-    {
-        if (abortAfterFailure())
-            ecClient_->Close();
         return result;
-    }
     const bool v1 = ecClient_->ReadData(75, voltageHigh);
     if (!v1 || voltageHigh.empty())
-    {
-        if (abortAfterFailure())
-            ecClient_->Close();
         return result;
-    }
     if (c0 && c1 && v0 && v1 && !currentLow.empty() && !currentHigh.empty() &&
         !voltageLow.empty() && !voltageHigh.empty())
     {
@@ -349,11 +329,11 @@ void ProductionTelemetryController::StopSamplingTimersAndFps()
 void ProductionTelemetryController::ResetSamplingState(const wchar_t* reason)
 {
     const bool wasActive = samplingActive_;
-    if (ecClient_)
-    {
-        ecClient_->Close();
-        ecClient_.reset();
-    }
+    // Sampling / aggregator / battery state only. A healthy (or launch-suppressed)
+    // elevated EC helper is deliberately left owned here: transient sampling gates
+    // (HUD hidden, suspend, visibility reconciliation) must not drop it and force
+    // a fresh UAC prompt when sampling resumes. Explicit helper-lifetime
+    // boundaries call ReleaseEcHelper() separately.
     aggregator_.Reset();
     latestPower_.reset();
     batteryEstimator_.Reset();
@@ -362,6 +342,14 @@ void ProductionTelemetryController::ResetSamplingState(const wchar_t* reason)
     samplingActive_ = false;
     if (wasActive)
         Log(L"Production telemetry sampling stopped reason=" + std::wstring(reason));
+}
+
+void ProductionTelemetryController::ReleaseEcHelper()
+{
+    if (!ecClient_)
+        return;
+    ecClient_->Close();
+    ecClient_.reset();
 }
 
 void ProductionTelemetryController::SetVisibilityMode(HudVisibilityMode mode,

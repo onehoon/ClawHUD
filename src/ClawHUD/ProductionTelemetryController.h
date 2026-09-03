@@ -91,7 +91,14 @@ public:
     // Two-phase stop so App can keep its GameRenderVerifier stop at the current
     // insertion point (between the timer/FPS teardown and the state reset).
     void StopSamplingTimersAndFps();
+    // Resets sampling / aggregator / battery state. Does NOT touch the elevated
+    // EC helper: transient sampling stops keep a healthy helper so resuming
+    // never re-prompts for UAC.
     void ResetSamplingState(const wchar_t* reason);
+    // Ends the elevated EC helper lifetime: closes its private pipe (the child
+    // exits) and drops ownership. Call only at explicit boundaries -- user HUD
+    // disable, app / update shutdown -- never for transient hide/suspend.
+    void ReleaseEcHelper();
 
     // ReadHudEcTelemetry moved verbatim.
     MsiEcHudTelemetry ReadEcTelemetry();

@@ -44,7 +44,7 @@ These constraints are authoritative for EC integration:
 5. Startup is tray-first; the settings UI is not created until explicitly opened.
 6. Diagnostics must have approximately zero idle cost when the Diagnostics tab is not active.
 7. EC access is **read-only** for ClawHUD telemetry.
-8. Keep the main application unelevated; the approved production transport uses a narrowly scoped elevated read-only helper only when the explicit EC diagnostic starts.
+8. Keep the main application unelevated; supported EC reads require elevation, so the approved production transport uses a narrowly scoped elevated read-only helper, launched lazily on the first production EC demand. See section 14 for the helper lifetime rules.
 9. Missing/invalid EC data means **Unavailable**, never a synthetic zero that looks like valid hardware data.
 10. No continuous retry/reconcile loop. A failed sample may be retried on the next normal sample.
 
@@ -806,6 +806,20 @@ no D3D diagnostic resources
 
 If the production HUD is enabled, only the production telemetry loop owns EC sampling.
 
+### EC elevation and helper lifetime (authoritative)
+
+Settled after Cleanup 1:
+
+- Supported MSI Claw EC reads used by ClawHUD require elevation.
+- `ClawHUD.exe` remains unelevated.
+- `ClawHUD.EcHelper.exe` is the narrow read-only, selector-whitelisted elevated boundary.
+- The helper is launched lazily on the first production EC demand (the first `SampleSystemEc()` of a visible HUD session), not at install / app / tray startup.
+- A healthy helper is reused across transient HUD sampling pauses: In-Game Only hide/show, F8 hide/show, visibility reconciliation, and suspend/resume all preserve the connection.
+- No EC polling occurs while production sampling is stopped, even though the helper process stays alive.
+- UAC cancellation or a failed helper bootstrap does not automatically re-prompt: the launch attempt is consumed for that `EcHelperClient` lifetime, so the next 1 s sample issues no new `runas`. EC-derived values are simply reported unavailable.
+- Explicit **Enable HUD** off releases the helper (its private pipe closes and the elevated child exits); a later explicit re-enable may begin a new helper lifetime and request elevation once.
+- App exit, `RequestShutdown`, and Velopack-driven shutdown release the helper before ClawHUD exits; no orphan helper remains.
+
 ### Diagnostics
 
 When Diagnostics is open:
@@ -820,9 +834,9 @@ Do not run a second permanent EC polling loop just for Diagnostics.
 
 ## 15. Unelevated read validation
 
-Current fan/TDP hardware probes in SteamAddon used an elevated helper because they performed writes. That does **not** prove that the read-only methods needed by ClawHUD require elevation.
+> **Resolved:** on the supported MSI Claw hardware the required read methods do **not** succeed unelevated. ClawHUD ships the elevated `ClawHUD.EcHelper.exe` boundary (section 14). The probe below is retained as the historical validation that reached that conclusion; it is not a pending investigation.
 
-ClawHUD must test the read path as a normal user before adding any privileged component.
+Current fan/TDP hardware probes in SteamAddon used an elevated helper because they performed writes. That did **not** by itself prove that the read-only methods needed by ClawHUD require elevation, so the read path was probed as a normal user first.
 
 Required unelevated probe set:
 
@@ -861,13 +875,13 @@ $obj.Path.Path
 
 The method-call helper should follow the same object model used by SteamAddon: obtain the method parameters, populate the embedded `Data.Bytes` 32-byte package, invoke the method, and inspect the response success byte.
 
-A normal-user success still means ClawHUD should remain a normal-user process. The production diagnostic transport now keeps that boundary explicit: `ClawHUD.exe` never calls MSI WMI directly, and `ClawHUD.EcHelper.exe` performs only the whitelisted read methods after verifying elevation. This helper is intentionally limited to the EC read path; it is not a service, writer, or generic WMI RPC endpoint.
+Regardless of the probe outcome, `ClawHUD.exe` remains a normal-user process. The production transport keeps that boundary explicit: `ClawHUD.exe` never calls MSI WMI directly, and `ClawHUD.EcHelper.exe` performs only the whitelisted read methods after verifying elevation. This helper is intentionally limited to the EC read path; it is not a service, writer, or generic WMI RPC endpoint.
 
 ---
 
 ## 16. Failure handling
 
-ClawHUD EC telemetry is read-only, so failure policy should stay very small. The helper is started only by an explicit EC diagnostic request, reused for that session, and terminates when the main process closes the private named pipe. UAC cancellation or a missing helper leaves the main app running and marks EC unavailable; it is not retried immediately.
+ClawHUD EC telemetry is read-only, so failure policy should stay very small. The helper is launched lazily on the first production EC demand, reused for the whole helper lifetime (section 14), and terminates when the main process closes the private named pipe. UAC cancellation or a missing/failed helper leaves the main app running and marks EC unavailable; the launch attempt is consumed for that helper lifetime, so it is never automatically re-attempted on the next sample.
 
 For each sample:
 
