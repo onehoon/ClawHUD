@@ -6,6 +6,7 @@
 #include <winhttp.h>
 
 #include <array>
+#include <climits>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -30,19 +31,6 @@ void LogUpdateFailure(const wchar_t* stage, std::string_view what) noexcept
         std::wstring(L"Velopack: update source ") + stage +
         L" unavailable; continuing installed version (" +
         std::wstring(what.begin(), what.end()) + L")");
-}
-
-void RemovePartialDownloadBestEffort(const std::string& localFilePath) noexcept
-{
-    try
-    {
-        std::error_code ec;
-        std::filesystem::remove(
-            std::filesystem::path(localFilePath).make_preferred(), ec);
-    }
-    catch (...)
-    {
-    }
 }
 
 struct Response
@@ -124,6 +112,39 @@ std::optional<std::uint64_t> ContentLength(HINTERNET request)
         return value;
     return std::nullopt;
 }
+}
+
+std::optional<std::filesystem::path> VeloPackUtf8Path(std::string_view utf8) noexcept
+{
+    if (utf8.empty())
+        return std::filesystem::path{};
+    if (utf8.size() > static_cast<std::size_t>(INT_MAX))
+        return std::nullopt;
+    const int size = static_cast<int>(utf8.size());
+    const int chars = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+        utf8.data(), size, nullptr, 0);
+    if (chars <= 0)
+        return std::nullopt;
+    std::wstring wide(static_cast<std::size_t>(chars), L'\0');
+    if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8.data(), size,
+            wide.data(), chars) != chars)
+        return std::nullopt;
+    return std::filesystem::path(std::move(wide));
+}
+
+void RemovePartialDownloadBestEffort(std::string_view utf8Path) noexcept
+{
+    try
+    {
+        const auto path = VeloPackUtf8Path(utf8Path);
+        if (!path || path->empty())
+            return;
+        std::error_code ec;
+        std::filesystem::remove(*path, ec);
+    }
+    catch (...)
+    {
+    }
 }
 
 // --- callback-facing overrides: never let an exception reach VeloPack --------
@@ -214,10 +235,13 @@ void ClawHudUpdateSource::DownloadReleaseEntryImpl(
     if (!url)
         throw std::runtime_error("update asset failed validation");
 
-    // Fail fast on a bad destination before spending a network round trip.
-    const std::filesystem::path destination(
-        std::filesystem::path(localFilePath).make_preferred());
-    std::ofstream out(destination, std::ios::binary | std::ios::trunc);
+    // VeloPack hands the staging path as UTF-8; decode to the native Windows
+    // path so non-ASCII profile directories work. Fail fast on a bad
+    // destination before spending a network round trip.
+    const auto destination = VeloPackUtf8Path(localFilePath);
+    if (!destination || destination->empty())
+        throw std::runtime_error("update package destination is not valid UTF-8");
+    std::ofstream out(*destination, std::ios::binary | std::ios::trunc);
     if (!out)
         throw std::runtime_error("update package destination is not writable");
 

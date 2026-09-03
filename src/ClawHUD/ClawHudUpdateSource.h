@@ -4,10 +4,24 @@
 
 #include <Velopack.hpp>
 
+#include <filesystem>
+#include <optional>
 #include <string>
+#include <string_view>
 
 namespace clawhud
 {
+// VeloPack 1.2.0's C/Rust custom-source bridge passes the staging path as a
+// UTF-8 std::string (Rust `Path::to_string_lossy`). std::filesystem::path built
+// from a narrow std::string on MSVC assumes the process ANSI code page, which
+// corrupts non-ASCII profile paths (e.g. C:\Users\<user>\...). Decode explicitly.
+// Returns std::nullopt for invalid UTF-8; an empty input maps to an empty path.
+std::optional<std::filesystem::path> VeloPackUtf8Path(std::string_view utf8) noexcept;
+
+// Best-effort removal of a partially written download, named by a UTF-8 VeloPack
+// path. Never throws.
+void RemovePartialDownloadBestEffort(std::string_view utf8Path) noexcept;
+
 // Bounded VeloPack custom update source for ClawHUD's public stable GitHub
 // Release layout. It exists only so every HTTP operation on the synchronous
 // startup update path has a finite timeout -- the pinned VeloPack 1.2.0
