@@ -60,6 +60,15 @@ a newer compatible shared runtime is never replaced by an older one. Windows
 Installer compares the first three `ProductVersion` fields, so a future runtime
 revision must increment one of them (`2.5.1 -> 2.5.2`).
 
+The downgrade guarantee is self-enforced by wrapper packages `2.5.1` and later
+(the previously shipped `1.0.0.0` wrapper has no `Upgrade` table). ClawHUD's own
+flow never runs an older wrapper over a newer installed runtime because it only
+installs its bundled wrapper when readiness fails, and a newer ABI-compatible
+runtime reads as ready. See `third_party/presentmon/2.5.1/PROVENANCE.md`.
+
+`scripts/validate-wrapper-upgrade.ps1` executes the real old<->new msiexec
+matrix (elevated, throwaway VM) when regenerating the wrapper MSI.
+
 ## Shared-runtime uninstall ownership
 
 The PresentMon shared service is a **machine-level shared runtime**. Another

@@ -24,6 +24,27 @@ void LogUpdate(const std::wstring& message) noexcept
     RuntimeLogger::Log(RuntimeLogLevel::Info, L"Velopack: " + message);
 }
 
+void LogUpdateFailure(const wchar_t* stage, std::string_view what) noexcept
+{
+    RuntimeLogger::Log(RuntimeLogLevel::Warn,
+        std::wstring(L"Velopack: update source ") + stage +
+        L" unavailable; continuing installed version (" +
+        std::wstring(what.begin(), what.end()) + L")");
+}
+
+void RemovePartialDownloadBestEffort(const std::string& localFilePath) noexcept
+{
+    try
+    {
+        std::error_code ec;
+        std::filesystem::remove(
+            std::filesystem::path(localFilePath).make_preferred(), ec);
+    }
+    catch (...)
+    {
+    }
+}
+
 struct Response
 {
     HINTERNET session{};
@@ -105,8 +126,55 @@ std::optional<std::uint64_t> ContentLength(HINTERNET request)
 }
 }
 
+// --- callback-facing overrides: never let an exception reach VeloPack --------
+
 const std::string ClawHudUpdateSource::GetReleaseFeed(
     const std::string releasesName)
+{
+    try
+    {
+        return GetReleaseFeedImpl(releasesName);
+    }
+    catch (const std::exception& ex)
+    {
+        LogUpdateFailure(L"release-feed", ex.what());
+    }
+    catch (...)
+    {
+        LogUpdateFailure(L"release-feed", "unknown error");
+    }
+    // Non-null empty string: Rust fails JSON parsing -> vpkc_check_for_updates
+    // returns UPDATE_ERROR -> UpdateManager::CheckForUpdates() throws
+    // -> App::CheckForUpdates() catch continues on the installed version.
+    return {};
+}
+
+bool ClawHudUpdateSource::DownloadReleaseEntry(
+    const Velopack::VelopackAsset& asset, const std::string localFilePath,
+    Velopack::vpkc_progress_send_t progress)
+{
+    try
+    {
+        DownloadReleaseEntryImpl(asset, localFilePath, progress);
+        return true;
+    }
+    catch (const std::exception& ex)
+    {
+        RemovePartialDownloadBestEffort(localFilePath);
+        LogUpdateFailure(L"package", ex.what());
+    }
+    catch (...)
+    {
+        RemovePartialDownloadBestEffort(localFilePath);
+        LogUpdateFailure(L"package", "unknown error");
+    }
+    return false;
+}
+
+// --- throwing implementation ------------------------------------------------
+
+std::string ClawHudUpdateSource::GetReleaseFeedImpl(
+    const std::string& releasesName)
 {
     const auto url = BuildReleaseFeedUrl(releasesName);
     if (!url)
@@ -138,80 +206,70 @@ const std::string ClawHudUpdateSource::GetReleaseFeed(
     return body;
 }
 
-bool ClawHudUpdateSource::DownloadReleaseEntry(
-    const Velopack::VelopackAsset& asset, const std::string localFilePath,
-    Velopack::vpkc_progress_send_t progress)
+void ClawHudUpdateSource::DownloadReleaseEntryImpl(
+    const Velopack::VelopackAsset& asset, const std::string& localFilePath,
+    const Velopack::vpkc_progress_send_t& progress)
 {
     const auto url = BuildPackageUrl(asset.Version, asset.FileName);
     if (!url)
         throw std::runtime_error("update asset failed validation");
 
-    Response response;
-    OpenBoundedGet(response, *url);
-    const auto total = ContentLength(response.request);
-
+    // Fail fast on a bad destination before spending a network round trip.
     const std::filesystem::path destination(
         std::filesystem::path(localFilePath).make_preferred());
     std::ofstream out(destination, std::ios::binary | std::ios::trunc);
     if (!out)
         throw std::runtime_error("update package destination is not writable");
 
+    Response response;
+    OpenBoundedGet(response, *url);
+    const auto total = ContentLength(response.request);
+
     std::uint64_t written{};
     std::int16_t lastReported = -1;
     std::array<char, 64 * 1024> buffer{};
-    try
+    for (;;)
     {
-        for (;;)
+        DWORD available{};
+        if (!WinHttpQueryDataAvailable(response.request, &available))
+            throw std::runtime_error("update download stalled past timeout");
+        if (available == 0)
+            break;
+        while (available > 0)
         {
-            DWORD available{};
-            if (!WinHttpQueryDataAvailable(response.request, &available))
+            const DWORD want = available < buffer.size()
+                ? available
+                : static_cast<DWORD>(buffer.size());
+            DWORD read{};
+            if (!WinHttpReadData(response.request, buffer.data(), want, &read))
                 throw std::runtime_error("update download stalled past timeout");
-            if (available == 0)
-                break;
-            while (available > 0)
+            if (read == 0)
             {
-                const DWORD want = available < buffer.size()
-                    ? available
-                    : static_cast<DWORD>(buffer.size());
-                DWORD read{};
-                if (!WinHttpReadData(response.request, buffer.data(), want, &read))
-                    throw std::runtime_error("update download stalled past timeout");
-                if (read == 0)
+                available = 0;
+                break;
+            }
+            out.write(buffer.data(), static_cast<std::streamsize>(read));
+            if (!out)
+                throw std::runtime_error("update package write failed");
+            written += read;
+            available -= read;
+            if (progress && total && *total > 0)
+            {
+                const auto percent = static_cast<std::int16_t>(
+                    (written * 100) / *total);
+                if (percent != lastReported)
                 {
-                    available = 0;
-                    break;
-                }
-                out.write(buffer.data(), static_cast<std::streamsize>(read));
-                if (!out)
-                    throw std::runtime_error("update package write failed");
-                written += read;
-                available -= read;
-                if (progress && total && *total > 0)
-                {
-                    const auto percent = static_cast<std::int16_t>(
-                        (written * 100) / *total);
-                    if (percent != lastReported)
-                    {
-                        lastReported = percent;
-                        progress(percent);
-                    }
+                    lastReported = percent;
+                    progress(percent);
                 }
             }
         }
-        out.flush();
-        if (!out)
-            throw std::runtime_error("update package write failed");
     }
-    catch (...)
-    {
-        out.close();
-        std::error_code ec;
-        std::filesystem::remove(destination, ec);
-        throw;
-    }
+    out.flush();
+    if (!out)
+        throw std::runtime_error("update package write failed");
     out.close();
     if (progress)
         progress(100);
-    return true;
 }
 }

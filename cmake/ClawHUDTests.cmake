@@ -531,6 +531,27 @@
     add_test(NAME ClawHUD.ClawHudUpdateUrlTests
         COMMAND ClawHUD.ClawHudUpdateUrlTests)
 
+    # Proves the VeloPack callback-facing overrides never let an exception escape
+    # across the C/Rust FFI boundary: forced feed / download failures must return
+    # normally (empty feed / false), not throw. No network.
+    add_executable(ClawHUD.ClawHudUpdateSourceTests
+        tests/ClawHudUpdateSourceTests.cpp
+        src/ClawHUD/ClawHudUpdateSource.cpp
+        src/ClawHUD/ClawHudUpdateUrl.cpp
+        src/ClawHUD/RuntimeLogger.cpp)
+    target_compile_features(ClawHUD.ClawHudUpdateSourceTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.ClawHudUpdateSourceTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.ClawHudUpdateSourceTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.ClawHudUpdateSourceTests PRIVATE ClawHUD.Velopack winhttp)
+    set_target_properties(ClawHUD.ClawHudUpdateSourceTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_custom_command(TARGET ClawHUD.ClawHudUpdateSourceTests POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${VELOPACK_ROOT}/lib/velopack_libc_win_x64_msvc.dll"
+            "$<TARGET_FILE_DIR:ClawHUD.ClawHudUpdateSourceTests>/velopack_libc.dll")
+    add_test(NAME ClawHUD.ClawHudUpdateSourceTests
+        COMMAND ClawHUD.ClawHudUpdateSourceTests)
+
     add_executable(ClawHUD.StartupExecutablePathTests
         tests/StartupExecutablePathTests.cpp
         src/ClawHUD/StartupExecutablePath.cpp)

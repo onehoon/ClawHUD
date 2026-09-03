@@ -16,6 +16,12 @@ namespace clawhud
 // VeloPack keeps ownership of version comparison, delta/full selection,
 // download staging, and package validation. This source only fetches the exact
 // feed / asset VeloPack asks for.
+//
+// SAFETY: the two callback-facing overrides are reached from VeloPack's C
+// trampoline with no try/catch, and any exception would unwind across the
+// C/Rust FFI boundary. Both overrides therefore catch every exception and
+// return a normal VeloPack failure signal (empty feed / false) instead. The
+// throwing work lives in the private *Impl helpers.
 class ClawHudUpdateSource : public Velopack::IUpdateSource
 {
 public:
@@ -25,5 +31,11 @@ public:
     bool DownloadReleaseEntry(const Velopack::VelopackAsset& asset,
         const std::string localFilePath,
         Velopack::vpkc_progress_send_t progress) override;
+
+private:
+    std::string GetReleaseFeedImpl(const std::string& releasesName);
+    void DownloadReleaseEntryImpl(const Velopack::VelopackAsset& asset,
+        const std::string& localFilePath,
+        const Velopack::vpkc_progress_send_t& progress);
 };
 }
