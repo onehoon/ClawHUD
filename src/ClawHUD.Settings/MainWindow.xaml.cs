@@ -19,19 +19,33 @@ namespace ClawHUD.Settings;
 /// </summary>
 public partial class MainWindow : Window
 {
-    private readonly RuntimeControlClient _client = new();
+    private readonly IRuntimeControlClient _client;
     private readonly MainViewModel _viewModel;
     private bool _suppressOpacityValueChanged;
     private bool _initialLoadComplete;
     private bool _closing;
 
-    public MainWindow()
+    public MainWindow() : this(new RuntimeControlClient())
     {
+    }
+
+    // Test seam: a caller-supplied client. The startup ordering below is the
+    // hotfix contract — the opacity ValueChanged handler is attached only after
+    // InitializeComponent + ViewModel + DataContext, so XAML construction (which
+    // coerces the Slider value when Minimum moves 0 -> 50) can never be seen as a
+    // user opacity mutation.
+    internal MainWindow(IRuntimeControlClient client)
+    {
+        _client = client;
         InitializeComponent();
+
         _viewModel = new MainViewModel(_client);
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
         _viewModel.RuntimeLost += OnRuntimeLost;
         DataContext = _viewModel;
+
+        OpacitySlider.ValueChanged += OnOpacityValueChanged;
+
         Loaded += OnLoadedAsync;
         Activated += OnActivated;
     }
