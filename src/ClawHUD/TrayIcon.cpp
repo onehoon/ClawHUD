@@ -113,6 +113,11 @@ LRESULT CALLBACK TrayIcon::WindowProc(HWND window, UINT message, WPARAM wParam, 
     }
     if (message == kTrayMessage && lParam == WM_LBUTTONUP)
     {
+        // The user explicitly clicked the notification icon. Take foreground
+        // first (as ShowMenu does) so the Settings frontend relay this launches
+        // is started by the foreground process and can legally delegate
+        // foreground permission to the already-running Settings window.
+        SetForegroundWindow(window);
         if (self->actions_.openSettings)
             self->actions_.openSettings();
         return 0;

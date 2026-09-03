@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
 using ClawHUD.Settings.Services;
@@ -22,8 +24,12 @@ public partial class App : Application
         _coordinator = new SettingsInstanceCoordinator();
         if (!_coordinator.TryAcquirePrimary())
         {
-            // Relay: let the primary steal foreground, wake it, and exit.
-            NativeMethods.AllowSetForegroundWindow(NativeMethods.ASFW_ANY);
+            // Relay: let the primary take foreground, wake it, and exit. This is
+            // reliable only because the tray left-click path takes foreground
+            // before launching us (see TrayIcon::WindowProc).
+            if (!NativeMethods.AllowSetForegroundWindow(NativeMethods.ASFW_ANY))
+                Trace.WriteLine("ClawHUD.Settings relay: AllowSetForegroundWindow denied " +
+                    $"(error {Marshal.GetLastWin32Error()})");
             _coordinator.SignalPrimary();
             _coordinator.Dispose();
             _coordinator = null;
