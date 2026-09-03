@@ -8,18 +8,18 @@
         ResizeMode="NoResize"
         WindowStartupLocation="CenterScreen">
 
-    <!-- PR3: cards 1-3 (opacity excluded) are interactive. IsChecked stays a
-         one-way projection of the authoritative snapshot; Click handlers send one
-         mutation and the returned snapshot re-projects. The content of cards 1-3
-         is disabled while a mutation is in flight or before the first snapshot.
-         Card 3 opacity slider and cards 4-5 remain non-interactive. Geometry
-         unchanged from PR1/PR2. -->
+    <!-- Cards 1-3 interactive. Discrete controls: IsChecked one-way projects the
+         authoritative snapshot, Click sends one mutation, the returned snapshot
+         re-projects. Opacity slider (PR4): a drag drives live PreviewHudOpacity
+         and one CommitHudOpacity on release; the thumb follows the gesture (not
+         the snapshot) while dragging. Discrete controls and the opacity slider
+         are mutually exclusive. Cards 4-5 stay read-only. Geometry unchanged. -->
     <Grid Margin="12">
         <StackPanel>
 
             <!-- Card 1: HUD enable + display mode -->
             <Border Style="{StaticResource SettingsCard}">
-                <StackPanel IsEnabled="{Binding AreHudControlsEnabled}">
+                <StackPanel IsEnabled="{Binding AreDiscreteHudControlsEnabled}">
                     <DockPanel>
                         <ToggleButton DockPanel.Dock="Right" Style="{StaticResource SettingToggleSwitch}"
                                       IsChecked="{Binding HudEnabled, Mode=OneWay}" Click="OnEnableHudClick" />
@@ -39,7 +39,7 @@
 
             <!-- Card 2: HUD size + font + alignment -->
             <Border Style="{StaticResource SettingsCard}">
-                <StackPanel IsEnabled="{Binding AreHudControlsEnabled}">
+                <StackPanel IsEnabled="{Binding AreDiscreteHudControlsEnabled}">
                     <DockPanel>
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                             <Button Style="{StaticResource StepperButton}" Content="&#x2212;"
@@ -78,7 +78,7 @@
             <!-- Card 3: background width (interactive) + background opacity (read-only) -->
             <Border Style="{StaticResource SettingsCard}">
                 <StackPanel>
-                    <StackPanel IsEnabled="{Binding AreHudControlsEnabled}">
+                    <StackPanel IsEnabled="{Binding AreDiscreteHudControlsEnabled}">
                         <TextBlock Style="{StaticResource SettingLabel}" Margin="0,0,0,3" Text="Background width" />
                         <UniformGrid Rows="1" Columns="2">
                             <ToggleButton Style="{StaticResource SegmentToggle}" Margin="0,0,3,0" Content="Full width"
@@ -89,13 +89,20 @@
                                           IsChecked="{Binding IsBackgroundContentWidth, Mode=OneWay}" />
                         </UniformGrid>
                     </StackPanel>
-                    <StackPanel IsHitTestVisible="False">
-                        <TextBlock Style="{StaticResource SettingLabel}" Margin="0,8,0,3" Text="Background opacity" />
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource SettingLabel}" Margin="0,6,0,2" Text="Background opacity" />
                         <DockPanel>
                             <TextBlock DockPanel.Dock="Right" Text="{Binding BackgroundOpacityText}" VerticalAlignment="Center"
                                        Margin="12,0,0,0" Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
-                            <Slider Minimum="50" Maximum="100" Value="{Binding BackgroundOpacityPercent, Mode=OneWay}"
-                                    TickFrequency="5" IsSnapToTickEnabled="True" VerticalAlignment="Center" MinHeight="28" />
+                            <!-- Value is pushed from code-behind under a guard so a
+                                 programmatic snapshot update never looks like user input. -->
+                            <Slider x:Name="OpacitySlider" Minimum="50" Maximum="100"
+                                    TickFrequency="5" IsSnapToTickEnabled="True" IsMoveToPointEnabled="True"
+                                    VerticalAlignment="Center" MinHeight="40"
+                                    IsEnabled="{Binding IsOpacitySliderEnabled}"
+                                    ValueChanged="OnOpacityValueChanged"
+                                    Thumb.DragStarted="OnOpacityDragStarted"
+                                    Thumb.DragCompleted="OnOpacityDragCompleted" />
                         </DockPanel>
                     </StackPanel>
                 </StackPanel>

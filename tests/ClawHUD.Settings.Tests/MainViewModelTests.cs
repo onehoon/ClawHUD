@@ -49,7 +49,7 @@ public class MainViewModelTests
         Assert.True(vm.IsVisibilityInGameOnly);
         Assert.True(vm.IsAlignmentRight);
         Assert.True(vm.IsBackgroundFullWidth);
-        Assert.Equal(55, vm.BackgroundOpacityPercent);
+        Assert.Equal(55, vm.SliderOpacityValue);
         Assert.Equal("55%", vm.BackgroundOpacityText);
     }
 
@@ -58,7 +58,7 @@ public class MainViewModelTests
     {
         var vm = new MainViewModel(new FakeRuntimeControlClient());
 
-        Assert.False(vm.AreHudControlsEnabled);
+        Assert.False(vm.AreDiscreteHudControlsEnabled);
         Assert.False(vm.CanIncreaseHudSize);
         Assert.False(vm.CanDecreaseHudSize);
         Assert.Equal(string.Empty, vm.BackgroundOpacityText);
@@ -157,7 +157,7 @@ public class MainViewModelTests
         Assert.True(vm.IsAlignmentLeft);
         Assert.True(vm.HudEnabled);
         Assert.False(vm.IsMutationInFlight);
-        Assert.True(vm.AreHudControlsEnabled);
+        Assert.True(vm.AreDiscreteHudControlsEnabled);
     }
 
     // ---- One mutation in flight (§11, §16.8) ---------------------

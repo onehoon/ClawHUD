@@ -60,8 +60,10 @@ public static class ControlCodec
                 new[] { RequireEnum(request, WireValue.IsBackgroundMode) },
             ControlOperation.SetHudSizeOffset =>
                 EncodeSizeOffset(request),
+            ControlOperation.PreviewHudOpacity or ControlOperation.CommitHudOpacity =>
+                EncodeOpacity(request),
             _ => throw new ArgumentOutOfRangeException(nameof(request),
-                $"PR3 does not encode a {request.Operation} request."),
+                $"This frontend does not encode a {request.Operation} request."),
         };
 
         var frame = new byte[ControlProtocol.HeaderSize + payload.Length];
@@ -100,6 +102,19 @@ public static class ControlCodec
                 $"HUD size offset {offset} is outside {ControlProtocol.MinHudSizeOffset}..{ControlProtocol.MaxHudSizeOffset}.");
         var bytes = new byte[4];
         BinaryPrimitives.WriteInt32LittleEndian(bytes, offset);
+        return bytes;
+    }
+
+    private static byte[] EncodeOpacity(ControlRequest request)
+    {
+        ushort percent = request.OpacityPercent ?? throw new ArgumentException(
+            $"{request.Operation} requires an opacity percent.", nameof(request));
+        if (!WireValue.IsOpacityPercent(percent))
+            throw new ArgumentOutOfRangeException(nameof(request),
+                $"Opacity {percent} is not a {ControlProtocol.OpacityStepPercent}% step in " +
+                $"{ControlProtocol.MinOpacityPercent}..{ControlProtocol.MaxOpacityPercent}.");
+        var bytes = new byte[2];
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes, percent);
         return bytes;
     }
 
@@ -162,7 +177,9 @@ public static class ControlCodec
         ControlOperation.SetHudSizeOffset or
         ControlOperation.SetHudFont or
         ControlOperation.SetHudAlignment or
-        ControlOperation.SetHudBackgroundMode;
+        ControlOperation.SetHudBackgroundMode or
+        ControlOperation.PreviewHudOpacity or
+        ControlOperation.CommitHudOpacity;
 
     private static ResponseDecodeResult DecodeRuntimeInfo(ref ByteReader r)
     {

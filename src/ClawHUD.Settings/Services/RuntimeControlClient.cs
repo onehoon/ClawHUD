@@ -47,6 +47,8 @@ public interface IRuntimeControlClient
     Task<ControlClientResult<SettingsSnapshot>> SetHudFontAsync(WireFont font, CancellationToken cancellationToken = default);
     Task<ControlClientResult<SettingsSnapshot>> SetHudAlignmentAsync(WireAlignment alignment, CancellationToken cancellationToken = default);
     Task<ControlClientResult<SettingsSnapshot>> SetHudBackgroundModeAsync(WireBackgroundMode mode, CancellationToken cancellationToken = default);
+    Task<ControlClientResult<SettingsSnapshot>> PreviewHudOpacityAsync(ushort opacityPercent, CancellationToken cancellationToken = default);
+    Task<ControlClientResult<SettingsSnapshot>> CommitHudOpacityAsync(ushort opacityPercent, CancellationToken cancellationToken = default);
 }
 
 public sealed class RuntimeControlClient : IRuntimeControlClient
@@ -109,6 +111,16 @@ public sealed class RuntimeControlClient : IRuntimeControlClient
         CancellationToken cancellationToken = default) =>
         Snapshot(ControlOperation.SetHudBackgroundMode,
             id => new ControlRequest(ControlOperation.SetHudBackgroundMode, id, WireEnum: (byte)mode), cancellationToken);
+
+    public Task<ControlClientResult<SettingsSnapshot>> PreviewHudOpacityAsync(ushort opacityPercent,
+        CancellationToken cancellationToken = default) =>
+        Snapshot(ControlOperation.PreviewHudOpacity,
+            id => new ControlRequest(ControlOperation.PreviewHudOpacity, id, OpacityPercent: opacityPercent), cancellationToken);
+
+    public Task<ControlClientResult<SettingsSnapshot>> CommitHudOpacityAsync(ushort opacityPercent,
+        CancellationToken cancellationToken = default) =>
+        Snapshot(ControlOperation.CommitHudOpacity,
+            id => new ControlRequest(ControlOperation.CommitHudOpacity, id, OpacityPercent: opacityPercent), cancellationToken);
 
     private Task<ControlClientResult<SettingsSnapshot>> Snapshot(ControlOperation operation,
         Func<uint, ControlRequest> build, CancellationToken cancellationToken) =>
