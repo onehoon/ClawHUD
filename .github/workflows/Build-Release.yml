@@ -192,18 +192,23 @@ jobs:
           }
 
           # The WPF frontend must never silently drop out of the packaged output
-          # while the CI build still passes, and no private .NET runtime may leak in.
+          # while the CI build still passes, and no private .NET runtime may leak
+          # in. Inspect the package this run produced, addressed by the resolved
+          # version -- `release` also holds the previous native-only full package
+          # (downloaded above for delta generation).
+          $currentFull = Join-Path 'release' "ClawHUD-${{ steps.version.outputs.version }}-stable-full.nupkg"
+          if (-not (Test-Path $currentFull)) {
+            throw "vpk pack did not produce the current full package: $currentFull"
+          }
           Add-Type -AssemblyName System.IO.Compression.FileSystem
-          $full = Get-ChildItem release -Filter '*-full.nupkg' -File | Select-Object -First 1
-          if (-not $full) { throw 'vpk pack did not produce a full .nupkg.' }
-          $zip = [System.IO.Compression.ZipFile]::OpenRead($full.FullName)
+          $zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $currentFull))
           try {
             $names = $zip.Entries | ForEach-Object { $_.FullName }
             if (-not ($names -match '(^|/)ClawHUD\.Settings\.exe$')) {
-              throw "Full package $($full.Name) does not contain ClawHUD.Settings.exe."
+              throw "Current full package does not contain ClawHUD.Settings.exe."
             }
             if ($names -match '(^|/)(coreclr|clrjit|hostfxr)\.dll$') {
-              throw "Full package $($full.Name) contains a private .NET runtime."
+              throw "Current full package contains a private .NET runtime."
             }
           } finally { $zip.Dispose() }
 
