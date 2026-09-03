@@ -313,6 +313,9 @@ bool GameSessionController::WindowEventAffectsCurrentForeground(
     const HWND foreground = GetForegroundWindow();
     DWORD foregroundPid{};
     if (foreground) GetWindowThreadProcessId(foreground, &foregroundPid);
+    if (WindowEventIsRedundantExcludedForegroundLocationChange(
+            event, current, foreground, foregroundPid))
+        return false;
     return WindowEventAffectsCurrentScreen(event, foreground, foregroundPid,
         current.window, current.processId);
 }

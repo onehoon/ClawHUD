@@ -84,6 +84,50 @@ int main()
     ok &= Check(!clawhud::IsEligibleProductionTargetImage(L""),
         "an empty image name is not eligible");
 
+    // The WPF Settings frontend is centrally rejected: it is ClawHUD
+    // infrastructure and can never be a supported game target regardless of its
+    // current window size.
+    ok &= Check(clawhud::IsRejectedProductionTargetImage(L"clawhud.settings.exe"),
+        "clawhud.settings.exe is rejected as a production game target");
+    ok &= Check(!clawhud::IsEligibleProductionTargetImage(
+            L"C:\\Program Files\\ClawHUD\\ClawHUD.Settings.EXE"),
+        "ClawHUD.Settings.EXE stays rejected regardless of path or case");
+
+    // ClawHUD-owned image identity: native runtime + Settings frontend, by bare
+    // name or full path, case-insensitive.
+    ok &= Check(clawhud::IsClawHudOwnedImage(L"clawhud.exe") &&
+        clawhud::IsClawHudOwnedImage(L"ClawHUD.EXE") &&
+        clawhud::IsClawHudOwnedImage(L"C:\\Program Files\\ClawHUD\\ClawHUD.exe") &&
+        clawhud::IsClawHudOwnedImage(L"clawhud.settings.exe") &&
+        clawhud::IsClawHudOwnedImage(L"ClawHUD.Settings.EXE"),
+        "ClawHUD's own runtime and Settings images are owned");
+    ok &= Check(!clawhud::IsClawHudOwnedImage(L"unrelated.exe") &&
+        !clawhud::IsClawHudOwnedImage(L"game.exe") &&
+        !clawhud::IsClawHudOwnedImage(L"clawhud.diagnostic.exe") &&
+        !clawhud::IsClawHudOwnedImage(L""),
+        "unrelated images (and empty) are not ClawHUD-owned");
+
+    // PID form: 0 is never owned; the supplied own PID is always owned; an
+    // uninspectable external PID is reported as not owned (never broadly
+    // suppressed); a real external PID resolves through its image.
+    const DWORD self = GetCurrentProcessId();
+    ok &= Check(!clawhud::IsClawHudOwnedProcess(0, self),
+        "PID 0 is not a ClawHUD-owned process");
+    ok &= Check(clawhud::IsClawHudOwnedProcess(self, self),
+        "the caller's own PID is always ClawHUD-owned (native runtime self)");
+    ok &= Check(!clawhud::IsClawHudOwnedProcess(self, /*ownProcessId=*/1),
+        "an external PID resolving to a non-ClawHUD image is not owned");
+    ok &= Check(!clawhud::IsClawHudOwnedProcess(4, /*ownProcessId=*/1),
+        "an uninspectable external PID is not suppressed as self");
+
+    // Always FPS foreground sanitizer: self -> 0, external -> passthrough.
+    ok &= Check(clawhud::ResolveAlwaysFpsForegroundTarget(self, self) == 0,
+        "a ClawHUD-owned foreground sanitizes the Always FPS target to 0");
+    ok &= Check(clawhud::ResolveAlwaysFpsForegroundTarget(self, /*own=*/1) == self,
+        "an external foreground PID passes through unchanged");
+    ok &= Check(clawhud::ResolveAlwaysFpsForegroundTarget(0, self) == 0,
+        "no foreground stays PID 0");
+
     // Resume recovery re-adopts the current foreground only when the HUD is on
     // and the recovery attempt actually completed.
     ok &= Check(clawhud::ShouldReevaluateForegroundAfterResume(true, true) &&

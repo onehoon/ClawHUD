@@ -11,7 +11,8 @@ namespace ClawHUD.Settings.Tests;
 /// value and fired a <c>ValueChanged</c> handler that dereferenced the not-yet-
 /// assigned ViewModel. The handler is now wired only after construction, so real
 /// <c>MainWindow</c> construction must neither throw nor issue an opacity
-/// mutation. This is the only test that builds the process-wide WPF Application.
+/// mutation. Also pins the compact fixed geometry. This is the only test that
+/// builds the process-wide WPF Application.
 /// </summary>
 public class MainWindowStartupTests
 {
@@ -20,6 +21,8 @@ public class MainWindowStartupTests
     {
         Exception? failure = null;
         var fake = new FakeRuntimeControlClient();
+        double width = 0, height = 0;
+        ResizeMode resizeMode = ResizeMode.CanResize;
 
         var thread = new Thread(() =>
         {
@@ -32,6 +35,9 @@ public class MainWindowStartupTests
                 }
 
                 var window = new MainWindow(fake); // internal ctor; the default ctor delegates here
+                width = window.Width;
+                height = window.Height;
+                resizeMode = window.ResizeMode;
                 GC.KeepAlive(window);
             }
             catch (Exception ex)
@@ -51,5 +57,10 @@ public class MainWindowStartupTests
         Assert.Empty(fake.CommitValues);
         Assert.DoesNotContain(ControlOperation.PreviewHudOpacity, fake.Calls);
         Assert.DoesNotContain(ControlOperation.CommitHudOpacity, fake.Calls);
+
+        // Compact fixed window (700 x 600 DIP), non-resizable.
+        Assert.Equal(700, width);
+        Assert.Equal(600, height);
+        Assert.Equal(ResizeMode.NoResize, resizeMode);
     }
 }

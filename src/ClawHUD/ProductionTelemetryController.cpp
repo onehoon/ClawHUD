@@ -1,6 +1,7 @@
 #include "ProductionTelemetryController.h"
 
 #include "ProcessLiveness.h"
+#include "ProductionTargetPolicy.h"
 #include "RuntimeLogger.h"
 #include "WindowsMemoryTelemetry.h"
 
@@ -371,13 +372,20 @@ void ProductionTelemetryController::SetVisibilityMode(HudVisibilityMode mode,
     if (mode == HudVisibilityMode::Always)
     {
         // Adopt the currently known foreground PID immediately instead of
-        // waiting for the next foreground-change event.
-        alwaysFpsTarget_.SetForegroundProcess(currentForegroundProcessId);
+        // waiting for the next foreground-change event. ClawHUD's own runtime /
+        // Settings frontend is never a valid Always FPS target (it would show
+        // ClawHUD measuring its own UI), so it sanitizes to PID 0.
+        alwaysFpsTarget_.SetForegroundProcess(
+            ResolveAlwaysFpsForegroundTarget(currentForegroundProcessId));
     }
 }
 
-void ProductionTelemetryController::OnForegroundProcessChanged(DWORD processId)
+void ProductionTelemetryController::OnForegroundProcessChanged(DWORD rawProcessId)
 {
+    // A ClawHUD-owned foreground process (native runtime or Settings frontend)
+    // must never become the Always FPS target; it sanitizes to PID 0 so the FPS
+    // metric goes unavailable while the HUD itself stays visible.
+    const DWORD processId = ResolveAlwaysFpsForegroundTarget(rawProcessId);
     if (alwaysFpsTarget_.SetForegroundProcess(processId) &&
         visibilityMode_ == HudVisibilityMode::Always)
     {

@@ -45,7 +45,8 @@ namespace clawhud
 {
 bool IsRejectedProductionTargetImage(std::wstring_view image) noexcept
 {
-    constexpr std::array<std::wstring_view, 43> rejected{
+    constexpr std::array<std::wstring_view, 44> rejected{
+        L"clawhud.settings.exe",
         L"explorer.exe", L"searchhost.exe", L"shellexperiencehost.exe",
         L"startmenuexperiencehost.exe", L"applicationframehost.exe",
         L"steam.exe", L"steamwebhelper.exe", L"steamservice.exe",
@@ -82,6 +83,56 @@ bool IsEligibleProductionTargetImage(std::wstring_view image) noexcept
     {
         return false;
     }
+}
+
+bool IsClawHudOwnedImage(std::wstring_view image) noexcept
+{
+    try
+    {
+        auto basename = Basename(image);
+        NormalizeAsciiLowercase(basename);
+        return basename == L"clawhud.exe" || basename == L"clawhud.settings.exe";
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
+bool IsClawHudOwnedProcess(DWORD processId, DWORD ownProcessId) noexcept
+{
+    if (processId == 0)
+        return false;
+    if (processId == ownProcessId)
+        return true;
+
+    try
+    {
+        ProcessHandle process(OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId));
+        if (process.get() == nullptr)
+            return false;
+
+        std::wstring imagePath(32768, L'\0');
+        DWORD length = static_cast<DWORD>(imagePath.size());
+        if (!QueryFullProcessImageNameW(
+                process.get(), 0, imagePath.data(), &length))
+            return false;
+        imagePath.resize(length);
+        return IsClawHudOwnedImage(imagePath);
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
+DWORD ResolveAlwaysFpsForegroundTarget(DWORD foregroundProcessId,
+    DWORD ownProcessId) noexcept
+{
+    return IsClawHudOwnedProcess(foregroundProcessId, ownProcessId)
+        ? 0
+        : foregroundProcessId;
 }
 
 ProductionTargetInspection InspectProductionTargetProcessDetailed(

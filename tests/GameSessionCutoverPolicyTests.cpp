@@ -36,6 +36,17 @@ clawhud::ProductionWindowEvent WindowEvent(
     event.processId = pid;
     return event;
 }
+
+clawhud::CurrentForegroundGame Foreground(clawhud::ForegroundGameDecision decision,
+    clawhud::GameScreenAdmissionReason reason, HWND window, DWORD pid)
+{
+    clawhud::CurrentForegroundGame result;
+    result.decision = decision;
+    result.admissionReason = reason;
+    result.window = window;
+    result.processId = pid;
+    return result;
+}
 }
 
 int main()
@@ -114,6 +125,57 @@ int main()
     Check(ProcessInstanceStillMatches(gameA, gameA) &&
         !ProcessInstanceStillMatches(gameA, Process(100, 11)),
         "PID generation reuse invalidates the old current-foreground-game target");
+
+    // --- redundant excluded-foreground LOCATIONCHANGE suppression -----------
+    // ClawHUD.Settings.exe: classified Hidden/ExcludedExecutable, and it is both
+    // the authoritative current foreground evaluation and the live foreground.
+    const HWND settings = reinterpret_cast<HWND>(0x3000);
+    constexpr DWORD settingsPid = 900;
+    const auto excluded = Foreground(ForegroundGameDecision::Hidden,
+        GameScreenAdmissionReason::ExcludedExecutable, settings, settingsPid);
+
+    Check(WindowEventIsRedundantExcludedForegroundLocationChange(
+        WindowEvent(ProductionWindowEventType::LocationChange, settings, settingsPid),
+        excluded, settings, settingsPid),
+        "same-foreground ExcludedExecutable LOCATIONCHANGE is redundant");
+
+    for (auto type : {ProductionWindowEventType::Show, ProductionWindowEventType::Hide,
+        ProductionWindowEventType::Destroy})
+        Check(!WindowEventIsRedundantExcludedForegroundLocationChange(
+            WindowEvent(type, settings, settingsPid), excluded, settings, settingsPid),
+            "SHOW/HIDE/DESTROY for an excluded executable is never suppressed");
+
+    Check(!WindowEventIsRedundantExcludedForegroundLocationChange(
+        WindowEvent(ProductionWindowEventType::LocationChange, settings, settingsPid),
+        Foreground(ForegroundGameDecision::Hidden,
+            GameScreenAdmissionReason::NotFullscreenLike, settings, settingsPid),
+        settings, settingsPid),
+        "NotFullscreenLike LOCATIONCHANGE still reevaluates (windowed -> fullscreen)");
+
+    Check(!WindowEventIsRedundantExcludedForegroundLocationChange(
+        WindowEvent(ProductionWindowEventType::LocationChange, settings, settingsPid),
+        Foreground(ForegroundGameDecision::NeedsRendererVerification,
+            GameScreenAdmissionReason::Admitted, settings, settingsPid),
+        settings, settingsPid),
+        "a renderer-verification candidate LOCATIONCHANGE still reevaluates");
+
+    Check(!WindowEventIsRedundantExcludedForegroundLocationChange(
+        WindowEvent(ProductionWindowEventType::LocationChange, settings, settingsPid),
+        excluded, other, 300),
+        "an excluded evaluation that is no longer the live foreground still reevaluates");
+
+    Check(!WindowEventIsRedundantExcludedForegroundLocationChange(
+        WindowEvent(ProductionWindowEventType::LocationChange, other, 300),
+        excluded, settings, settingsPid),
+        "LOCATIONCHANGE for an unrelated window is not the suppression case");
+
+    // The real controller call sequence: the redundant case short-circuits to
+    // "does not affect current screen", every other case falls through to the
+    // existing WindowEventAffectsCurrentScreen contract.
+    Check(WindowEventAffectsCurrentScreen(
+        WindowEvent(ProductionWindowEventType::LocationChange, settings, settingsPid),
+        settings, settingsPid, settings, settingsPid),
+        "without the exclusion optimization a current LOCATIONCHANGE still counts");
 
     std::cout << "PASS\n";
 }

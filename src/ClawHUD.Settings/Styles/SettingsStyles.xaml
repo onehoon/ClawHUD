@@ -2,13 +2,14 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <!-- Visual grouping surface only: no header, subtle rounded border, works in
-         system light and dark via Fluent theme brushes. -->
+         system light and dark via Fluent theme brushes. Compact Windows 11
+         desktop density (not touch-first). -->
     <Style x:Key="SettingsCard" TargetType="Border">
         <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource CardStrokeColorDefaultBrush}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="8" />
-        <Setter Property="Padding" Value="12" />
+        <Setter Property="Padding" Value="10" />
         <Setter Property="Margin" Value="0,0,0,6" />
     </Style>
 
@@ -16,14 +17,14 @@
         <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
         <Setter Property="FontSize" Value="14" />
         <Setter Property="VerticalAlignment" Value="Center" />
-        <Setter Property="Margin" Value="0,0,0,6" />
+        <Setter Property="Margin" Value="0,0,0,4" />
     </Style>
 
-    <!-- Compact, touch-sized segmented choice built from a standard ToggleButton.
-         Group/binding behaviour is added with runtime-backed state in a later PR. -->
+    <!-- Compact segmented choice built from a standard ToggleButton. OneWay
+         authoritative binding + Click mutation semantics live on the instances. -->
     <Style x:Key="SegmentToggle" TargetType="ToggleButton">
-        <Setter Property="MinHeight" Value="42" />
-        <Setter Property="Padding" Value="14,0" />
+        <Setter Property="MinHeight" Value="32" />
+        <Setter Property="Padding" Value="12,0" />
         <Setter Property="Margin" Value="0" />
         <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
         <Setter Property="Template">
@@ -52,28 +53,30 @@
     </Style>
 
     <Style x:Key="StepperButton" TargetType="Button">
-        <Setter Property="Width" Value="46" />
-        <Setter Property="Height" Value="40" />
+        <Setter Property="Width" Value="34" />
+        <Setter Property="Height" Value="32" />
         <Setter Property="FontSize" Value="16" />
         <Setter Property="Padding" Value="0" />
     </Style>
 
-    <!-- Representative binary control. Touch-sized; not wired to any runtime state. -->
+    <!-- Compact Windows-11-like desktop switch. Same ToggleButton implementation,
+         Fluent default/accent brushes, checked-state knob movement, OneWay
+         authoritative binding and Click mutation on the instances. -->
     <Style x:Key="SettingToggleSwitch" TargetType="ToggleButton">
-        <Setter Property="MinHeight" Value="42" />
-        <Setter Property="MinWidth" Value="96" />
+        <Setter Property="MinHeight" Value="24" />
+        <Setter Property="MinWidth" Value="42" />
         <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ToggleButton">
                     <Border x:Name="Track"
-                            Width="88" Height="40" CornerRadius="20"
+                            Width="42" Height="22" CornerRadius="11"
                             Background="{DynamicResource ControlFillColorDefaultBrush}"
                             BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
                             BorderThickness="1"
                             HorizontalAlignment="Right">
-                        <Ellipse x:Name="Knob" Width="28" Height="28"
-                                 HorizontalAlignment="Left" Margin="6,0,0,0"
+                        <Ellipse x:Name="Knob" Width="14" Height="14"
+                                 HorizontalAlignment="Left" Margin="4,0,0,0"
                                  Fill="{DynamicResource TextFillColorSecondaryBrush}" />
                     </Border>
                     <ControlTemplate.Triggers>
@@ -81,7 +84,7 @@
                             <Setter TargetName="Track" Property="Background" Value="{DynamicResource AccentFillColorDefaultBrush}" />
                             <Setter TargetName="Track" Property="BorderBrush" Value="{DynamicResource AccentFillColorDefaultBrush}" />
                             <Setter TargetName="Knob" Property="HorizontalAlignment" Value="Right" />
-                            <Setter TargetName="Knob" Property="Margin" Value="0,0,6,0" />
+                            <Setter TargetName="Knob" Property="Margin" Value="0,0,4,0" />
                             <Setter TargetName="Knob" Property="Fill" Value="{DynamicResource TextOnAccentFillColorPrimaryBrush}" />
                         </Trigger>
                     </ControlTemplate.Triggers>
