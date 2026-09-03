@@ -13,3 +13,4 @@ AGENTS.md
 /src/ClawHUD.Settings/obj/
 /tests/ClawHUD.Settings.Tests/bin/
 /tests/ClawHUD.Settings.Tests/obj/
+/wpf-publish/
