@@ -8,6 +8,15 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $scriptRoot = Split-Path -Parent $PSScriptRoot
+$repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $scriptRoot))
+
+# Single source of truth: the wrapper MSI ProductVersion tracks the bundled
+# PresentMon runtime revision pinned in CMakeLists.txt (PRESENTMON_VERSION).
+$cmakeLists = Join-Path $repoRoot 'CMakeLists.txt'
+$presentMonVersion = (Select-String -Path $cmakeLists -Pattern 'set\(PRESENTMON_VERSION "([0-9]+\.[0-9]+\.[0-9]+)"\)').Matches[0].Groups[1].Value
+if (-not $presentMonVersion) { throw "PRESENTMON_VERSION was not found in $cmakeLists." }
+Write-Output "PresentMonRuntimeVersion=$presentMonVersion"
+
 $prepare = Join-Path $PSScriptRoot 'prepare-upstream.ps1'
 $upstream = & $prepare -UpstreamRoot $UpstreamRoot
 # The pinned upstream source contains UTF-8 text.  PresentMon's PresentData
@@ -76,6 +85,7 @@ $wrapper = Join-Path $scriptRoot 'installer\ClawHUD.PresentMonRuntime.wixproj'
 Invoke-MSBuild $wrapper @(
     '/p:Platform=x86'
     ('/p:PresentMonSharedServiceModule=' + $module.FullName)
+    ('/p:PresentMonRuntimeVersion=' + $presentMonVersion)
     ('/p:OutputPath=' + "$BuildRoot\")
 )
 

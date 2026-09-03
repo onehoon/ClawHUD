@@ -164,6 +164,22 @@ jobs:
             throw "Velopack did not produce a delta package from $previousTag."
           }
 
+          # ClawHUD's bounded update source (ClawHudUpdateSource) fetches
+          # 'releases.stable.json' from the latest release and then the exact
+          # version-tagged package assets it references. Fail before publish if
+          # the feed is missing or references a package we are not shipping.
+          if (-not (Test-Path 'release\releases.stable.json')) {
+            throw "vpk pack did not produce release\releases.stable.json (the stable update feed)."
+          }
+          $feed = Get-Content 'release\releases.stable.json' -Raw | ConvertFrom-Json
+          foreach ($entry in @($feed.Assets)) {
+            $name = $entry.FileName
+            if (-not $name) { continue }
+            if (-not (Test-Path (Join-Path 'release' $name))) {
+              throw "releases.stable.json references '$name' which is not present in the release output."
+            }
+          }
+
       - name: Upload GitHub Release
         shell: pwsh
         env:

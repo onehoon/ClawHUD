@@ -116,12 +116,14 @@ ClawHUD uses **PresentMon API2** for FPS and CPU/GPU telemetry.
 
 A compatible PresentMon API2 shared-service runtime is required. ClawHUD checks for it at startup and:
 
-- reuses an already installed compatible runtime when available, or
-- installs the bundled compatible PresentMon runtime automatically when it is missing or incompatible.
+- reuses an already installed compatible runtime when its version is the same or newer than the bundled one, or
+- installs the bundled compatible PresentMon runtime automatically when it is missing, incompatible, or older than the bundled version.
 
 Windows may display a **UAC prompt** when the PresentMon runtime needs to be installed. Only the runtime installer is elevated; ClawHUD itself continues to run as a normal non-elevated application.
 
 The bundled runtime contains the PresentMon shared service and matching API2 middleware used by ClawHUD. Version and licensing information is documented in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
+ClawHUD installs the PresentMon shared-service runtime as a **machine-level shared prerequisite**. Removing ClawHUD does **not** automatically remove that shared runtime, because other software on the machine may use the same compatible installation. ClawHUD uninstall removes the ClawHUD application files and the ClawHUD "Start with Windows" shortcut only.
 
 ---
 

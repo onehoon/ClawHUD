@@ -512,12 +512,56 @@
     target_compile_features(ClawHUD.PresentMonRuntimeBootstrapTests PRIVATE cxx_std_20)
     target_compile_definitions(ClawHUD.PresentMonRuntimeBootstrapTests PRIVATE
         UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-    target_include_directories(ClawHUD.PresentMonRuntimeBootstrapTests PRIVATE src/ClawHUD)
+    target_include_directories(ClawHUD.PresentMonRuntimeBootstrapTests PRIVATE
+        src/ClawHUD "${CMAKE_BINARY_DIR}/generated")
     target_link_libraries(ClawHUD.PresentMonRuntimeBootstrapTests PRIVATE
         shell32 advapi32 version ole32)
     set_target_properties(ClawHUD.PresentMonRuntimeBootstrapTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.PresentMonRuntimeBootstrapTests
         COMMAND ClawHUD.PresentMonRuntimeBootstrapTests)
+
+    add_executable(ClawHUD.ClawHudUpdateUrlTests
+        tests/ClawHudUpdateUrlTests.cpp
+        src/ClawHUD/ClawHudUpdateUrl.cpp)
+    target_compile_features(ClawHUD.ClawHudUpdateUrlTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.ClawHudUpdateUrlTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.ClawHudUpdateUrlTests PRIVATE src/ClawHUD)
+    set_target_properties(ClawHUD.ClawHudUpdateUrlTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.ClawHudUpdateUrlTests
+        COMMAND ClawHUD.ClawHudUpdateUrlTests)
+
+    # Proves the VeloPack callback-facing overrides never let an exception escape
+    # across the C/Rust FFI boundary: forced feed / download failures must return
+    # normally (empty feed / false), not throw. No network.
+    add_executable(ClawHUD.ClawHudUpdateSourceTests
+        tests/ClawHudUpdateSourceTests.cpp
+        src/ClawHUD/ClawHudUpdateSource.cpp
+        src/ClawHUD/ClawHudUpdateUrl.cpp
+        src/ClawHUD/RuntimeLogger.cpp)
+    target_compile_features(ClawHUD.ClawHudUpdateSourceTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.ClawHudUpdateSourceTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.ClawHudUpdateSourceTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.ClawHudUpdateSourceTests PRIVATE ClawHUD.Velopack winhttp)
+    set_target_properties(ClawHUD.ClawHudUpdateSourceTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_custom_command(TARGET ClawHUD.ClawHudUpdateSourceTests POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${VELOPACK_ROOT}/lib/velopack_libc_win_x64_msvc.dll"
+            "$<TARGET_FILE_DIR:ClawHUD.ClawHudUpdateSourceTests>/velopack_libc.dll")
+    add_test(NAME ClawHUD.ClawHudUpdateSourceTests
+        COMMAND ClawHUD.ClawHudUpdateSourceTests)
+
+    add_executable(ClawHUD.StartupExecutablePathTests
+        tests/StartupExecutablePathTests.cpp
+        src/ClawHUD/StartupExecutablePath.cpp)
+    target_compile_features(ClawHUD.StartupExecutablePathTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.StartupExecutablePathTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.StartupExecutablePathTests PRIVATE src/ClawHUD)
+    set_target_properties(ClawHUD.StartupExecutablePathTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.StartupExecutablePathTests
+        COMMAND ClawHUD.StartupExecutablePathTests)
 
     add_executable(ClawHUD.PresentMonRuntimeStartupPolicyTests
         tests/PresentMonRuntimeStartupPolicyTests.cpp)

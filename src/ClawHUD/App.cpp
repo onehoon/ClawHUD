@@ -4,6 +4,8 @@
 #include "Tweaks/IntelVrr/IntelVrrResultStore.h"
 #include "SupportedHardware.h"
 #include "PresentMonRuntimeStartupPolicy.h"
+#include "ClawHudUpdateSource.h"
+#include "StartupExecutablePath.h"
 #include "UninstallCleanup.h"
 #include "RuntimeLogger.h"
 #include "Version.h"
@@ -728,10 +730,19 @@ bool App::ApplyStartupRegistration() const
         IID_PPV_ARGS(&shellLink));
     if (SUCCEEDED(result))
     {
-        result = shellLink->SetPath(executablePath_.c_str());
+        // Target the stable VeloPack root execution stub when installed, so the
+        // shortcut survives `current` replacement across updates; portable/dev
+        // layouts fall back to the running executable. Never pass --managed:
+        // Start-with-Windows is a Standalone preference.
+        const auto startup = clawhud::ResolveStartupExecutable(executablePath_);
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
+            startup.velopackRootStub
+                ? L"Startup target=velopack-root-stub"
+                : L"Startup target=current-exe fallback=" + startup.fallbackReason);
+        result = shellLink->SetPath(startup.path.c_str());
         if (SUCCEEDED(result))
         {
-            const auto workingDirectory = std::filesystem::path(executablePath_).parent_path();
+            const auto workingDirectory = startup.path.parent_path();
             result = shellLink->SetWorkingDirectory(workingDirectory.c_str());
         }
         if (SUCCEEDED(result)) result = shellLink->QueryInterface(IID_PPV_ARGS(&persistFile));
@@ -747,7 +758,11 @@ void App::CheckForUpdates()
 {
     try
     {
-        Velopack::UpdateManager manager(std::make_unique<Velopack::GithubSource>(CLAWHUD_UPDATE_REPOSITORY));
+        // Bounded custom source: the pinned VeloPack 1.2.0 GithubSource has no
+        // request timeout, so a stalled endpoint could block startup forever.
+        // VeloPack still owns version comparison, delta selection, staging, and
+        // package validation.
+        Velopack::UpdateManager manager(std::make_unique<clawhud::ClawHudUpdateSource>());
         // Standalone lets Velopack restart ClawHUD normally; Managed applies and
         // exits so the external owner relaunches `ClawHUD.exe --managed` itself.
         // Both update sources use this one decision.
@@ -775,7 +790,9 @@ void App::CheckForUpdates()
     }
     catch (const std::exception&)
     {
-        Log(L"Velopack update unavailable; continuing with the installed version");
+        // Bounded failure: offline / DNS / TLS / stalled endpoint / oversized
+        // feed all land here. Network update availability is not a prerequisite.
+        Log(L"Velopack: update source unavailable; continuing installed version");
     }
 }
 

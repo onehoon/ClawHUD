@@ -1,0 +1,9 @@
+#pragma once
+
+// Generated from the single CMake PRESENTMON_VERSION pin. A future runtime bump
+// is one intentional change in CMakeLists.txt (plus the vetted third_party
+// artifacts); do not hand-edit this file or duplicate the literal elsewhere.
+#define CLAWHUD_PRESENTMON_RUNTIME_VERSION_MAJOR @PRESENTMON_VERSION_MAJOR@
+#define CLAWHUD_PRESENTMON_RUNTIME_VERSION_MINOR @PRESENTMON_VERSION_MINOR@
+#define CLAWHUD_PRESENTMON_RUNTIME_VERSION_PATCH @PRESENTMON_VERSION_PATCH@
+#define CLAWHUD_PRESENTMON_RUNTIME_VERSION_STRING "@PRESENTMON_VERSION@"

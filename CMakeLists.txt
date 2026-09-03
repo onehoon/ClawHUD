@@ -32,6 +32,19 @@ file(ARCHIVE_EXTRACT INPUT "${VELOPACK_ARCHIVE}" DESTINATION "${VELOPACK_ROOT}")
 set(PRESENTMON_VERSION "2.5.1")
 set(PRESENTMON_API2_ROOT "${CMAKE_SOURCE_DIR}/third_party/presentmon/2.5.1")
 
+# One source of truth: the bundled runtime path, the readiness version floor, and
+# the wrapper MSI ProductVersion all derive from PRESENTMON_VERSION.
+if(NOT PRESENTMON_VERSION MATCHES "^([0-9]+)\\.([0-9]+)\\.([0-9]+)$")
+    message(FATAL_ERROR "PRESENTMON_VERSION must be major.minor.patch")
+endif()
+set(PRESENTMON_VERSION_MAJOR "${CMAKE_MATCH_1}")
+set(PRESENTMON_VERSION_MINOR "${CMAKE_MATCH_2}")
+set(PRESENTMON_VERSION_PATCH "${CMAKE_MATCH_3}")
+configure_file(
+    "${CMAKE_SOURCE_DIR}/src/ClawHUD/PresentMonRuntimeVersion.h.in"
+    "${CMAKE_BINARY_DIR}/generated/PresentMonRuntimeVersion.h"
+    @ONLY)
+
 file(READ "${CMAKE_SOURCE_DIR}/archive/diagnostics/presentmon-api2/assets/PresentMonAutoTargetBlockList.txt"
     CLAWHUD_DIAG_BLOCKLIST)
 file(WRITE "${CMAKE_BINARY_DIR}/generated/DiagBlocklist.h"
@@ -61,6 +74,9 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/main.cpp
     src/resources/ClawHUD.rc
     src/ClawHUD/App.cpp
+    src/ClawHUD/ClawHudUpdateUrl.cpp
+    src/ClawHUD/ClawHudUpdateSource.cpp
+    src/ClawHUD/StartupExecutablePath.cpp
     src/ClawHUD/LaunchMode.cpp
     src/ClawHUD/RuntimeControlDispatchBridge.cpp
     src/ClawHUD/RuntimeControlWireMapping.cpp
@@ -134,7 +150,7 @@ target_compile_definitions(ClawHUD PRIVATE
     UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX
     CLAWHUD_UPDATE_REPOSITORY=\"https://github.com/onehoon/ClawHUD\")
 target_include_directories(ClawHUD PRIVATE src/ClawHUD src/shared src/resources "${CMAKE_BINARY_DIR}/generated")
-target_link_libraries(ClawHUD PRIVATE ClawHUD.Velopack comctl32 shell32 user32 winmm dwmapi delayimp d3d11 dxgi dcomp d2d1 dwrite powrprof advapi32 wbemuuid ole32 oleaut32 propsys)
+target_link_libraries(ClawHUD PRIVATE ClawHUD.Velopack comctl32 shell32 user32 winmm dwmapi delayimp d3d11 dxgi dcomp d2d1 dwrite powrprof advapi32 wbemuuid ole32 oleaut32 propsys winhttp)
 target_link_options(ClawHUD PRIVATE "/DELAYLOAD:velopack_libc.dll")
 set_target_properties(ClawHUD PROPERTIES CXX_EXTENSIONS OFF)
 

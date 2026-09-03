@@ -48,3 +48,41 @@ After building, use `collect-artifacts.ps1` to populate the report with measured
 The vetted runtime artifacts used by normal ClawHUD builds are committed under
 `third_party/presentmon/2.5.1/`. The scripts remain available to reproduce and
 audit the pinned source build, but normal ClawHUD builds do not run them.
+
+## Wrapper MSI upgrade policy
+
+The wrapper MSI `ProductVersion` tracks the bundled PresentMon runtime revision
+(`build-runtime.ps1` reads `PRESENTMON_VERSION` from `CMakeLists.txt` and passes
+it as `PresentMonRuntimeVersion` to the wrapper build -- one source of truth).
+The wrapper carries a WiX `<MajorUpgrade>` on the stable `UpgradeCode`: a higher
+wrapper version replaces an older wrapper product, and a downgrade is blocked so
+a newer compatible shared runtime is never replaced by an older one. Windows
+Installer compares the first three `ProductVersion` fields, so a future runtime
+revision must increment one of them (`2.5.1 -> 2.5.2`).
+
+The downgrade guarantee is self-enforced by wrapper packages `2.5.1` and later
+(the previously shipped `1.0.0.0` wrapper has no `Upgrade` table). ClawHUD's own
+flow never runs an older wrapper over a newer installed runtime because it only
+installs its bundled wrapper when readiness fails, and a newer ABI-compatible
+runtime reads as ready. See `third_party/presentmon/2.5.1/PROVENANCE.md`.
+
+`scripts/validate-wrapper-upgrade.ps1` executes the real msiexec matrix
+(elevated, throwaway VM) when regenerating the wrapper MSI: legacy -> current
+migration and current -> current repair are always checked; downgrade rejection
+is checked only when a newer MajorUpgrade-authored wrapper is passed as
+`-NewerCleanup3Msi`.
+
+## Shared-runtime uninstall ownership
+
+The PresentMon shared service is a **machine-level shared runtime**. Another
+application may legitimately consume the same compatible installation, and
+ClawHUD cannot prove exclusive ownership at uninstall time. Therefore:
+
+- Uninstalling ClawHUD removes the ClawHUD application files (via VeloPack) and
+  the ClawHUD "Start with Windows" shortcut.
+- It intentionally leaves the compatible PresentMon shared runtime, its service,
+  its `Program Files\Intel\PresentMonSharedService` files, and its
+  `HKLM\SOFTWARE\INTEL\PresentMon` registry state installed.
+
+ClawHUD never runs `msiexec /x` on `ClawHUD.PresentMonRuntime`, deletes the
+shared service, or removes the Intel PresentMon registry keys.
