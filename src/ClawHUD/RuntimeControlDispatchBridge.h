@@ -3,10 +3,11 @@
 // CH-RTF-5 — main-thread dispatch bridge.
 //
 // Moves a validated clawhud::control::ControlRequest from a background producer
-// (a future IPC worker; a test producer today) to the ClawHUD main thread,
-// runs it there, and returns the authoritative response to the waiting
-// producer. No transport, no framing, no HWND knowledge — the wake-up is an
-// injected callback so App owns the PostMessage and tests own a fake.
+// (the Control pipe worker in production; a test producer in unit tests) to the
+// ClawHUD main thread, runs it there, and returns the authoritative result to
+// the waiting producer. No transport, no framing, no HWND knowledge — the
+// wake-up is an injected callback so App owns the PostMessage and tests own a
+// fake.
 
 #include <condition_variable>
 #include <deque>

@@ -1,8 +1,23 @@
 # ClawHUD Settings WinUI 3 Migration — Architecture Review & Handoff
 
+> ## ⚠️ SUPERSEDED IMPLEMENTATION SEQUENCE / HISTORICAL REFERENCE
+>
+> The runtime/frontend separation architecture completed by **CH-RTF-1..10**
+> (`docs/work-orders/managed/`) is now the canonical ClawHUD-side foundation.
+> **Do not implement the WinUI 3 / `ClawHUD.Settings.exe` / `SettingsSession`
+> phases in this document directly.** Standalone / Managed launch composition,
+> the versioned local Control Named Pipe, and the `IRuntimeControl` boundary
+> replace the `SettingsSession`-era assumptions here.
+>
+> Frontend technology remains deliberately deferred. Any future standalone
+> Settings frontend (Win32 / WPF / WinUI 3 / Web) must consume the stable
+> Control IPC boundary rather than reintroducing the process/transport model
+> below. The UI research, alternatives, and constraints in the rest of this
+> document remain useful reading.
+
 > **Handoff date:** 2026-09-02  
-> **Status:** Legacy Win32 Settings physical refactor complete. WinUI 3 migration not yet implemented.  
-> **Purpose:** Preserve the complete Settings modernization discussion, alternatives considered, final architecture direction, constraints, build/deployment plan, and implementation sequence for the next development session.
+> **Status:** SUPERSEDED — see the notice above. Legacy Win32 Settings physical refactor complete; WinUI 3 migration not implemented and not the current direction.  
+> **Purpose:** Preserve the Settings modernization discussion, alternatives considered, constraints, and UI research.
 
 ---
 
