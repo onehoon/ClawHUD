@@ -5,7 +5,7 @@ namespace ClawHUD.Settings.Protocol;
 // is an independent implementation: it never marshals native struct/enum layout,
 // only the explicit little-endian wire values reproduced here.
 
-internal static class ControlProtocol
+public static class ControlProtocol
 {
     internal static readonly byte[] Magic = "CHUD"u8.ToArray();
     internal const ushort ProtocolVersion = 1;
@@ -23,13 +23,13 @@ internal static class ControlProtocol
     internal const int OpacityStepPercent = 5;
 }
 
-internal enum ControlMessageKind : ushort
+public enum ControlMessageKind : ushort
 {
     Request = 1,
     Response = 2,
 }
 
-internal enum ControlOperation : ushort
+public enum ControlOperation : ushort
 {
     GetRuntimeInfo = 1,
     GetSettingsSnapshot = 2,
@@ -47,7 +47,7 @@ internal enum ControlOperation : ushort
     RequestShutdown = 20,
 }
 
-internal enum ControlStatus : uint
+public enum ControlStatus : uint
 {
     Ok = 0,
     InvalidFrame = 1,
@@ -60,32 +60,32 @@ internal enum ControlStatus : uint
     ShuttingDown = 8,
 }
 
-internal enum WireVisibilityMode : byte
+public enum WireVisibilityMode : byte
 {
     Always = 1,
     InGameOnly = 2,
 }
 
-internal enum WireAlignment : byte
+public enum WireAlignment : byte
 {
     Left = 1,
     Center = 2,
     Right = 3,
 }
 
-internal enum WireFont : byte
+public enum WireFont : byte
 {
     Unispace = 1,
     SegoeUiVariable = 2,
 }
 
-internal enum WireBackgroundMode : byte
+public enum WireBackgroundMode : byte
 {
     FullWidth = 1,
     ContentWidth = 2,
 }
 
-internal enum WireIntelVrrStatus : byte
+public enum WireIntelVrrStatus : byte
 {
     Disabled = 1,
     Unavailable = 2,
@@ -98,27 +98,39 @@ internal enum WireIntelVrrStatus : byte
     VerificationFailed = 9,
 }
 
-internal enum WireLaunchMode : byte
+public enum WireLaunchMode : byte
 {
     Standalone = 1,
     Managed = 2,
 }
 
-internal enum WireRuntimeState : byte
+public enum WireRuntimeState : byte
 {
     Starting = 1,
     Ready = 2,
     ShuttingDown = 3,
 }
 
-internal sealed record RuntimeInfo(
+/// <summary>
+/// A protocol-v1 request to encode. Only the field the operation needs is set;
+/// <see cref="ControlCodec.EncodeRequest"/> validates the operation/field pairing
+/// and every value bound before it produces a frame.
+/// </summary>
+public sealed record ControlRequest(
+    ControlOperation Operation,
+    uint RequestId,
+    bool? Flag = null,
+    byte? WireEnum = null,
+    int? SizeOffset = null);
+
+public sealed record RuntimeInfo(
     string ApplicationVersion,
     ushort MinimumProtocolVersion,
     ushort MaximumProtocolVersion,
     WireLaunchMode LaunchMode,
     WireRuntimeState RuntimeState);
 
-internal sealed record IntelVrrResult(
+public sealed record IntelVrrResult(
     WireIntelVrrStatus Status,
     string PanelName,
     string RangeBefore,
@@ -126,7 +138,7 @@ internal sealed record IntelVrrResult(
     string Message,
     string TimestampUtc);
 
-internal sealed record SettingsSnapshot(
+public sealed record SettingsSnapshot(
     bool StartWithWindows,
     bool HudEnabled,
     int HudSizeOffset,
@@ -138,7 +150,7 @@ internal sealed record SettingsSnapshot(
     bool IntelVrrRangeFixEnabled,
     IntelVrrResult? IntelVrrLastResult);
 
-internal static class WireValue
+public static class WireValue
 {
     internal static bool IsKnownStatus(uint value) => value <= (uint)ControlStatus.ShuttingDown;
 

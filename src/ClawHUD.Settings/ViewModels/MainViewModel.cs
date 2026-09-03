@@ -1,49 +1,139 @@
+using System.ComponentModel;
 using ClawHUD.Settings.Protocol;
+using ClawHUD.Settings.Services;
 
 namespace ClawHUD.Settings.ViewModels;
 
 /// <summary>
-/// One-way projection of the runtime's authoritative settings snapshot onto the
-/// existing read-only page. Not a source of truth and has no setter commands —
-/// PR2 keeps every control non-interactive.
+/// Projection of the latest authoritative runtime <see cref="SettingsSnapshot"/>.
+/// It never owns persisted settings and never writes files. A user action sends
+/// one mutation through <see cref="IRuntimeControlClient"/>; only the snapshot
+/// the runtime returns replaces local state. At most one mutation runs at a time.
 /// </summary>
-internal sealed class MainViewModel
+public sealed class MainViewModel : INotifyPropertyChanged
 {
-    private MainViewModel(SettingsSnapshot s)
+    private readonly IRuntimeControlClient _client;
+    private SettingsSnapshot? _snapshot;
+    private bool _mutationInFlight;
+
+    internal MainViewModel(IRuntimeControlClient client) => _client = client;
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    internal void ApplySnapshot(SettingsSnapshot snapshot)
     {
-        HudEnabled = s.HudEnabled;
-        IsVisibilityAlways = s.VisibilityMode == WireVisibilityMode.Always;
-        IsVisibilityInGameOnly = s.VisibilityMode == WireVisibilityMode.InGameOnly;
-        HudSizeLabel = FormatSizeOffset(s.HudSizeOffset);
-        IsFontUnispace = s.HudFont == WireFont.Unispace;
-        IsFontSegoeUiVariable = s.HudFont == WireFont.SegoeUiVariable;
-        IsAlignmentLeft = s.Alignment == WireAlignment.Left;
-        IsAlignmentCenter = s.Alignment == WireAlignment.Center;
-        IsAlignmentRight = s.Alignment == WireAlignment.Right;
-        IsBackgroundFullWidth = s.BackgroundMode == WireBackgroundMode.FullWidth;
-        IsBackgroundContentWidth = s.BackgroundMode == WireBackgroundMode.ContentWidth;
-        BackgroundOpacityPercent = s.BackgroundOpacityPercent;
-        IntelVrrRangeFixEnabled = s.IntelVrrRangeFixEnabled;
-        StartWithWindows = s.StartWithWindows;
+        _snapshot = snapshot;
+        RaiseAllChanged();
     }
 
-    internal static MainViewModel FromSnapshot(SettingsSnapshot snapshot) => new(snapshot);
+    public bool IsMutationInFlight
+    {
+        get => _mutationInFlight;
+        private set
+        {
+            _mutationInFlight = value;
+            RaiseAllChanged();
+        }
+    }
 
-    public bool HudEnabled { get; }
-    public bool IsVisibilityAlways { get; }
-    public bool IsVisibilityInGameOnly { get; }
-    public string HudSizeLabel { get; }
-    public bool IsFontUnispace { get; }
-    public bool IsFontSegoeUiVariable { get; }
-    public bool IsAlignmentLeft { get; }
-    public bool IsAlignmentCenter { get; }
-    public bool IsAlignmentRight { get; }
-    public bool IsBackgroundFullWidth { get; }
-    public bool IsBackgroundContentWidth { get; }
-    public ushort BackgroundOpacityPercent { get; }
-    public string BackgroundOpacityText => $"{BackgroundOpacityPercent}%";
-    public bool IntelVrrRangeFixEnabled { get; }
-    public bool StartWithWindows { get; }
+    // Cards 1-3 are interactive only once an authoritative snapshot exists and no
+    // mutation is in flight; before then commands must not run against defaults.
+    public bool AreHudControlsEnabled => _snapshot is not null && !_mutationInFlight;
+
+    public bool HudEnabled => _snapshot?.HudEnabled ?? false;
+
+    public bool IsVisibilityAlways => _snapshot?.VisibilityMode == WireVisibilityMode.Always;
+    public bool IsVisibilityInGameOnly => _snapshot?.VisibilityMode == WireVisibilityMode.InGameOnly;
+
+    public int HudSizeOffset => _snapshot?.HudSizeOffset ?? 0;
+    public string HudSizeLabel => FormatSizeOffset(HudSizeOffset);
+    public bool CanDecreaseHudSize => AreHudControlsEnabled && HudSizeOffset > ControlProtocol.MinHudSizeOffset;
+    public bool CanIncreaseHudSize => AreHudControlsEnabled && HudSizeOffset < ControlProtocol.MaxHudSizeOffset;
+
+    public bool IsFontUnispace => _snapshot?.HudFont == WireFont.Unispace;
+    public bool IsFontSegoeUiVariable => _snapshot?.HudFont == WireFont.SegoeUiVariable;
+
+    public bool IsAlignmentLeft => _snapshot?.Alignment == WireAlignment.Left;
+    public bool IsAlignmentCenter => _snapshot?.Alignment == WireAlignment.Center;
+    public bool IsAlignmentRight => _snapshot?.Alignment == WireAlignment.Right;
+
+    public bool IsBackgroundFullWidth => _snapshot?.BackgroundMode == WireBackgroundMode.FullWidth;
+    public bool IsBackgroundContentWidth => _snapshot?.BackgroundMode == WireBackgroundMode.ContentWidth;
+
+    public ushort BackgroundOpacityPercent => _snapshot?.BackgroundOpacityPercent ?? 0;
+    public string BackgroundOpacityText => _snapshot is null ? string.Empty : $"{BackgroundOpacityPercent}%";
+
+    public bool IntelVrrRangeFixEnabled => _snapshot?.IntelVrrRangeFixEnabled ?? false;
+    public bool StartWithWindows => _snapshot?.StartWithWindows ?? false;
+
+    // ---- Mutation intents (cards 1-3, opacity excluded) ------------------
+
+    internal Task ToggleHudEnabledAsync() =>
+        Mutate(c => c.SetHudEnabledAsync(!HudEnabled));
+
+    internal Task SelectVisibilityModeAsync(WireVisibilityMode mode) =>
+        _snapshot?.VisibilityMode == mode
+            ? ReassertProjection()
+            : Mutate(c => c.SetHudVisibilityModeAsync(mode));
+
+    internal Task SelectFontAsync(WireFont font) =>
+        _snapshot?.HudFont == font
+            ? ReassertProjection()
+            : Mutate(c => c.SetHudFontAsync(font));
+
+    internal Task SelectAlignmentAsync(WireAlignment alignment) =>
+        _snapshot?.Alignment == alignment
+            ? ReassertProjection()
+            : Mutate(c => c.SetHudAlignmentAsync(alignment));
+
+    internal Task SelectBackgroundModeAsync(WireBackgroundMode mode) =>
+        _snapshot?.BackgroundMode == mode
+            ? ReassertProjection()
+            : Mutate(c => c.SetHudBackgroundModeAsync(mode));
+
+    internal Task StepHudSizeAsync(int delta)
+    {
+        if (_snapshot is null)
+            return ReassertProjection();
+        int target = _snapshot.HudSizeOffset + delta;
+        return WireValue.IsHudSizeOffset(target)
+            ? Mutate(c => c.SetHudSizeOffsetAsync(target))
+            : ReassertProjection();
+    }
+
+    private async Task Mutate(Func<IRuntimeControlClient, Task<ControlClientResult<SettingsSnapshot>>> operation)
+    {
+        if (_snapshot is null || _mutationInFlight)
+        {
+            RaiseAllChanged();
+            return;
+        }
+
+        IsMutationInFlight = true;
+        try
+        {
+            ControlClientResult<SettingsSnapshot> result = await operation(_client);
+            if (result.IsSuccess)
+                _snapshot = result.Value;
+            // Any failure keeps the previous authoritative snapshot; the finally
+            // block re-projects it so a transiently toggled control snaps back.
+        }
+        finally
+        {
+            IsMutationInFlight = false;
+        }
+    }
+
+    // A no-op user action (redundant selection, size boundary, before load) must
+    // still push authoritative state back onto any control the click toggled.
+    private Task ReassertProjection()
+    {
+        RaiseAllChanged();
+        return Task.CompletedTask;
+    }
+
+    private void RaiseAllChanged() =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(string.Empty));
 
     private static string FormatSizeOffset(int offset) => offset switch
     {

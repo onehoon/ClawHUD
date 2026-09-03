@@ -3,7 +3,7 @@ using System.Text;
 
 namespace ClawHUD.Settings.Protocol;
 
-internal enum ResponseDecodeOutcome
+public enum ResponseDecodeOutcome
 {
     /// <summary>Frame is a valid, correlated <c>Ok</c> response with a decoded payload.</summary>
     Ok,
@@ -15,7 +15,7 @@ internal enum ResponseDecodeOutcome
     Malformed,
 }
 
-internal sealed record ResponseDecodeResult(
+public sealed record ResponseDecodeResult(
     ResponseDecodeOutcome Outcome,
     ControlStatus Status,
     RuntimeInfo? RuntimeInfo = null,
@@ -28,34 +28,79 @@ internal sealed record ResponseDecodeResult(
         new(ResponseDecodeOutcome.ProtocolError, status);
 }
 
-internal static class ControlCodec
+public static class ControlCodec
 {
     private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false,
         throwOnInvalidBytes: true);
 
     /// <summary>
-    /// Encodes one of the two empty-payload read requests as an exact 24-byte
-    /// little-endian v1 frame. Throws for a zero request id or any operation
-    /// other than the two reads (mutation encoders are deferred to a later PR).
+    /// Encodes a protocol-v1 request as an exact little-endian frame. Covers the
+    /// two empty-payload reads and the six PR3 HUD mutations; every client-side
+    /// value is validated here before it can reach the wire. Throws for a zero
+    /// request id, a missing/invalid field, or an operation PR3 does not send.
     /// </summary>
-    internal static byte[] EncodeReadRequest(ControlOperation operation, uint requestId)
+    internal static byte[] EncodeRequest(ControlRequest request)
     {
-        if (requestId == 0)
-            throw new ArgumentOutOfRangeException(nameof(requestId), "Request id must be non-zero.");
-        if (operation is not (ControlOperation.GetRuntimeInfo or ControlOperation.GetSettingsSnapshot))
-            throw new ArgumentOutOfRangeException(nameof(operation),
-                "PR2 only encodes GetRuntimeInfo / GetSettingsSnapshot requests.");
+        if (request.RequestId == 0)
+            throw new ArgumentOutOfRangeException(nameof(request), "Request id must be non-zero.");
 
-        var frame = new byte[ControlProtocol.HeaderSize];
+        ReadOnlySpan<byte> payload = request.Operation switch
+        {
+            ControlOperation.GetRuntimeInfo or ControlOperation.GetSettingsSnapshot =>
+                ReadOnlySpan<byte>.Empty,
+            ControlOperation.SetHudEnabled =>
+                new[] { (byte)(RequireFlag(request) ? 1 : 0) },
+            ControlOperation.SetHudVisibilityMode =>
+                new[] { RequireEnum(request, WireValue.IsVisibilityMode) },
+            ControlOperation.SetHudFont =>
+                new[] { RequireEnum(request, WireValue.IsFont) },
+            ControlOperation.SetHudAlignment =>
+                new[] { RequireEnum(request, WireValue.IsAlignment) },
+            ControlOperation.SetHudBackgroundMode =>
+                new[] { RequireEnum(request, WireValue.IsBackgroundMode) },
+            ControlOperation.SetHudSizeOffset =>
+                EncodeSizeOffset(request),
+            _ => throw new ArgumentOutOfRangeException(nameof(request),
+                $"PR3 does not encode a {request.Operation} request."),
+        };
+
+        var frame = new byte[ControlProtocol.HeaderSize + payload.Length];
         ControlProtocol.Magic.CopyTo(frame.AsSpan(0, 4));
         BinaryPrimitives.WriteUInt16LittleEndian(frame.AsSpan(4), ControlProtocol.ProtocolVersion);
         BinaryPrimitives.WriteUInt16LittleEndian(frame.AsSpan(6), ControlProtocol.HeaderSize);
         BinaryPrimitives.WriteUInt16LittleEndian(frame.AsSpan(8), (ushort)ControlMessageKind.Request);
-        BinaryPrimitives.WriteUInt16LittleEndian(frame.AsSpan(10), (ushort)operation);
-        BinaryPrimitives.WriteUInt32LittleEndian(frame.AsSpan(12), requestId);
+        BinaryPrimitives.WriteUInt16LittleEndian(frame.AsSpan(10), (ushort)request.Operation);
+        BinaryPrimitives.WriteUInt32LittleEndian(frame.AsSpan(12), request.RequestId);
         BinaryPrimitives.WriteUInt32LittleEndian(frame.AsSpan(16), 0); // status
-        BinaryPrimitives.WriteUInt32LittleEndian(frame.AsSpan(20), 0); // payloadSize
+        BinaryPrimitives.WriteUInt32LittleEndian(frame.AsSpan(20), (uint)payload.Length);
+        payload.CopyTo(frame.AsSpan(ControlProtocol.HeaderSize));
         return frame;
+    }
+
+    private static bool RequireFlag(ControlRequest request) =>
+        request.Flag ?? throw new ArgumentException(
+            $"{request.Operation} requires a boolean flag.", nameof(request));
+
+    private static byte RequireEnum(ControlRequest request, Func<byte, bool> isValid)
+    {
+        byte value = request.WireEnum ?? throw new ArgumentException(
+            $"{request.Operation} requires a wire enum value.", nameof(request));
+        if (!isValid(value))
+            throw new ArgumentOutOfRangeException(nameof(request),
+                $"{value} is not a valid {request.Operation} wire enum value.");
+        return value;
+    }
+
+    private static byte[] EncodeSizeOffset(ControlRequest request)
+    {
+        int offset = request.SizeOffset ?? throw new ArgumentException(
+            "SetHudSizeOffset requires a size offset.", nameof(request));
+        if (!WireValue.IsHudSizeOffset(offset))
+            throw new ArgumentOutOfRangeException(nameof(request),
+                $"HUD size offset {offset} is outside {ControlProtocol.MinHudSizeOffset}..{ControlProtocol.MaxHudSizeOffset}.");
+        var bytes = new byte[4];
+        BinaryPrimitives.WriteInt32LittleEndian(bytes, offset);
+        return bytes;
     }
 
     /// <summary>
@@ -101,13 +146,23 @@ internal static class ControlCodec
         }
 
         var reader = new ByteReader(payload);
-        return expectedOperation switch
-        {
-            ControlOperation.GetRuntimeInfo => DecodeRuntimeInfo(ref reader),
-            ControlOperation.GetSettingsSnapshot => DecodeSnapshot(ref reader),
-            _ => ResponseDecodeResult.Malformed,
-        };
+        if (expectedOperation == ControlOperation.GetRuntimeInfo)
+            return DecodeRuntimeInfo(ref reader);
+        if (CarriesSnapshot(expectedOperation))
+            return DecodeSnapshot(ref reader);
+        return ResponseDecodeResult.Malformed;
     }
+
+    // Ok responses that echo the authoritative post-mutation snapshot — mirrors
+    // the native ResponseCarriesSnapshot for the operations this frontend sends.
+    private static bool CarriesSnapshot(ControlOperation operation) => operation is
+        ControlOperation.GetSettingsSnapshot or
+        ControlOperation.SetHudEnabled or
+        ControlOperation.SetHudVisibilityMode or
+        ControlOperation.SetHudSizeOffset or
+        ControlOperation.SetHudFont or
+        ControlOperation.SetHudAlignment or
+        ControlOperation.SetHudBackgroundMode;
 
     private static ResponseDecodeResult DecodeRuntimeInfo(ref ByteReader r)
     {

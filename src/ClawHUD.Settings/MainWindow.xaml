@@ -8,27 +8,30 @@
         ResizeMode="NoResize"
         WindowStartupLocation="CenterScreen">
 
-    <!-- PR2: the page projects the live runtime snapshot via one-way bindings to
-         a read-only MainViewModel (DataContext is set after the IPC load). Hit
-         testing stays disabled per card — no mutation is sent in this PR. When
-         the runtime is unavailable the DataContext stays null and controls read
-         empty rather than showing a fake state. -->
+    <!-- PR3: cards 1-3 (opacity excluded) are interactive. IsChecked stays a
+         one-way projection of the authoritative snapshot; Click handlers send one
+         mutation and the returned snapshot re-projects. The content of cards 1-3
+         is disabled while a mutation is in flight or before the first snapshot.
+         Card 3 opacity slider and cards 4-5 remain non-interactive. Geometry
+         unchanged from PR1/PR2. -->
     <Grid Margin="12">
         <StackPanel>
 
             <!-- Card 1: HUD enable + display mode -->
             <Border Style="{StaticResource SettingsCard}">
-                <StackPanel IsHitTestVisible="False">
+                <StackPanel IsEnabled="{Binding AreHudControlsEnabled}">
                     <DockPanel>
                         <ToggleButton DockPanel.Dock="Right" Style="{StaticResource SettingToggleSwitch}"
-                                      IsChecked="{Binding HudEnabled, Mode=OneWay}" />
+                                      IsChecked="{Binding HudEnabled, Mode=OneWay}" Click="OnEnableHudClick" />
                         <TextBlock Style="{StaticResource SettingLabel}" Margin="0" Text="Enable HUD" />
                     </DockPanel>
                     <TextBlock Style="{StaticResource SettingLabel}" Margin="0,8,0,3" Text="Display mode" />
                     <UniformGrid Rows="1" Columns="2">
                         <ToggleButton Style="{StaticResource SegmentToggle}" Margin="0,0,3,0" Content="In-game only"
+                                      Tag="InGameOnly" Click="OnVisibilityModeClick"
                                       IsChecked="{Binding IsVisibilityInGameOnly, Mode=OneWay}" />
                         <ToggleButton Style="{StaticResource SegmentToggle}" Margin="3,0,0,0" Content="Always"
+                                      Tag="Always" Click="OnVisibilityModeClick"
                                       IsChecked="{Binding IsVisibilityAlways, Mode=OneWay}" />
                     </UniformGrid>
                 </StackPanel>
@@ -36,56 +39,69 @@
 
             <!-- Card 2: HUD size + font + alignment -->
             <Border Style="{StaticResource SettingsCard}">
-                <StackPanel IsHitTestVisible="False">
+                <StackPanel IsEnabled="{Binding AreHudControlsEnabled}">
                     <DockPanel>
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                            <Button Style="{StaticResource StepperButton}" Content="&#x2212;" />
+                            <Button Style="{StaticResource StepperButton}" Content="&#x2212;"
+                                    Click="OnHudSizeDecreaseClick" IsEnabled="{Binding CanDecreaseHudSize}" />
                             <TextBlock Text="{Binding HudSizeLabel}" VerticalAlignment="Center" Margin="12,0"
                                        Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
-                            <Button Style="{StaticResource StepperButton}" Content="+" />
+                            <Button Style="{StaticResource StepperButton}" Content="+"
+                                    Click="OnHudSizeIncreaseClick" IsEnabled="{Binding CanIncreaseHudSize}" />
                         </StackPanel>
                         <TextBlock Style="{StaticResource SettingLabel}" Margin="0" Text="HUD size" />
                     </DockPanel>
                     <TextBlock Style="{StaticResource SettingLabel}" Margin="0,8,0,3" Text="Font" />
                     <UniformGrid Rows="1" Columns="2">
                         <ToggleButton Style="{StaticResource SegmentToggle}" Margin="0,0,3,0" Content="Unispace"
+                                      Tag="Unispace" Click="OnFontClick"
                                       IsChecked="{Binding IsFontUnispace, Mode=OneWay}" />
                         <ToggleButton Style="{StaticResource SegmentToggle}" Margin="3,0,0,0" Content="Segoe UI Variable"
+                                      Tag="SegoeUiVariable" Click="OnFontClick"
                                       IsChecked="{Binding IsFontSegoeUiVariable, Mode=OneWay}" />
                     </UniformGrid>
                     <TextBlock Style="{StaticResource SettingLabel}" Margin="0,8,0,3" Text="Alignment" />
                     <UniformGrid Rows="1" Columns="3">
                         <ToggleButton Style="{StaticResource SegmentToggle}" Margin="0,0,3,0" Content="Left"
+                                      Tag="Left" Click="OnAlignmentClick"
                                       IsChecked="{Binding IsAlignmentLeft, Mode=OneWay}" />
                         <ToggleButton Style="{StaticResource SegmentToggle}" Margin="3,0" Content="Center"
+                                      Tag="Center" Click="OnAlignmentClick"
                                       IsChecked="{Binding IsAlignmentCenter, Mode=OneWay}" />
                         <ToggleButton Style="{StaticResource SegmentToggle}" Margin="3,0,0,0" Content="Right"
+                                      Tag="Right" Click="OnAlignmentClick"
                                       IsChecked="{Binding IsAlignmentRight, Mode=OneWay}" />
                     </UniformGrid>
                 </StackPanel>
             </Border>
 
-            <!-- Card 3: background width + background opacity -->
+            <!-- Card 3: background width (interactive) + background opacity (read-only) -->
             <Border Style="{StaticResource SettingsCard}">
-                <StackPanel IsHitTestVisible="False">
-                    <TextBlock Style="{StaticResource SettingLabel}" Margin="0,0,0,3" Text="Background width" />
-                    <UniformGrid Rows="1" Columns="2">
-                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="0,0,3,0" Content="Full width"
-                                      IsChecked="{Binding IsBackgroundFullWidth, Mode=OneWay}" />
-                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="3,0,0,0" Content="Content width"
-                                      IsChecked="{Binding IsBackgroundContentWidth, Mode=OneWay}" />
-                    </UniformGrid>
-                    <TextBlock Style="{StaticResource SettingLabel}" Margin="0,8,0,3" Text="Background opacity" />
-                    <DockPanel>
-                        <TextBlock DockPanel.Dock="Right" Text="{Binding BackgroundOpacityText}" VerticalAlignment="Center"
-                                   Margin="12,0,0,0" Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
-                        <Slider Minimum="50" Maximum="100" Value="{Binding BackgroundOpacityPercent, Mode=OneWay}"
-                                TickFrequency="5" IsSnapToTickEnabled="True" VerticalAlignment="Center" MinHeight="28" />
-                    </DockPanel>
+                <StackPanel>
+                    <StackPanel IsEnabled="{Binding AreHudControlsEnabled}">
+                        <TextBlock Style="{StaticResource SettingLabel}" Margin="0,0,0,3" Text="Background width" />
+                        <UniformGrid Rows="1" Columns="2">
+                            <ToggleButton Style="{StaticResource SegmentToggle}" Margin="0,0,3,0" Content="Full width"
+                                          Tag="FullWidth" Click="OnBackgroundModeClick"
+                                          IsChecked="{Binding IsBackgroundFullWidth, Mode=OneWay}" />
+                            <ToggleButton Style="{StaticResource SegmentToggle}" Margin="3,0,0,0" Content="Content width"
+                                          Tag="ContentWidth" Click="OnBackgroundModeClick"
+                                          IsChecked="{Binding IsBackgroundContentWidth, Mode=OneWay}" />
+                        </UniformGrid>
+                    </StackPanel>
+                    <StackPanel IsHitTestVisible="False">
+                        <TextBlock Style="{StaticResource SettingLabel}" Margin="0,8,0,3" Text="Background opacity" />
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Right" Text="{Binding BackgroundOpacityText}" VerticalAlignment="Center"
+                                       Margin="12,0,0,0" Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                            <Slider Minimum="50" Maximum="100" Value="{Binding BackgroundOpacityPercent, Mode=OneWay}"
+                                    TickFrequency="5" IsSnapToTickEnabled="True" VerticalAlignment="Center" MinHeight="28" />
+                        </DockPanel>
+                    </StackPanel>
                 </StackPanel>
             </Border>
 
-            <!-- Card 4: Intel VRR Range Fix -->
+            <!-- Card 4: Intel VRR Range Fix (read-only in PR3) -->
             <Border Style="{StaticResource SettingsCard}">
                 <DockPanel IsHitTestVisible="False">
                     <ToggleButton DockPanel.Dock="Right" Style="{StaticResource SettingToggleSwitch}"
@@ -94,7 +110,7 @@
                 </DockPanel>
             </Border>
 
-            <!-- Card 5: Start with Windows -->
+            <!-- Card 5: Start with Windows (read-only in PR3) -->
             <Border Style="{StaticResource SettingsCard}">
                 <DockPanel IsHitTestVisible="False">
                     <ToggleButton DockPanel.Dock="Right" Style="{StaticResource SettingToggleSwitch}"

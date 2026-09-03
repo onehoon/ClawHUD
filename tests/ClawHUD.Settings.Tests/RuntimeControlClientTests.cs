@@ -107,6 +107,50 @@ public class RuntimeControlClientTests
     }
 
     [Fact]
+    public async Task SetHudAlignmentAsync_SendsMutationAndSurfacesAuthoritativeSnapshot()
+    {
+        string pipeName = $"ClawHUD.Control.Test.{Guid.NewGuid():N}";
+
+        await using var server = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 1,
+            PipeTransmissionMode.Message, PipeOptions.Asynchronous);
+
+        Task serverTask = Task.Run(async () =>
+        {
+            await server.WaitForConnectionAsync();
+            var buffer = new byte[ControlProtocol.MaxFrameBytes];
+            int total = 0;
+            do
+            {
+                int read = await server.ReadAsync(buffer.AsMemory(total));
+                if (read == 0) break;
+                total += read;
+            }
+            while (!server.IsMessageComplete);
+
+            ushort operation = BinaryPrimitives.ReadUInt16LittleEndian(buffer.AsSpan(10));
+            uint payloadSize = BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(20));
+            uint requestId = BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(12));
+            Assert.Equal((ushort)ControlOperation.SetHudAlignment, operation);
+            Assert.Equal(1u, payloadSize);
+            Assert.Equal((byte)WireAlignment.Right, buffer[24]);
+
+            // Runtime rolls the change back to Left in the authoritative snapshot.
+            byte[] response = WireFixtures.ResponseFrame(ControlOperation.SetHudAlignment, requestId,
+                ControlStatus.Ok, WireFixtures.SnapshotPayload(alignment: (byte)WireAlignment.Left));
+            await server.WriteAsync(response);
+            await server.FlushAsync();
+            server.WaitForPipeDrain();
+        });
+
+        var client = new RuntimeControlClient(pipeName, TimeSpan.FromSeconds(5));
+        ControlClientResult<SettingsSnapshot> result = await client.SetHudAlignmentAsync(WireAlignment.Right);
+        await serverTask;
+
+        Assert.Equal(ControlClientOutcome.Success, result.Outcome);
+        Assert.Equal(WireAlignment.Left, result.Value!.Alignment);
+    }
+
+    [Fact]
     public async Task GetRuntimeInfoAsync_HonoursCallerCancellation()
     {
         using var cts = new CancellationTokenSource();

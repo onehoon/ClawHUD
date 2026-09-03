@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using ClawHUD.Settings.Protocol;
 using Xunit;
 
@@ -5,12 +6,13 @@ namespace ClawHUD.Settings.Tests;
 
 public class ControlCodecTests
 {
-    // ---- Golden request frames (§18.1) ----------------------------------
+    // ---- Golden request frames (§16.1, §18.1) --------------------------
 
     [Fact]
-    public void EncodeReadRequest_GetSettingsSnapshot_IsExactGoldenFrame()
+    public void EncodeRequest_GetSettingsSnapshot_IsExactGoldenFrame()
     {
-        byte[] frame = ControlCodec.EncodeReadRequest(ControlOperation.GetSettingsSnapshot, 0x11223344);
+        byte[] frame = ControlCodec.EncodeRequest(
+            new ControlRequest(ControlOperation.GetSettingsSnapshot, 0x11223344));
 
         Assert.Equal(new byte[]
         {
@@ -26,39 +28,125 @@ public class ControlCodecTests
     }
 
     [Fact]
-    public void EncodeReadRequest_GetRuntimeInfo_IsExactGoldenFrame()
+    public void EncodeRequest_SetHudSizeOffset_IsExactGoldenFrameWithLittleEndianI32()
     {
-        byte[] frame = ControlCodec.EncodeReadRequest(ControlOperation.GetRuntimeInfo, 1);
+        byte[] frame = ControlCodec.EncodeRequest(
+            new ControlRequest(ControlOperation.SetHudSizeOffset, 0x00000003, SizeOffset: -2));
 
         Assert.Equal(new byte[]
         {
             0x43, 0x48, 0x55, 0x44,
             0x01, 0x00, 0x18, 0x00,
             0x01, 0x00,             // Request
-            0x01, 0x00,             // GetRuntimeInfo
-            0x01, 0x00, 0x00, 0x00, // requestId 1
-            0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00,
+            0x0D, 0x00,             // SetHudSizeOffset (13)
+            0x03, 0x00, 0x00, 0x00, // requestId 3
+            0x00, 0x00, 0x00, 0x00, // status 0
+            0x04, 0x00, 0x00, 0x00, // payload size 4
+            0xFE, 0xFF, 0xFF, 0xFF, // i32 LE -2
         }, frame);
     }
 
-    [Fact]
-    public void EncodeReadRequest_RejectsZeroRequestId() =>
-        Assert.Throws<ArgumentOutOfRangeException>(
-            () => ControlCodec.EncodeReadRequest(ControlOperation.GetRuntimeInfo, 0));
+    public static TheoryData<string, ControlRequest, ushort, int, byte[]> MutationRequests() => new()
+    {
+        { "SetHudEnabled(true)", new ControlRequest(ControlOperation.SetHudEnabled, 1, Flag: true), 11, 1, new byte[] { 0x01 } },
+        { "SetHudVisibilityMode(InGameOnly)", new ControlRequest(ControlOperation.SetHudVisibilityMode, 2, WireEnum: (byte)WireVisibilityMode.InGameOnly), 12, 1, new byte[] { 0x02 } },
+        { "SetHudSizeOffset(+2)", new ControlRequest(ControlOperation.SetHudSizeOffset, 3, SizeOffset: 2), 13, 4, new byte[] { 0x02, 0x00, 0x00, 0x00 } },
+        { "SetHudFont(SegoeUiVariable)", new ControlRequest(ControlOperation.SetHudFont, 4, WireEnum: (byte)WireFont.SegoeUiVariable), 14, 1, new byte[] { 0x02 } },
+        { "SetHudAlignment(Right)", new ControlRequest(ControlOperation.SetHudAlignment, 5, WireEnum: (byte)WireAlignment.Right), 15, 1, new byte[] { 0x03 } },
+        { "SetHudBackgroundMode(ContentWidth)", new ControlRequest(ControlOperation.SetHudBackgroundMode, 6, WireEnum: (byte)WireBackgroundMode.ContentWidth), 16, 1, new byte[] { 0x02 } },
+    };
+
+    [Theory]
+    [MemberData(nameof(MutationRequests))]
+    public void EncodeRequest_MutationFrameFields(string _, ControlRequest request,
+        ushort expectedOperation, int expectedPayloadLength, byte[] expectedPayload)
+    {
+        byte[] frame = ControlCodec.EncodeRequest(request);
+
+        Assert.Equal("CHUD"u8.ToArray(), frame[..4]);
+        Assert.Equal(1, BinaryPrimitives.ReadUInt16LittleEndian(frame.AsSpan(4)));  // protocol v1
+        Assert.Equal(24, BinaryPrimitives.ReadUInt16LittleEndian(frame.AsSpan(6))); // header size
+        Assert.Equal(1, BinaryPrimitives.ReadUInt16LittleEndian(frame.AsSpan(8)));  // Request
+        Assert.Equal(expectedOperation, BinaryPrimitives.ReadUInt16LittleEndian(frame.AsSpan(10)));
+        Assert.Equal(request.RequestId, BinaryPrimitives.ReadUInt32LittleEndian(frame.AsSpan(12)));
+        Assert.Equal(0u, BinaryPrimitives.ReadUInt32LittleEndian(frame.AsSpan(16))); // status
+        Assert.Equal((uint)expectedPayloadLength, BinaryPrimitives.ReadUInt32LittleEndian(frame.AsSpan(20)));
+        Assert.Equal(24 + expectedPayloadLength, frame.Length);
+        Assert.Equal(expectedPayload, frame[24..]);
+    }
 
     [Fact]
-    public void EncodeReadRequest_RejectsNonReadOperations()
+    public void EncodeRequest_RejectsZeroRequestId() =>
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            ControlCodec.EncodeRequest(new ControlRequest(ControlOperation.GetRuntimeInfo, 0)));
+
+    [Theory]
+    [InlineData(-3)]
+    [InlineData(3)]
+    [InlineData(int.MinValue)]
+    public void EncodeRequest_RejectsHudSizeOffsetOutOfRange(int offset) =>
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            ControlCodec.EncodeRequest(new ControlRequest(ControlOperation.SetHudSizeOffset, 1, SizeOffset: offset)));
+
+    [Fact]
+    public void EncodeRequest_RejectsInvalidWireEnum() =>
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            ControlCodec.EncodeRequest(new ControlRequest(ControlOperation.SetHudAlignment, 1, WireEnum: 9)));
+
+    [Fact]
+    public void EncodeRequest_RejectsMissingPayloadField()
     {
-        foreach (var operation in new[]
-        {
-            ControlOperation.SetHudEnabled, ControlOperation.CommitHudOpacity,
-            ControlOperation.SetIntelVrrRangeFixEnabled, ControlOperation.RequestShutdown,
-        })
-        {
-            Assert.Throws<ArgumentOutOfRangeException>(
-                () => ControlCodec.EncodeReadRequest(operation, 1));
-        }
+        Assert.Throws<ArgumentException>(() =>
+            ControlCodec.EncodeRequest(new ControlRequest(ControlOperation.SetHudEnabled, 1)));
+        Assert.Throws<ArgumentException>(() =>
+            ControlCodec.EncodeRequest(new ControlRequest(ControlOperation.SetHudFont, 1)));
+        Assert.Throws<ArgumentException>(() =>
+            ControlCodec.EncodeRequest(new ControlRequest(ControlOperation.SetHudSizeOffset, 1)));
+    }
+
+    [Theory]
+    [InlineData(ControlOperation.PreviewHudOpacity)]
+    [InlineData(ControlOperation.CommitHudOpacity)]
+    [InlineData(ControlOperation.SetIntelVrrRangeFixEnabled)]
+    [InlineData(ControlOperation.SetStartWithWindows)]
+    [InlineData(ControlOperation.RequestShutdown)]
+    public void EncodeRequest_RejectsDeferredOperations(ControlOperation operation) =>
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            ControlCodec.EncodeRequest(new ControlRequest(operation, 1)));
+
+    // ---- Mutation response snapshot decoding (§16.3) -------------------
+
+    [Theory]
+    [InlineData(ControlOperation.SetHudEnabled)]
+    [InlineData(ControlOperation.SetHudVisibilityMode)]
+    [InlineData(ControlOperation.SetHudSizeOffset)]
+    [InlineData(ControlOperation.SetHudFont)]
+    [InlineData(ControlOperation.SetHudAlignment)]
+    [InlineData(ControlOperation.SetHudBackgroundMode)]
+    public void DecodeResponse_MutationOk_DecodesAuthoritativeSnapshot(ControlOperation operation)
+    {
+        byte[] frame = WireFixtures.ResponseFrame(operation, 42, ControlStatus.Ok,
+            WireFixtures.SnapshotPayload(hudSizeOffset: 1, alignment: (byte)WireAlignment.Right));
+
+        ResponseDecodeResult result = ControlCodec.DecodeResponse(frame, 42, operation);
+
+        Assert.Equal(ResponseDecodeOutcome.Ok, result.Outcome);
+        SettingsSnapshot snapshot = Assert.IsType<SettingsSnapshot>(result.Snapshot);
+        Assert.Equal(1, snapshot.HudSizeOffset);
+        Assert.Equal(WireAlignment.Right, snapshot.Alignment);
+    }
+
+    [Fact]
+    public void DecodeResponse_MutationOperationFailed_SurfacesTypedErrorWithNoSnapshot()
+    {
+        byte[] frame = WireFixtures.ResponseFrame(ControlOperation.SetHudEnabled, 7,
+            ControlStatus.OperationFailed, ReadOnlySpan<byte>.Empty);
+
+        ResponseDecodeResult result = ControlCodec.DecodeResponse(frame, 7, ControlOperation.SetHudEnabled);
+
+        Assert.Equal(ResponseDecodeOutcome.ProtocolError, result.Outcome);
+        Assert.Equal(ControlStatus.OperationFailed, result.Status);
+        Assert.Null(result.Snapshot);
     }
 
     // ---- Golden runtime-info response decode (§18.2) --------------------
