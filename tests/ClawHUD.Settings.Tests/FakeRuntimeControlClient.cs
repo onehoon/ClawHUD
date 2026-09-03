@@ -4,32 +4,54 @@ using ClawHUD.Settings.Services;
 namespace ClawHUD.Settings.Tests;
 
 /// <summary>
-/// In-memory <see cref="IRuntimeControlClient"/> for ViewModel tests. Records the
-/// operations it was asked to perform and returns a configurable result; an
-/// optional gate holds a mutation "in flight" until the test releases it.
+/// In-memory <see cref="IRuntimeControlClient"/> for ViewModel / coordinator
+/// tests. Records the operations (and opacity values) it was asked to perform and
+/// returns a configurable result. An optional gate holds every call "in flight"
+/// until the test releases it; <see cref="MaxConcurrentCalls"/> proves the
+/// coordinator never runs two IPC calls at once.
 /// </summary>
 internal sealed class FakeRuntimeControlClient : IRuntimeControlClient
 {
+    private readonly Lock _sync = new();
+    private int _inFlight;
+
     internal List<ControlOperation> Calls { get; } = [];
+    internal List<ushort> PreviewValues { get; } = [];
+    internal List<ushort> CommitValues { get; } = [];
+    internal int MaxConcurrentCalls { get; private set; }
     internal SettingsSnapshot? NextSnapshot { get; set; }
     internal ControlClientOutcome NextOutcome { get; set; } = ControlClientOutcome.Success;
     internal ControlStatus NextStatus { get; set; } = ControlStatus.OperationFailed;
     internal TaskCompletionSource? Gate { get; set; }
 
-    private async Task<ControlClientResult<SettingsSnapshot>> Mutate(ControlOperation operation)
+    private async Task<ControlClientResult<SettingsSnapshot>> Respond(ControlOperation operation)
     {
-        Calls.Add(operation);
-        if (Gate is not null)
-            await Gate.Task;
-
-        return NextOutcome switch
+        lock (_sync)
         {
-            ControlClientOutcome.Success => ControlClientResult<SettingsSnapshot>.Success(NextSnapshot!),
-            ControlClientOutcome.ProtocolError => ControlClientResult<SettingsSnapshot>.Protocol(NextStatus),
-            ControlClientOutcome.MalformedResponse => ControlClientResult<SettingsSnapshot>.Malformed,
-            ControlClientOutcome.TimedOut => ControlClientResult<SettingsSnapshot>.Timeout,
-            _ => ControlClientResult<SettingsSnapshot>.Transport,
-        };
+            Calls.Add(operation);
+            _inFlight++;
+            MaxConcurrentCalls = Math.Max(MaxConcurrentCalls, _inFlight);
+        }
+
+        try
+        {
+            if (Gate is not null)
+                await Gate.Task;
+
+            return NextOutcome switch
+            {
+                ControlClientOutcome.Success => ControlClientResult<SettingsSnapshot>.Success(NextSnapshot!),
+                ControlClientOutcome.ProtocolError => ControlClientResult<SettingsSnapshot>.Protocol(NextStatus),
+                ControlClientOutcome.MalformedResponse => ControlClientResult<SettingsSnapshot>.Malformed,
+                ControlClientOutcome.TimedOut => ControlClientResult<SettingsSnapshot>.Timeout,
+                _ => ControlClientResult<SettingsSnapshot>.Transport,
+            };
+        }
+        finally
+        {
+            lock (_sync)
+                _inFlight--;
+        }
     }
 
     public Task<ControlClientResult<RuntimeInfo>> GetRuntimeInfoAsync(CancellationToken cancellationToken = default) =>
@@ -40,20 +62,34 @@ internal sealed class FakeRuntimeControlClient : IRuntimeControlClient
         Task.FromResult(ControlClientResult<SettingsSnapshot>.Success(NextSnapshot!));
 
     public Task<ControlClientResult<SettingsSnapshot>> SetHudEnabledAsync(bool enabled, CancellationToken cancellationToken = default) =>
-        Mutate(ControlOperation.SetHudEnabled);
+        Respond(ControlOperation.SetHudEnabled);
 
     public Task<ControlClientResult<SettingsSnapshot>> SetHudVisibilityModeAsync(WireVisibilityMode mode, CancellationToken cancellationToken = default) =>
-        Mutate(ControlOperation.SetHudVisibilityMode);
+        Respond(ControlOperation.SetHudVisibilityMode);
 
     public Task<ControlClientResult<SettingsSnapshot>> SetHudSizeOffsetAsync(int offset, CancellationToken cancellationToken = default) =>
-        Mutate(ControlOperation.SetHudSizeOffset);
+        Respond(ControlOperation.SetHudSizeOffset);
 
     public Task<ControlClientResult<SettingsSnapshot>> SetHudFontAsync(WireFont font, CancellationToken cancellationToken = default) =>
-        Mutate(ControlOperation.SetHudFont);
+        Respond(ControlOperation.SetHudFont);
 
     public Task<ControlClientResult<SettingsSnapshot>> SetHudAlignmentAsync(WireAlignment alignment, CancellationToken cancellationToken = default) =>
-        Mutate(ControlOperation.SetHudAlignment);
+        Respond(ControlOperation.SetHudAlignment);
 
     public Task<ControlClientResult<SettingsSnapshot>> SetHudBackgroundModeAsync(WireBackgroundMode mode, CancellationToken cancellationToken = default) =>
-        Mutate(ControlOperation.SetHudBackgroundMode);
+        Respond(ControlOperation.SetHudBackgroundMode);
+
+    public Task<ControlClientResult<SettingsSnapshot>> PreviewHudOpacityAsync(ushort opacityPercent, CancellationToken cancellationToken = default)
+    {
+        lock (_sync)
+            PreviewValues.Add(opacityPercent);
+        return Respond(ControlOperation.PreviewHudOpacity);
+    }
+
+    public Task<ControlClientResult<SettingsSnapshot>> CommitHudOpacityAsync(ushort opacityPercent, CancellationToken cancellationToken = default)
+    {
+        lock (_sync)
+            CommitValues.Add(opacityPercent);
+        return Respond(ControlOperation.CommitHudOpacity);
+    }
 }

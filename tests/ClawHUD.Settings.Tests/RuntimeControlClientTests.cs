@@ -150,6 +150,51 @@ public class RuntimeControlClientTests
         Assert.Equal(WireAlignment.Left, result.Value!.Alignment);
     }
 
+    [Theory]
+    [InlineData(true, (ushort)17, (ushort)55)]
+    [InlineData(false, (ushort)18, (ushort)90)]
+    public async Task OpacityAsync_SendsCorrectOperationAndU16Payload(bool preview, ushort expectedOp, ushort percent)
+    {
+        string pipeName = $"ClawHUD.Control.Test.{Guid.NewGuid():N}";
+
+        await using var server = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 1,
+            PipeTransmissionMode.Message, PipeOptions.Asynchronous);
+
+        Task serverTask = Task.Run(async () =>
+        {
+            await server.WaitForConnectionAsync();
+            var buffer = new byte[ControlProtocol.MaxFrameBytes];
+            int total = 0;
+            do
+            {
+                int read = await server.ReadAsync(buffer.AsMemory(total));
+                if (read == 0) break;
+                total += read;
+            }
+            while (!server.IsMessageComplete);
+
+            Assert.Equal(expectedOp, BinaryPrimitives.ReadUInt16LittleEndian(buffer.AsSpan(10)));
+            Assert.Equal(2u, BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(20)));
+            Assert.Equal(percent, BinaryPrimitives.ReadUInt16LittleEndian(buffer.AsSpan(24)));
+            uint requestId = BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(12));
+
+            byte[] response = WireFixtures.ResponseFrame((ControlOperation)expectedOp, requestId,
+                ControlStatus.Ok, WireFixtures.SnapshotPayload(opacityPercent: percent));
+            await server.WriteAsync(response);
+            await server.FlushAsync();
+            server.WaitForPipeDrain();
+        });
+
+        var client = new RuntimeControlClient(pipeName, TimeSpan.FromSeconds(5));
+        ControlClientResult<SettingsSnapshot> result = preview
+            ? await client.PreviewHudOpacityAsync(percent)
+            : await client.CommitHudOpacityAsync(percent);
+        await serverTask;
+
+        Assert.Equal(ControlClientOutcome.Success, result.Outcome);
+        Assert.Equal(percent, result.Value!.BackgroundOpacityPercent);
+    }
+
     [Fact]
     public async Task GetRuntimeInfoAsync_HonoursCallerCancellation()
     {

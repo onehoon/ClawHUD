@@ -121,7 +121,8 @@ public sealed record ControlRequest(
     uint RequestId,
     bool? Flag = null,
     byte? WireEnum = null,
-    int? SizeOffset = null);
+    int? SizeOffset = null,
+    ushort? OpacityPercent = null);
 
 public sealed record RuntimeInfo(
     string ApplicationVersion,

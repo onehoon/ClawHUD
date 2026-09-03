@@ -13,10 +13,19 @@ namespace ClawHUD.Settings.ViewModels;
 public sealed class MainViewModel : INotifyPropertyChanged
 {
     private readonly IRuntimeControlClient _client;
+    private readonly OpacityInteractionCoordinator _opacity;
     private SettingsSnapshot? _snapshot;
     private bool _mutationInFlight;
 
-    internal MainViewModel(IRuntimeControlClient client) => _client = client;
+    internal MainViewModel(IRuntimeControlClient client)
+    {
+        _client = client;
+        _opacity = new OpacityInteractionCoordinator(
+            client,
+            () => _snapshot?.BackgroundOpacityPercent ?? (ushort)ControlProtocol.MinOpacityPercent,
+            ApplySnapshot,
+            RaiseAllChanged);
+    }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -36,9 +45,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    // Cards 1-3 are interactive only once an authoritative snapshot exists and no
-    // mutation is in flight; before then commands must not run against defaults.
-    public bool AreHudControlsEnabled => _snapshot is not null && !_mutationInFlight;
+    // Discrete card 1-3 controls (everything except the opacity slider) are
+    // interactive only with an authoritative snapshot, no discrete mutation in
+    // flight, and no opacity interaction active.
+    public bool AreDiscreteHudControlsEnabled =>
+        _snapshot is not null && !_mutationInFlight && !_opacity.IsBusy;
+
+    // The opacity slider stays enabled through its own preview IPC so a drag is
+    // never interrupted; it only yields to a discrete mutation.
+    public bool IsOpacitySliderEnabled => _snapshot is not null && !_mutationInFlight;
+
+    public bool IsOpacityInteractionActive => _opacity.IsActive;
 
     public bool HudEnabled => _snapshot?.HudEnabled ?? false;
 
@@ -47,8 +64,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public int HudSizeOffset => _snapshot?.HudSizeOffset ?? 0;
     public string HudSizeLabel => FormatSizeOffset(HudSizeOffset);
-    public bool CanDecreaseHudSize => AreHudControlsEnabled && HudSizeOffset > ControlProtocol.MinHudSizeOffset;
-    public bool CanIncreaseHudSize => AreHudControlsEnabled && HudSizeOffset < ControlProtocol.MaxHudSizeOffset;
+    public bool CanDecreaseHudSize => AreDiscreteHudControlsEnabled && HudSizeOffset > ControlProtocol.MinHudSizeOffset;
+    public bool CanIncreaseHudSize => AreDiscreteHudControlsEnabled && HudSizeOffset < ControlProtocol.MaxHudSizeOffset;
 
     public bool IsFontUnispace => _snapshot?.HudFont == WireFont.Unispace;
     public bool IsFontSegoeUiVariable => _snapshot?.HudFont == WireFont.SegoeUiVariable;
@@ -60,8 +77,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public bool IsBackgroundFullWidth => _snapshot?.BackgroundMode == WireBackgroundMode.FullWidth;
     public bool IsBackgroundContentWidth => _snapshot?.BackgroundMode == WireBackgroundMode.ContentWidth;
 
-    public ushort BackgroundOpacityPercent => _snapshot?.BackgroundOpacityPercent ?? 0;
-    public string BackgroundOpacityText => _snapshot is null ? string.Empty : $"{BackgroundOpacityPercent}%";
+    // While dragging, the slider thumb and % label follow the ephemeral gesture
+    // value; otherwise both come straight from the authoritative snapshot.
+    public double SliderOpacityValue => _opacity.IsActive
+        ? _opacity.GestureValue
+        : _snapshot?.BackgroundOpacityPercent ?? ControlProtocol.MinOpacityPercent;
+
+    public string BackgroundOpacityText => _opacity.IsActive
+        ? $"{_opacity.GestureValue}%"
+        : _snapshot is null ? string.Empty : $"{_snapshot.BackgroundOpacityPercent}%";
 
     public bool IntelVrrRangeFixEnabled => _snapshot?.IntelVrrRangeFixEnabled ?? false;
     public bool StartWithWindows => _snapshot?.StartWithWindows ?? false;
@@ -101,9 +125,29 @@ public sealed class MainViewModel : INotifyPropertyChanged
             : ReassertProjection();
     }
 
+    // ---- Background opacity interaction (card 3) ------------------------
+
+    internal void BeginOpacityInteraction()
+    {
+        if (_snapshot is null || _mutationInFlight || _opacity.IsBusy)
+            return;
+        _opacity.Begin();
+    }
+
+    internal void UpdateOpacityGesture(ushort snappedPercent) => _opacity.Update(snappedPercent);
+
+    internal Task EndOpacityInteractionAsync() => _opacity.EndAsync();
+
+    internal Task ChangeOpacityAsync(ushort snappedPercent)
+    {
+        if (_snapshot is null || _mutationInFlight || _opacity.IsBusy)
+            return Task.CompletedTask;
+        return _opacity.ChangeAndCommitAsync(snappedPercent);
+    }
+
     private async Task Mutate(Func<IRuntimeControlClient, Task<ControlClientResult<SettingsSnapshot>>> operation)
     {
-        if (_snapshot is null || _mutationInFlight)
+        if (_snapshot is null || _mutationInFlight || _opacity.IsBusy)
         {
             RaiseAllChanged();
             return;

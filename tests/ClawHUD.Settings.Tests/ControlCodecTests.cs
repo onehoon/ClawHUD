@@ -105,8 +105,6 @@ public class ControlCodecTests
     }
 
     [Theory]
-    [InlineData(ControlOperation.PreviewHudOpacity)]
-    [InlineData(ControlOperation.CommitHudOpacity)]
     [InlineData(ControlOperation.SetIntelVrrRangeFixEnabled)]
     [InlineData(ControlOperation.SetStartWithWindows)]
     [InlineData(ControlOperation.RequestShutdown)]
@@ -114,7 +112,59 @@ public class ControlCodecTests
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             ControlCodec.EncodeRequest(new ControlRequest(operation, 1)));
 
-    // ---- Mutation response snapshot decoding (§16.3) -------------------
+    // ---- Opacity request encoding (§18.1) ----------------------------
+
+    [Fact]
+    public void EncodeRequest_PreviewHudOpacity_IsExactGoldenFrame()
+    {
+        byte[] frame = ControlCodec.EncodeRequest(
+            new ControlRequest(ControlOperation.PreviewHudOpacity, 0x00000009, OpacityPercent: 75));
+
+        Assert.Equal(new byte[]
+        {
+            0x43, 0x48, 0x55, 0x44,
+            0x01, 0x00, 0x18, 0x00,
+            0x01, 0x00,             // Request
+            0x11, 0x00,             // PreviewHudOpacity (17)
+            0x09, 0x00, 0x00, 0x00, // requestId 9
+            0x00, 0x00, 0x00, 0x00, // status 0
+            0x02, 0x00, 0x00, 0x00, // payload size 2
+            0x4B, 0x00,             // u16 LE 75
+        }, frame);
+    }
+
+    [Theory]
+    [InlineData(ControlOperation.PreviewHudOpacity, 17, 50, new byte[] { 0x32, 0x00 })]
+    [InlineData(ControlOperation.PreviewHudOpacity, 17, 100, new byte[] { 0x64, 0x00 })]
+    [InlineData(ControlOperation.CommitHudOpacity, 18, 50, new byte[] { 0x32, 0x00 })]
+    [InlineData(ControlOperation.CommitHudOpacity, 18, 75, new byte[] { 0x4B, 0x00 })]
+    [InlineData(ControlOperation.CommitHudOpacity, 18, 100, new byte[] { 0x64, 0x00 })]
+    public void EncodeRequest_OpacityFrameFields(ControlOperation operation, ushort expectedOp,
+        int percent, byte[] expectedPayload)
+    {
+        byte[] frame = ControlCodec.EncodeRequest(new ControlRequest(operation, 3, OpacityPercent: (ushort)percent));
+
+        Assert.Equal(expectedOp, BinaryPrimitives.ReadUInt16LittleEndian(frame.AsSpan(10)));
+        Assert.Equal(2u, BinaryPrimitives.ReadUInt32LittleEndian(frame.AsSpan(20)));
+        Assert.Equal(26, frame.Length);
+        Assert.Equal(expectedPayload, frame[24..]);
+    }
+
+    [Theory]
+    [InlineData(49)]
+    [InlineData(53)]
+    [InlineData(101)]
+    [InlineData(0)]
+    public void EncodeRequest_RejectsInvalidOpacity(int percent) =>
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            ControlCodec.EncodeRequest(new ControlRequest(ControlOperation.PreviewHudOpacity, 1, OpacityPercent: (ushort)percent)));
+
+    [Fact]
+    public void EncodeRequest_RejectsMissingOpacity() =>
+        Assert.Throws<ArgumentException>(() =>
+            ControlCodec.EncodeRequest(new ControlRequest(ControlOperation.CommitHudOpacity, 1)));
+
+    // ---- Mutation response snapshot decoding (§16.3, §18.2) ----------
 
     [Theory]
     [InlineData(ControlOperation.SetHudEnabled)]
@@ -123,10 +173,12 @@ public class ControlCodecTests
     [InlineData(ControlOperation.SetHudFont)]
     [InlineData(ControlOperation.SetHudAlignment)]
     [InlineData(ControlOperation.SetHudBackgroundMode)]
+    [InlineData(ControlOperation.PreviewHudOpacity)]
+    [InlineData(ControlOperation.CommitHudOpacity)]
     public void DecodeResponse_MutationOk_DecodesAuthoritativeSnapshot(ControlOperation operation)
     {
         byte[] frame = WireFixtures.ResponseFrame(operation, 42, ControlStatus.Ok,
-            WireFixtures.SnapshotPayload(hudSizeOffset: 1, alignment: (byte)WireAlignment.Right));
+            WireFixtures.SnapshotPayload(hudSizeOffset: 1, alignment: (byte)WireAlignment.Right, opacityPercent: 85));
 
         ResponseDecodeResult result = ControlCodec.DecodeResponse(frame, 42, operation);
 
@@ -134,15 +186,19 @@ public class ControlCodecTests
         SettingsSnapshot snapshot = Assert.IsType<SettingsSnapshot>(result.Snapshot);
         Assert.Equal(1, snapshot.HudSizeOffset);
         Assert.Equal(WireAlignment.Right, snapshot.Alignment);
+        Assert.Equal(85, snapshot.BackgroundOpacityPercent);
     }
 
-    [Fact]
-    public void DecodeResponse_MutationOperationFailed_SurfacesTypedErrorWithNoSnapshot()
+    [Theory]
+    [InlineData(ControlOperation.SetHudEnabled)]
+    [InlineData(ControlOperation.PreviewHudOpacity)]
+    [InlineData(ControlOperation.CommitHudOpacity)]
+    public void DecodeResponse_MutationError_SurfacesTypedErrorWithNoSnapshot(ControlOperation operation)
     {
-        byte[] frame = WireFixtures.ResponseFrame(ControlOperation.SetHudEnabled, 7,
+        byte[] frame = WireFixtures.ResponseFrame(operation, 7,
             ControlStatus.OperationFailed, ReadOnlySpan<byte>.Empty);
 
-        ResponseDecodeResult result = ControlCodec.DecodeResponse(frame, 7, ControlOperation.SetHudEnabled);
+        ResponseDecodeResult result = ControlCodec.DecodeResponse(frame, 7, operation);
 
         Assert.Equal(ResponseDecodeOutcome.ProtocolError, result.Outcome);
         Assert.Equal(ControlStatus.OperationFailed, result.Status);
