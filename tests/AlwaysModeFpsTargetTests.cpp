@@ -137,12 +137,37 @@ void InGameTargetInvalidationIsModeGated(bool& ok)
     ok &= Check(!InGameTargetChangeInvalidatesFps(HudVisibilityMode::Always),
         "In-Game Only target changes must not disturb the independent Always-mode FPS while Always is active");
 }
+
+// Self-exclusion transition (WO §18.4): a ClawHUD-owned foreground is sanitized
+// to PID 0 before adoption. Entering it from a valid external target clears the
+// prior FPS immediately, and returning to the external target requires a fresh
+// sample - the old value can never reappear through the stale path.
+void SelfTransitionClearsStaleFps(bool& ok)
+{
+    AlwaysModeFpsTarget target;
+    target.SetForegroundProcess(5000);
+    target.AcceptSample(5000, 60.0);
+    ok &= Check(target.DisplayedFps() == 60.0, "external target publishes 60 FPS");
+
+    // ClawHUD.Settings.exe foreground -> ResolveAlwaysFpsForegroundTarget -> 0.
+    ok &= Check(target.SetForegroundProcess(0), "self foreground clears the target");
+    ok &= Check(!target.DisplayedFps().has_value(),
+        "entering a ClawHUD-owned foreground drops the prior FPS immediately");
+
+    ok &= Check(target.SetForegroundProcess(5000),
+        "returning to the external target is a real target change");
+    ok &= Check(!target.DisplayedFps().has_value(),
+        "the previous 60 FPS cannot reappear without a new sample");
+    target.AcceptSample(5000, 58.0);
+    ok &= Check(target.DisplayedFps() == 58.0, "a fresh sample republishes FPS");
+}
 }
 
 int main()
 {
     bool ok = true;
     ForegroundPidIsTarget(ok);
+    SelfTransitionClearsStaleFps(ok);
     ForegroundChangeInvalidatesFps(ok);
     NoBackgroundFallbackOrStaleResult(ok);
     ForegroundAppWithFps(ok);

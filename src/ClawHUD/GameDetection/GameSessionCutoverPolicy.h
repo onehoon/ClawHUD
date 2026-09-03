@@ -60,6 +60,29 @@ inline bool WindowEventAffectsCurrentScreen(const ProductionWindowEvent& event,
         (event.window == currentWindow && event.processId == currentProcessId);
 }
 
+// A permanently excluded executable (ExcludedExecutable) can never become
+// eligible on a bounds/layout change. WPF Settings, once classified, emits a
+// storm of EVENT_OBJECT_LOCATIONCHANGE while its visual tree animates; running
+// full game admission for every one of those is pure waste. Suppress ONLY the
+// LOCATIONCHANGE for the same window/PID that is both the authoritative current
+// foreground evaluation and the live foreground — every other event (SHOW /
+// HIDE / DESTROY / foreground change) and every other decision/reason
+// (NotFullscreenLike especially — that is how a windowed game goes fullscreen)
+// still reevaluates.
+inline bool WindowEventIsRedundantExcludedForegroundLocationChange(
+    const ProductionWindowEvent& event, const CurrentForegroundGame& current,
+    HWND foregroundWindow, DWORD foregroundProcessId) noexcept
+{
+    return event.type == ProductionWindowEventType::LocationChange &&
+        current.decision == ForegroundGameDecision::Hidden &&
+        current.admissionReason == GameScreenAdmissionReason::ExcludedExecutable &&
+        current.window != nullptr &&
+        event.window == current.window &&
+        event.processId == current.processId &&
+        event.window == foregroundWindow &&
+        event.processId == foregroundProcessId;
+}
+
 inline bool ProcessInstanceStillMatches(
     const std::optional<GameProcessInstance>& expected,
     const std::optional<GameProcessInstance>& actual) noexcept

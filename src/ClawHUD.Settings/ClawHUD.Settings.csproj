@@ -11,6 +11,11 @@
     <PlatformTarget>x64</PlatformTarget>
     <SelfContained>false</SelfContained>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Reuse the canonical native product icon (also embedded in ClawHUD.exe
+         via ClawHUD.rc). ApplicationIcon embeds it in ClawHUD.Settings.exe for
+         the shell/Alt-Tab; the Resource item below exposes the same asset to
+         MainWindow.Icon for the title bar. No new artwork asset is introduced. -->
+    <ApplicationIcon>..\resources\clawhud.ico</ApplicationIcon>
     <!-- ThemeMode is an experimental WPF API on .NET 10; the work order requires
          the built-in Fluent theme, so accept this one documented diagnostic. -->
     <NoWarn>$(NoWarn);WPF0001</NoWarn>
@@ -18,6 +23,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="ClawHUD.Settings.Tests" />
+    <Resource Include="..\resources\clawhud.ico" Link="Resources\clawhud.ico" />
   </ItemGroup>
 
 </Project>
