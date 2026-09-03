@@ -104,13 +104,58 @@ public class ControlCodecTests
             ControlCodec.EncodeRequest(new ControlRequest(ControlOperation.SetHudSizeOffset, 1)));
     }
 
-    [Theory]
-    [InlineData(ControlOperation.SetIntelVrrRangeFixEnabled)]
-    [InlineData(ControlOperation.SetStartWithWindows)]
-    [InlineData(ControlOperation.RequestShutdown)]
-    public void EncodeRequest_RejectsDeferredOperations(ControlOperation operation) =>
+    [Fact]
+    public void EncodeRequest_RejectsRequestShutdown() =>
         Assert.Throws<ArgumentOutOfRangeException>(() =>
-            ControlCodec.EncodeRequest(new ControlRequest(operation, 1)));
+            ControlCodec.EncodeRequest(new ControlRequest(ControlOperation.RequestShutdown, 1)));
+
+    // ---- Bool frames: SetStartWithWindows / SetIntelVrrRangeFixEnabled (§16.1) ----
+
+    [Fact]
+    public void EncodeRequest_SetStartWithWindows_IsExactGoldenFrame()
+    {
+        byte[] frame = ControlCodec.EncodeRequest(
+            new ControlRequest(ControlOperation.SetStartWithWindows, 0x00000007, Flag: true));
+
+        Assert.Equal(new byte[]
+        {
+            0x43, 0x48, 0x55, 0x44,
+            0x01, 0x00, 0x18, 0x00,
+            0x01, 0x00,             // Request
+            0x0A, 0x00,             // SetStartWithWindows (10)
+            0x07, 0x00, 0x00, 0x00, // requestId 7
+            0x00, 0x00, 0x00, 0x00, // status 0
+            0x01, 0x00, 0x00, 0x00, // payload size 1
+            0x01,                   // true
+        }, frame);
+    }
+
+    [Theory]
+    [InlineData(ControlOperation.SetStartWithWindows, 10, false, (byte)0x00)]
+    [InlineData(ControlOperation.SetStartWithWindows, 10, true, (byte)0x01)]
+    [InlineData(ControlOperation.SetIntelVrrRangeFixEnabled, 19, false, (byte)0x00)]
+    [InlineData(ControlOperation.SetIntelVrrRangeFixEnabled, 19, true, (byte)0x01)]
+    public void EncodeRequest_BoolFrameFields(ControlOperation operation, ushort expectedOp, bool flag, byte expectedByte)
+    {
+        byte[] frame = ControlCodec.EncodeRequest(new ControlRequest(operation, 5, Flag: flag));
+
+        Assert.Equal(1, BinaryPrimitives.ReadUInt16LittleEndian(frame.AsSpan(8)));   // Request
+        Assert.Equal(expectedOp, BinaryPrimitives.ReadUInt16LittleEndian(frame.AsSpan(10)));
+        Assert.Equal(5u, BinaryPrimitives.ReadUInt32LittleEndian(frame.AsSpan(12)));
+        Assert.Equal(0u, BinaryPrimitives.ReadUInt32LittleEndian(frame.AsSpan(16))); // status
+        Assert.Equal(1u, BinaryPrimitives.ReadUInt32LittleEndian(frame.AsSpan(20))); // payload size
+        Assert.Equal(25, frame.Length);
+        Assert.Equal(expectedByte, frame[24]);
+    }
+
+    [Fact]
+    public void EncodeRequest_RejectsMissingBoolFlagForNewOperations()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            ControlCodec.EncodeRequest(new ControlRequest(ControlOperation.SetStartWithWindows, 1)));
+        Assert.Throws<ArgumentException>(() =>
+            ControlCodec.EncodeRequest(new ControlRequest(ControlOperation.SetIntelVrrRangeFixEnabled, 1)));
+    }
 
     // ---- Opacity request encoding (§18.1) ----------------------------
 
@@ -175,6 +220,8 @@ public class ControlCodecTests
     [InlineData(ControlOperation.SetHudBackgroundMode)]
     [InlineData(ControlOperation.PreviewHudOpacity)]
     [InlineData(ControlOperation.CommitHudOpacity)]
+    [InlineData(ControlOperation.SetStartWithWindows)]
+    [InlineData(ControlOperation.SetIntelVrrRangeFixEnabled)]
     public void DecodeResponse_MutationOk_DecodesAuthoritativeSnapshot(ControlOperation operation)
     {
         byte[] frame = WireFixtures.ResponseFrame(operation, 42, ControlStatus.Ok,
@@ -193,6 +240,8 @@ public class ControlCodecTests
     [InlineData(ControlOperation.SetHudEnabled)]
     [InlineData(ControlOperation.PreviewHudOpacity)]
     [InlineData(ControlOperation.CommitHudOpacity)]
+    [InlineData(ControlOperation.SetStartWithWindows)]
+    [InlineData(ControlOperation.SetIntelVrrRangeFixEnabled)]
     public void DecodeResponse_MutationError_SurfacesTypedErrorWithNoSnapshot(ControlOperation operation)
     {
         byte[] frame = WireFixtures.ResponseFrame(operation, 7,

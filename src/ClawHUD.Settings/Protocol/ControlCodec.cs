@@ -48,7 +48,9 @@ public static class ControlCodec
         {
             ControlOperation.GetRuntimeInfo or ControlOperation.GetSettingsSnapshot =>
                 ReadOnlySpan<byte>.Empty,
-            ControlOperation.SetHudEnabled =>
+            ControlOperation.SetHudEnabled or
+            ControlOperation.SetStartWithWindows or
+            ControlOperation.SetIntelVrrRangeFixEnabled =>
                 new[] { (byte)(RequireFlag(request) ? 1 : 0) },
             ControlOperation.SetHudVisibilityMode =>
                 new[] { RequireEnum(request, WireValue.IsVisibilityMode) },
@@ -179,7 +181,9 @@ public static class ControlCodec
         ControlOperation.SetHudAlignment or
         ControlOperation.SetHudBackgroundMode or
         ControlOperation.PreviewHudOpacity or
-        ControlOperation.CommitHudOpacity;
+        ControlOperation.CommitHudOpacity or
+        ControlOperation.SetStartWithWindows or
+        ControlOperation.SetIntelVrrRangeFixEnabled;
 
     private static ResponseDecodeResult DecodeRuntimeInfo(ref ByteReader r)
     {

@@ -195,6 +195,51 @@ public class RuntimeControlClientTests
         Assert.Equal(percent, result.Value!.BackgroundOpacityPercent);
     }
 
+    [Theory]
+    [InlineData("start", (ushort)10, true, (byte)0x01)]
+    [InlineData("vrr", (ushort)19, false, (byte)0x00)]
+    public async Task BoolMutationAsync_SendsCorrectOperationAndByte(string which, ushort expectedOp, bool enabled, byte expectedByte)
+    {
+        string pipeName = $"ClawHUD.Control.Test.{Guid.NewGuid():N}";
+
+        await using var server = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 1,
+            PipeTransmissionMode.Message, PipeOptions.Asynchronous);
+
+        Task serverTask = Task.Run(async () =>
+        {
+            await server.WaitForConnectionAsync();
+            var buffer = new byte[ControlProtocol.MaxFrameBytes];
+            int total = 0;
+            do
+            {
+                int read = await server.ReadAsync(buffer.AsMemory(total));
+                if (read == 0) break;
+                total += read;
+            }
+            while (!server.IsMessageComplete);
+
+            Assert.Equal(expectedOp, BinaryPrimitives.ReadUInt16LittleEndian(buffer.AsSpan(10)));
+            Assert.Equal(1u, BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(20)));
+            Assert.Equal(expectedByte, buffer[24]);
+            uint requestId = BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(12));
+
+            byte[] response = WireFixtures.ResponseFrame((ControlOperation)expectedOp, requestId,
+                ControlStatus.Ok, WireFixtures.SnapshotPayload(startWithWindows: enabled, intelVrrRangeFixEnabled: enabled));
+            await server.WriteAsync(response);
+            await server.FlushAsync();
+            server.WaitForPipeDrain();
+        });
+
+        var client = new RuntimeControlClient(pipeName, TimeSpan.FromSeconds(5));
+        ControlClientResult<SettingsSnapshot> result = which == "start"
+            ? await client.SetStartWithWindowsAsync(enabled)
+            : await client.SetIntelVrrRangeFixEnabledAsync(enabled);
+        await serverTask;
+
+        Assert.Equal(ControlClientOutcome.Success, result.Outcome);
+        Assert.NotNull(result.Value);
+    }
+
     [Fact]
     public async Task GetRuntimeInfoAsync_HonoursCallerCancellation()
     {

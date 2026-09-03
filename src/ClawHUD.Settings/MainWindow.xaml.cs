@@ -9,45 +9,77 @@ using ClawHUD.Settings.ViewModels;
 namespace ClawHUD.Settings;
 
 /// <summary>
-/// Settings page. On open it loads runtime info + the settings snapshot (PR2
-/// flow). Discrete card 1-3 controls forward user actions to the ViewModel, which
-/// sends one Control-IPC mutation at a time and re-projects the runtime's
-/// authoritative snapshot. The opacity slider (PR4) previews live during a drag
-/// and commits once on release. Cards 4-5 stay read-only.
+/// Settings page. On open it loads runtime info + the settings snapshot; every
+/// discrete control forwards user actions to the ViewModel, which sends one
+/// Control-IPC mutation at a time and re-projects the runtime's authoritative
+/// snapshot. The opacity slider previews live during a drag and commits once on
+/// release. Re-activating the window refreshes the snapshot. When an IPC point
+/// proves the runtime is gone, the window closes cleanly (never restarting
+/// ClawHUD.exe).
 /// </summary>
 public partial class MainWindow : Window
 {
     private readonly RuntimeControlClient _client = new();
     private readonly MainViewModel _viewModel;
     private bool _suppressOpacityValueChanged;
+    private bool _initialLoadComplete;
+    private bool _closing;
 
     public MainWindow()
     {
         InitializeComponent();
         _viewModel = new MainViewModel(_client);
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+        _viewModel.RuntimeLost += OnRuntimeLost;
         DataContext = _viewModel;
         Loaded += OnLoadedAsync;
+        Activated += OnActivated;
     }
 
     private async void OnLoadedAsync(object sender, RoutedEventArgs e)
     {
         var infoResult = await _client.GetRuntimeInfoAsync();
         if (!infoResult.IsSuccess)
+        {
+            CloseFromRuntimeLoss();
             return;
+        }
 
         RuntimeInfo info = infoResult.Value!;
         if (info.MinimumProtocolVersion > ControlProtocol.ProtocolVersion ||
             info.MaximumProtocolVersion < ControlProtocol.ProtocolVersion)
-            return; // client/runtime protocol incompatibility — stay read-only
+        {
+            CloseFromRuntimeLoss(); // incompatible protocol — cannot safely control the runtime
+            return;
+        }
 
         Title = $"ClawHUD {info.ApplicationVersion}";
 
         var snapshotResult = await _client.GetSettingsSnapshotAsync();
         if (!snapshotResult.IsSuccess)
+        {
+            CloseFromRuntimeLoss();
             return;
+        }
 
         _viewModel.ApplySnapshot(snapshotResult.Value!);
+        _initialLoadComplete = true;
+    }
+
+    private async void OnActivated(object? sender, EventArgs e)
+    {
+        if (_initialLoadComplete && !_closing)
+            await _viewModel.RefreshOnActivationAsync();
+    }
+
+    private void OnRuntimeLost() => Dispatcher.BeginInvoke(CloseFromRuntimeLoss);
+
+    private void CloseFromRuntimeLoss()
+    {
+        if (_closing)
+            return;
+        _closing = true;
+        Close();
     }
 
     private async void OnEnableHudClick(object sender, RoutedEventArgs e) =>
@@ -70,6 +102,12 @@ public partial class MainWindow : Window
 
     private async void OnHudSizeIncreaseClick(object sender, RoutedEventArgs e) =>
         await _viewModel.StepHudSizeAsync(+1);
+
+    private async void OnIntelVrrRangeFixClick(object sender, RoutedEventArgs e) =>
+        await _viewModel.ToggleIntelVrrRangeFixAsync();
+
+    private async void OnStartWithWindowsClick(object sender, RoutedEventArgs e) =>
+        await _viewModel.ToggleStartWithWindowsAsync();
 
     // ---- Background opacity slider --------------------------------------
 

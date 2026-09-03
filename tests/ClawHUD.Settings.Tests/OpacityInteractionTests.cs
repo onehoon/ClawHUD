@@ -117,7 +117,7 @@ public class OpacityInteractionTests
 
         Assert.Equal(80, vm.SliderOpacityValue); // last known runtime state
         Assert.False(vm.IsOpacityInteractionActive);
-        Assert.True(vm.AreDiscreteHudControlsEnabled);
+        Assert.True(vm.AreDiscreteSettingsControlsEnabled);
     }
 
     // ---- §18.2 non-dirty interaction ----
@@ -203,6 +203,43 @@ public class OpacityInteractionTests
         Assert.True(vm.IsOpacitySliderEnabled); // preview in flight does not disable the slider
 
         fake.Gate.SetResult();
+        await vm.EndOpacityInteractionAsync();
+    }
+
+    // ---- §19.4 opacity terminal failure reaches the frontend-close path ----
+
+    [Fact]
+    public async Task CommitTerminalFailure_RaisesRuntimeLost()
+    {
+        var (vm, fake) = Loaded(opacity: 70);
+        int raised = 0;
+        vm.RuntimeLost += () => raised++;
+
+        vm.BeginOpacityInteraction();
+        vm.UpdateOpacityGesture(85);
+        fake.NextOutcome = ControlClientOutcome.TransportUnavailable;
+        await vm.EndOpacityInteractionAsync();
+
+        Assert.Equal(1, raised);
+        Assert.False(vm.IsOpacityInteractionActive);
+    }
+
+    [Fact]
+    public async Task PreviewTerminalFailure_RaisesRuntimeLost()
+    {
+        var (vm, fake) = Loaded(opacity: 70);
+        bool raised = false;
+        vm.RuntimeLost += () => raised = true;
+
+        fake.NextOutcome = ControlClientOutcome.ProtocolError;
+        fake.NextStatus = ControlStatus.ShuttingDown;
+
+        vm.BeginOpacityInteraction();
+        vm.UpdateOpacityGesture(85); // preview fails terminally
+
+        Assert.True(raised);
+
+        fake.NextOutcome = ControlClientOutcome.ProtocolError; // commit also fails; already raised once
         await vm.EndOpacityInteractionAsync();
     }
 }

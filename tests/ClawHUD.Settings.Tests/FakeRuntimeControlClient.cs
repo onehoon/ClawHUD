@@ -59,10 +59,16 @@ internal sealed class FakeRuntimeControlClient : IRuntimeControlClient
             new RuntimeInfo("test", 1, 1, WireLaunchMode.Standalone, WireRuntimeState.Ready)));
 
     public Task<ControlClientResult<SettingsSnapshot>> GetSettingsSnapshotAsync(CancellationToken cancellationToken = default) =>
-        Task.FromResult(ControlClientResult<SettingsSnapshot>.Success(NextSnapshot!));
+        Respond(ControlOperation.GetSettingsSnapshot);
 
     public Task<ControlClientResult<SettingsSnapshot>> SetHudEnabledAsync(bool enabled, CancellationToken cancellationToken = default) =>
         Respond(ControlOperation.SetHudEnabled);
+
+    public Task<ControlClientResult<SettingsSnapshot>> SetStartWithWindowsAsync(bool enabled, CancellationToken cancellationToken = default) =>
+        Respond(ControlOperation.SetStartWithWindows);
+
+    public Task<ControlClientResult<SettingsSnapshot>> SetIntelVrrRangeFixEnabledAsync(bool enabled, CancellationToken cancellationToken = default) =>
+        Respond(ControlOperation.SetIntelVrrRangeFixEnabled);
 
     public Task<ControlClientResult<SettingsSnapshot>> SetHudVisibilityModeAsync(WireVisibilityMode mode, CancellationToken cancellationToken = default) =>
         Respond(ControlOperation.SetHudVisibilityMode);

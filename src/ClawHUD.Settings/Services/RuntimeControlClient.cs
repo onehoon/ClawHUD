@@ -49,6 +49,8 @@ public interface IRuntimeControlClient
     Task<ControlClientResult<SettingsSnapshot>> SetHudBackgroundModeAsync(WireBackgroundMode mode, CancellationToken cancellationToken = default);
     Task<ControlClientResult<SettingsSnapshot>> PreviewHudOpacityAsync(ushort opacityPercent, CancellationToken cancellationToken = default);
     Task<ControlClientResult<SettingsSnapshot>> CommitHudOpacityAsync(ushort opacityPercent, CancellationToken cancellationToken = default);
+    Task<ControlClientResult<SettingsSnapshot>> SetStartWithWindowsAsync(bool enabled, CancellationToken cancellationToken = default);
+    Task<ControlClientResult<SettingsSnapshot>> SetIntelVrrRangeFixEnabledAsync(bool enabled, CancellationToken cancellationToken = default);
 }
 
 public sealed class RuntimeControlClient : IRuntimeControlClient
@@ -121,6 +123,16 @@ public sealed class RuntimeControlClient : IRuntimeControlClient
         CancellationToken cancellationToken = default) =>
         Snapshot(ControlOperation.CommitHudOpacity,
             id => new ControlRequest(ControlOperation.CommitHudOpacity, id, OpacityPercent: opacityPercent), cancellationToken);
+
+    public Task<ControlClientResult<SettingsSnapshot>> SetStartWithWindowsAsync(bool enabled,
+        CancellationToken cancellationToken = default) =>
+        Snapshot(ControlOperation.SetStartWithWindows,
+            id => new ControlRequest(ControlOperation.SetStartWithWindows, id, Flag: enabled), cancellationToken);
+
+    public Task<ControlClientResult<SettingsSnapshot>> SetIntelVrrRangeFixEnabledAsync(bool enabled,
+        CancellationToken cancellationToken = default) =>
+        Snapshot(ControlOperation.SetIntelVrrRangeFixEnabled,
+            id => new ControlRequest(ControlOperation.SetIntelVrrRangeFixEnabled, id, Flag: enabled), cancellationToken);
 
     private Task<ControlClientResult<SettingsSnapshot>> Snapshot(ControlOperation operation,
         Func<uint, ControlRequest> build, CancellationToken cancellationToken) =>
