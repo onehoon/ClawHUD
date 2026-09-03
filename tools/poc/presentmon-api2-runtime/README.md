@@ -66,8 +66,11 @@ flow never runs an older wrapper over a newer installed runtime because it only
 installs its bundled wrapper when readiness fails, and a newer ABI-compatible
 runtime reads as ready. See `third_party/presentmon/2.5.1/PROVENANCE.md`.
 
-`scripts/validate-wrapper-upgrade.ps1` executes the real old<->new msiexec
-matrix (elevated, throwaway VM) when regenerating the wrapper MSI.
+`scripts/validate-wrapper-upgrade.ps1` executes the real msiexec matrix
+(elevated, throwaway VM) when regenerating the wrapper MSI: legacy -> current
+migration and current -> current repair are always checked; downgrade rejection
+is checked only when a newer MajorUpgrade-authored wrapper is passed as
+`-NewerCleanup3Msi`.
 
 ## Shared-runtime uninstall ownership
 

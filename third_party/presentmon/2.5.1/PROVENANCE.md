@@ -59,7 +59,11 @@ runtime-version floor, so it never triggers an "upgrade" against an equal or
 newer installed runtime. A manual `msiexec /i old.msi` outside ClawHUD is out of
 scope.
 
-The real old<->new execution matrix (single product after upgrade, downgrade
-rejected, service/API2 still valid) is scripted at
-`tools/poc/presentmon-api2-runtime/scripts/validate-wrapper-upgrade.ps1`; run it
-on a throwaway VM when regenerating this MSI.
+`tools/poc/presentmon-api2-runtime/scripts/validate-wrapper-upgrade.ps1` runs the
+executable matrix on a throwaway VM when regenerating this MSI. It asserts only
+what the packages can provide: **legacy -> current** leaves exactly one product
+at the current version with a healthy service/API2, and **current -> current**
+(repair/reinstall) creates no duplicate. Downgrade rejection is exercised only
+when a genuinely newer MajorUpgrade-authored wrapper is passed as
+`-NewerCleanup3Msi`; it is never asserted against the legacy `1.0.0.0` package,
+which has no `Upgrade` table.
