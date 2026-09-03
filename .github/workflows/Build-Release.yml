@@ -64,10 +64,10 @@ jobs:
           $notes | Set-Content -Path .\release-notes.md -Encoding utf8NoBOM
           Get-Content .\release-notes.md
 
-      - name: Setup .NET for Velopack CLI
+      - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '10.0.x'
 
       - name: Install Velopack CLI
         shell: pwsh
@@ -91,6 +91,15 @@ jobs:
         shell: pwsh
         run: ctest --test-dir build -C Release --output-on-failure
 
+      - name: Publish WPF Settings frontend
+        shell: pwsh
+        run: |
+          $out = Join-Path $pwd 'wpf-publish'
+          Remove-Item -Recurse -Force $out -ErrorAction SilentlyContinue
+          dotnet publish src/ClawHUD.Settings/ClawHUD.Settings.csproj `
+            --configuration Release --self-contained false --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'dotnet publish (WPF Settings) failed.' }
+
       - name: Stage runtime
         shell: pwsh
         run: |
@@ -109,6 +118,15 @@ jobs:
           Copy-Item (Join-Path $release 'fonts\Unispace.otf') (Join-Path $stage 'fonts')
           Copy-Item (Join-Path $release 'fonts\Unispace-LICENSE.txt') (Join-Path $stage 'fonts')
 
+          # WPF Settings frontend ships beside ClawHUD.exe (the native sibling
+          # resolver depends on this layout). Framework-dependent: no private
+          # .NET runtime.
+          $wpf = Join-Path $pwd 'wpf-publish'
+          Copy-Item (Join-Path $wpf 'ClawHUD.Settings.exe') $stage
+          Copy-Item (Join-Path $wpf 'ClawHUD.Settings.dll') $stage
+          Copy-Item (Join-Path $wpf 'ClawHUD.Settings.deps.json') $stage
+          Copy-Item (Join-Path $wpf 'ClawHUD.Settings.runtimeconfig.json') $stage
+
           $required = @(
             'ClawHUD.exe',
             'ClawHUD.EcHelper.exe',
@@ -117,11 +135,20 @@ jobs:
             'runtime\ClawHUD.PresentMonRuntime.msi',
             'THIRD-PARTY-NOTICES.md',
             'fonts\Unispace.otf',
-            'fonts\Unispace-LICENSE.txt'
+            'fonts\Unispace-LICENSE.txt',
+            'ClawHUD.Settings.exe',
+            'ClawHUD.Settings.dll',
+            'ClawHUD.Settings.deps.json',
+            'ClawHUD.Settings.runtimeconfig.json'
           )
           foreach ($relative in $required) {
             if (-not (Test-Path (Join-Path $stage $relative))) {
               throw "Missing staged runtime file: $relative"
+            }
+          }
+          foreach ($forbidden in @('coreclr.dll', 'clrjit.dll', 'hostfxr.dll', 'dotnet.exe')) {
+            if (Test-Path (Join-Path $stage $forbidden)) {
+              throw "Stage unexpectedly contains a private .NET runtime file: $forbidden"
             }
           }
 
@@ -157,12 +184,28 @@ jobs:
             --shortcuts StartMenuRoot `
             --channel stable `
             --delta BestSpeed `
-            --framework vcredist145-x64 `
+            --framework net10.0-x64-desktop,vcredist145-x64 `
             --outputDir .\release
 
           if ($previousTag -and -not (Get-ChildItem release -Filter '*-delta.nupkg' -File)) {
             throw "Velopack did not produce a delta package from $previousTag."
           }
+
+          # The WPF frontend must never silently drop out of the packaged output
+          # while the CI build still passes, and no private .NET runtime may leak in.
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $full = Get-ChildItem release -Filter '*-full.nupkg' -File | Select-Object -First 1
+          if (-not $full) { throw 'vpk pack did not produce a full .nupkg.' }
+          $zip = [System.IO.Compression.ZipFile]::OpenRead($full.FullName)
+          try {
+            $names = $zip.Entries | ForEach-Object { $_.FullName }
+            if (-not ($names -match '(^|/)ClawHUD\.Settings\.exe$')) {
+              throw "Full package $($full.Name) does not contain ClawHUD.Settings.exe."
+            }
+            if ($names -match '(^|/)(coreclr|clrjit|hostfxr)\.dll$') {
+              throw "Full package $($full.Name) contains a private .NET runtime."
+            }
+          } finally { $zip.Dispose() }
 
           # ClawHUD's bounded update source (ClawHudUpdateSource) fetches
           # 'releases.stable.json' from the latest release and then the exact

@@ -23,8 +23,6 @@
 #include "Tweaks/TweakStartupCoordinator.h"
 #include "Tweaks/IntelVrr/IntelVrrRunResult.h"
 
-class SettingsWindow;
-
 namespace clawhud
 {
 class DebugObservationController;
@@ -36,9 +34,9 @@ constexpr int kHudToggleHotkeyId = 1;
 // App-internal in App.cpp; the numeric values stay globally distinct because
 // they all target the one runtime message window.
 //
-// Runtime-control dispatch wake-up on the runtime message window. WM_APP + 1 is
-// the Settings-destroyed message and WM_APP + 2/5/6/7/8/9 are game-session
-// messages, so this sits clear of both.
+// Runtime-control dispatch wake-up on the runtime message window. WM_APP + 2/5/6/
+// 7/8/9 are game-session messages (WM_APP + 1 is unused since the Win32 Settings
+// frontend was removed), so this sits clear of them.
 constexpr UINT kRuntimeControlDispatchMessage = WM_APP + 11;
 // Posted by the pipe worker after a RequestShutdown response has been delivered;
 // the main-thread handler enters the normal App::Exit() path.
@@ -60,17 +58,14 @@ public:
     void HandleTimer(UINT_PTR timerId);
     void HandleHudToggleHotkey();
 
-    // Asynchronous notification that the lazy SettingsWindow's HWND is gone.
-    void PostSettingsDestroyed();
-
     // Main-thread wake handler for the runtime-control dispatch bridge.
     void HandleRuntimeControlDispatch();
     // Main-thread handler for a delivered IPC RequestShutdown; enters Exit().
     void HandleRuntimeControlShutdownReady();
 
-    // clawhud::IRuntimeControl — the semantic control boundary the legacy Win32
-    // Settings frontend (and future frontends) use. App stays the implementation
-    // authority; these delegate to the existing product methods below.
+    // clawhud::IRuntimeControl — the semantic control boundary Settings frontends
+    // use over Control IPC. App stays the implementation authority; these delegate
+    // to the existing product methods below.
     clawhud::RuntimeSettingsSnapshot GetSettingsSnapshot() const override;
     void SetStartWithWindows(bool enabled) override;
     bool SetHudEnabled(bool enabled) override;
@@ -109,7 +104,6 @@ private:
     // Shared runtime-source stop sequence for ~App() and Exit(). Same effective
     // order both callers used inline before R7.
     void StopRuntimeSources();
-    void SettingsDestroyed();
     void TryResumeRecovery();
     void StopHud();
     void RenderProductionHud(bool allowHidden = false);
@@ -117,10 +111,10 @@ private:
 
     HINSTANCE instance_{};
     HANDLE instanceMutex_{};
-    // Process-lifetime shell composition state. Standalone builds the tray and
-    // allows the legacy Settings window; Managed does neither. The runtime
-    // (window, telemetry, game detection, HUD, tweaks, Control IPC) is identical
-    // in both modes. Never persisted; never mutated after construction.
+    // Process-lifetime shell composition state. Standalone builds the tray (whose
+    // Settings action launches the sibling WPF frontend); Managed does neither.
+    // The runtime (window, telemetry, game detection, HUD, tweaks, Control IPC) is
+    // identical in both modes. Never persisted; never mutated after construction.
     const clawhud::LaunchMode launchMode_;
     clawhud::HudSettingsStore hudSettingsStore_;
     // Runtime-owned hidden message window: F8 hotkey, suspend/resume power
@@ -159,7 +153,6 @@ private:
     // debugLoggingEnabled_; stays null (and none of the sources exist) for a
     // normal DebugLoggingEnabled=false run. See GameDetection/DebugObservationController.h.
     std::unique_ptr<clawhud::DebugObservationController> debugObservation_;
-    std::unique_ptr<SettingsWindow> settings_;
     bool exiting_{};
     std::wstring executablePath_;
     bool hudHotkeyRegistered_{};

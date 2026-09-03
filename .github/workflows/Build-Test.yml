@@ -35,6 +35,30 @@ jobs:
         shell: pwsh
         run: dotnet test tests/ClawHUD.Settings.Tests/ClawHUD.Settings.Tests.csproj --configuration Release
 
+      - name: Validate WPF Settings publish shape
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'wpf-publish-check'
+          Remove-Item -Recurse -Force $out -ErrorAction SilentlyContinue
+          dotnet publish src/ClawHUD.Settings/ClawHUD.Settings.csproj `
+            --configuration Release --self-contained false --output $out
+          $required = @(
+            'ClawHUD.Settings.exe',
+            'ClawHUD.Settings.dll',
+            'ClawHUD.Settings.deps.json',
+            'ClawHUD.Settings.runtimeconfig.json'
+          )
+          foreach ($file in $required) {
+            if (-not (Test-Path (Join-Path $out $file))) {
+              throw "WPF publish is missing required file: $file"
+            }
+          }
+          foreach ($file in @('coreclr.dll', 'clrjit.dll', 'hostfxr.dll', 'dotnet.exe')) {
+            if (Test-Path (Join-Path $out $file)) {
+              throw "WPF publish unexpectedly contains a private .NET runtime file: $file"
+            }
+          }
+
       - name: Configure Release x64
         shell: pwsh
         run: >-

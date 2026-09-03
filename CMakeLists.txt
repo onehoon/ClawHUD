@@ -102,12 +102,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/GameDetection/ForegroundGameDetector.cpp
     src/ClawHUD/TrayIcon.cpp
     src/ClawHUD/RuntimeMessageWindow.cpp
-    src/ClawHUD/SettingsWindow.cpp
-    src/ClawHUD/SettingsWindow.Tweaks.cpp
-    src/ClawHUD/SettingsWindow.About.cpp
-    src/ClawHUD/SettingsWindow.Settings.cpp
-    src/ClawHUD/SettingsWindowInternal.cpp
-    src/ClawHUD/SettingsWindowGeometry.cpp
+    src/ClawHUD/SettingsFrontendLauncher.cpp
     src/ClawHUD/PresentMonApi2Client.cpp
     src/ClawHUD/PresentMonTelemetryProvider.cpp
     src/ClawHUD/PresentMonProcessTelemetry.cpp

@@ -1,6 +1,6 @@
 #include "App.h"
 
-#include "SettingsWindow.h"
+#include "SettingsFrontendLauncher.h"
 #include "Tweaks/IntelVrr/IntelVrrResultStore.h"
 #include "SupportedHardware.h"
 #include "PresentMonRuntimeStartupPolicy.h"
@@ -33,10 +33,6 @@
 
 namespace
 {
-// WM_APP + 1 is the application/UI message; the game-session ids (WM_APP + 2, 5,
-// 6, 7, 8, 9) live in GameSessionController.cpp and the telemetry timer ids in
-// ProductionTelemetryController.h.
-constexpr UINT kSettingsDestroyed = WM_APP + 1;
 // Win32 SetTimer id for the suspend/resume HUD recovery retry. App-internal
 // message-loop wiring; the pure retry policy is in SuspendResumePolicy.h.
 constexpr UINT_PTR kResumeRecoveryTimerId = 5;
@@ -78,7 +74,6 @@ App::~App()
     Log(L"ClawHUD exiting");
     StopRuntimeSources();
     hudController_.DestroyPresentation();
-    settings_.reset();
     tray_.Destroy();
     runtimeMessageWindow_.Destroy();
     if (instanceMutex_)
@@ -633,7 +628,6 @@ void App::HandleHudToggleHotkey()
         *hotkeyOverride ? L"F8 HUD override=show" : L"F8 HUD override=hide");
     hudController_.SetManualOverride(*hotkeyOverride);
     ReconcileHudVisibility();
-    if (settings_) settings_->UpdateHudControls();
 }
 
 void App::ReconcileHudVisibility()
@@ -843,32 +837,16 @@ void App::OpenSettings()
 {
     if (launchMode_ != clawhud::LaunchMode::Standalone)
     {
-        // Managed mode has no standalone shell frontend; guard here too so a
-        // future accidental internal call cannot create the legacy window.
+        // Managed mode has no standalone shell; guard here too so a future
+        // accidental internal call cannot launch the frontend.
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
             L"OpenSettings ignored in Managed mode");
         return;
     }
-    if (settings_)
-    {
-        settings_->Show(instance_);
-        return;
-    }
-    settings_ = std::make_unique<SettingsWindow>(
-        static_cast<clawhud::IRuntimeControl&>(*this),
-        [this] { PostSettingsDestroyed(); });
-    if (!settings_->Show(instance_)) settings_.reset();
-}
-
-void App::PostSettingsDestroyed()
-{
-    if (const HWND window = runtimeMessageWindow_.Window())
-        PostMessageW(window, kSettingsDestroyed, 0, 0);
-}
-
-void App::SettingsDestroyed()
-{
-    settings_.reset();
+    // The WPF frontend is a separate short-lived process; it owns its own
+    // session-scoped single-instance / bring-to-front behaviour. The runtime does
+    // not track or wait on it.
+    clawhud::LaunchSettingsFrontend(executablePath_);
 }
 
 void App::HandleRuntimeControlDispatch()
@@ -888,7 +866,6 @@ void App::Exit()
     if (exiting_) return;
     exiting_ = true;
     StopRuntimeSources();
-    settings_.reset();
     tray_.Destroy();
     runtimeMessageWindow_.Destroy();
     PostQuitMessage(0);
@@ -899,19 +876,8 @@ int App::ProcessMessages()
     MSG message{};
     while (GetMessageW(&message, nullptr, 0, 0) > 0)
     {
-        if (message.message == kSettingsDestroyed)
-        {
-            SettingsDestroyed();
-            continue;
-        }
         if (gameSession_.HandleMessage(message))
             continue;
-        if (settings_ && settings_->Window() &&
-            IsWindowVisible(settings_->Window()) &&
-            IsDialogMessageW(settings_->Window(), &message))
-        {
-            continue;
-        }
         TranslateMessage(&message);
         DispatchMessageW(&message);
     }

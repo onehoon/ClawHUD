@@ -312,14 +312,16 @@
     set_target_properties(ClawHUD.HudSizeTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.HudSizeTests COMMAND ClawHUD.HudSizeTests)
 
-    add_executable(ClawHUD.SettingsWindowGeometryTests
-        tests/SettingsWindowGeometryTests.cpp
-        src/ClawHUD/SettingsWindowGeometry.cpp)
-    target_compile_features(ClawHUD.SettingsWindowGeometryTests PRIVATE cxx_std_20)
-    target_compile_definitions(ClawHUD.SettingsWindowGeometryTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-    target_include_directories(ClawHUD.SettingsWindowGeometryTests PRIVATE src/ClawHUD)
-    set_target_properties(ClawHUD.SettingsWindowGeometryTests PROPERTIES CXX_EXTENSIONS OFF)
-    add_test(NAME ClawHUD.SettingsWindowGeometryTests COMMAND ClawHUD.SettingsWindowGeometryTests)
+    add_executable(ClawHUD.SettingsFrontendLauncherTests
+        tests/SettingsFrontendLauncherTests.cpp
+        src/ClawHUD/SettingsFrontendLauncher.cpp
+        src/ClawHUD/RuntimeLogger.cpp)
+    target_compile_features(ClawHUD.SettingsFrontendLauncherTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.SettingsFrontendLauncherTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.SettingsFrontendLauncherTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.SettingsFrontendLauncherTests PRIVATE shell32)
+    set_target_properties(ClawHUD.SettingsFrontendLauncherTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.SettingsFrontendLauncherTests COMMAND ClawHUD.SettingsFrontendLauncherTests)
 
     add_executable(ClawHUD.UninstallCleanupTests
         tests/UninstallCleanupTests.cpp

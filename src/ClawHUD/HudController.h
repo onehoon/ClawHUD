@@ -56,7 +56,7 @@ public:
 
     void RestoreState(const HudControllerState& state);
 
-    // --- queries (App forwards these to SettingsWindow / tray / recovery) --
+    // --- queries (App forwards these to the Settings frontend / tray / recovery) --
     bool Enabled() const noexcept { return enabled_; }
     bool Visible() const noexcept;
     bool HasPresentation() const noexcept { return presentation_ != nullptr; }

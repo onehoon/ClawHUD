@@ -10,8 +10,8 @@ namespace clawhud
 namespace
 {
 // Production game-session WM_APP ids. Numeric values are shared with the
-// application message window and stay distinct from App's kSettingsDestroyed
-// (WM_APP + 1) and the telemetry timer ids.
+// application message window and stay distinct from the telemetry timer ids
+// (WM_APP + 1 is unused).
 constexpr UINT kForegroundChanged = WM_APP + 2;
 constexpr UINT kSteamRunningAppIdChanged = WM_APP + 5;
 constexpr UINT kMicrosoftGameEvidence = WM_APP + 6;
