@@ -3,7 +3,6 @@
 #include <windows.h>
 
 #include "WindowsGameIdentitySource.h"
-#include "ProcessLifecycleSource.h"
 #include "WindowLifecycleSource.h"
 #include "PresentActivitySource.h"
 
@@ -11,7 +10,8 @@ namespace clawhud
 {
 class PresentMonTelemetryProvider;
 
-// Owns the four debug-only observation sources that used to sit directly on App.
+// Owns the three debug-only observation sources that used to sit directly on
+// App: WindowsGameIdentitySource, WindowLifecycleSource, PresentActivitySource.
 // App holds it through a std::unique_ptr and constructs it only when the
 // developer [Developer] DebugLoggingEnabled switch is on, so a normal
 // DebugLoggingEnabled=false startup never builds any of these objects -- in
@@ -46,7 +46,6 @@ public:
 private:
     PresentMonTelemetryProvider& provider_;
     WindowsGameIdentitySource windowsGameIdentitySource_;
-    ProcessLifecycleSource processLifecycleSource_;
     PresentActivitySource presentActivitySource_;
     WindowLifecycleSource windowLifecycleSource_;
 };

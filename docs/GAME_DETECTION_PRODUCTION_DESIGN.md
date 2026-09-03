@@ -120,7 +120,22 @@ Captures, among other fields:
 
 It currently exists primarily as a diagnostic logger and worker.
 
-### 3.2 ProcessLifecycleSource
+### 3.2 ProcessLifecycleSource — RETIRED / REMOVED (2026-09-04, post-PR #230)
+
+This diagnostic-only source has been **removed from the production application**
+(`ProcessLifecycleSource.{h,cpp}`, its `DebugObservationController` membership,
+its native build entry, and `ClawHUD.ProcessLifecycleSourceTests` are all gone).
+The historical evidence below is retained; the rationale for removal:
+
+- it was diagnostic-only and held no production authority;
+- normal non-elevated field operation returned `WBEM_E_ACCESS_DENIED`, so it
+  produced no usable process start/stop data;
+- the final production game detector does not depend on it;
+- future process-lifecycle diagnostics, if ever needed again, should be designed
+  separately (preferably in the standalone `ClawHUD.Diag` context) rather than
+  restoring this dead source to the production app.
+
+Historical description follows.
 
 Uses WMI asynchronous extrinsic events:
 
