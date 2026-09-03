@@ -1,10 +1,12 @@
 # ClawHUD Runtime / Frontend Separation Architecture
 
 > **Completion note (CH-RTF-10):** the ClawHUD side of this architecture is
-> implemented and merged as CH-RTF-1..10. This document is the canonical
-> description of that completed foundation. The next implementation sequence
-> moves to SteamAddonforClaw (`SA-HUD-1..5`); that ownership work is **not**
-> implemented in ClawHUD yet.
+> implemented and complete as CH-RTF-1..10. This document is the canonical
+> description of the completed ClawHUD foundation. SteamAddon integration is
+> outside this completion target and may be planned separately later; no
+> SteamAddon PR is required as a follow-up to CH-RTF-10. Where this document
+> mentions a "future external owner" / SteamAddon, treat it as future
+> compatibility context, not the next required implementation step.
 
 > **Decision date:** 2026-09-02  
 > **Status:** Implemented — ClawHUD-side complete (CH-RTF-1..10).  
