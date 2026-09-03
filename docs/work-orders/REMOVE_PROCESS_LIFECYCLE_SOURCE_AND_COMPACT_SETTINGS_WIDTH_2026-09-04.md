@@ -1,24 +1,27 @@
-# Work Order — Remove Dead `ProcessLifecycleSource` and Reduce Settings Width
+# Work Order — Remove Dead `ProcessLifecycleSource`, Compact Settings Width, and Correct HUD Opacity Label
 
 **Date:** 2026-09-04  
 **Status:** Ready for implementation  
-**Baseline:** `main` at `f2372a3f1dfdcf12c256574083ef342ac25f1c8c` after PR #230  
-**Target:** one focused PR containing exactly the two changes below
+**Baseline:** `main` after PR #230  
+**Target:** one focused PR containing exactly the three changes below
 
 ---
 
 ## 1. Scope decision
 
-Implement **exactly two product changes in one PR**:
+Implement **exactly three product changes in one PR**:
 
 1. **Remove `ProcessLifecycleSource` completely from ClawHUD.**
 2. **Reduce the WPF Settings fixed width from 700 DIP to 600 DIP.**
+3. **Rename the Settings label `Background opacity` to `HUD opacity`.**
 
-Do not add unrelated cleanup, diagnostics redesign, game-detection changes, HUD changes, telemetry changes, packaging changes, or Settings behavior changes.
+Do not add unrelated cleanup, diagnostics redesign, game-detection changes, HUD rendering changes, telemetry changes, packaging changes, or Settings behavior changes.
 
 The application is still pre-release, so remove the obsolete diagnostic source cleanly instead of preserving compatibility shims, disabled code, aliases, or fallback behavior.
 
 Most of this PR is deletion. A large negative diff is expected and is not a reason to split the PR.
+
+The opacity item is **label-only**. It corrects the user-facing name to match the already-shipped runtime behavior; it does not authorize any opacity implementation change.
 
 ---
 
@@ -203,17 +206,15 @@ presentActivitySource_.Stop();
 
 ---
 
-## 6. Production target cleanup
+## 6. Native build cleanup
 
-Update the main native source list so the deleted implementation is no longer compiled.
-
-Current root build includes:
+Remove the active implementation entry:
 
 ```text
 src/ClawHUD/GameDetection/ProcessLifecycleSource.cpp
 ```
 
-Remove that entry from:
+from:
 
 ```text
 CMakeLists.txt
@@ -221,27 +222,19 @@ CMakeLists.txt
 
 Do not make unrelated source-list reorderings.
 
----
-
-## 7. Test target cleanup
-
-Remove the complete dedicated test target for `ProcessLifecycleSource` from:
-
-```text
-cmake/ClawHUDTests.cmake
-```
-
-This includes the target declaration, compile options/definitions, include directories, link libraries, properties, and `add_test(...)` entry associated specifically with:
+Remove the complete dedicated test target for:
 
 ```text
 ClawHUD.ProcessLifecycleSourceTests
 ```
 
-Delete:
+from:
 
 ```text
-tests/ProcessLifecycleSourceTests.cpp
+cmake/ClawHUDTests.cmake
 ```
+
+This includes the target declaration, source list, compile options/definitions, include directories, link libraries, properties, and `add_test(...)` entry.
 
 Do not replace these tests with tests for a source that no longer exists.
 
@@ -249,11 +242,11 @@ The overall CTest test count is expected to decrease by exactly the removed test
 
 ---
 
-## 8. WMI libraries — important non-goal
+## 7. WMI libraries — important non-goal
 
 Do **not** remove `wbemuuid` globally just because `ProcessLifecycleSource` is gone.
 
-The production/native code still has other legitimate WMI users, including current hardware/tweak detection paths such as:
+The native code still has legitimate WMI users, including current hardware/tweak detection paths such as:
 
 ```text
 SupportedHardware.cpp
@@ -268,15 +261,15 @@ This PR removes **one dead debug source**, not WMI usage from the project.
 
 ---
 
-## 9. Documentation update
+## 8. Documentation update
 
-Update the current architecture document:
+Update:
 
 ```text
 docs/GAME_DETECTION_PRODUCTION_DESIGN.md
 ```
 
-Its existing `ProcessLifecycleSource` diagnostic section currently records the failed field result and already says production must not depend on it.
+Its existing `ProcessLifecycleSource` diagnostic section records the failed field result and already says production must not depend on it.
 
 Keep that historical evidence, but update the section to state that the source has now been **retired/removed from the production application** because:
 
@@ -290,11 +283,11 @@ Keep that historical evidence, but update the section to state that the source h
 
 Do not rewrite the entire production game-detection design.
 
-Do not edit old implementation work orders purely to make their historical description match today's code. Historical work orders should remain historical.
+Do not edit old implementation work orders solely to make their historical description match today's code.
 
 ---
 
-## 10. Required source-tree result
+## 9. Required source-tree result
 
 After this PR, searching the active source/test/build configuration for:
 
@@ -321,7 +314,7 @@ because the source no longer exists.
 
 # Part B — Reduce WPF Settings width to 600 DIP
 
-## 11. Current state after PR #230
+## 10. Current state after PR #230
 
 PR #230 compacted the Settings frontend vertically and reduced oversized touch-first controls.
 
@@ -349,7 +342,7 @@ The current layout has enough horizontal room to reduce width without redesignin
 
 ---
 
-## 12. Required geometry change
+## 11. Required geometry change
 
 Change only the fixed width:
 
@@ -411,7 +404,7 @@ Do not compact the controls again in this PR.
 
 ---
 
-## 13. Why 600 DIP is acceptable
+## 12. Why 600 DIP is acceptable
 
 With the current outer margin and card padding, a 600 DIP window still leaves substantial usable content width.
 
@@ -423,7 +416,7 @@ The widest meaningful rows are currently:
 3-column Alignment
 2-column Background width
 HUD size label + stepper
-opacity slider + percentage text
+HUD opacity slider + percentage text
 ```
 
 At 600 DIP, the segmented controls retain ample width for labels such as:
@@ -446,9 +439,9 @@ If an actual build shows clipping at 600 DIP, stop and report the measured confl
 
 ---
 
-## 14. Preserve all Settings behavior
+## 13. Preserve all Settings behavior
 
-This width change must not modify:
+The width change must not modify:
 
 ```text
 IRuntimeControl
@@ -476,7 +469,7 @@ Preserve PR #230's icon configuration and compact-density values unchanged.
 
 ---
 
-## 15. WPF regression test update
+## 14. WPF geometry regression test update
 
 Update:
 
@@ -512,11 +505,116 @@ Do not weaken or replace that test.
 
 ---
 
-# Part C — Explicit non-goals
+# Part C — Correct the opacity label to `HUD opacity`
 
-## 16. Do not include anything else
+## 15. Current mismatch
 
-This PR must **not** modify or attempt to improve the following items discovered/reviewed in the 2026-09-04 log unless needed only to remove `ProcessLifecycleSource` references:
+The current WPF Settings page displays:
+
+```text
+Background opacity
+```
+
+but the production implementation does **not** apply the user-selected value only to the HUD background.
+
+Current runtime behavior intentionally uses whole-HUD opacity:
+
+```text
+renderer background -> kept opaque for this path
+Layered HWND alpha  -> user-selected HUD opacity
+```
+
+As a result, changing the slider fades the HUD as a whole, including:
+
+```text
+background
+text
+numbers
+units
+separators / foreground decoration
+```
+
+This behavior is already part of the validated production presentation path and is **not being redesigned in this PR**.
+
+The user-facing label is therefore misleading and must be corrected.
+
+---
+
+## 16. Required label-only change
+
+In:
+
+```text
+src/ClawHUD.Settings/MainWindow.xaml
+```
+
+change the visible label only:
+
+```xml
+Text="Background opacity"
+```
+
+to:
+
+```xml
+Text="HUD opacity"
+```
+
+Do **not** rename or alter runtime data contracts merely to match the UI string.
+
+Unless required by an existing user-visible string/test, keep internal compatibility names unchanged, including existing concepts such as:
+
+```text
+BackgroundOpacityPercent
+backgroundOpacity
+PreviewHudOpacity
+CommitHudOpacity
+```
+
+Those are implementation/protocol names and changing them would create unnecessary churn for a label-only fix.
+
+Do not change the slider range, step, preview behavior, commit behavior, persistence, or startup semantics.
+
+Required runtime behavior remains:
+
+```text
+50% .. 100%
+5% steps
+Preview while dragging
+Commit on completed gesture
+no opacity mutation during initial XAML construction
+```
+
+---
+
+## 17. Opacity presentation contract — do not reinterpret this item
+
+This work order does **not** ask to implement a new background-only opacity feature.
+
+Do not change:
+
+```text
+HudController::SetOpacity behavior
+SetLayeredWindowAttributes usage
+renderer alpha policy
+window-wide HUD alpha behavior
+Presentation API / DirectComposition path
+premultiplied-alpha presentation contract
+```
+
+The purpose of this item is only:
+
+> Make the Settings wording accurately describe the existing whole-HUD opacity behavior.
+
+No new opacity mechanism is authorized.
+
+---
+
+# Part D — Explicit non-goals
+
+## 18. Do not include anything else
+
+This PR must **not** modify or attempt to improve the following items unless needed only to remove `ProcessLifecycleSource` references or make the two explicit WPF text/geometry edits above:
 
 ```text
 Snipping Tool optional mutable package-path diagnostic failures
@@ -537,19 +635,20 @@ VeloPack/update behavior
 Settings icon
 Settings vertical density
 Settings height
+opacity implementation / alpha policy
 ```
 
 No opportunistic cleanup.
 
 ---
 
-# Part D — HUD / VRR safety contract
+# Part E — HUD / VRR safety contract
 
-## 17. HUD presentation is zero-touch
+## 19. HUD presentation is zero-touch
 
-This PR has no reason to touch HUD presentation.
+This PR has no reason to alter HUD presentation.
 
-There must be **zero intentional diff** to:
+There must be **zero intentional behavioral diff** to:
 
 ```text
 HUD windowExStyle
@@ -563,7 +662,7 @@ ProductionHudPresentationContract()
 Presentation API / DirectComposition production path
 independent-flip requirement
 premultiplied-alpha contract
-renderer background-opacity behavior
+current whole-HUD opacity implementation
 ```
 
 Do not edit HUD presentation/rendering code while implementing this work order.
@@ -572,9 +671,9 @@ All existing HUD/VRR contract tests must remain present and green.
 
 ---
 
-# Part E — Expected files
+# Part F — Expected files
 
-## 18. Expected deletions
+## 20. Expected deletions
 
 ```text
 src/ClawHUD/GameDetection/ProcessLifecycleSource.h
@@ -582,7 +681,7 @@ src/ClawHUD/GameDetection/ProcessLifecycleSource.cpp
 tests/ProcessLifecycleSourceTests.cpp
 ```
 
-## 19. Expected modifications
+## 21. Expected modifications
 
 Likely:
 
@@ -596,13 +695,15 @@ tests/ClawHUD.Settings.Tests/MainWindowStartupTests.cs
 docs/GAME_DETECTION_PRODUCTION_DESIGN.md
 ```
 
+The opacity label and width change are both expected to occur in the existing `MainWindow.xaml` modification.
+
 Do not expand the file list without a concrete compile/reference reason.
 
 ---
 
-# Part F — Verification
+# Part G — Verification
 
-## 20. Native build/test
+## 22. Native build/test
 
 Run at minimum the repository's normal native Release validation used by CI.
 
@@ -619,11 +720,9 @@ Because the removal changes native source composition, a Debug build/CTest pass 
 
 Do not interpret the reduced total test count caused by deleting `ClawHUD.ProcessLifecycleSourceTests` as a regression.
 
-The reduction should correspond to the intentionally removed target.
-
 ---
 
-## 21. WPF build/test
+## 23. WPF build/test
 
 Run:
 
@@ -639,13 +738,14 @@ Release build succeeds
 all WPF tests pass
 MainWindow startup regression remains green
 geometry test expects 600 x 600 DIP
+visible opacity label is HUD opacity
 ```
 
 No packaging workflow change is expected.
 
 ---
 
-## 22. Source/reference checks
+## 24. Source/reference checks
 
 Before completion, search the active source tree/build files for stale references.
 
@@ -662,11 +762,25 @@ Historical docs may still contain old references where they are intentionally pr
 
 Also verify that `wbemuuid` was **not blindly removed** from targets that still require WMI.
 
+For the Settings label, verify the user-facing XAML no longer contains:
+
+```text
+Background opacity
+```
+
+and contains:
+
+```text
+HUD opacity
+```
+
+Do not require internal wire/model identifiers containing `backgroundOpacity` to be renamed.
+
 ---
 
-# Part G — Manual MSI Claw smoke
+# Part H — Manual MSI Claw smoke
 
-## 23. Settings geometry
+## 25. Settings geometry and label
 
 On the MSI Claw at:
 
@@ -685,7 +799,9 @@ Verify:
 - no text clipping;
 - In-game only / Segoe UI Variable / Content width labels fit;
 - HUD size stepper is intact;
+- opacity row is labeled exactly "HUD opacity";
 - opacity slider and percentage text fit;
+- changing HUD opacity still fades the complete HUD as before;
 - title-bar/product icon remains present;
 - window remains fixed/non-resizable.
 ```
@@ -694,7 +810,7 @@ Open/close several times and verify no WER/Ghost/Not Responding regression.
 
 ---
 
-## 24. Runtime log smoke
+## 26. Runtime log smoke
 
 Start ClawHUD with developer debug logging enabled, if convenient for validation.
 
@@ -716,9 +832,9 @@ No production game-detection behavior should differ merely because the failed di
 
 ---
 
-# Part H — Completion criteria
+# Part I — Completion criteria
 
-## 25. Done means
+## 27. Done means
 
 This PR is complete when all of the following are true:
 
@@ -735,22 +851,25 @@ This PR is complete when all of the following are true:
 [ ] Settings width is exactly 600 DIP
 [ ] Settings height remains exactly 600 DIP
 [ ] MainWindowStartupTests expects 600 x 600 and retains PR #229 opacity assertions
-[ ] no Settings behavior or IPC mutation semantics changed
+[ ] Settings visible label is exactly "HUD opacity"
+[ ] opacity slider range/preview/commit/persistence behavior is unchanged
+[ ] current whole-HUD alpha implementation is unchanged
+[ ] no Settings IPC mutation semantics changed
 [ ] native build + remaining CTests pass
 [ ] WPF Release build + tests pass
-[ ] HUD/VRR presentation contract has zero intentional diff
+[ ] HUD/VRR presentation contract has zero behavioral diff
 [ ] manual target-device Settings smoke shows no clipping
 [ ] runtime log no longer contains ProcessLifecycle startup warnings
 ```
 
 ---
 
-## 26. PR framing
+## 28. PR framing
 
 Suggested PR title:
 
 ```text
-Remove dead process-lifecycle diagnostics and compact Settings width
+Remove dead process-lifecycle diagnostics and finish Settings polish
 ```
 
 Suggested summary structure:
@@ -765,12 +884,15 @@ Part A — remove ProcessLifecycleSource
 Part B — Settings width
 - fixed geometry 700x600 -> 600x600 DIP
 - startup geometry test updated
-- no behavior/density/icon/IPC change
+
+Part C — HUD opacity label
+- Background opacity -> HUD opacity
+- label-only correction; existing whole-HUD alpha behavior unchanged
 
 Validation
 - native build/CTest
 - WPF Release build/tests
-- HUD/VRR presentation zero-diff
+- HUD/VRR presentation zero behavioral diff
 ```
 
 Do not claim the removed source was production game-detection authority. It was diagnostic-only and had already been excluded from the production architecture.
