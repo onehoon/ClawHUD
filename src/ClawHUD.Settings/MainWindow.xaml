@@ -8,9 +8,11 @@
         ResizeMode="NoResize"
         WindowStartupLocation="CenterScreen">
 
-    <!-- PR1 foundation: the whole page is a static visual shell. Interactive-looking
-         controls carry touch-sized geometry and representative state only; hit
-         testing is disabled per card until runtime wiring lands in a later PR. -->
+    <!-- PR2: the page projects the live runtime snapshot via one-way bindings to
+         a read-only MainViewModel (DataContext is set after the IPC load). Hit
+         testing stays disabled per card — no mutation is sent in this PR. When
+         the runtime is unavailable the DataContext stays null and controls read
+         empty rather than showing a fake state. -->
     <Grid Margin="12">
         <StackPanel>
 
@@ -18,13 +20,16 @@
             <Border Style="{StaticResource SettingsCard}">
                 <StackPanel IsHitTestVisible="False">
                     <DockPanel>
-                        <ToggleButton DockPanel.Dock="Right" Style="{StaticResource SettingToggleSwitch}" IsChecked="True" />
+                        <ToggleButton DockPanel.Dock="Right" Style="{StaticResource SettingToggleSwitch}"
+                                      IsChecked="{Binding HudEnabled, Mode=OneWay}" />
                         <TextBlock Style="{StaticResource SettingLabel}" Margin="0" Text="Enable HUD" />
                     </DockPanel>
                     <TextBlock Style="{StaticResource SettingLabel}" Margin="0,8,0,3" Text="Display mode" />
                     <UniformGrid Rows="1" Columns="2">
-                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="0,0,3,0" Content="In-game only" />
-                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="3,0,0,0" IsChecked="True" Content="Always" />
+                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="0,0,3,0" Content="In-game only"
+                                      IsChecked="{Binding IsVisibilityInGameOnly, Mode=OneWay}" />
+                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="3,0,0,0" Content="Always"
+                                      IsChecked="{Binding IsVisibilityAlways, Mode=OneWay}" />
                     </UniformGrid>
                 </StackPanel>
             </Border>
@@ -35,7 +40,7 @@
                     <DockPanel>
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                             <Button Style="{StaticResource StepperButton}" Content="&#x2212;" />
-                            <TextBlock Text="Default" VerticalAlignment="Center" Margin="12,0"
+                            <TextBlock Text="{Binding HudSizeLabel}" VerticalAlignment="Center" Margin="12,0"
                                        Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
                             <Button Style="{StaticResource StepperButton}" Content="+" />
                         </StackPanel>
@@ -43,14 +48,19 @@
                     </DockPanel>
                     <TextBlock Style="{StaticResource SettingLabel}" Margin="0,8,0,3" Text="Font" />
                     <UniformGrid Rows="1" Columns="2">
-                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="0,0,3,0" IsChecked="True" Content="Unispace" />
-                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="3,0,0,0" Content="Segoe UI Variable" />
+                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="0,0,3,0" Content="Unispace"
+                                      IsChecked="{Binding IsFontUnispace, Mode=OneWay}" />
+                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="3,0,0,0" Content="Segoe UI Variable"
+                                      IsChecked="{Binding IsFontSegoeUiVariable, Mode=OneWay}" />
                     </UniformGrid>
                     <TextBlock Style="{StaticResource SettingLabel}" Margin="0,8,0,3" Text="Alignment" />
                     <UniformGrid Rows="1" Columns="3">
-                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="0,0,3,0" Content="Left" />
-                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="3,0" IsChecked="True" Content="Center" />
-                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="3,0,0,0" Content="Right" />
+                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="0,0,3,0" Content="Left"
+                                      IsChecked="{Binding IsAlignmentLeft, Mode=OneWay}" />
+                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="3,0" Content="Center"
+                                      IsChecked="{Binding IsAlignmentCenter, Mode=OneWay}" />
+                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="3,0,0,0" Content="Right"
+                                      IsChecked="{Binding IsAlignmentRight, Mode=OneWay}" />
                     </UniformGrid>
                 </StackPanel>
             </Border>
@@ -60,15 +70,17 @@
                 <StackPanel IsHitTestVisible="False">
                     <TextBlock Style="{StaticResource SettingLabel}" Margin="0,0,0,3" Text="Background width" />
                     <UniformGrid Rows="1" Columns="2">
-                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="0,0,3,0" Content="Full width" />
-                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="3,0,0,0" IsChecked="True" Content="Content width" />
+                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="0,0,3,0" Content="Full width"
+                                      IsChecked="{Binding IsBackgroundFullWidth, Mode=OneWay}" />
+                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="3,0,0,0" Content="Content width"
+                                      IsChecked="{Binding IsBackgroundContentWidth, Mode=OneWay}" />
                     </UniformGrid>
                     <TextBlock Style="{StaticResource SettingLabel}" Margin="0,8,0,3" Text="Background opacity" />
                     <DockPanel>
-                        <TextBlock DockPanel.Dock="Right" Text="70%" VerticalAlignment="Center" Margin="12,0,0,0"
-                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
-                        <Slider Minimum="50" Maximum="100" Value="70" TickFrequency="5"
-                                IsSnapToTickEnabled="True" VerticalAlignment="Center" MinHeight="28" />
+                        <TextBlock DockPanel.Dock="Right" Text="{Binding BackgroundOpacityText}" VerticalAlignment="Center"
+                                   Margin="12,0,0,0" Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                        <Slider Minimum="50" Maximum="100" Value="{Binding BackgroundOpacityPercent, Mode=OneWay}"
+                                TickFrequency="5" IsSnapToTickEnabled="True" VerticalAlignment="Center" MinHeight="28" />
                     </DockPanel>
                 </StackPanel>
             </Border>
@@ -76,7 +88,8 @@
             <!-- Card 4: Intel VRR Range Fix -->
             <Border Style="{StaticResource SettingsCard}">
                 <DockPanel IsHitTestVisible="False">
-                    <ToggleButton DockPanel.Dock="Right" Style="{StaticResource SettingToggleSwitch}" />
+                    <ToggleButton DockPanel.Dock="Right" Style="{StaticResource SettingToggleSwitch}"
+                                  IsChecked="{Binding IntelVrrRangeFixEnabled, Mode=OneWay}" />
                     <TextBlock Style="{StaticResource SettingLabel}" Margin="0" Text="Intel VRR Range Fix" />
                 </DockPanel>
             </Border>
@@ -84,7 +97,8 @@
             <!-- Card 5: Start with Windows -->
             <Border Style="{StaticResource SettingsCard}">
                 <DockPanel IsHitTestVisible="False">
-                    <ToggleButton DockPanel.Dock="Right" Style="{StaticResource SettingToggleSwitch}" />
+                    <ToggleButton DockPanel.Dock="Right" Style="{StaticResource SettingToggleSwitch}"
+                                  IsChecked="{Binding StartWithWindows, Mode=OneWay}" />
                     <TextBlock Style="{StaticResource SettingLabel}" Margin="0" Text="Start with Windows" />
                 </DockPanel>
             </Border>

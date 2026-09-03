@@ -11,3 +11,5 @@ AGENTS.md
 /build-r7/
 /src/ClawHUD.Settings/bin/
 /src/ClawHUD.Settings/obj/
+/tests/ClawHUD.Settings.Tests/bin/
+/tests/ClawHUD.Settings.Tests/obj/

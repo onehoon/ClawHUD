@@ -31,6 +31,10 @@ jobs:
         shell: pwsh
         run: dotnet build src/ClawHUD.Settings/ClawHUD.Settings.csproj --configuration Release
 
+      - name: Test WPF Settings
+        shell: pwsh
+        run: dotnet test tests/ClawHUD.Settings.Tests/ClawHUD.Settings.Tests.csproj --configuration Release
+
       - name: Configure Release x64
         shell: pwsh
         run: >-
