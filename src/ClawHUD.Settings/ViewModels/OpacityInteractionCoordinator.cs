@@ -18,7 +18,8 @@ internal sealed class OpacityInteractionCoordinator(
     IRuntimeControlClient client,
     Func<ushort> currentRuntimeOpacity,
     Action<SettingsSnapshot> applySnapshot,
-    Action stateChanged)
+    Action stateChanged,
+    Action<ControlClientResult<SettingsSnapshot>> reportResult)
 {
     private readonly object _gate = new();
 
@@ -116,8 +117,10 @@ internal sealed class OpacityInteractionCoordinator(
             ControlClientResult<SettingsSnapshot> result = await client.CommitHudOpacityAsync(finalValue);
             if (result.IsSuccess)
                 applySnapshot(result.Value!);
-            // On failure the last authoritative snapshot is retained; the slider
-            // snaps back to it once the interaction clears below.
+            else
+                reportResult(result); // terminal runtime loss must reach the frontend-close path
+            // On non-terminal failure the last authoritative snapshot is retained;
+            // the slider snaps back to it once the interaction clears below.
         }
 
         lock (_gate)
@@ -144,6 +147,8 @@ internal sealed class OpacityInteractionCoordinator(
         ControlClientResult<SettingsSnapshot> result = await client.CommitHudOpacityAsync(snappedPercent);
         if (result.IsSuccess)
             applySnapshot(result.Value!);
+        else
+            reportResult(result);
 
         lock (_gate)
             _discreteCommitInFlight = false;
@@ -173,6 +178,10 @@ internal sealed class OpacityInteractionCoordinator(
                 lock (_gate)
                     _lastSuccessfulPreview = next;
                 applySnapshot(result.Value!);
+            }
+            else
+            {
+                reportResult(result); // surface terminal runtime loss
             }
             // A failed preview is not retried; the loop simply picks up the next
             // pending value (or exits), keeping the gesture responsive.

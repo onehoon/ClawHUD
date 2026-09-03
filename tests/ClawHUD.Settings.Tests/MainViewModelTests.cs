@@ -14,10 +14,12 @@ public class MainViewModelTests
         WireVisibilityMode visibility = WireVisibilityMode.Always,
         WireAlignment alignment = WireAlignment.Center,
         WireBackgroundMode background = WireBackgroundMode.ContentWidth,
-        ushort opacity = 70) =>
-        new(StartWithWindows: true, HudEnabled: hudEnabled, HudSizeOffset: size, HudFont: font,
+        ushort opacity = 70,
+        bool startWithWindows = true,
+        bool intelVrr = false) =>
+        new(StartWithWindows: startWithWindows, HudEnabled: hudEnabled, HudSizeOffset: size, HudFont: font,
             VisibilityMode: visibility, Alignment: alignment, BackgroundMode: background,
-            BackgroundOpacityPercent: opacity, IntelVrrRangeFixEnabled: false, IntelVrrLastResult: null);
+            BackgroundOpacityPercent: opacity, IntelVrrRangeFixEnabled: intelVrr, IntelVrrLastResult: null);
 
     private static (MainViewModel Vm, FakeRuntimeControlClient Fake) Loaded(SettingsSnapshot? initial = null)
     {
@@ -58,7 +60,7 @@ public class MainViewModelTests
     {
         var vm = new MainViewModel(new FakeRuntimeControlClient());
 
-        Assert.False(vm.AreDiscreteHudControlsEnabled);
+        Assert.False(vm.AreDiscreteSettingsControlsEnabled);
         Assert.False(vm.CanIncreaseHudSize);
         Assert.False(vm.CanDecreaseHudSize);
         Assert.Equal(string.Empty, vm.BackgroundOpacityText);
@@ -157,7 +159,7 @@ public class MainViewModelTests
         Assert.True(vm.IsAlignmentLeft);
         Assert.True(vm.HudEnabled);
         Assert.False(vm.IsMutationInFlight);
-        Assert.True(vm.AreDiscreteHudControlsEnabled);
+        Assert.True(vm.AreDiscreteSettingsControlsEnabled);
     }
 
     // ---- One mutation in flight (§11, §16.8) ---------------------
@@ -181,5 +183,239 @@ public class MainViewModelTests
         await first;
         Assert.False(vm.IsMutationInFlight);
         Assert.Single(fake.Calls);
+    }
+
+    // ---- Cards 4/5: Start with Windows + Intel VRR Range Fix (§17) ----
+
+    [Fact] // §17.1 merge-critical: native App::SetStartWithWindows rolls back internally on shortcut failure
+    public async Task StartWithWindows_AuthoritativeRollback_StaysOffWhenSnapshotUnchanged()
+    {
+        var (vm, fake) = Loaded(Snapshot(startWithWindows: false));
+        fake.NextSnapshot = Snapshot(startWithWindows: false); // Ok, but runtime rolled back
+
+        await vm.ToggleStartWithWindowsAsync();
+
+        Assert.Equal(new[] { ControlOperation.SetStartWithWindows }, fake.Calls);
+        Assert.False(vm.StartWithWindows);
+    }
+
+    [Fact] // §17.2
+    public async Task StartWithWindows_Success_ProjectsReturnedValue()
+    {
+        var (vm, fake) = Loaded(Snapshot(startWithWindows: false));
+        fake.NextSnapshot = Snapshot(startWithWindows: true);
+
+        await vm.ToggleStartWithWindowsAsync();
+
+        Assert.True(vm.StartWithWindows);
+    }
+
+    [Theory] // §17.3 both directions; toggling does not run the VRR algorithm here
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public async Task IntelVrrRangeFix_TogglesToReturnedSnapshotValue(bool from, bool to)
+    {
+        var (vm, fake) = Loaded(Snapshot(intelVrr: from));
+        fake.NextSnapshot = Snapshot(intelVrr: to);
+
+        await vm.ToggleIntelVrrRangeFixAsync();
+
+        Assert.Equal(new[] { ControlOperation.SetIntelVrrRangeFixEnabled }, fake.Calls);
+        Assert.Equal(to, vm.IntelVrrRangeFixEnabled);
+    }
+
+    [Fact] // §17.4 whole-snapshot reconciliation
+    public async Task Card45Mutation_AppliesWholeReturnedSnapshot()
+    {
+        var (vm, fake) = Loaded(Snapshot(startWithWindows: false, alignment: WireAlignment.Left, hudEnabled: true));
+        fake.NextSnapshot = Snapshot(startWithWindows: true, alignment: WireAlignment.Right, hudEnabled: false);
+
+        await vm.ToggleStartWithWindowsAsync();
+
+        Assert.True(vm.StartWithWindows);
+        Assert.True(vm.IsAlignmentRight);
+        Assert.False(vm.HudEnabled);
+    }
+
+    [Fact] // §17.5
+    public async Task Card45Mutation_BlockedWhileOpacityInteractionActive()
+    {
+        var (vm, fake) = Loaded(Snapshot(intelVrr: false));
+        fake.NextSnapshot = Snapshot(intelVrr: false);
+        fake.Gate = new TaskCompletionSource();
+
+        vm.BeginOpacityInteraction();
+        vm.UpdateOpacityGesture(80); // preview held -> interaction busy
+
+        await vm.ToggleIntelVrrRangeFixAsync();
+        Assert.DoesNotContain(ControlOperation.SetIntelVrrRangeFixEnabled, fake.Calls);
+
+        fake.Gate.SetResult();
+        await vm.EndOpacityInteractionAsync();
+    }
+
+    [Fact] // §17.5
+    public async Task Card45Mutation_BlockedWhileAnotherDiscreteMutationInFlight()
+    {
+        var (vm, fake) = Loaded(Snapshot(startWithWindows: false));
+        fake.NextSnapshot = Snapshot(startWithWindows: false);
+        fake.Gate = new TaskCompletionSource();
+
+        Task first = vm.ToggleStartWithWindowsAsync();
+        Assert.True(vm.IsMutationInFlight);
+
+        Task second = vm.ToggleIntelVrrRangeFixAsync();
+        Assert.True(second.IsCompleted);
+        Assert.Single(fake.Calls);
+
+        fake.Gate.SetResult();
+        await first;
+    }
+
+    // ---- Activation-time refresh (§18) ----
+
+    [Fact] // §18.1
+    public async Task ActivationRefresh_AppliesWholeSnapshot()
+    {
+        var (vm, fake) = Loaded(Snapshot(alignment: WireAlignment.Left, opacity: 70));
+        fake.NextSnapshot = Snapshot(alignment: WireAlignment.Right, opacity: 90);
+
+        await vm.RefreshOnActivationAsync();
+
+        Assert.Equal(new[] { ControlOperation.GetSettingsSnapshot }, fake.Calls);
+        Assert.True(vm.IsAlignmentRight);
+        Assert.Equal(90, vm.SliderOpacityValue);
+    }
+
+    [Fact] // availability state must match the interaction guard during the refresh window
+    public async Task ActivationRefresh_DisablesAllControlsWhileInFlight()
+    {
+        var (vm, fake) = Loaded(Snapshot());
+        fake.NextSnapshot = Snapshot();
+        fake.Gate = new TaskCompletionSource();
+
+        Task refresh = vm.RefreshOnActivationAsync();
+
+        Assert.False(vm.AreDiscreteSettingsControlsEnabled);
+        Assert.False(vm.IsOpacitySliderEnabled);
+
+        fake.Gate.SetResult();
+        await refresh;
+
+        Assert.True(vm.AreDiscreteSettingsControlsEnabled);
+        Assert.True(vm.IsOpacitySliderEnabled);
+    }
+
+    [Fact] // a mutation attempted during the refresh window is rejected (controls are disabled anyway)
+    public async Task Mutation_DuringActivationRefresh_IsNotDispatched()
+    {
+        var (vm, fake) = Loaded(Snapshot(alignment: WireAlignment.Center));
+        fake.NextSnapshot = Snapshot(alignment: WireAlignment.Center);
+        fake.Gate = new TaskCompletionSource();
+
+        Task refresh = vm.RefreshOnActivationAsync();
+        await vm.SelectAlignmentAsync(WireAlignment.Right);
+
+        Assert.DoesNotContain(ControlOperation.SetHudAlignment, fake.Calls);
+
+        fake.Gate.SetResult();
+        await refresh;
+    }
+
+    [Fact] // §18.2
+    public void ActivationRefresh_SkippedBeforeInitialSnapshot()
+    {
+        var fake = new FakeRuntimeControlClient();
+        var vm = new MainViewModel(fake);
+
+        _ = vm.RefreshOnActivationAsync();
+
+        Assert.Empty(fake.Calls);
+    }
+
+    [Fact] // §18.2
+    public async Task ActivationRefresh_SkippedWhileMutationInFlight()
+    {
+        var (vm, fake) = Loaded(Snapshot(alignment: WireAlignment.Center));
+        fake.NextSnapshot = Snapshot(alignment: WireAlignment.Right);
+        fake.Gate = new TaskCompletionSource();
+
+        Task mutation = vm.SelectAlignmentAsync(WireAlignment.Right);
+        await vm.RefreshOnActivationAsync();
+
+        Assert.DoesNotContain(ControlOperation.GetSettingsSnapshot, fake.Calls);
+
+        fake.Gate.SetResult();
+        await mutation;
+    }
+
+    [Fact] // §18.2
+    public async Task ActivationRefresh_SkippedWhileOpacityInteractionActive()
+    {
+        var (vm, fake) = Loaded(Snapshot(opacity: 70));
+        fake.NextSnapshot = Snapshot(opacity: 70);
+        fake.Gate = new TaskCompletionSource();
+
+        vm.BeginOpacityInteraction();
+        vm.UpdateOpacityGesture(80);
+
+        await vm.RefreshOnActivationAsync();
+        Assert.DoesNotContain(ControlOperation.GetSettingsSnapshot, fake.Calls);
+
+        fake.Gate.SetResult();
+        await vm.EndOpacityInteractionAsync();
+    }
+
+    // ---- Runtime-loss / clean close (§19) ----
+
+    [Theory] // §19.2 / §19.3
+    [InlineData(ControlClientOutcome.TransportUnavailable, ControlStatus.Ok)]
+    [InlineData(ControlClientOutcome.ProtocolError, ControlStatus.ShuttingDown)]
+    [InlineData(ControlClientOutcome.ProtocolError, ControlStatus.RuntimeUnavailable)]
+    public async Task TerminalRuntimeLossDuringMutation_RaisesRuntimeLostOnceAndKeepsSnapshot(
+        ControlClientOutcome outcome, ControlStatus status)
+    {
+        var (vm, fake) = Loaded(Snapshot(alignment: WireAlignment.Left));
+        fake.NextOutcome = outcome;
+        fake.NextStatus = status;
+        int raised = 0;
+        vm.RuntimeLost += () => raised++;
+
+        await vm.SelectAlignmentAsync(WireAlignment.Right);
+        await vm.SelectFontAsync(WireFont.SegoeUiVariable); // second terminal failure
+
+        Assert.Equal(1, raised); // raised once, not per failure
+        Assert.True(vm.IsAlignmentLeft); // previous authoritative snapshot retained
+        Assert.False(vm.IsMutationInFlight);
+    }
+
+    [Fact] // §19.2
+    public async Task TerminalRuntimeLossDuringActivationRefresh_RaisesRuntimeLost()
+    {
+        var (vm, fake) = Loaded(Snapshot());
+        fake.NextOutcome = ControlClientOutcome.TransportUnavailable;
+        bool raised = false;
+        vm.RuntimeLost += () => raised = true;
+
+        await vm.RefreshOnActivationAsync();
+
+        Assert.True(raised);
+    }
+
+    [Theory] // §19.5 a plain timeout is not terminal
+    [InlineData(ControlClientOutcome.TimedOut)]
+    [InlineData(ControlClientOutcome.MalformedResponse)]
+    public async Task NonTerminalFailure_DoesNotRaiseRuntimeLost(ControlClientOutcome outcome)
+    {
+        var (vm, fake) = Loaded(Snapshot(alignment: WireAlignment.Left));
+        fake.NextOutcome = outcome;
+        bool raised = false;
+        vm.RuntimeLost += () => raised = true;
+
+        await vm.SelectAlignmentAsync(WireAlignment.Right);
+
+        Assert.False(raised);
+        Assert.True(vm.IsAlignmentLeft);
+        Assert.True(vm.AreDiscreteSettingsControlsEnabled); // recovers
     }
 }

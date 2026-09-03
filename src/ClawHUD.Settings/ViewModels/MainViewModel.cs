@@ -7,8 +7,11 @@ namespace ClawHUD.Settings.ViewModels;
 /// <summary>
 /// Projection of the latest authoritative runtime <see cref="SettingsSnapshot"/>.
 /// It never owns persisted settings and never writes files. A user action sends
-/// one mutation through <see cref="IRuntimeControlClient"/>; only the snapshot
-/// the runtime returns replaces local state. At most one mutation runs at a time.
+/// one mutation through <see cref="IRuntimeControlClient"/>; only the snapshot the
+/// runtime returns replaces local state. At most one mutation runs at a time, and
+/// discrete controls, the opacity interaction, and activation refresh are
+/// mutually exclusive. Terminal runtime loss at any IPC point raises
+/// <see cref="RuntimeLost"/> so the window can close cleanly.
 /// </summary>
 public sealed class MainViewModel : INotifyPropertyChanged
 {
@@ -16,6 +19,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly OpacityInteractionCoordinator _opacity;
     private SettingsSnapshot? _snapshot;
     private bool _mutationInFlight;
+    private bool _refreshInFlight;
+    private bool _runtimeLostRaised;
 
     internal MainViewModel(IRuntimeControlClient client)
     {
@@ -24,10 +29,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
             client,
             () => _snapshot?.BackgroundOpacityPercent ?? (ushort)ControlProtocol.MinOpacityPercent,
             ApplySnapshot,
-            RaiseAllChanged);
+            RaiseAllChanged,
+            HandleFailedResult);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    /// <summary>Raised once when an IPC result proves the runtime can no longer be controlled.</summary>
+    public event Action? RuntimeLost;
 
     internal void ApplySnapshot(SettingsSnapshot snapshot)
     {
@@ -45,15 +54,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    // Discrete card 1-3 controls (everything except the opacity slider) are
-    // interactive only with an authoritative snapshot, no discrete mutation in
-    // flight, and no opacity interaction active.
-    public bool AreDiscreteHudControlsEnabled =>
-        _snapshot is not null && !_mutationInFlight && !_opacity.IsBusy;
+    // Discrete controls across all five cards are interactive only with an
+    // authoritative snapshot and no discrete mutation, activation refresh, or
+    // opacity interaction in flight. The availability state mirrors the guard in
+    // CanStartInteraction() so a click during a busy window is never accepted by
+    // WPF only to be silently dropped by the ViewModel.
+    public bool AreDiscreteSettingsControlsEnabled =>
+        _snapshot is not null && !_mutationInFlight && !_refreshInFlight && !_opacity.IsBusy;
 
     // The opacity slider stays enabled through its own preview IPC so a drag is
-    // never interrupted; it only yields to a discrete mutation.
-    public bool IsOpacitySliderEnabled => _snapshot is not null && !_mutationInFlight;
+    // never interrupted; it yields to a discrete mutation or an activation refresh
+    // (neither of which can begin while an opacity gesture is active).
+    public bool IsOpacitySliderEnabled =>
+        _snapshot is not null && !_mutationInFlight && !_refreshInFlight;
 
     public bool IsOpacityInteractionActive => _opacity.IsActive;
 
@@ -64,8 +77,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public int HudSizeOffset => _snapshot?.HudSizeOffset ?? 0;
     public string HudSizeLabel => FormatSizeOffset(HudSizeOffset);
-    public bool CanDecreaseHudSize => AreDiscreteHudControlsEnabled && HudSizeOffset > ControlProtocol.MinHudSizeOffset;
-    public bool CanIncreaseHudSize => AreDiscreteHudControlsEnabled && HudSizeOffset < ControlProtocol.MaxHudSizeOffset;
+    public bool CanDecreaseHudSize => AreDiscreteSettingsControlsEnabled && HudSizeOffset > ControlProtocol.MinHudSizeOffset;
+    public bool CanIncreaseHudSize => AreDiscreteSettingsControlsEnabled && HudSizeOffset < ControlProtocol.MaxHudSizeOffset;
 
     public bool IsFontUnispace => _snapshot?.HudFont == WireFont.Unispace;
     public bool IsFontSegoeUiVariable => _snapshot?.HudFont == WireFont.SegoeUiVariable;
@@ -90,7 +103,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public bool IntelVrrRangeFixEnabled => _snapshot?.IntelVrrRangeFixEnabled ?? false;
     public bool StartWithWindows => _snapshot?.StartWithWindows ?? false;
 
-    // ---- Mutation intents (cards 1-3, opacity excluded) ------------------
+    // ---- Discrete mutation intents -----------------------------------
 
     internal Task ToggleHudEnabledAsync() =>
         Mutate(c => c.SetHudEnabledAsync(!HudEnabled));
@@ -125,11 +138,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
             : ReassertProjection();
     }
 
-    // ---- Background opacity interaction (card 3) ------------------------
+    internal Task ToggleIntelVrrRangeFixAsync() =>
+        Mutate(c => c.SetIntelVrrRangeFixEnabledAsync(!IntelVrrRangeFixEnabled));
+
+    internal Task ToggleStartWithWindowsAsync() =>
+        Mutate(c => c.SetStartWithWindowsAsync(!StartWithWindows));
+
+    // ---- Background opacity interaction (card 3) --------------------
 
     internal void BeginOpacityInteraction()
     {
-        if (_snapshot is null || _mutationInFlight || _opacity.IsBusy)
+        if (!CanStartInteraction())
             return;
         _opacity.Begin();
     }
@@ -138,16 +157,45 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     internal Task EndOpacityInteractionAsync() => _opacity.EndAsync();
 
-    internal Task ChangeOpacityAsync(ushort snappedPercent)
+    internal Task ChangeOpacityAsync(ushort snappedPercent) =>
+        CanStartInteraction() ? _opacity.ChangeAndCommitAsync(snappedPercent) : Task.CompletedTask;
+
+    // ---- Activation-time authoritative refresh (§12) --------------
+
+    /// <summary>
+    /// Re-read the authoritative snapshot when the window is re-activated. Skipped
+    /// (not queued) while any interaction is active; never fetches GetRuntimeInfo.
+    /// </summary>
+    internal async Task RefreshOnActivationAsync()
     {
-        if (_snapshot is null || _mutationInFlight || _opacity.IsBusy)
-            return Task.CompletedTask;
-        return _opacity.ChangeAndCommitAsync(snappedPercent);
+        if (_snapshot is null || _mutationInFlight || _refreshInFlight || _opacity.IsBusy)
+            return;
+
+        _refreshInFlight = true;
+        RaiseAllChanged(); // disable the mutation controls for the refresh window
+        try
+        {
+            ControlClientResult<SettingsSnapshot> result = await _client.GetSettingsSnapshotAsync();
+            if (result.IsSuccess)
+                _snapshot = result.Value;
+            else
+                HandleFailedResult(result);
+        }
+        finally
+        {
+            _refreshInFlight = false;
+            RaiseAllChanged();
+        }
     }
+
+    // ---- Shared mutation plumbing ---------------------------------
+
+    private bool CanStartInteraction() =>
+        _snapshot is not null && !_mutationInFlight && !_refreshInFlight && !_opacity.IsBusy;
 
     private async Task Mutate(Func<IRuntimeControlClient, Task<ControlClientResult<SettingsSnapshot>>> operation)
     {
-        if (_snapshot is null || _mutationInFlight || _opacity.IsBusy)
+        if (!CanStartInteraction())
         {
             RaiseAllChanged();
             return;
@@ -158,13 +206,24 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             ControlClientResult<SettingsSnapshot> result = await operation(_client);
             if (result.IsSuccess)
-                _snapshot = result.Value;
-            // Any failure keeps the previous authoritative snapshot; the finally
-            // block re-projects it so a transiently toggled control snaps back.
+                _snapshot = result.Value; // the returned snapshot is authoritative — never the requested value
+            else
+                HandleFailedResult(result);
         }
         finally
         {
             IsMutationInFlight = false;
+        }
+    }
+
+    private void HandleFailedResult(ControlClientResult<SettingsSnapshot> result)
+    {
+        // The previous authoritative snapshot is kept. A terminal loss additionally
+        // closes the frontend (a plain timeout is left recoverable).
+        if (!_runtimeLostRaised && RuntimeLoss.IsTerminal(result))
+        {
+            _runtimeLostRaised = true;
+            RuntimeLost?.Invoke();
         }
     }
 
