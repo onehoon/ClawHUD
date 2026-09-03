@@ -55,14 +55,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
 
     // Discrete controls across all five cards are interactive only with an
-    // authoritative snapshot, no discrete mutation in flight, and no opacity
-    // interaction active.
+    // authoritative snapshot and no discrete mutation, activation refresh, or
+    // opacity interaction in flight. The availability state mirrors the guard in
+    // CanStartInteraction() so a click during a busy window is never accepted by
+    // WPF only to be silently dropped by the ViewModel.
     public bool AreDiscreteSettingsControlsEnabled =>
-        _snapshot is not null && !_mutationInFlight && !_opacity.IsBusy;
+        _snapshot is not null && !_mutationInFlight && !_refreshInFlight && !_opacity.IsBusy;
 
     // The opacity slider stays enabled through its own preview IPC so a drag is
-    // never interrupted; it only yields to a discrete mutation.
-    public bool IsOpacitySliderEnabled => _snapshot is not null && !_mutationInFlight;
+    // never interrupted; it yields to a discrete mutation or an activation refresh
+    // (neither of which can begin while an opacity gesture is active).
+    public bool IsOpacitySliderEnabled =>
+        _snapshot is not null && !_mutationInFlight && !_refreshInFlight;
 
     public bool IsOpacityInteractionActive => _opacity.IsActive;
 
@@ -168,12 +172,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return;
 
         _refreshInFlight = true;
+        RaiseAllChanged(); // disable the mutation controls for the refresh window
         try
         {
             ControlClientResult<SettingsSnapshot> result = await _client.GetSettingsSnapshotAsync();
-            if (result.IsSuccess && !_mutationInFlight && !_opacity.IsBusy)
+            if (result.IsSuccess)
                 _snapshot = result.Value;
-            else if (!result.IsSuccess)
+            else
                 HandleFailedResult(result);
         }
         finally

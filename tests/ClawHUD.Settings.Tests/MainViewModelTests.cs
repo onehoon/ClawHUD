@@ -287,6 +287,41 @@ public class MainViewModelTests
         Assert.Equal(90, vm.SliderOpacityValue);
     }
 
+    [Fact] // availability state must match the interaction guard during the refresh window
+    public async Task ActivationRefresh_DisablesAllControlsWhileInFlight()
+    {
+        var (vm, fake) = Loaded(Snapshot());
+        fake.NextSnapshot = Snapshot();
+        fake.Gate = new TaskCompletionSource();
+
+        Task refresh = vm.RefreshOnActivationAsync();
+
+        Assert.False(vm.AreDiscreteSettingsControlsEnabled);
+        Assert.False(vm.IsOpacitySliderEnabled);
+
+        fake.Gate.SetResult();
+        await refresh;
+
+        Assert.True(vm.AreDiscreteSettingsControlsEnabled);
+        Assert.True(vm.IsOpacitySliderEnabled);
+    }
+
+    [Fact] // a mutation attempted during the refresh window is rejected (controls are disabled anyway)
+    public async Task Mutation_DuringActivationRefresh_IsNotDispatched()
+    {
+        var (vm, fake) = Loaded(Snapshot(alignment: WireAlignment.Center));
+        fake.NextSnapshot = Snapshot(alignment: WireAlignment.Center);
+        fake.Gate = new TaskCompletionSource();
+
+        Task refresh = vm.RefreshOnActivationAsync();
+        await vm.SelectAlignmentAsync(WireAlignment.Right);
+
+        Assert.DoesNotContain(ControlOperation.SetHudAlignment, fake.Calls);
+
+        fake.Gate.SetResult();
+        await refresh;
+    }
+
     [Fact] // §18.2
     public void ActivationRefresh_SkippedBeforeInitialSnapshot()
     {
