@@ -353,14 +353,10 @@ releases.stable.json
 Fetch it from the stable “latest normal GitHub release” URL:
 
 ```text
-https://github.com/onehoon/ClawHUD/releases/latest/download/release.stable.json
-```
-
-**Important:** use the actual VeloPack-supplied `releasesName`, not a typo/hardcoded alternate filename. For the current channel this resolves to:
-
-```text
 https://github.com/onehoon/ClawHUD/releases/latest/download/releases.stable.json
 ```
+
+Use the actual VeloPack-supplied `releasesName` when constructing the URL. For the current stable channel it must resolve exactly to the URL above.
 
 Recommended helper:
 
