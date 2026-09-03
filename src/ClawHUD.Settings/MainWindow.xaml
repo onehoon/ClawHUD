@@ -1,0 +1,94 @@
+<Window x:Class="ClawHUD.Settings.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="ClawHUD"
+        Width="700" Height="744"
+        MinWidth="700" MaxWidth="700"
+        MinHeight="744" MaxHeight="744"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterScreen">
+
+    <!-- PR1 foundation: the whole page is a static visual shell. Interactive-looking
+         controls carry touch-sized geometry and representative state only; hit
+         testing is disabled per card until runtime wiring lands in a later PR. -->
+    <Grid Margin="12">
+        <StackPanel>
+
+            <!-- Card 1: HUD enable + display mode -->
+            <Border Style="{StaticResource SettingsCard}">
+                <StackPanel IsHitTestVisible="False">
+                    <DockPanel>
+                        <ToggleButton DockPanel.Dock="Right" Style="{StaticResource SettingToggleSwitch}" IsChecked="True" />
+                        <TextBlock Style="{StaticResource SettingLabel}" Margin="0" Text="Enable HUD" />
+                    </DockPanel>
+                    <TextBlock Style="{StaticResource SettingLabel}" Margin="0,8,0,3" Text="Display mode" />
+                    <UniformGrid Rows="1" Columns="2">
+                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="0,0,3,0" Content="In-game only" />
+                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="3,0,0,0" IsChecked="True" Content="Always" />
+                    </UniformGrid>
+                </StackPanel>
+            </Border>
+
+            <!-- Card 2: HUD size + font + alignment -->
+            <Border Style="{StaticResource SettingsCard}">
+                <StackPanel IsHitTestVisible="False">
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                            <Button Style="{StaticResource StepperButton}" Content="&#x2212;" />
+                            <TextBlock Text="Default" VerticalAlignment="Center" Margin="12,0"
+                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                            <Button Style="{StaticResource StepperButton}" Content="+" />
+                        </StackPanel>
+                        <TextBlock Style="{StaticResource SettingLabel}" Margin="0" Text="HUD size" />
+                    </DockPanel>
+                    <TextBlock Style="{StaticResource SettingLabel}" Margin="0,8,0,3" Text="Font" />
+                    <UniformGrid Rows="1" Columns="2">
+                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="0,0,3,0" IsChecked="True" Content="Unispace" />
+                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="3,0,0,0" Content="Segoe UI Variable" />
+                    </UniformGrid>
+                    <TextBlock Style="{StaticResource SettingLabel}" Margin="0,8,0,3" Text="Alignment" />
+                    <UniformGrid Rows="1" Columns="3">
+                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="0,0,3,0" Content="Left" />
+                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="3,0" IsChecked="True" Content="Center" />
+                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="3,0,0,0" Content="Right" />
+                    </UniformGrid>
+                </StackPanel>
+            </Border>
+
+            <!-- Card 3: background width + background opacity -->
+            <Border Style="{StaticResource SettingsCard}">
+                <StackPanel IsHitTestVisible="False">
+                    <TextBlock Style="{StaticResource SettingLabel}" Margin="0,0,0,3" Text="Background width" />
+                    <UniformGrid Rows="1" Columns="2">
+                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="0,0,3,0" Content="Full width" />
+                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="3,0,0,0" IsChecked="True" Content="Content width" />
+                    </UniformGrid>
+                    <TextBlock Style="{StaticResource SettingLabel}" Margin="0,8,0,3" Text="Background opacity" />
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Right" Text="70%" VerticalAlignment="Center" Margin="12,0,0,0"
+                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                        <Slider Minimum="50" Maximum="100" Value="70" TickFrequency="5"
+                                IsSnapToTickEnabled="True" VerticalAlignment="Center" MinHeight="28" />
+                    </DockPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Card 4: Intel VRR Range Fix -->
+            <Border Style="{StaticResource SettingsCard}">
+                <DockPanel IsHitTestVisible="False">
+                    <ToggleButton DockPanel.Dock="Right" Style="{StaticResource SettingToggleSwitch}" />
+                    <TextBlock Style="{StaticResource SettingLabel}" Margin="0" Text="Intel VRR Range Fix" />
+                </DockPanel>
+            </Border>
+
+            <!-- Card 5: Start with Windows -->
+            <Border Style="{StaticResource SettingsCard}">
+                <DockPanel IsHitTestVisible="False">
+                    <ToggleButton DockPanel.Dock="Right" Style="{StaticResource SettingToggleSwitch}" />
+                    <TextBlock Style="{StaticResource SettingLabel}" Margin="0" Text="Start with Windows" />
+                </DockPanel>
+            </Border>
+
+        </StackPanel>
+    </Grid>
+</Window>

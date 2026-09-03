@@ -22,6 +22,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build WPF Settings Release x64
+        shell: pwsh
+        run: dotnet build src/ClawHUD.Settings/ClawHUD.Settings.csproj --configuration Release
+
       - name: Configure Release x64
         shell: pwsh
         run: >-
