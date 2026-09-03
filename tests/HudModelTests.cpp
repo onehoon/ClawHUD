@@ -104,6 +104,15 @@ int main()
     ok &= Check(ResolveHudVisible(true, std::optional<bool>(true),
         HudVisibilityMode::InGameOnly, false),
         "a show override beats InGameOnly with no game");
+    ok &= Check(!ResolveHudHotkeyOverride(false, false).has_value(),
+        "F8 ignored when HUD master disabled (hidden)");
+    ok &= Check(!ResolveHudHotkeyOverride(false, true).has_value(),
+        "F8 ignored when HUD master disabled (visible)");
+    ok &= Check(ResolveHudHotkeyOverride(true, true) == std::optional<bool>(false),
+        "F8 while enabled+visible resolves to force hide");
+    ok &= Check(ResolveHudHotkeyOverride(true, false) == std::optional<bool>(true),
+        "F8 while enabled+hidden resolves to force show");
+
     ok &= Check(ShouldSampleProductionTelemetry(
         ShouldShowHud(HudVisibilityMode::Always, false), false),
         "always mode keeps global telemetry alive after game exit");

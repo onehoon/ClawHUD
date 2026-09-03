@@ -102,6 +102,12 @@ bool ShouldShowHud(HudVisibilityMode mode, bool foregroundGameActive) noexcept;
 // state decide. Always hidden when the HUD is off.
 bool ResolveHudVisible(bool hudEnabled, std::optional<bool> manualOverride,
     HudVisibilityMode mode, bool foregroundActive) noexcept;
+// F8 test-override policy. When the persisted master (Enable HUD) is off the
+// hotkey is ignored (std::nullopt) and must not revive the HUD. Otherwise it is
+// a non-persistent two-direction toggle keyed off the current visibility:
+// visible -> force hide (false), hidden -> force show (true).
+std::optional<bool> ResolveHudHotkeyOverride(bool hudEnabled,
+    bool currentlyVisible) noexcept;
 std::uint8_t HudOpacityByte(float opacityPercent) noexcept;
 bool ShouldSampleProductionTelemetry(bool resolvedShow, bool suspended) noexcept;
 std::vector<HudTextRun> FormatHud(const HudTelemetrySnapshot& snapshot);

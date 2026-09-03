@@ -80,6 +80,14 @@ bool ResolveHudVisible(bool hudEnabled, std::optional<bool> manualOverride,
         (manualOverride ? *manualOverride : ShouldShowHud(mode, foregroundActive));
 }
 
+std::optional<bool> ResolveHudHotkeyOverride(bool hudEnabled,
+    bool currentlyVisible) noexcept
+{
+    if (!hudEnabled)
+        return std::nullopt;
+    return !currentlyVisible;
+}
+
 bool ShouldSampleProductionTelemetry(bool resolvedShow, bool suspended) noexcept
 {
     return resolvedShow && !suspended;

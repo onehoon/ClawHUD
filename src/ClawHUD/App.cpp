@@ -621,20 +621,17 @@ void App::SetHudVisibilityMode(clawhud::HudVisibilityMode mode)
 
 void App::HandleHudToggleHotkey()
 {
-    if (!hudController_.Enabled())
+    const auto hotkeyOverride = clawhud::ResolveHudHotkeyOverride(
+        hudController_.Enabled(), HudVisible());
+    if (!hotkeyOverride.has_value())
     {
-        if (!hudController_.Ensure())
-        {
-            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
-                L"F8 HUD ON initialization failed");
-            return;
-        }
-        hudController_.MarkEnabled(false);
-        gameSession_.ReevaluateForeground();
-        if (const DWORD processId = gameSession_.CurrentForegroundGameProcessId())
-            productionTelemetry_.StartGraphicsApiProbe(processId);
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
+            L"F8 HUD override ignored: HUD disabled");
+        return;
     }
-    hudController_.SetManualOverride(!HudVisible());
+    clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info,
+        *hotkeyOverride ? L"F8 HUD override=show" : L"F8 HUD override=hide");
+    hudController_.SetManualOverride(*hotkeyOverride);
     ReconcileHudVisibility();
     if (settings_) settings_->UpdateHudControls();
 }
