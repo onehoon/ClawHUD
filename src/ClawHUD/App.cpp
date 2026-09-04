@@ -5,8 +5,7 @@
 #include "SupportedHardware.h"
 #include "PresentMonRuntimeStartupPolicy.h"
 #include "ClawHudUpdateSource.h"
-#include "StartupExecutablePath.h"
-#include "UninstallCleanup.h"
+#include "StartupTaskRegistration.h"
 #include "RuntimeLogger.h"
 #include "Version.h"
 #include "ProductionTargetPolicy.h"
@@ -24,8 +23,6 @@
 #include <filesystem>
 #include <iomanip>
 #include <memory>
-#include <shobjidl.h>
-#include <shlobj.h>
 #include <cwctype>
 #include <sstream>
 #include <string>
@@ -153,9 +150,9 @@ int App::Run()
     // fatal result stops startup before any runtime side effect below.
     if (!HandlePresentMonRuntimeBootstrapResult(clawhud::EnsurePresentMonRuntime()))
         return 0;
-    // Managed launch is not the owner of the Standalone startup shortcut and
-    // must not create / delete / rewrite it; explicit SetStartWithWindows over
-    // IPC still can (see RuntimeLifecyclePolicy.h).
+    // Managed launch is not the owner of the Standalone startup task and must
+    // not create / delete / rewrite it; explicit SetStartWithWindows over IPC
+    // still can (see RuntimeLifecyclePolicy.h).
     if (clawhud::ShouldReconcileStartupRegistration(launchMode_))
     {
         if (!ApplyStartupRegistration())
@@ -303,7 +300,7 @@ void App::SetStartWithWindows(bool enabled)
     {
         startWithWindows_ = previous;
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
-            enabled ? L"Startup registration failed" : L"Startup shortcut removal failed");
+            enabled ? L"Startup registration failed" : L"Startup task removal failed");
         return;
     }
     SaveHudSettings();
@@ -695,43 +692,17 @@ void App::SaveHudEnabledSetting(bool enabled) const
 
 bool App::ApplyStartupRegistration() const
 {
-    const auto shortcut = clawhud::StartupShortcutPath();
-    if (shortcut.empty()) return false;
-
-    if (!startWithWindows_)
-        return DeleteFileW(shortcut.c_str()) != FALSE || GetLastError() == ERROR_FILE_NOT_FOUND;
-
-    const HRESULT initialized = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-    if (FAILED(initialized)) return false;
-
-    IShellLinkW* shellLink{};
-    IPersistFile* persistFile{};
-    HRESULT result = CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER,
-        IID_PPV_ARGS(&shellLink));
-    if (SUCCEEDED(result))
-    {
-        // Target the stable VeloPack root execution stub when installed, so the
-        // shortcut survives `current` replacement across updates; portable/dev
-        // layouts fall back to the running executable. Never pass --managed:
-        // Start-with-Windows is a Standalone preference.
-        const auto startup = clawhud::ResolveStartupExecutable(executablePath_);
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
-            startup.velopackRootStub
-                ? L"Startup target=velopack-root-stub"
-                : L"Startup target=current-exe fallback=" + startup.fallbackReason);
-        result = shellLink->SetPath(startup.path.c_str());
-        if (SUCCEEDED(result))
-        {
-            const auto workingDirectory = startup.path.parent_path();
-            result = shellLink->SetWorkingDirectory(workingDirectory.c_str());
-        }
-        if (SUCCEEDED(result)) result = shellLink->QueryInterface(IID_PPV_ARGS(&persistFile));
-        if (SUCCEEDED(result)) result = persistFile->Save(shortcut.c_str(), TRUE);
-    }
-    if (persistFile) persistFile->Release();
-    if (shellLink) shellLink->Release();
-    CoUninitialize();
-    return SUCCEEDED(result);
+    // Reads the owned Task Scheduler "ClawHUD" logon task first and only
+    // elevates (one bounded self-elevated child, verified by independent
+    // readback) when it does not already match startWithWindows_. Targets the
+    // stable VeloPack root execution stub when installed, so the task
+    // survives `current` replacement across updates; portable/dev layouts
+    // fall back to the running executable. Never --managed: Start-with-Windows
+    // is a Standalone preference.
+    const auto result = clawhud::SynchronizeStartupTask(startWithWindows_, executablePath_);
+    clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
+        L"Startup task synchronize: " + result.message);
+    return result.success;
 }
 
 void App::CheckForUpdates()

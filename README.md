@@ -124,7 +124,7 @@ Windows may display a **UAC prompt** when the PresentMon runtime needs to be ins
 
 The bundled runtime contains the PresentMon shared service and matching API2 middleware used by ClawHUD. Version and licensing information is documented in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
-ClawHUD installs the PresentMon shared-service runtime as a **machine-level shared prerequisite**. Removing ClawHUD does **not** automatically remove that shared runtime, because other software on the machine may use the same compatible installation. ClawHUD uninstall removes the ClawHUD application files and the ClawHUD "Start with Windows" shortcut only.
+ClawHUD installs the PresentMon shared-service runtime as a **machine-level shared prerequisite**. Removing ClawHUD does **not** automatically remove that shared runtime, because other software on the machine may use the same compatible installation. ClawHUD uninstall removes the ClawHUD application files and the owned `ClawHUD` Task Scheduler startup task only.
 
 ---
 
