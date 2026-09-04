@@ -83,6 +83,39 @@ inline bool WindowEventIsRedundantExcludedForegroundLocationChange(
         event.processId == foregroundProcessId;
 }
 
+// EVENT_OBJECT_NAMECHANGE fires repeatedly while a live top-level window
+// animates its title (browsers and Electron shells especially). Every accepted
+// production window event still wakes ForegroundTracker::Reconcile() first, so an
+// actual foreground (HWND, PID) change is never hidden by this throttle. This
+// only rate-limits the *direct* detector re-evaluation caused by repeated
+// NAMECHANGE for the same (HWND, PID): the first is evaluated immediately, then
+// further title churn inside a small fixed window is coalesced, and the first
+// event after that window is eligible again. Non-NameChange events always pass.
+struct NameChangeReevalDebounce
+{
+    HWND window{};
+    DWORD processId{};
+    ULONGLONG lastEvaluatedTickMs{};
+    bool primed{};
+};
+
+inline bool ShouldReevaluateOnNameChange(NameChangeReevalDebounce& state,
+    const ProductionWindowEvent& event, ULONGLONG nowTickMs,
+    ULONGLONG debounceWindowMs = 250) noexcept
+{
+    if (event.type != ProductionWindowEventType::NameChange)
+        return true;
+    const bool sameTarget = state.primed && event.window == state.window &&
+        event.processId == state.processId;
+    if (sameTarget && nowTickMs - state.lastEvaluatedTickMs < debounceWindowMs)
+        return false;
+    state.window = event.window;
+    state.processId = event.processId;
+    state.lastEvaluatedTickMs = nowTickMs;
+    state.primed = true;
+    return true;
+}
+
 inline bool ProcessInstanceStillMatches(
     const std::optional<GameProcessInstance>& expected,
     const std::optional<GameProcessInstance>& actual) noexcept

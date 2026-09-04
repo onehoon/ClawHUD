@@ -281,17 +281,6 @@
     set_target_properties(ClawHUD.TelemetryRetentionTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.TelemetryRetentionTests COMMAND ClawHUD.TelemetryRetentionTests)
 
-    add_executable(ClawHUD.IntelGraphicsApiProbeTests
-        tests/IntelGraphicsApiProbeTests.cpp
-        src/ClawHUD/IntelGraphicsApiProbe.cpp
-        src/ClawHUD/RuntimeLogger.cpp)
-    target_compile_features(ClawHUD.IntelGraphicsApiProbeTests PRIVATE cxx_std_20)
-    target_compile_definitions(ClawHUD.IntelGraphicsApiProbeTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-    target_include_directories(ClawHUD.IntelGraphicsApiProbeTests PRIVATE src/ClawHUD)
-    target_link_libraries(ClawHUD.IntelGraphicsApiProbeTests PRIVATE shell32 ole32)
-    set_target_properties(ClawHUD.IntelGraphicsApiProbeTests PROPERTIES CXX_EXTENSIONS OFF)
-    add_test(NAME ClawHUD.IntelGraphicsApiProbeTests COMMAND ClawHUD.IntelGraphicsApiProbeTests)
-
     add_executable(ClawHUD.SupportedHardwareTests
         tests/SupportedHardwareTests.cpp
         src/ClawHUD/SupportedHardware.cpp

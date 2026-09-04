@@ -55,7 +55,6 @@ long HudOpacityPercentFromSettings(std::wstring_view hudOpacity,
 
 struct HudTelemetrySnapshot
 {
-    std::optional<std::wstring> graphicsApi;
     std::optional<double> renderFps;
     std::optional<double> trueDisplayedFps;
     std::optional<double> frameTimeMs;

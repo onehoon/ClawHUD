@@ -28,6 +28,8 @@ int main()
         ProductionWindowEventType::LocationChange, "LOCATIONCHANGE mapping");
     Check(MapProductionWindowEvent(EVENT_OBJECT_DESTROY) ==
         ProductionWindowEventType::Destroy, "DESTROY mapping");
+    Check(MapProductionWindowEvent(EVENT_OBJECT_NAMECHANGE) ==
+        ProductionWindowEventType::NameChange, "NAMECHANGE mapping");
     Check(!MapProductionWindowEvent(EVENT_OBJECT_FOCUS), "unsupported event rejected");
     Check(IsProductionWindowObject(OBJID_WINDOW, CHILDID_SELF),
         "window object accepted");

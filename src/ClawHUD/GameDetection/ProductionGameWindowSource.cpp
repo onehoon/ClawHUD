@@ -6,12 +6,16 @@ namespace clawhud
 {
 namespace
 {
-constexpr std::array<DWORD, 5> kObservedEvents{
+constexpr std::array<DWORD, 6> kObservedEvents{
     EVENT_OBJECT_CREATE,
     EVENT_OBJECT_SHOW,
     EVENT_OBJECT_HIDE,
     EVENT_OBJECT_LOCATIONCHANGE,
     EVENT_OBJECT_DESTROY,
+    // Wake-up only: a top-level title change (game loader -> game window) is
+    // observed so GameSessionController can re-reconcile the canonical
+    // foreground. It is never treated as game evidence on its own.
+    EVENT_OBJECT_NAMECHANGE,
 };
 }
 
@@ -27,6 +31,7 @@ std::optional<ProductionWindowEventType> MapProductionWindowEvent(DWORD event) n
     case EVENT_OBJECT_HIDE: return ProductionWindowEventType::Hide;
     case EVENT_OBJECT_LOCATIONCHANGE: return ProductionWindowEventType::LocationChange;
     case EVENT_OBJECT_DESTROY: return ProductionWindowEventType::Destroy;
+    case EVENT_OBJECT_NAMECHANGE: return ProductionWindowEventType::NameChange;
     default: return std::nullopt;
     }
 }

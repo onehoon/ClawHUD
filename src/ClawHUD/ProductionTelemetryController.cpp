@@ -1,6 +1,5 @@
 #include "ProductionTelemetryController.h"
 
-#include "ProcessLiveness.h"
 #include "ProductionTargetPolicy.h"
 #include "RuntimeLogger.h"
 #include "WindowsMemoryTelemetry.h"
@@ -17,8 +16,6 @@ namespace
 constexpr UINT kUsageSamplingIntervalMs = 1000;
 constexpr UINT kBatteryHudTimerIntervalMs = 5000;
 constexpr UINT kPresentMonFpsSamplingIntervalMs = 500;
-constexpr UINT kGraphicsApiRetryIntervalMs = 500;
-constexpr unsigned kGraphicsApiMaxAttempts = 5;
 
 void Log(const std::wstring& message)
 {
@@ -42,7 +39,6 @@ void ProductionTelemetryController::Bind(HWND messageWindow,
 void ProductionTelemetryController::FillSnapshot(HudTelemetrySnapshot& snapshot) const
 {
     aggregator_.FillSnapshot(snapshot);
-    snapshot.graphicsApi = latestGraphicsApi_;
     snapshot.presentMonDisplayedFps = latestProcessFps_;
     if (latestPower_)
     {
@@ -125,7 +121,6 @@ MsiEcHudTelemetry ProductionTelemetryController::ReadEcTelemetry()
 
 void ProductionTelemetryController::SampleSystemEc()
 {
-    ReconcileGraphicsApiTargetLiveness();
     const auto freshEcTelemetry = ReadEcTelemetry();
     const bool onBattery = latestPower_ &&
         latestPower_->onBattery.value_or(false);
@@ -443,65 +438,5 @@ void ProductionTelemetryController::ClearInGameForegroundProcess()
         (void)provider_.ReadProcess(0);
     }
     Log(L"[PresentMonFPS] mode=InGameOnly target-cleared");
-}
-
-void ProductionTelemetryController::StartGraphicsApiProbe(DWORD processId)
-{
-    StopGraphicsApiProbe();
-    graphicsApiProcessId_ = processId;
-    TryGraphicsApiProbe();
-}
-
-void ProductionTelemetryController::EnsureGraphicsApiProbe(DWORD processId)
-{
-    if (graphicsApiProcessId_ != processId)
-        StartGraphicsApiProbe(processId);
-}
-
-void ProductionTelemetryController::StopGraphicsApiProbe()
-{
-    KillTimer(messageWindow_, kGraphicsApiRetryTimerId);
-    graphicsApiProbe_.Reset();
-    graphicsApiProcessId_ = 0;
-    graphicsApiAttempts_ = 0;
-    latestGraphicsApi_.reset();
-}
-
-void ProductionTelemetryController::StopGraphicsApiProbeIfTarget(DWORD processId)
-{
-    if (graphicsApiProcessId_ == processId)
-        StopGraphicsApiProbe();
-}
-
-void ProductionTelemetryController::ReconcileGraphicsApiTargetLiveness()
-{
-    if (graphicsApiProcessId_ && !ProcessAlive(graphicsApiProcessId_))
-        StopGraphicsApiProbe();
-}
-
-void ProductionTelemetryController::TryGraphicsApiProbe()
-{
-    if (!graphicsApiProcessId_ || !ProcessAlive(graphicsApiProcessId_))
-    {
-        StopGraphicsApiProbe();
-        return;
-    }
-    ++graphicsApiAttempts_;
-    latestGraphicsApi_ = graphicsApiProbe_.Query(graphicsApiProcessId_);
-    if (latestGraphicsApi_ || graphicsApiAttempts_ >= kGraphicsApiMaxAttempts)
-    {
-        KillTimer(messageWindow_, kGraphicsApiRetryTimerId);
-        graphicsApiProbe_.Reset();
-        if (!latestGraphicsApi_)
-            RuntimeLogger::Log(RuntimeLogLevel::Warn,
-                L"IGCL Graphics API unresolved after bounded retries");
-        else
-            Log(L"Graphics API resolved api=" + *latestGraphicsApi_);
-        if (requestRender_)
-            requestRender_();
-        return;
-    }
-    SetTimer(messageWindow_, kGraphicsApiRetryTimerId,
-        kGraphicsApiRetryIntervalMs, nullptr);
 }
 }

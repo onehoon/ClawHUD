@@ -57,6 +57,11 @@ App::App(HINSTANCE instance, clawhud::LaunchMode launchMode)
     LoadHudSettings();
     hudController_.SetRenderCallback(
         [this](bool allowHidden) { RenderProductionHud(allowHidden); });
+    hudController_.SetPresentationWarmupScheduler([this]
+    {
+        PostMessageW(runtimeMessageWindow_.Window(),
+            kHudPresentationWarmupMessage, 0, 0);
+    });
     gameSession_.SetHooks(MakeGameSessionHooks());
     productionTelemetry_.SyncVisibilityMode(hudController_.Options().visibilityMode);
     clawhud::RuntimeLogger::SetDebugLogging(debugLoggingEnabled_);
@@ -91,7 +96,6 @@ void App::StopRuntimeSources()
     runtimeControlPipeServer_.Stop();
     CancelResumeRecovery();
     StopProductionSampling(clawhud::SamplingStopCause::AppShutdown, false);
-    productionTelemetry_.StopGraphicsApiProbe();
     gameSession_.StopSources();
     if (debugObservation_)
         debugObservation_->Stop();
@@ -116,10 +120,6 @@ clawhud::GameSessionHooks App::MakeGameSessionHooks()
             debugObservation_->OnForegroundChanged(window, processId);
     };
     hooks.reconcileHudVisibility = [this] { ReconcileHudVisibility(); };
-    hooks.startGraphicsApiProbe = [this](DWORD pid)
-        { productionTelemetry_.StartGraphicsApiProbe(pid); };
-    hooks.stopGraphicsApiProbeIfTarget = [this](DWORD pid)
-        { productionTelemetry_.StopGraphicsApiProbeIfTarget(pid); };
     hooks.setInGameForegroundProcess = [this](DWORD pid)
         { productionTelemetry_.SetInGameForegroundProcess(pid); };
     hooks.clearInGameForegroundProcess = [this]
@@ -376,11 +376,6 @@ void App::TryResumeRecovery()
         return;
     }
 
-    if (processAlive)
-        productionTelemetry_.StartGraphicsApiProbe(processId);
-    else
-        productionTelemetry_.StopGraphicsApiProbe();
-
     bool freshFrameReady = !expectedVisible || hudController_.HasPresentation();
     if (expectedVisible && hudController_.HasPresentation())
     {
@@ -449,7 +444,6 @@ void App::StopHud()
 {
     hudController_.MarkDisabled();
     StopProductionSampling(clawhud::SamplingStopCause::HudDisabled, true);
-    productionTelemetry_.StopGraphicsApiProbe();
     gameSession_.ResetForegroundGameSession(L"hud-disabled");
     productionTelemetry_.StopFpsSampling();
     ReconcileHudVisibility();
@@ -535,9 +529,6 @@ void App::HandleTimer(UINT_PTR timerId)
         if (hudSampleAllowed)
             productionTelemetry_.SampleFps();
         break;
-    case clawhud::kGraphicsApiRetryTimerId:
-        productionTelemetry_.TryGraphicsApiProbe();
-        break;
     case kResumeRecoveryTimerId:
         TryResumeRecovery();
         break;
@@ -559,7 +550,6 @@ void App::PauseProductionSamplingForSuspend()
 {
     productionTelemetry_.StopSamplingTimersAndFps();
     gameSession_.StopRenderVerification(L"suspend", false);
-    productionTelemetry_.StopGraphicsApiProbe();
     // Suspend is a transient gate: preserve the elevated EC helper so resume does
     // not re-prompt for UAC. If the OS invalidated the pipe across sleep, the
     // first post-resume read fails once and stays launch-suppressed.
@@ -640,7 +630,6 @@ void App::ReconcileHudVisibility()
         return;
     }
     gameSession_.RevalidateCurrentForegroundGame();
-    productionTelemetry_.ReconcileGraphicsApiTargetLiveness();
     const bool foregroundGameActive = gameSession_.CurrentForegroundGameActive();
     const auto effects = hudController_.ReconcileVisibility(foregroundGameActive);
     if (effects.startProductionSampling)
@@ -859,6 +848,11 @@ void App::HandleRuntimeControlShutdownReady()
     // The IPC RequestShutdown response was already delivered on the pipe
     // worker; enter the normal idempotent shutdown path.
     Exit();
+}
+
+void App::HandleHudPresentationWarmup()
+{
+    hudController_.RunFirstVisiblePresentationWarmup();
 }
 
 void App::Exit()
