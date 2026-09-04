@@ -100,6 +100,15 @@ int main()
     Check(EvaluateStartupTaskCompliance(CompliantSnapshot(desired), desired).IsCompliant(),
         "evaluator agrees with exact compliant task");
 
+    const auto ExpectOnlyMismatch = [&](auto mutate, StartupTaskMismatch expected,
+        const char* message)
+    {
+        auto snapshot = CompliantSnapshot(desired);
+        mutate(snapshot);
+        const auto result = EvaluateStartupTaskCompliance(snapshot, desired);
+        Check(result.mismatches == expected, message);
+    };
+
     {
         auto s = CompliantSnapshot(desired);
         s.present = false;
@@ -116,6 +125,41 @@ int main()
             EvaluateStartupTaskCompliance(s, desired).mismatches,
             StartupTaskMismatch::TaskDisabled), "disabled task -> TaskDisabled");
     }
+    ExpectOnlyMismatch(
+        [](auto& s) { s.execPath = L"C:\\Wrong\\ClawHUD.exe"; },
+        StartupTaskMismatch::ExecPath, "executable path -> ExecPath mismatch");
+    ExpectOnlyMismatch(
+        [](auto& s) { s.arguments = L"--unexpected"; },
+        StartupTaskMismatch::Arguments, "arguments -> Arguments mismatch");
+    ExpectOnlyMismatch(
+        [](auto& s) { s.workingDirectory = L"C:\\Wrong"; },
+        StartupTaskMismatch::WorkingDirectory, "working directory -> WorkingDirectory mismatch");
+    ExpectOnlyMismatch(
+        [](auto& s) { s.principalUserId = L"S-1-5-18"; },
+        StartupTaskMismatch::PrincipalUser, "principal user -> PrincipalUser mismatch");
+    ExpectOnlyMismatch(
+        [](auto& s) { s.logonTriggerUserId = L"S-1-5-18"; },
+        StartupTaskMismatch::LogonTriggerUser, "logon trigger user -> LogonTriggerUser mismatch");
+    ExpectOnlyMismatch(
+        [](auto& s) { s.interactiveTokenLogonType = false; },
+        StartupTaskMismatch::InteractiveTokenLogonType,
+        "logon type -> InteractiveTokenLogonType mismatch");
+    ExpectOnlyMismatch(
+        [](auto& s) { s.leastPrivilegeRunLevel = false; },
+        StartupTaskMismatch::LeastPrivilegeRunLevel,
+        "run level -> LeastPrivilegeRunLevel mismatch");
+    ExpectOnlyMismatch(
+        [](auto& s) { s.disallowStartIfOnBatteries = true; },
+        StartupTaskMismatch::DisallowStartIfOnBatteries,
+        "battery start -> DisallowStartIfOnBatteries mismatch");
+    ExpectOnlyMismatch(
+        [](auto& s) { s.stopIfGoingOnBatteries = true; },
+        StartupTaskMismatch::StopIfGoingOnBatteries,
+        "battery stop -> StopIfGoingOnBatteries mismatch");
+    ExpectOnlyMismatch(
+        [](auto& s) { s.executionTimeLimit = L"PT1H"; },
+        StartupTaskMismatch::ExecutionTimeLimit,
+        "execution limit -> ExecutionTimeLimit mismatch");
     {
         auto s = CompliantSnapshot(desired);
         s.execPath = L"C:\\Wrong\\ClawHUD.exe";
