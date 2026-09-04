@@ -4,7 +4,8 @@ Date: 2026-09-04
 Repository: `onehoon/ClawHUD`  
 Baseline: `main` at `42868cbfc6b70f04e77e3819fb55d142625b05cf` (`Replace Startup-folder shortcut with a Task Scheduler startup task (#233)`)  
 Field evidence: `C:\GoogleDrive\ClawHUD\logs\0904-2\clawhud.log`  
-Observed build: `0.1.95`
+Observed build: `0.1.95`  
+Revision: reviewer clarifications added for startup mismatch API, Task Scheduler validation scope, and runtime-PID watcher race/failure semantics.
 
 ## 1. Objective
 
@@ -47,7 +48,7 @@ Keep all of the following unchanged:
 
 - current `StartWithWindows` preference/default policy;
 - the Task Scheduler root task name `ClawHUD`;
-- current-user logon trigger;
+- the task ClawHUD creates remains a current-user logon-triggered task;
 - `TASK_LOGON_INTERACTIVE_TOKEN`;
 - `TASK_RUNLEVEL_LUA` / least privilege;
 - no execution-time limit (`PT0S` semantics);
@@ -63,6 +64,29 @@ Keep all of the following unchanged:
 - no polling for frontend/runtime lifetime.
 
 Do not solve any issue by process-name enumeration, broad process killing, a new generic command bus, or a periodic timer.
+
+### 2.3 Task-definition validation scope for this hotfix
+
+The **creation** contract remains the same intended ClawHUD task: a current-user logon-triggered task with the existing exec action and the existing security/battery/time-limit settings.
+
+However, the current `StartupTaskSnapshot` / `ReadStartupTaskSnapshot()` / `IsStartupTaskCompliant()` model does **not** constitute a complete structural validator for every entry in the Task Scheduler trigger/action collections. The current implementation reads and compares the properties it already models; it does not comprehensively enforce collection cardinality or reject every possible extra trigger/action.
+
+For this field hotfix, “strict compliance” means **strict for the currently modeled fields listed in Part A**, not strict validation of the entire `ITaskDefinition` object graph.
+
+Unless the new field diagnostics prove that the reproduced OFF → ON failure is caused by task-definition structure, the following are explicitly **out of scope**:
+
+- enumerating every trigger in the task;
+- requiring an exact trigger collection count;
+- rejecting additional unrelated trigger entries;
+- enumerating every action in the task;
+- requiring an exact action collection count;
+- rejecting additional unrelated action entries;
+- introducing a general-purpose structural Task Scheduler validator;
+- broad repair/migration logic for arbitrary manually edited task definitions.
+
+Do not claim test coverage for those structural properties in this PR.
+
+If on-device diagnostics show that a missing/wrong-type/duplicate trigger or action is the **actual** reproduced failure, stop and extend the scope only as much as needed to represent and test that concrete defect. Do not silently broaden the hotfix preemptively.
 
 ---
 
@@ -175,28 +199,113 @@ It does not say which readback property differs.
 
 Before changing compliance semantics broadly, make the verification failure diagnosable.
 
-### Required diagnostic improvement
+### 6.1 Required public diagnostic contract
 
-Refactor the compliance evaluation so the caller can obtain a mismatch set / bit mask / structured result instead of only one `bool`.
+Define the mismatch contract in the existing public native header:
 
-The diagnostic must distinguish at least:
+```text
+src/ClawHUD/StartupTaskRegistration.h
+```
 
-- task missing;
-- task disabled;
-- executable path mismatch;
-- unexpected arguments;
-- working-directory mismatch;
-- principal user mismatch;
-- logon-trigger user mismatch;
-- logon type mismatch;
-- run-level mismatch;
-- `DisallowStartIfOnBatteries` mismatch;
-- `StopIfGoingOnBatteries` mismatch;
-- execution-time-limit mismatch.
+Use a bit-maskable enum and a structured evaluation result. Exact naming may vary slightly, but the public contract must be equivalent to:
 
-On final settle failure, include the mismatch field names in the existing `Startup task synchronize:` result text. For string-valued mismatches, log expected and actual values where practical.
+```cpp
+enum class StartupTaskMismatch : std::uint32_t
+{
+    None                         = 0,
+    TaskMissing                  = 1u << 0,
+    TaskDisabled                 = 1u << 1,
+    ExecPath                     = 1u << 2,
+    Arguments                    = 1u << 3,
+    WorkingDirectory             = 1u << 4,
+    PrincipalUser                = 1u << 5,
+    LogonTriggerUser             = 1u << 6,
+    InteractiveTokenLogonType    = 1u << 7,
+    LeastPrivilegeRunLevel       = 1u << 8,
+    DisallowStartIfOnBatteries   = 1u << 9,
+    StopIfGoingOnBatteries       = 1u << 10,
+    ExecutionTimeLimit           = 1u << 11,
+};
 
-Do not spam this on every successful startup. Detailed output is for mismatch/failure only.
+struct StartupTaskComplianceResult
+{
+    StartupTaskMismatch mismatches{StartupTaskMismatch::None};
+
+    bool IsCompliant() const noexcept;
+};
+
+StartupTaskComplianceResult EvaluateStartupTaskCompliance(
+    const StartupTaskSnapshot& snapshot,
+    const DesiredStartupTask& desired) noexcept;
+```
+
+`IsStartupTaskCompliant(snapshot, desired)` may remain as the compatibility/convenience wrapper used by existing callers/tests:
+
+```cpp
+return EvaluateStartupTaskCompliance(snapshot, desired).IsCompliant();
+```
+
+Do not create two separate sources of truth for compliance.
+
+### 6.2 Required field mapping
+
+The evaluator must map the currently modeled fields exactly as follows:
+
+| Snapshot / condition | Mismatch flag |
+|---|---|
+| `present == false` | `TaskMissing` |
+| `enabled == false` | `TaskDisabled` |
+| resolved executable differs | `ExecPath` |
+| arguments are not empty | `Arguments` |
+| working directory differs | `WorkingDirectory` |
+| principal identity not equivalent to desired user | `PrincipalUser` |
+| logon-trigger identity not equivalent to desired user | `LogonTriggerUser` |
+| interactive-token logon contract not met | `InteractiveTokenLogonType` |
+| least-privilege run level not met | `LeastPrivilegeRunLevel` |
+| battery-start setting differs | `DisallowStartIfOnBatteries` |
+| battery-stop setting differs | `StopIfGoingOnBatteries` |
+| no-limit value differs from `PT0S` contract | `ExecutionTimeLimit` |
+
+When `TaskMissing` is present, do not manufacture misleading secondary mismatch details from default-initialized snapshot fields. Missing task may be reported as the sole meaningful mismatch for that read.
+
+This mismatch API intentionally covers the properties already modeled by `StartupTaskSnapshot`; it does **not** add trigger/action collection-count/type validation described as out of scope in §2.3.
+
+### 6.3 Required final settle diagnostics
+
+`SynchronizeStartupTask()` must retain the last readback snapshot/compliance result from the bounded settle loop.
+
+If the elevated ensure helper reports success but the final bounded readback remains non-compliant, `StartupTaskResult.message` must include the concrete final mismatch list instead of only the generic text.
+
+Required shape:
+
+```text
+task registration could not be verified; mismatches=PrincipalUser,ExecutionTimeLimit; ...
+```
+
+For string-valued mismatches, include expected/actual values where useful:
+
+- executable path;
+- arguments;
+- working directory;
+- principal user identifier;
+- logon-trigger user identifier;
+- execution-time-limit string.
+
+Example only:
+
+```text
+task registration could not be verified;
+mismatches=PrincipalUser;
+principalUser expected="S-1-5-..." actual="MACHINE\\User"
+```
+
+The exact textual formatter is implementation-defined, but these rules are required:
+
+- stable field names suitable for grep/log comparison;
+- one final failure message, not repeated verbose dumps on every settle iteration;
+- no diagnostic spam on successful startup;
+- `StartupTaskResult.message` remains the message consumed by `App::ApplyStartupRegistration()` / the existing runtime logging path;
+- evaluator itself should remain pure and should not log directly.
 
 ## 7. Fix user identity comparison semantically, not textually
 
@@ -232,15 +341,16 @@ Do **not** weaken these checks to “non-empty” or “current-ish user.” The
 
 Also do not treat an empty logon-trigger `UserId` as equivalent to the desired current user: an empty logon-trigger user has different Task Scheduler semantics.
 
-## 8. Keep all other task properties strict unless field evidence proves a normalization issue
+## 8. Keep all other currently modeled task properties strict unless field evidence proves a normalization issue
 
 Do not solve this by simply removing compliance checks.
 
-Keep the following exact product invariants:
+Keep the following exact product invariants **within the existing snapshot/compliance surface**:
 
 - executable is the resolved ClawHUD startup target;
 - no arguments;
 - correct working directory;
+- intended principal and logon-trigger user identity;
 - interactive-token logon;
 - least-privilege run level;
 - allowed to start on battery;
@@ -252,6 +362,8 @@ Keep the following exact product invariants:
 Do not increase the 2-second settle window as the primary fix. The two field attempts both reached the same stable non-compliant result; this looks like a semantic/readback mismatch, not evidence that the only problem is eventual-consistency latency.
 
 If actual mismatch diagnostics identify another Windows-normalized representation, normalize only that field in a semantics-preserving way and add a regression test for it.
+
+Do not reinterpret this section as a requirement to add full trigger/action collection structural validation; §2.3 is authoritative for that scope.
 
 ## 9. Preserve the current bounded elevation model
 
@@ -284,7 +396,7 @@ The priority in this PR is to remove the reproducible false-negative verificatio
 However, preserve and improve diagnostics for the current edge case where the elevated helper reports registration success but the parent readback still cannot verify compliance. In that case:
 
 - the preference must continue to roll back rather than pretending success;
-- log the concrete mismatch details;
+- log the concrete mismatch details from §6;
 - do not silently declare a non-compliant task valid;
 - do not add repeated background repair loops.
 
@@ -333,8 +445,8 @@ Settings primary
   -> event/task wait, no polling
   -> runtime exits normally or crashes
   -> marshal to WPF Dispatcher
-  -> close MainWindow
-  -> ShutdownMode=OnMainWindowClose releases WPF/CLR process memory
+  -> close MainWindow / shutdown if construction is not complete
+  -> WPF/CLR process terminates
 ```
 
 Use a process handle / `System.Diagnostics.Process` exit wait, not process-name polling.
@@ -375,41 +487,88 @@ Services/RuntimeProcessLifetimeWatcher.cs
 Responsibilities:
 
 - parse/validate the supplied runtime PID through a small argument parser;
-- acquire the exact process when possible;
+- acquire the exact process when required;
 - observe exit asynchronously/event-driven;
-- expose one exit callback/event;
+- expose one exit callback/event or equivalent completion;
 - be disposable/cancellable so WPF shutdown does not leak callbacks;
 - never throw out of application shutdown paths.
 
 Do not use a timer.
 
-### App integration
+### 14.1 Argument classification must be explicit
+
+The argument parser must distinguish these three states instead of returning only `PID?`:
+
+```text
+Absent
+Malformed
+Valid(pid)
+```
+
+Examples:
+
+- no `--runtime-pid` -> `Absent`;
+- non-numeric / zero / negative / overflow / missing value -> `Malformed`;
+- positive decimal PID within `int` range -> `Valid(pid)`.
+
+`Absent` and `Malformed` are the **only** states that use the existing manual/direct-launch fallback behavior.
+
+Once `Valid(pid)` is supplied, Settings is a runtime-bound launch. Do not silently downgrade that launch into an unbound IPC-only lifetime model.
+
+### 14.2 Valid PID = fail closed for lifetime binding
+
+For `Valid(pid)`, apply these rules:
+
+1. Try to acquire/observe the exact runtime process immediately during primary Settings startup.
+2. If the process already exited before acquisition (for example `Process.GetProcessById(pid)` reports no such running process), treat runtime exit as already observed.
+3. If the process exits after acquisition but before event/wait registration is fully armed, the implementation must still observe the exit. Use an API/pattern with race-safe exit semantics such as `WaitForExitAsync`, or subscribe and then immediately re-check `HasExited`.
+4. If the process is already exited at any of those points, record the same pending-close/pending-shutdown state as a normal observed exit.
+5. If a valid PID was supplied but watcher initialization fails for another reason (for example access denied / `Win32Exception` / inability to establish an exit observation), **fail closed**: log the watcher initialization failure and close/shutdown Settings rather than leaving an orphanable unbound frontend.
+6. Do **not** use successful IPC as a lifetime fallback for a `Valid(pid)` watcher-initialization failure. IPC may still be used for normal Settings data/control operations; it is not a substitute lifetime authority in this path.
+
+The important product rule is:
+
+```text
+valid runtime PID supplied
+  -> either exact runtime exit is observable
+  -> or Settings closes
+
+never
+  -> watcher setup fails
+  -> Settings continues indefinitely as an unbound orphan candidate
+```
+
+### 14.3 App integration
 
 In `App.xaml.cs`:
 
 - preserve current `SettingsInstanceCoordinator` primary/relay behavior;
 - only the primary Settings process needs the long-lived runtime watcher;
 - relay processes should continue to signal the primary and exit without constructing a ViewModel/client/window;
-- start the watcher early enough that a runtime exit during Settings startup cannot leave a permanent orphan;
-- if runtime exit is observed before `MainWindow` is fully constructed, record a pending-close state and close/shutdown immediately once safe;
-- callbacks from a process/thread-pool thread must be marshalled onto `Application.Dispatcher`;
-- dispose the watcher in `OnExit`.
+- start the watcher early enough that runtime exit during Settings startup cannot leave a permanent orphan;
+- if runtime exit is observed before `MainWindow` is fully constructed, record a pending-close/pending-shutdown state and terminate the Settings app as soon as the Dispatcher/application state allows;
+- callbacks from a process/thread-pool thread must be marshalled onto `Application.Dispatcher` before touching WPF objects;
+- ensure exit notification is handled at most once;
+- dispose/cancel the watcher in `OnExit`;
+- watcher disposal racing with runtime exit must not resurrect or touch a shutting-down App.
 
 Do not change the single-instance mutex/event contract merely to implement this lifetime binding.
 
-### Manual/direct Settings launch
+### 14.4 Manual/direct Settings launch fallback
 
-If `ClawHUD.Settings.exe` is started without a valid `--runtime-pid`, retain the current behavior:
+If `ClawHUD.Settings.exe` is started with parser state `Absent` or `Malformed`, retain the current behavior:
 
 - attempt the normal runtime IPC startup handshake;
 - if runtime is unavailable/incompatible, close as today;
-- do not crash solely because the private lifetime argument is absent.
+- do not crash solely because the private lifetime argument is absent or malformed.
 
 This keeps developer/manual launch behavior usable while the tray path receives stronger lifetime semantics.
 
+Do **not** apply this fallback when the argument parsed as `Valid(pid)` but exact process observation could not be established; that path is fail-closed per §14.2.
+
 ## 15. Required user-visible result
 
-With Settings open:
+With Settings open from the runtime/tray path:
 
 ```text
 tray -> Exit
@@ -421,6 +580,8 @@ must result in both processes terminating:
 ClawHUD.exe          -> exits through the existing normal shutdown path
 ClawHUD.Settings.exe -> observes runtime exit and closes itself
 ```
+
+The same must hold if the runtime exits in the small window between launching Settings and the watcher becoming fully initialized.
 
 No `TerminateProcess` against Settings is needed.
 
@@ -552,16 +713,22 @@ Extend `StartupTaskRegistrationTests.cpp`.
 Required coverage:
 
 1. existing exact compliant snapshot remains compliant;
-2. every currently-tested mismatch remains a mismatch;
-3. mismatch-reporting API identifies the correct field(s);
-4. case-insensitive identical SID strings remain equivalent;
-5. a SID string and another Windows textual identity resolving to that same SID are treated as the same user;
-6. different resolved SIDs are not equivalent;
-7. empty / unresolvable identity is not accepted as the intended current user;
-8. execution-time-limit, run-level, logon-type and battery checks remain strict;
-9. helper command parsing behavior is unchanged.
+2. every currently-tested modeled-field mismatch remains a mismatch;
+3. `EvaluateStartupTaskCompliance()` identifies the exact expected `StartupTaskMismatch` flag for every single-field mutation;
+4. multiple modeled mismatches produce the combined bit mask;
+5. `IsStartupTaskCompliant()` remains a thin true/false view over the same evaluator;
+6. case-insensitive identical SID strings remain equivalent;
+7. a SID string and another Windows textual identity resolving to that same SID are treated as the same user;
+8. different resolved SIDs are not equivalent;
+9. empty / unresolvable identity is not accepted as the intended current user;
+10. execution-time-limit, run-level, logon-type and battery checks remain strict;
+11. helper command parsing behavior is unchanged.
 
 For the SID/account-name equivalence test, prefer deriving the current test process user SID + account name at runtime so CI does not depend on a localized hard-coded account display name.
+
+Where the formatter is factored as a testable helper, add a focused assertion that a representative combined result produces stable mismatch names in the final failure text.
+
+Do **not** add mandatory tests for trigger/action collection count, duplicate entries, or full structural task-definition validation; those are out of scope per §2.3 unless field diagnostics prove they are part of the reproduced defect.
 
 Do not mock away the existing real Task Scheduler on-device smoke requirement.
 
@@ -586,14 +753,30 @@ Add focused tests for the new runtime-lifetime watcher / argument parser.
 
 Required behavior:
 
-- valid `--runtime-pid` parses;
-- missing / non-numeric / zero / negative / overflow PID is rejected without crashing App;
-- watcher exit notification fires once;
+- parser returns `Valid(pid)` for a valid positive decimal PID;
+- parser distinguishes `Absent` from `Malformed`;
+- non-numeric / zero / negative / overflow PID is `Malformed` without crashing App;
+- `Absent` and `Malformed` select the existing manual/direct IPC fallback policy;
+- valid PID with an already-exited process produces runtime-exited/pending-close behavior rather than manual fallback;
+- runtime exit racing between process acquisition and wait/event registration is still observed exactly once;
+- valid PID watcher initialization failure (for example injected access-denied/observer-open failure) produces fail-closed Settings shutdown and **does not** select IPC as a lifetime fallback;
+- normal watcher exit notification fires once;
 - disposal prevents a late callback from touching a shutting-down App;
 - callback is safe to marshal to the Dispatcher;
+- exit observed before `MainWindow` construction results in pending close/shutdown once safe;
 - relay/single-instance behavior remains unchanged.
 
-Prefer a small injectable wait seam / completion source for unit tests rather than spawning flaky external processes solely for timing tests.
+Prefer a small injectable process-observer/wait seam for unit tests rather than spawning flaky external processes solely for timing tests.
+
+The test seam must be able to deterministically model:
+
+```text
+already exited
+exit during watcher initialization
+watcher initialization throws/fails
+normal later exit
+dispose racing with exit
+```
 
 ## 23. WPF ViewModel / visual-state tests
 
@@ -644,7 +827,7 @@ Repeat ON → OFF → ON at least twice more.
 
 Also verify a compliant ON state on ordinary ClawHUD startup does not prompt for UAC or rewrite the task.
 
-If verification still fails, the new log must identify the exact mismatching property. Do not merge a build that merely changes the generic failure text while the OFF → ON path is still broken.
+If verification still fails, the new log must identify the exact mismatching **modeled** property and include useful expected/actual values for string mismatches. Do not merge a build that merely changes the generic failure text while the OFF → ON path is still broken.
 
 ## 25. Settings lifetime test
 
@@ -671,6 +854,17 @@ Repeat with:
 - Settings unfocused;
 - Settings opened, then tray clicked again to exercise the relay/show-existing path;
 - native runtime terminated unexpectedly in a lab run (Settings should also close; no polling required).
+
+Also validate the startup race explicitly:
+
+```text
+launch Settings from ClawHUD
+terminate ClawHUD immediately while Settings is starting
+```
+
+Expected: Settings either observes the already-exited runtime or records pending shutdown and exits; it must not remain open because the watcher missed the process between PID parsing and observer setup.
+
+A synthetic/manual valid-PID watcher-initialization failure, if practical to expose in a diagnostic build/test seam, must fail closed rather than leave Settings running unbound.
 
 ## 26. HUD-size visual test
 
@@ -744,12 +938,20 @@ The PR is complete only if all of the following are true:
 
 - [ ] Repro sequence **initial/working ON -> OFF -> ON** succeeds on the device.
 - [ ] `StartWithWindows` no longer falls back to OFF from a false readback mismatch.
-- [ ] Failed startup-task verification reports the concrete mismatch field(s).
+- [ ] `StartupTaskMismatch` / structured compliance result lives in `StartupTaskRegistration.h` (or an equivalently explicit public contract in that component).
+- [ ] All currently modeled compliance fields map deterministically to mismatch flags.
+- [ ] `SynchronizeStartupTask()` final verification failure includes the concrete mismatch field(s) in `StartupTaskResult.message`.
+- [ ] Useful expected/actual values are included for relevant string-valued mismatches.
 - [ ] User identity comparison is semantic SID equivalence, not blind string equality.
-- [ ] The Task Scheduler security / battery / no-limit / executable contract is not weakened.
+- [ ] The currently modeled Task Scheduler security / battery / no-limit / executable contract is not weakened.
+- [ ] Full trigger/action collection structural validation was not accidentally added or claimed unless actual field evidence required it.
 - [ ] Normal compliant startup still avoids unnecessary UAC.
 - [ ] Tray `Exit` closes both native runtime and an already-open Settings frontend.
 - [ ] Settings lifetime uses event/process-exit observation, not polling.
+- [ ] A valid `--runtime-pid` that is already exited produces pending close/shutdown.
+- [ ] A valid `--runtime-pid` whose watcher cannot initialize fails closed; IPC is not used as a lifetime fallback.
+- [ ] Exit racing with watcher initialization cannot leave an orphan Settings process.
+- [ ] Only absent/malformed runtime-PID arguments use the manual/direct-launch fallback.
 - [ ] No process-name enumeration or broad `TerminateProcess` solution was added.
 - [ ] WPF single-instance relay behavior remains intact.
 - [ ] HUD-size `− / +` no longer visibly flashes during unrelated mutations.
@@ -771,13 +973,16 @@ Prefer the smallest changes that restore the intended contracts:
 
 ```text
 Task Scheduler
-  same intended task
-  + correct semantic readback verification
-  + useful failure diagnostics
+  same intended task creation behavior
+  + one explicit modeled-field mismatch API
+  + semantic user-identity readback comparison
+  + useful final failure diagnostics
+  + no unrelated full task-definition structural validator
 
 Settings frontend
   same separate WPF process
   + lifetime bound to the exact launching runtime process
+  + valid-PID startup races fail closed instead of orphaning
 
 HUD-size control
   same mutation semantics
