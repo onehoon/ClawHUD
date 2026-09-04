@@ -31,13 +31,15 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
     if (!SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2))
         return 1;
 
+    // arguments holds string_views into argv's own allocation, so argv must
+    // stay alive until every consumer below is done reading them.
     std::vector<std::wstring_view> arguments;
     int argc = 0;
-    if (LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc))
+    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (argv)
     {
         for (int i = 1; i < argc; ++i)
             arguments.emplace_back(argv[i]);
-        LocalFree(argv);
     }
 
     // Private Task Scheduler helper commands (--ensure-startup-task /
@@ -47,9 +49,13 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
     // PresentMon runtime, the tray, the HUD, telemetry, the EC helper, or
     // Control IPC. See StartupTaskRegistration.h.
     if (auto helperExit = clawhud::TryRunStartupTaskHelperCommand(arguments))
+    {
+        if (argv) LocalFree(argv);
         return *helperExit;
+    }
 
     const clawhud::LaunchMode launchMode = clawhud::ResolveLaunchMode(arguments);
+    if (argv) LocalFree(argv);
 
     App app(instance, launchMode);
     return app.Run();

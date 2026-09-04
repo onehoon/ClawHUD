@@ -26,6 +26,8 @@ namespace
 // PresentMonRuntimeBootstrap installer-launch pattern (no detached elevated
 // process, no unbounded wait).
 constexpr DWORD kHelperWaitMs = 60 * 1000;
+// Bounded best-effort reap after TerminateProcess on a timed-out helper.
+constexpr DWORD kTerminateReapMs = 5 * 1000;
 // Read-only settle window after a privileged mutation: Task Scheduler has an
 // observed short read-after-write visibility lag on this device family.
 constexpr DWORD kSettleWindowMs = 2000;
@@ -374,8 +376,19 @@ bool RunElevatedHelper(const std::filesystem::path& exe, std::wstring_view comma
     if (!ShellExecuteExW(&info) || !info.hProcess)
         return false;
 
-    if (WaitForSingleObject(info.hProcess, kHelperWaitMs) != WAIT_OBJECT_0)
+    const DWORD wait = WaitForSingleObject(info.hProcess, kHelperWaitMs);
+    if (wait != WAIT_OBJECT_0)
     {
+        if (wait == WAIT_TIMEOUT)
+        {
+            // Never leave a detached elevated process past the bound: force
+            // it down before releasing the handle, then reap (best-effort,
+            // itself bounded) so it cannot keep running -- and possibly still
+            // mutate the task -- after this function has already reported
+            // failure.
+            TerminateProcess(info.hProcess, ERROR_TIMEOUT);
+            WaitForSingleObject(info.hProcess, kTerminateReapMs);
+        }
         CloseHandle(info.hProcess);
         return false;
     }
