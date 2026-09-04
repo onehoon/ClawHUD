@@ -73,9 +73,48 @@ bool PathsEqualCaseInsensitive(std::wstring_view a, std::wstring_view b) noexcep
 
 // SID strings compare case-insensitively like every other Windows identifier
 // ClawHUD manages here.
-bool UserIdsEqual(std::wstring_view a, std::wstring_view b) noexcept
+bool ResolveIdentityToSid(std::wstring_view text, std::vector<BYTE>& sidBuffer) noexcept
 {
-    return PathsEqualCaseInsensitive(a, b);
+    try
+    {
+        const std::wstring value(text);
+        PSID sid{};
+        if (ConvertStringSidToSidW(value.c_str(), &sid))
+        {
+            const DWORD length = GetLengthSid(sid);
+            const auto* bytes = reinterpret_cast<const BYTE*>(sid);
+            sidBuffer.assign(bytes, bytes + length);
+            LocalFree(sid);
+            return true;
+        }
+        if (value.empty()) return false;
+
+        DWORD sidSize = 0;
+        DWORD domainSize = 0;
+        SID_NAME_USE use{};
+        LookupAccountNameW(nullptr, value.c_str(), nullptr, &sidSize,
+            nullptr, &domainSize, &use);
+        if (sidSize == 0) return false;
+        sidBuffer.resize(sidSize);
+        std::wstring domain(domainSize, L'\0');
+        if (!LookupAccountNameW(nullptr, value.c_str(), sidBuffer.data(), &sidSize,
+                domain.data(), &domainSize, &use))
+        {
+            sidBuffer.clear();
+            return false;
+        }
+        return true;
+    }
+    catch (...) { return false; }
+}
+
+bool UserIdsEquivalent(std::wstring_view a, std::wstring_view b) noexcept
+{
+    if (PathsEqualCaseInsensitive(a, b)) return true;
+    std::vector<BYTE> sidA;
+    std::vector<BYTE> sidB;
+    return ResolveIdentityToSid(a, sidA) && ResolveIdentityToSid(b, sidB) &&
+        EqualSid(sidA.data(), sidB.data()) != FALSE;
 }
 
 std::wstring CurrentUserSidString() noexcept
@@ -397,16 +436,32 @@ bool RunElevatedHelper(const std::filesystem::path& exe, std::wstring_view comma
     return read;
 }
 
-bool SettleUntilCompliant(const DesiredStartupTask& desired) noexcept
+struct ComplianceSettleResult
+{
+    bool compliant{};
+    bool readSucceeded{};
+    StartupTaskSnapshot snapshot;
+};
+
+ComplianceSettleResult SettleUntilCompliant(const DesiredStartupTask& desired) noexcept
 {
     const ULONGLONG start = GetTickCount64();
+    ComplianceSettleResult result;
     for (;;)
     {
         StartupTaskSnapshot snapshot;
-        if (ReadStartupTaskSnapshot(snapshot) && IsStartupTaskCompliant(snapshot, desired))
-            return true;
+        if (ReadStartupTaskSnapshot(snapshot))
+        {
+            result.readSucceeded = true;
+            result.snapshot = snapshot;
+            if (EvaluateStartupTaskCompliance(snapshot, desired).IsCompliant())
+            {
+                result.compliant = true;
+                return result;
+            }
+        }
         if (GetTickCount64() - start >= kSettleWindowMs)
-            return false;
+            return result;
         Sleep(kSettleIntervalMs);
     }
 }
@@ -436,22 +491,95 @@ DesiredStartupTask MakeDesiredStartupTask(
     return desired;
 }
 
+StartupTaskComplianceResult EvaluateStartupTaskCompliance(
+    const StartupTaskSnapshot& snapshot, const DesiredStartupTask& desired) noexcept
+{
+    StartupTaskComplianceResult result;
+    if (!snapshot.present)
+    {
+        result.mismatches = StartupTaskMismatch::TaskMissing;
+        return result;
+    }
+    const auto add = [&result](StartupTaskMismatch flag) noexcept
+    { result.mismatches = result.mismatches | flag; };
+    if (!snapshot.enabled) add(StartupTaskMismatch::TaskDisabled);
+    if (!PathsEqualCaseInsensitive(snapshot.execPath, desired.execPath))
+        add(StartupTaskMismatch::ExecPath);
+    if (!snapshot.arguments.empty()) add(StartupTaskMismatch::Arguments);
+    if (!PathsEqualCaseInsensitive(snapshot.workingDirectory, desired.workingDirectory))
+        add(StartupTaskMismatch::WorkingDirectory);
+    if (!UserIdsEquivalent(snapshot.principalUserId, desired.userId))
+        add(StartupTaskMismatch::PrincipalUser);
+    if (!UserIdsEquivalent(snapshot.logonTriggerUserId, desired.userId))
+        add(StartupTaskMismatch::LogonTriggerUser);
+    if (!snapshot.interactiveTokenLogonType)
+        add(StartupTaskMismatch::InteractiveTokenLogonType);
+    if (!snapshot.leastPrivilegeRunLevel)
+        add(StartupTaskMismatch::LeastPrivilegeRunLevel);
+    if (snapshot.disallowStartIfOnBatteries)
+        add(StartupTaskMismatch::DisallowStartIfOnBatteries);
+    if (snapshot.stopIfGoingOnBatteries)
+        add(StartupTaskMismatch::StopIfGoingOnBatteries);
+    if (snapshot.executionTimeLimit != L"PT0S")
+        add(StartupTaskMismatch::ExecutionTimeLimit);
+    return result;
+}
+
 bool IsStartupTaskCompliant(const StartupTaskSnapshot& snapshot,
     const DesiredStartupTask& desired) noexcept
 {
-    if (!snapshot.present || !snapshot.enabled) return false;
-    if (!snapshot.arguments.empty()) return false;
-    if (!PathsEqualCaseInsensitive(snapshot.execPath, desired.execPath)) return false;
-    if (!PathsEqualCaseInsensitive(snapshot.workingDirectory, desired.workingDirectory))
-        return false;
-    if (!UserIdsEqual(snapshot.principalUserId, desired.userId)) return false;
-    if (!UserIdsEqual(snapshot.logonTriggerUserId, desired.userId)) return false;
-    if (!snapshot.interactiveTokenLogonType) return false;
-    if (!snapshot.leastPrivilegeRunLevel) return false;
-    if (snapshot.disallowStartIfOnBatteries) return false;
-    if (snapshot.stopIfGoingOnBatteries) return false;
-    if (snapshot.executionTimeLimit != L"PT0S") return false;
-    return true;
+    return EvaluateStartupTaskCompliance(snapshot, desired).IsCompliant();
+}
+
+namespace
+{
+std::wstring FormatComplianceFailure(const StartupTaskSnapshot& snapshot,
+    const DesiredStartupTask& desired)
+{
+    const auto result = EvaluateStartupTaskCompliance(snapshot, desired);
+    if (HasStartupTaskMismatch(result.mismatches, StartupTaskMismatch::TaskMissing))
+        return L"mismatches=TaskMissing";
+
+    std::wstring names;
+    const auto addName = [&names](StartupTaskMismatch flag, std::wstring_view name)
+    {
+        if (!HasStartupTaskMismatch(flag, StartupTaskMismatch::None))
+        {
+            if (!names.empty()) names += L",";
+            names += name;
+        }
+    };
+    const auto add = [&result, &addName](StartupTaskMismatch flag, std::wstring_view name)
+    {
+        if (HasStartupTaskMismatch(result.mismatches, flag)) addName(flag, name);
+    };
+    add(StartupTaskMismatch::TaskDisabled, L"TaskDisabled");
+    add(StartupTaskMismatch::ExecPath, L"ExecPath");
+    add(StartupTaskMismatch::Arguments, L"Arguments");
+    add(StartupTaskMismatch::WorkingDirectory, L"WorkingDirectory");
+    add(StartupTaskMismatch::PrincipalUser, L"PrincipalUser");
+    add(StartupTaskMismatch::LogonTriggerUser, L"LogonTriggerUser");
+    add(StartupTaskMismatch::InteractiveTokenLogonType, L"InteractiveTokenLogonType");
+    add(StartupTaskMismatch::LeastPrivilegeRunLevel, L"LeastPrivilegeRunLevel");
+    add(StartupTaskMismatch::DisallowStartIfOnBatteries, L"DisallowStartIfOnBatteries");
+    add(StartupTaskMismatch::StopIfGoingOnBatteries, L"StopIfGoingOnBatteries");
+    add(StartupTaskMismatch::ExecutionTimeLimit, L"ExecutionTimeLimit");
+
+    std::wstring message = L"mismatches=" + names;
+    if (HasStartupTaskMismatch(result.mismatches, StartupTaskMismatch::ExecPath))
+        message += L"; execPath expected=\"" + desired.execPath + L"\" actual=\"" + snapshot.execPath + L"\"";
+    if (HasStartupTaskMismatch(result.mismatches, StartupTaskMismatch::WorkingDirectory))
+        message += L"; workingDirectory expected=\"" + desired.workingDirectory + L"\" actual=\"" + snapshot.workingDirectory + L"\"";
+    if (HasStartupTaskMismatch(result.mismatches, StartupTaskMismatch::PrincipalUser))
+        message += L"; principalUser expected=\"" + desired.userId + L"\" actual=\"" + snapshot.principalUserId + L"\"";
+    if (HasStartupTaskMismatch(result.mismatches, StartupTaskMismatch::LogonTriggerUser))
+        message += L"; logonTriggerUser expected=\"" + desired.userId + L"\" actual=\"" + snapshot.logonTriggerUserId + L"\"";
+    if (HasStartupTaskMismatch(result.mismatches, StartupTaskMismatch::ExecutionTimeLimit))
+        message += L"; executionTimeLimit expected=\"PT0S\" actual=\"" + snapshot.executionTimeLimit + L"\"";
+    if (HasStartupTaskMismatch(result.mismatches, StartupTaskMismatch::Arguments))
+        message += L"; arguments actual=\"" + snapshot.arguments + L"\"";
+    return message;
+}
 }
 
 StartupTaskResult SynchronizeStartupTask(
@@ -489,8 +617,14 @@ StartupTaskResult SynchronizeStartupTask(
     if (!RunElevatedHelper(resolved.path, kEnsureStartupTaskArg, userSid, exitCode) ||
         exitCode != 0)
         return { false, L"elevated task registration failed or was cancelled" };
-    if (!SettleUntilCompliant(desired))
-        return { false, L"task registration could not be verified" };
+    const auto settle = SettleUntilCompliant(desired);
+    if (!settle.compliant)
+    {
+        if (!settle.readSucceeded)
+            return { false, L"task registration could not be verified; readback unavailable" };
+        return { false, L"task registration could not be verified; " +
+            FormatComplianceFailure(settle.snapshot, desired) };
+    }
     return { true, L"startup task registered" };
 }
 

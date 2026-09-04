@@ -33,6 +33,9 @@ int main()
     assert(clawhud::SettingsFrontendPath(LR"(D:\x\ClawHUD.exe)").filename() ==
         L"ClawHUD.Settings.exe");
 
+    assert(clawhud::SettingsFrontendArguments(12345) ==
+        L"--runtime-pid 12345");
+
     // The current working directory must not affect resolution.
     {
         wchar_t original[MAX_PATH]{};

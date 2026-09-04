@@ -16,7 +16,13 @@ std::filesystem::path SettingsFrontendPath(
     return runtimeExecutable.parent_path() / L"ClawHUD.Settings.exe";
 }
 
-bool LaunchSettingsFrontend(const std::filesystem::path& runtimeExecutable)
+std::wstring SettingsFrontendArguments(unsigned long runtimePid)
+{
+    return L"--runtime-pid " + std::to_wstring(runtimePid);
+}
+
+bool LaunchSettingsFrontend(const std::filesystem::path& runtimeExecutable,
+    unsigned long runtimePid)
 {
     const std::filesystem::path frontend = SettingsFrontendPath(runtimeExecutable);
 
@@ -34,12 +40,14 @@ bool LaunchSettingsFrontend(const std::filesystem::path& runtimeExecutable)
 
     const std::wstring file = frontend.wstring();
     const std::wstring directory = frontend.parent_path().wstring();
+    const std::wstring parameters = SettingsFrontendArguments(runtimePid);
 
     SHELLEXECUTEINFOW info{};
     info.cbSize = sizeof(info);
     info.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
     info.lpVerb = L"open";
     info.lpFile = file.c_str();
+    info.lpParameters = parameters.c_str();
     info.lpDirectory = directory.c_str();
     info.nShow = SW_SHOWNORMAL;
 

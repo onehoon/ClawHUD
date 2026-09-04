@@ -15,7 +15,9 @@ namespace ClawHUD.Settings;
 public partial class App : Application
 {
     private SettingsInstanceCoordinator? _coordinator;
+    private RuntimeProcessLifetimeWatcher? _runtimeWatcher;
     private bool _pendingActivation;
+    private bool _runtimeExitPending;
 
     public App()
     {
@@ -54,7 +56,25 @@ public partial class App : Application
 
         _coordinator.ActivationRequested += OnActivationRequested;
 
+        RuntimePidArgument runtimePid = RuntimePidArgument.Parse(e.Args);
+        if (runtimePid.State == RuntimePidArgumentState.Valid)
+        {
+            if (!RuntimeProcessLifetimeWatcher.TryStart(runtimePid.Pid, OnRuntimeExit,
+                    out _runtimeWatcher, out Exception? error))
+            {
+                Trace.WriteLine("ClawHUD.Settings: runtime lifetime watcher initialization failed " +
+                    error?.GetType().Name + ": " + error?.Message);
+                Shutdown();
+                return;
+            }
+        }
+
         var window = new MainWindow();
+        if (_runtimeExitPending)
+        {
+            Shutdown();
+            return;
+        }
         MainWindow = window;
         window.Show();
 
@@ -77,6 +97,18 @@ public partial class App : Application
         });
     }
 
+    private void OnRuntimeExit()
+    {
+        _runtimeExitPending = true;
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (MainWindow is { } window)
+                window.Close();
+            else
+                Shutdown();
+        });
+    }
+
     private static void BringToFront(Window window)
     {
         if (window.WindowState == WindowState.Minimized)
@@ -88,6 +120,8 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _runtimeWatcher?.Dispose();
+        _runtimeWatcher = null;
         _coordinator?.Dispose();
         _coordinator = null;
         base.OnExit(e);

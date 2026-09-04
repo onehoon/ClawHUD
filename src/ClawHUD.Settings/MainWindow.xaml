@@ -44,12 +44,17 @@
                 <StackPanel IsEnabled="{Binding AreDiscreteSettingsControlsEnabled}">
                     <DockPanel>
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                            <Button Style="{StaticResource StepperButton}" Content="&#x2212;"
-                                    Click="OnHudSizeDecreaseClick" IsEnabled="{Binding CanDecreaseHudSize}" />
-                            <TextBlock Text="{Binding HudSizeLabel}" VerticalAlignment="Center" Margin="12,0"
+                            <Button Style="{StaticResource DecreaseStepperButton}"
+                                    Click="OnHudSizeDecreaseClick" IsEnabled="{Binding CanDecreaseHudSize}">
+                                <Path Data="M 7,16 L 25,16" Stroke="{DynamicResource TextFillColorPrimaryBrush}" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
+                            </Button>
+                            <TextBlock Text="{Binding HudSizeLabel}" Width="42" TextAlignment="Center"
+                                       VerticalAlignment="Center" Margin="8,0"
                                        Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
-                            <Button Style="{StaticResource StepperButton}" Content="+"
-                                    Click="OnHudSizeIncreaseClick" IsEnabled="{Binding CanIncreaseHudSize}" />
+                            <Button Style="{StaticResource IncreaseStepperButton}"
+                                    Click="OnHudSizeIncreaseClick" IsEnabled="{Binding CanIncreaseHudSize}">
+                                <Path Data="M 7,16 L 25,16 M 16,7 L 16,25" Stroke="{DynamicResource TextFillColorPrimaryBrush}" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
+                            </Button>
                         </StackPanel>
                         <TextBlock Style="{StaticResource SettingLabel}" Margin="0" Text="HUD size" />
                     </DockPanel>
