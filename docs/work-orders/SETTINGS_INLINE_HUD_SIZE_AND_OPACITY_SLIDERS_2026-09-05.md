@@ -52,6 +52,7 @@ Current behavior:
 - HUD opacity currently occupies two vertical lines: label first, then slider/value below it.
 - Settings uses WPF `ThemeMode="System"`; the existing standard `Slider` already participates in the current system/Fluent visual theme.
 - PR #234 added custom `StepperButton`, `DecreaseStepperButton`, and `IncreaseStepperButton` styles only for HUD size.
+- Card 2 is currently wrapped by `IsEnabled="{Binding AreDiscreteSettingsControlsEnabled}"`; this existing parent enablement boundary must be split when introducing an in-progress HUD-size drag, otherwise the slider can disable itself before drag completion.
 
 ---
 
@@ -213,12 +214,81 @@ While any other discrete mutation, activation refresh, or HUD-opacity interactio
 
 Do not solve this by accepting clicks and silently dropping them after WPF has shown an interaction.
 
-A minimal ViewModel state is sufficient; a large generic interaction framework is not required. For example, an implementation equivalent to the following is acceptable:
+### 4.4 Required Card 2 enablement boundary
+
+The current `main` structure wraps all of Card 2 with:
+
+```xaml
+<StackPanel IsEnabled="{Binding AreDiscreteSettingsControlsEnabled}">
+```
+
+That structure is **not valid** for the new HUD-size drag contract. Once `HudSizeGestureActive` makes the rest of Settings unavailable, the inherited `IsEnabled=false` would also disable the slider that owns the active drag.
+
+The implementation must therefore split the HUD-size row from the Font/Alignment discrete-control enablement boundary.
+
+Preferred structure:
+
+```text
+Card 2
+  StackPanel
+    HUD-size row
+      IsEnabled = IsHudSizeSliderEnabled
+
+    Font/Alignment container
+      IsEnabled = AreDiscreteSettingsControlsEnabled
+```
+
+An equivalent XAML arrangement is acceptable, but the contract must be explicit:
+
+```text
+IsHudSizeSliderEnabled
+  = authoritative snapshot exists
+    AND no unrelated discrete mutation is in flight
+    AND no activation refresh is in flight
+    AND no HUD-opacity interaction is busy
+    AND (HUD-size gesture may remain active)
+```
+
+In other words:
+
+```text
+before HUD-size drag
+  slider enabled if interaction may begin
+
+while HUD-size drag is active
+  HUD-size slider remains enabled
+  Font disabled
+  Alignment disabled
+  all other discrete Settings controls disabled
+  opacity slider disabled
+
+when HUD-size drag completes
+  normal enablement resumes after the one commit/reconciliation finishes
+```
+
+Do **not** bind the HUD-size slider to `AreDiscreteSettingsControlsEnabled` directly or indirectly through a disabled parent container.
+
+The following implementation shapes are all acceptable:
+
+1. move the HUD-size row outside the existing Card-2 discrete `IsEnabled` container;
+2. remove Card-2-wide enablement and apply `AreDiscreteSettingsControlsEnabled` only to Font/Alignment while giving the slider `IsHudSizeSliderEnabled`;
+3. use an equivalent dedicated binding whose semantics allow the active HUD-size gesture to finish.
+
+Prefer a dedicated ViewModel property such as:
+
+```text
+IsHudSizeSliderEnabled
+```
+
+rather than embedding a complex multi-condition expression in XAML. A converter or large generic interaction framework is not required.
+
+A minimal ViewModel state is sufficient; an implementation equivalent to the following is acceptable:
 
 ```text
 HudSizeGestureActive
 HudSizeGestureValue
 SliderHudSizeValue
+IsHudSizeSliderEnabled
 BeginHudSizeInteraction()
 UpdateHudSizeGesture(...)
 EndHudSizeInteractionAsync()
@@ -292,6 +362,14 @@ runtime returns +2
 
 If runtime instead returns `0`, the thumb and label return to `Default`.
 
+The ViewModel must expose enough state for XAML to distinguish:
+
+- whether a new HUD-size interaction may begin;
+- whether an already-active HUD-size drag must remain enabled;
+- whether the other discrete controls must be blocked.
+
+A dedicated `IsHudSizeSliderEnabled` projection is preferred so the XAML does not accidentally inherit the existing Card-wide discrete enablement behavior.
+
 ---
 
 ## 7. XAML/layout changes
@@ -315,6 +393,27 @@ The HUD-size row should be a single `DockPanel` or `Grid` row with a fixed-width
 Do not move the slider below the `HUD size` label.
 
 Font and Alignment controls remain below it as they are today.
+
+**Required enablement restructuring:** do not keep the HUD-size row inside a parent container bound to `AreDiscreteSettingsControlsEnabled`. Split Card 2 so the HUD-size row owns its dedicated `IsHudSizeSliderEnabled` state while Font and Alignment remain under the discrete-control enablement state. This is required to keep the thumb interactive through `DragCompleted` while still blocking all other mutations.
+
+Conceptually:
+
+```xaml
+<Border Style="{StaticResource SettingsCard}">
+    <StackPanel>
+        <DockPanel IsEnabled="{Binding IsHudSizeSliderEnabled}">
+            <!-- HUD size label + value + slider -->
+        </DockPanel>
+
+        <StackPanel IsEnabled="{Binding AreDiscreteSettingsControlsEnabled}">
+            <!-- Font -->
+            <!-- Alignment -->
+        </StackPanel>
+    </StackPanel>
+</Border>
+```
+
+Exact panel types may differ, but inherited `IsEnabled=false` from a Card-2 parent must not be able to terminate/disable an active HUD-size gesture.
 
 ### 7.2 Card 3 — HUD opacity
 
@@ -410,6 +509,8 @@ At minimum cover:
 - begin at authoritative `0`;
 - drag locally through multiple values;
 - verify no `SetHudSizeOffset` IPC occurs before completion;
+- verify `IsHudSizeSliderEnabled` remains true during the active drag;
+- verify other discrete controls are unavailable during the active drag;
 - complete at `+2`;
 - verify exactly one `SetHudSizeOffset` call;
 - verify returned snapshot becomes authoritative.
@@ -435,6 +536,12 @@ Verify HUD-size drag prevents:
 - another discrete mutation;
 - HUD-opacity interaction;
 - activation refresh from overwriting the gesture.
+
+Also verify that during the same active drag:
+
+- `IsHudSizeSliderEnabled` remains true until completion;
+- Font/Alignment and the rest of the discrete controls remain disabled;
+- the opacity slider cannot begin an interaction.
 
 Verify an existing opacity interaction or discrete mutation prevents a new HUD-size interaction.
 
@@ -475,6 +582,7 @@ Expected visual result on the target 1920 × 1200 / 150% environment:
 9. HUD opacity keeps its existing 5% snap behavior.
 10. No button flash remains because the old `−/+` controls no longer exist.
 11. No card or control is clipped.
+12. Starting a HUD-size drag does not disable/cancel the slider before `DragCompleted`; Font, Alignment, and other Settings mutations remain unavailable until the gesture/commit is finished.
 
 ---
 
@@ -506,6 +614,7 @@ The PR is complete when:
 - both sliders are visually aligned and equal width;
 - window remains fixed 600 × 600 with no scrolling;
 - HUD-size drag performs one IPC mutation at release rather than repeated mutations during drag;
+- the HUD-size slider remains enabled through its own active drag while Font/Alignment/other discrete controls and opacity interaction are blocked;
 - direct keyboard/track changes work and stay in range;
 - authoritative runtime reconciliation remains intact;
 - opacity preview/commit semantics are unchanged;
