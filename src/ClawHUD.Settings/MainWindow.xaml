@@ -41,44 +41,47 @@
 
             <!-- Card 2: HUD size + font + alignment -->
             <Border Style="{StaticResource SettingsCard}">
-                <StackPanel IsEnabled="{Binding AreDiscreteSettingsControlsEnabled}">
-                    <DockPanel>
-                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                            <Button Style="{StaticResource DecreaseStepperButton}"
-                                    Click="OnHudSizeDecreaseClick" IsEnabled="{Binding CanDecreaseHudSize}">
-                                <Path Data="M 7,16 L 25,16" Stroke="{DynamicResource TextFillColorPrimaryBrush}" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
-                            </Button>
-                            <TextBlock Text="{Binding HudSizeLabel}" Width="42" TextAlignment="Center"
-                                       VerticalAlignment="Center" Margin="8,0"
-                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
-                            <Button Style="{StaticResource IncreaseStepperButton}"
-                                    Click="OnHudSizeIncreaseClick" IsEnabled="{Binding CanIncreaseHudSize}">
-                                <Path Data="M 7,16 L 25,16 M 16,7 L 16,25" Stroke="{DynamicResource TextFillColorPrimaryBrush}" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
-                            </Button>
-                        </StackPanel>
+                <StackPanel>
+                    <DockPanel IsEnabled="{Binding IsHudSizeSliderEnabled}">
+                        <Grid DockPanel.Dock="Right">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="60" />
+                                <ColumnDefinition Width="10" />
+                                <ColumnDefinition Width="190" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="{Binding HudSizeLabel}" TextAlignment="Center"
+                                       VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                            <Slider x:Name="HudSizeSlider" Grid.Column="2" Style="{StaticResource InlineSettingSlider}"
+                                    Minimum="-2" Maximum="2" TickFrequency="1"
+                                    IsSnapToTickEnabled="True" IsMoveToPointEnabled="True"
+                                    Thumb.DragStarted="OnHudSizeDragStarted"
+                                    Thumb.DragCompleted="OnHudSizeDragCompleted" />
+                        </Grid>
                         <TextBlock Style="{StaticResource SettingLabel}" Margin="0" Text="HUD size" />
                     </DockPanel>
                     <TextBlock Style="{StaticResource SettingLabel}" Margin="0,6,0,2" Text="Font" />
-                    <UniformGrid Rows="1" Columns="2">
-                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="0,0,3,0" Content="Unispace"
-                                      Tag="Unispace" Click="OnFontClick"
-                                      IsChecked="{Binding IsFontUnispace, Mode=OneWay}" />
-                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="3,0,0,0" Content="Segoe UI Variable"
-                                      Tag="SegoeUiVariable" Click="OnFontClick"
-                                      IsChecked="{Binding IsFontSegoeUiVariable, Mode=OneWay}" />
-                    </UniformGrid>
-                    <TextBlock Style="{StaticResource SettingLabel}" Margin="0,6,0,2" Text="Alignment" />
-                    <UniformGrid Rows="1" Columns="3">
-                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="0,0,3,0" Content="Left"
-                                      Tag="Left" Click="OnAlignmentClick"
-                                      IsChecked="{Binding IsAlignmentLeft, Mode=OneWay}" />
-                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="3,0" Content="Center"
-                                      Tag="Center" Click="OnAlignmentClick"
-                                      IsChecked="{Binding IsAlignmentCenter, Mode=OneWay}" />
-                        <ToggleButton Style="{StaticResource SegmentToggle}" Margin="3,0,0,0" Content="Right"
-                                      Tag="Right" Click="OnAlignmentClick"
-                                      IsChecked="{Binding IsAlignmentRight, Mode=OneWay}" />
-                    </UniformGrid>
+                    <StackPanel IsEnabled="{Binding AreDiscreteSettingsControlsEnabled}">
+                        <UniformGrid Rows="1" Columns="2">
+                            <ToggleButton Style="{StaticResource SegmentToggle}" Margin="0,0,3,0" Content="Unispace"
+                                          Tag="Unispace" Click="OnFontClick"
+                                          IsChecked="{Binding IsFontUnispace, Mode=OneWay}" />
+                            <ToggleButton Style="{StaticResource SegmentToggle}" Margin="3,0,0,0" Content="Segoe UI Variable"
+                                          Tag="SegoeUiVariable" Click="OnFontClick"
+                                          IsChecked="{Binding IsFontSegoeUiVariable, Mode=OneWay}" />
+                        </UniformGrid>
+                        <TextBlock Style="{StaticResource SettingLabel}" Margin="0,6,0,2" Text="Alignment" />
+                        <UniformGrid Rows="1" Columns="3">
+                            <ToggleButton Style="{StaticResource SegmentToggle}" Margin="0,0,3,0" Content="Left"
+                                          Tag="Left" Click="OnAlignmentClick"
+                                          IsChecked="{Binding IsAlignmentLeft, Mode=OneWay}" />
+                            <ToggleButton Style="{StaticResource SegmentToggle}" Margin="3,0" Content="Center"
+                                          Tag="Center" Click="OnAlignmentClick"
+                                          IsChecked="{Binding IsAlignmentCenter, Mode=OneWay}" />
+                            <ToggleButton Style="{StaticResource SegmentToggle}" Margin="3,0,0,0" Content="Right"
+                                          Tag="Right" Click="OnAlignmentClick"
+                                          IsChecked="{Binding IsAlignmentRight, Mode=OneWay}" />
+                        </UniformGrid>
+                    </StackPanel>
                 </StackPanel>
             </Border>
 
@@ -96,24 +99,23 @@
                                           IsChecked="{Binding IsBackgroundContentWidth, Mode=OneWay}" />
                         </UniformGrid>
                     </StackPanel>
-                    <StackPanel>
-                        <TextBlock Style="{StaticResource SettingLabel}" Margin="0,6,0,2" Text="HUD opacity" />
-                        <DockPanel>
-                            <TextBlock DockPanel.Dock="Right" Text="{Binding BackgroundOpacityText}" VerticalAlignment="Center"
-                                       Margin="12,0,0,0" Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
-                            <!-- Value is pushed from code-behind under a guard so a
-                                 programmatic snapshot update never looks like user input.
-                                 ValueChanged is wired in the constructor AFTER the ViewModel
-                                 exists — never in XAML — so the Minimum 0 -> 50 coercion
-                                 during InitializeComponent is not a user opacity mutation. -->
-                            <Slider x:Name="OpacitySlider" Minimum="50" Maximum="100"
-                                    TickFrequency="5" IsSnapToTickEnabled="True" IsMoveToPointEnabled="True"
-                                    VerticalAlignment="Center" MinHeight="30"
-                                    IsEnabled="{Binding IsOpacitySliderEnabled}"
-                                    Thumb.DragStarted="OnOpacityDragStarted"
-                                    Thumb.DragCompleted="OnOpacityDragCompleted" />
-                        </DockPanel>
-                    </StackPanel>
+                    <Grid Margin="0,6,0,2">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="60" />
+                            <ColumnDefinition Width="10" />
+                            <ColumnDefinition Width="190" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Style="{StaticResource SettingLabel}" Margin="0" Text="HUD opacity" />
+                        <TextBlock Grid.Column="1" Text="{Binding BackgroundOpacityText}" TextAlignment="Center" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                        <Slider x:Name="OpacitySlider" Grid.Column="3" Style="{StaticResource InlineSettingSlider}"
+                                Minimum="50" Maximum="100" TickFrequency="5"
+                                IsSnapToTickEnabled="True" IsMoveToPointEnabled="True"
+                                IsEnabled="{Binding IsOpacitySliderEnabled}"
+                                Thumb.DragStarted="OnOpacityDragStarted"
+                                Thumb.DragCompleted="OnOpacityDragCompleted" />
+                    </Grid>
                 </StackPanel>
             </Border>
 
