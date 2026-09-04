@@ -312,16 +312,6 @@
     set_target_properties(ClawHUD.SettingsFrontendLauncherTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.SettingsFrontendLauncherTests COMMAND ClawHUD.SettingsFrontendLauncherTests)
 
-    add_executable(ClawHUD.UninstallCleanupTests
-        tests/UninstallCleanupTests.cpp
-        src/ClawHUD/UninstallCleanup.cpp)
-    target_compile_features(ClawHUD.UninstallCleanupTests PRIVATE cxx_std_20)
-    target_compile_definitions(ClawHUD.UninstallCleanupTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-    target_include_directories(ClawHUD.UninstallCleanupTests PRIVATE src/ClawHUD)
-    target_link_libraries(ClawHUD.UninstallCleanupTests PRIVATE shell32 ole32)
-    set_target_properties(ClawHUD.UninstallCleanupTests PROPERTIES CXX_EXTENSIONS OFF)
-    add_test(NAME ClawHUD.UninstallCleanupTests COMMAND ClawHUD.UninstallCleanupTests)
-
     add_executable(ClawHUD.HudPresentationContractTests
         tests/HudPresentationContractTests.cpp
         src/ClawHUD/HudPresentationContract.cpp)
@@ -540,6 +530,19 @@
     set_target_properties(ClawHUD.StartupExecutablePathTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.StartupExecutablePathTests
         COMMAND ClawHUD.StartupExecutablePathTests)
+
+    add_executable(ClawHUD.StartupTaskRegistrationTests
+        tests/StartupTaskRegistrationTests.cpp
+        src/ClawHUD/StartupTaskRegistration.cpp
+        src/ClawHUD/StartupExecutablePath.cpp)
+    target_compile_features(ClawHUD.StartupTaskRegistrationTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.StartupTaskRegistrationTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.StartupTaskRegistrationTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.StartupTaskRegistrationTests PRIVATE shell32 ole32 oleaut32 advapi32)
+    set_target_properties(ClawHUD.StartupTaskRegistrationTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.StartupTaskRegistrationTests
+        COMMAND ClawHUD.StartupTaskRegistrationTests)
 
     add_executable(ClawHUD.PresentMonRuntimeStartupPolicyTests
         tests/PresentMonRuntimeStartupPolicyTests.cpp)

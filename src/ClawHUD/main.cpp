@@ -1,6 +1,7 @@
 #include "App.h"
 #include "LaunchMode.h"
 #include "UninstallCleanup.h"
+#include "StartupTaskRegistration.h"
 
 #include <Velopack.hpp>
 
@@ -30,16 +31,25 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
     if (!SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2))
         return 1;
 
-    clawhud::LaunchMode launchMode = clawhud::LaunchMode::Standalone;
+    std::vector<std::wstring_view> arguments;
     int argc = 0;
     if (LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc))
     {
-        std::vector<std::wstring_view> arguments;
         for (int i = 1; i < argc; ++i)
             arguments.emplace_back(argv[i]);
-        launchMode = clawhud::ResolveLaunchMode(arguments);
         LocalFree(argv);
     }
+
+    // Private Task Scheduler helper commands (--ensure-startup-task /
+    // --remove-startup-task) are dispatched here, before App exists: the
+    // elevated helper child performs one fixed task mutation and exits
+    // without initializing App, update checking, the hardware gate, the
+    // PresentMon runtime, the tray, the HUD, telemetry, the EC helper, or
+    // Control IPC. See StartupTaskRegistration.h.
+    if (auto helperExit = clawhud::TryRunStartupTaskHelperCommand(arguments))
+        return *helperExit;
+
+    const clawhud::LaunchMode launchMode = clawhud::ResolveLaunchMode(arguments);
 
     App app(instance, launchMode);
     return app.Run();

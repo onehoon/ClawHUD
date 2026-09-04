@@ -77,6 +77,7 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/ClawHudUpdateUrl.cpp
     src/ClawHUD/ClawHudUpdateSource.cpp
     src/ClawHUD/StartupExecutablePath.cpp
+    src/ClawHUD/StartupTaskRegistration.cpp
     src/ClawHUD/LaunchMode.cpp
     src/ClawHUD/RuntimeControlDispatchBridge.cpp
     src/ClawHUD/RuntimeControlWireMapping.cpp
