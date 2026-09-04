@@ -21,7 +21,8 @@ enum class ProductionWindowEventType
     Show,
     Hide,
     LocationChange,
-    Destroy
+    Destroy,
+    NameChange
 };
 
 std::optional<ProductionWindowEventType> MapProductionWindowEvent(DWORD event) noexcept;
@@ -81,7 +82,7 @@ private:
     void StopWorker() noexcept;
     void UnhookAll() noexcept;
 
-    std::array<HWINEVENTHOOK, 5> hooks_{};
+    std::array<HWINEVENTHOOK, 6> hooks_{};
     std::mutex queueMutex_;
     std::condition_variable_any queueWake_;
     ProductionWindowEventQueue pendingEvents_;

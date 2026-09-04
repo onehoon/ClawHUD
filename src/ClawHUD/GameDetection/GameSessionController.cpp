@@ -408,7 +408,16 @@ void GameSessionController::HandleProductionWindowEvent(
             reinterpret_cast<WPARAM>(update), 0))
             delete update;
     }
-    if (WindowEventAffectsCurrentForeground(event))
+    // Every accepted production window event first wakes the canonical
+    // foreground authority: ForegroundTracker::Reconcile() re-reads
+    // GetForegroundWindow()/PID and fires its callback only on an actual change,
+    // closing the gap where EVENT_SYSTEM_FOREGROUND was missed (a game loader
+    // window that swaps content without a foreground transition, a Ghost window
+    // handoff). This is cheap when nothing changed.
+    foregroundTracker_.Reconcile();
+    if (WindowEventAffectsCurrentForeground(event) &&
+        ShouldReevaluateOnNameChange(nameChangeDebounce_, event,
+            event.receivedTickMs))
         EvaluateCurrentForeground(L"window-event");
 }
 

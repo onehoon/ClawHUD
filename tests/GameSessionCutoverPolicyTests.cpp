@@ -177,5 +177,28 @@ int main()
         settings, settingsPid, settings, settingsPid),
         "without the exclusion optimization a current LOCATIONCHANGE still counts");
 
+    // --- NAMECHANGE direct-reevaluation debounce ---------------------------
+    const HWND game = reinterpret_cast<HWND>(0x4000);
+    constexpr DWORD gamePid = 14312;
+    auto NameChange = [&](HWND w, DWORD pid)
+    { return WindowEvent(ProductionWindowEventType::NameChange, w, pid); };
+
+    NameChangeReevalDebounce debounce;
+    Check(ShouldReevaluateOnNameChange(debounce, NameChange(game, gamePid), 1000),
+        "first NAMECHANGE for a window is evaluated immediately");
+    Check(!ShouldReevaluateOnNameChange(debounce, NameChange(game, gamePid), 1100),
+        "repeated same-window NAMECHANGE inside the debounce window is skipped");
+    Check(!ShouldReevaluateOnNameChange(debounce, NameChange(game, gamePid), 1249),
+        "still skipped just before the debounce window closes");
+    Check(ShouldReevaluateOnNameChange(debounce, NameChange(game, gamePid), 1250),
+        "first NAMECHANGE after the debounce window evaluates again");
+    Check(ShouldReevaluateOnNameChange(debounce, NameChange(other, 300), 1300),
+        "a different window's NAMECHANGE is evaluated immediately");
+    Check(ShouldReevaluateOnNameChange(debounce,
+        WindowEvent(ProductionWindowEventType::Show, game, gamePid), 1310),
+        "non-NAMECHANGE events are never debounced");
+    Check(!ShouldReevaluateOnNameChange(debounce, NameChange(other, 300), 1400),
+        "the Show did not reset the other window's NAMECHANGE debounce state");
+
     std::cout << "PASS\n";
 }

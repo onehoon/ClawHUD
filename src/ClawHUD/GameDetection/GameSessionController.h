@@ -150,5 +150,8 @@ private:
     // (PID + creation time), or none. Kept as a full GameProcessInstance so
     // PID reuse cannot preserve an old generation's target authority.
     std::optional<GameProcessInstance> currentForegroundGameProcess_;
+    // Rate-limits direct detector re-evaluation for repeated same-window
+    // EVENT_OBJECT_NAMECHANGE. Never gates ForegroundTracker::Reconcile().
+    NameChangeReevalDebounce nameChangeDebounce_;
 };
 }
