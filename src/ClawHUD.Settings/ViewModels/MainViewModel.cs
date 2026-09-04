@@ -77,6 +77,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public int HudSizeOffset => _snapshot?.HudSizeOffset ?? 0;
     public string HudSizeLabel => FormatSizeOffset(HudSizeOffset);
+    public bool CanDecreaseHudSizeByRange => _snapshot is not null &&
+        HudSizeOffset > ControlProtocol.MinHudSizeOffset;
+    public bool CanIncreaseHudSizeByRange => _snapshot is not null &&
+        HudSizeOffset < ControlProtocol.MaxHudSizeOffset;
     public bool CanDecreaseHudSize => AreDiscreteSettingsControlsEnabled && HudSizeOffset > ControlProtocol.MinHudSizeOffset;
     public bool CanIncreaseHudSize => AreDiscreteSettingsControlsEnabled && HudSizeOffset < ControlProtocol.MaxHudSizeOffset;
 

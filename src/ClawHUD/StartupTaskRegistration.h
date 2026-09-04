@@ -17,6 +17,7 @@
 // never accepts an arbitrary executable path from the command line.
 
 #include <filesystem>
+#include <cstdint>
 #include <optional>
 #include <span>
 #include <string>
@@ -59,6 +60,50 @@ struct DesiredStartupTask
     std::wstring workingDirectory;
     std::wstring userId;
 };
+
+enum class StartupTaskMismatch : std::uint32_t
+{
+    None = 0,
+    TaskMissing = 1u << 0,
+    TaskDisabled = 1u << 1,
+    ExecPath = 1u << 2,
+    Arguments = 1u << 3,
+    WorkingDirectory = 1u << 4,
+    PrincipalUser = 1u << 5,
+    LogonTriggerUser = 1u << 6,
+    InteractiveTokenLogonType = 1u << 7,
+    LeastPrivilegeRunLevel = 1u << 8,
+    DisallowStartIfOnBatteries = 1u << 9,
+    StopIfGoingOnBatteries = 1u << 10,
+    ExecutionTimeLimit = 1u << 11,
+};
+
+constexpr StartupTaskMismatch operator|(StartupTaskMismatch left,
+    StartupTaskMismatch right) noexcept
+{
+    return static_cast<StartupTaskMismatch>(
+        static_cast<std::uint32_t>(left) | static_cast<std::uint32_t>(right));
+}
+
+constexpr bool HasStartupTaskMismatch(StartupTaskMismatch value,
+    StartupTaskMismatch flag) noexcept
+{
+    return (static_cast<std::uint32_t>(value) & static_cast<std::uint32_t>(flag)) != 0;
+}
+
+struct StartupTaskComplianceResult
+{
+    StartupTaskMismatch mismatches{StartupTaskMismatch::None};
+
+    constexpr bool IsCompliant() const noexcept
+    {
+        return mismatches == StartupTaskMismatch::None;
+    }
+};
+
+StartupTaskComplianceResult EvaluateStartupTaskCompliance(
+    const StartupTaskSnapshot& snapshot,
+    const DesiredStartupTask& desired) noexcept;
 
 DesiredStartupTask MakeDesiredStartupTask(
     const std::filesystem::path& resolvedExecutable, std::wstring_view userId);

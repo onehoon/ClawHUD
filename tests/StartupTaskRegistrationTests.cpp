@@ -1,7 +1,13 @@
 #include "StartupTaskRegistration.h"
 
+#include <windows.h>
+#include <sddl.h>
+
 #include <cstdlib>
 #include <iostream>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace
 {
@@ -39,6 +45,43 @@ clawhud::StartupTaskSnapshot CompliantSnapshot(const clawhud::DesiredStartupTask
     snapshot.executionTimeLimit = L"PT0S";
     return snapshot;
 }
+
+std::pair<std::wstring, std::wstring> CurrentUserIdentity()
+{
+    HANDLE token{};
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token))
+        return {};
+    DWORD size = 0;
+    GetTokenInformation(token, TokenUser, nullptr, 0, &size);
+    std::vector<BYTE> buffer(size);
+    if (size == 0 || !GetTokenInformation(token, TokenUser, buffer.data(), size, &size))
+    {
+        CloseHandle(token);
+        return {};
+    }
+    CloseHandle(token);
+
+    const auto* user = reinterpret_cast<const TOKEN_USER*>(buffer.data());
+    LPWSTR sidText{};
+    if (!ConvertSidToStringSidW(user->User.Sid, &sidText))
+        return {};
+    std::wstring sid(sidText);
+    LocalFree(sidText);
+
+    DWORD nameSize = 0;
+    DWORD domainSize = 0;
+    SID_NAME_USE use{};
+    LookupAccountSidW(nullptr, user->User.Sid, nullptr, &nameSize,
+        nullptr, &domainSize, &use);
+    std::wstring name(nameSize, L'\0');
+    std::wstring domain(domainSize, L'\0');
+    if (nameSize == 0 || !LookupAccountSidW(nullptr, user->User.Sid,
+            name.data(), &nameSize, domain.data(), &domainSize, &use))
+        return {};
+    name.resize(nameSize);
+    domain.resize(domainSize);
+    return { sid, domain.empty() ? name : domain + L"\\" + name };
+}
 }
 
 int main()
@@ -54,16 +97,24 @@ int main()
 
     // --- compliance matrix ---------------------------------------------
     Check(IsStartupTaskCompliant(CompliantSnapshot(desired), desired), "exact task -> compliant");
+    Check(EvaluateStartupTaskCompliance(CompliantSnapshot(desired), desired).IsCompliant(),
+        "evaluator agrees with exact compliant task");
 
     {
         auto s = CompliantSnapshot(desired);
         s.present = false;
         Check(!IsStartupTaskCompliant(s, desired), "missing task -> not compliant");
+        Check(HasStartupTaskMismatch(
+            EvaluateStartupTaskCompliance(s, desired).mismatches,
+            StartupTaskMismatch::TaskMissing), "missing task -> TaskMissing");
     }
     {
         auto s = CompliantSnapshot(desired);
         s.enabled = false;
         Check(!IsStartupTaskCompliant(s, desired), "disabled task -> not compliant");
+        Check(HasStartupTaskMismatch(
+            EvaluateStartupTaskCompliance(s, desired).mismatches,
+            StartupTaskMismatch::TaskDisabled), "disabled task -> TaskDisabled");
     }
     {
         auto s = CompliantSnapshot(desired);
@@ -119,12 +170,32 @@ int main()
     }
     {
         auto s = CompliantSnapshot(desired);
+        s.execPath = L"C:\\Wrong\\ClawHUD.exe";
+        s.executionTimeLimit = L"PT1H";
+        const auto result = EvaluateStartupTaskCompliance(s, desired);
+        Check(HasStartupTaskMismatch(result.mismatches, StartupTaskMismatch::ExecPath) &&
+                HasStartupTaskMismatch(result.mismatches, StartupTaskMismatch::ExecutionTimeLimit),
+            "multiple modeled mismatches combine in evaluator");
+    }
+    {
+        auto s = CompliantSnapshot(desired);
         s.execPath = L"c:\\program files\\clawhud\\clawhud.exe";
         s.workingDirectory = L"c:\\program files\\clawhud";
         s.principalUserId = L"s-1-5-21-1-2-3-1001";
         s.logonTriggerUserId = L"s-1-5-21-1-2-3-1001";
         Check(IsStartupTaskCompliant(s, desired),
             "path and user-id comparison is case-insensitive");
+    }
+    {
+        const auto [sid, account] = CurrentUserIdentity();
+        Check(!sid.empty() && !account.empty(), "current user identity resolves");
+        const auto currentDesired = MakeDesiredStartupTask(
+            L"C:\\Program Files\\ClawHUD\\ClawHUD.exe", sid);
+        auto s = CompliantSnapshot(currentDesired);
+        s.principalUserId = account;
+        s.logonTriggerUserId = account;
+        Check(IsStartupTaskCompliant(s, currentDesired),
+            "SID and resolved account name represent the same user");
     }
 
     // --- helper command parsing / dispatch ------------------------------

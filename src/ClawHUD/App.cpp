@@ -803,10 +803,9 @@ void App::OpenSettings()
             L"OpenSettings ignored in Managed mode");
         return;
     }
-    // The WPF frontend is a separate short-lived process; it owns its own
-    // session-scoped single-instance / bring-to-front behaviour. The runtime does
-    // not track or wait on it.
-    clawhud::LaunchSettingsFrontend(executablePath_);
+    // The WPF frontend is a separate process bound to this exact runtime PID;
+    // it owns its own session-scoped single-instance / bring-to-front behaviour.
+    clawhud::LaunchSettingsFrontend(executablePath_, GetCurrentProcessId());
 }
 
 void App::HandleRuntimeControlDispatch()

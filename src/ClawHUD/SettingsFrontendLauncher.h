@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <string>
 
 namespace clawhud
 {
@@ -11,9 +12,12 @@ namespace clawhud
 std::filesystem::path SettingsFrontendPath(
     const std::filesystem::path& runtimeExecutable);
 
+std::wstring SettingsFrontendArguments(unsigned long runtimePid);
+
 // Launches the sibling ClawHUD.Settings.exe unelevated and returns immediately;
 // the runtime never waits for Settings to close. Returns false (and logs, plus
 // shows a small error box for a missing frontend) without crashing so the
 // runtime/HUD keep running. Never elevates and never starts a second ClawHUD.exe.
-bool LaunchSettingsFrontend(const std::filesystem::path& runtimeExecutable);
+bool LaunchSettingsFrontend(const std::filesystem::path& runtimeExecutable,
+    unsigned long runtimePid);
 }
