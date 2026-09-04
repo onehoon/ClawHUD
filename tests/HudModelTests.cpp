@@ -79,10 +79,9 @@ int main()
         afterFps == L"60FPS | CPU 13% | GPU 15% | RAM 8.0GB | VRAM 2.4GB",
         "global telemetry remains visible before and after FPS");
     globalTelemetry.presentMonDisplayedFps.reset();
-    globalTelemetry.graphicsApi = L"DX12";
     const auto afterGameExit = JoinHudRuns(FormatHud(globalTelemetry));
     ok &= Check(afterGameExit == beforeFps,
-        "game-scoped FPS/API removal preserves global telemetry");
+        "game-scoped FPS removal preserves global telemetry");
     ok &= Check(ShouldShowHud(HudVisibilityMode::Always, false), "always visibility");
     ok &= Check(!ShouldShowHud(HudVisibilityMode::InGameOnly, false), "in-game-only visibility");
     ok &= Check(ShouldShowHud(HudVisibilityMode::InGameOnly, true), "foreground game visibility");
@@ -135,7 +134,6 @@ int main()
         "suspend pauses telemetry lifecycle");
 
     HudTelemetrySnapshot missing{};
-    missing.graphicsApi = L"DX12";
     missing.cpuUsagePercent = 0.0;
     missing.cpuTemperatureC = 0;
     missing.fan1Rpm = 3200;
@@ -190,46 +188,14 @@ int main()
     auto displayedRuns = FormatHud(displayed);
     ok &= Check(displayedRuns.size() == 1 && displayedRuns[0].label.empty() &&
         displayedRuns[0].value == L"120FPS",
-        "PresentMon FPS without API uses unit-formatted value");
-    displayed.graphicsApi = L"DX12";
-    displayedRuns = FormatHud(displayed);
-    ok &= Check(displayedRuns.size() == 1 && displayedRuns[0].label.empty() &&
-        displayedRuns[0].value == L"120FPS",
-        "DX12 is hidden from displayed FPS formatting");
-    displayed.graphicsApi = L"DX11";
-    displayedRuns = FormatHud(displayed);
-    ok &= Check(displayedRuns.size() == 1 && displayedRuns[0].label.empty() &&
-        displayedRuns[0].value == L"120FPS",
-        "DX11 API is hidden from FPS formatting");
-    displayed.graphicsApi = L"Vulkan";
-    displayedRuns = FormatHud(displayed);
-    ok &= Check(displayedRuns.size() == 1 && displayedRuns[0].label.empty() &&
-        displayedRuns[0].value == L"120FPS",
-        "non-DX12 API is hidden from FPS formatting");
-    displayed.graphicsApi = L"DX11+DX12";
-    displayedRuns = FormatHud(displayed);
-    ok &= Check(displayedRuns.size() == 1 && displayedRuns[0].label.empty() &&
-        displayedRuns[0].value == L"120FPS",
-        "mixed API value is hidden from FPS formatting");
+        "PresentMon FPS uses unit-formatted value");
 
     HudTelemetrySnapshot rendered{};
-    rendered.graphicsApi = L"DX12";
     rendered.renderFps = 120.0;
     auto renderedRuns = FormatHud(rendered);
     ok &= Check(renderedRuns.size() == 1 && renderedRuns[0].label.empty() &&
         renderedRuns[0].value == L"120FPS",
-        "render FPS hides the graphics API label");
-    rendered.graphicsApi = L"DX11";
-    renderedRuns = FormatHud(rendered);
-    ok &= Check(renderedRuns.size() == 1 && renderedRuns[0].label.empty() &&
-        renderedRuns[0].value == L"120FPS",
-        "render FPS hides a non-DX12 API");
-    HudTelemetrySnapshot renderedWithoutApi{};
-    renderedWithoutApi.renderFps = 120.0;
-    renderedRuns = FormatHud(renderedWithoutApi);
-    ok &= Check(renderedRuns.size() == 1 && renderedRuns[0].label.empty() &&
-        renderedRuns[0].value == L"120FPS",
-        "render FPS without API remains visible");
+        "render FPS renders a unit-formatted value");
 
     HudTelemetrySnapshot unavailableApi{};
     unavailableApi.presentMonDisplayedFps = 120.0;
@@ -260,7 +226,6 @@ int main()
         "VRAM without GPU usage remains visible");
 
     HudTelemetrySnapshot all{};
-    all.graphicsApi = L"DX12";
     all.presentMonDisplayedFps = 999.0;
     all.cpuUsagePercent = 21.0;
     all.cpuTemperatureC = 42;

@@ -111,12 +111,10 @@ void FillSnapshotLeavesUnownedFieldsAlone(bool& ok)
     HudTelemetryAggregator agg;
     agg.IngestEc(Ec(64, 2400, 2600, 35));
     HudTelemetrySnapshot s{};
-    s.graphicsApi = L"D3D12";
     s.presentMonDisplayedFps = 120.0;
     s.batteryPercent = 88;
     s.onBattery = true;
     agg.FillSnapshot(s);
-    ok &= Check(s.graphicsApi == L"D3D12", "graphicsApi untouched");
     ok &= Check(s.presentMonDisplayedFps == 120.0, "fps untouched");
     ok &= Check(s.batteryPercent == 88 && s.onBattery, "battery fields untouched");
     ok &= Check(s.cpuTemperatureC == 64, "owned field still filled");
