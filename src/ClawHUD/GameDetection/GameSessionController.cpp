@@ -244,8 +244,6 @@ void GameSessionController::RevalidateCurrentForegroundGame()
 void GameSessionController::ResetForegroundGameSession(const wchar_t* reason)
 {
     StopRenderVerification(reason, true);
-    if (currentForegroundGameProcess_)
-        hooks_.stopGraphicsApiProbeIfTarget(currentForegroundGameProcess_->processId);
     currentForegroundGameProcess_.reset();
     hooks_.clearInGameForegroundProcess();
     hooks_.reconcileHudVisibility();
@@ -328,11 +326,8 @@ void GameSessionController::ApplyForegroundEvaluation(
     if (action == ForegroundGameTargetAction::SetEligible)
     {
         const DWORD processId = current.process->processId;
-        if (currentForegroundGameProcess_)
-            hooks_.stopGraphicsApiProbeIfTarget(currentForegroundGameProcess_->processId);
         currentForegroundGameProcess_ = current.process;
         hooks_.setInGameForegroundProcess(processId);
-        hooks_.startGraphicsApiProbe(processId);
         hooks_.startProductionSampling();
         Log(L"[GameDetection] foreground.target-set pid=" + std::to_wstring(processId));
         hooks_.reconcileHudVisibility();
@@ -348,7 +343,6 @@ void GameSessionController::ApplyForegroundEvaluation(
     {
         Log(L"[GameDetection] foreground.target-clear oldPid=" +
             std::to_wstring(currentForegroundGameProcess_->processId) + L" reason=" + reason);
-        hooks_.stopGraphicsApiProbeIfTarget(currentForegroundGameProcess_->processId);
         currentForegroundGameProcess_.reset();
         hooks_.clearInGameForegroundProcess();
         hooks_.reconcileHudVisibility();

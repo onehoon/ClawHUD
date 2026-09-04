@@ -14,7 +14,6 @@
 #include "FpsStaleHold.h"
 #include "HudModel.h"
 #include "HudTelemetryAggregator.h"
-#include "IntelGraphicsApiProbe.h"
 #include "MsiEcHudTelemetry.h"
 #include "PresentMonTelemetryProvider.h"
 #include "WindowsPowerTelemetry.h"
@@ -27,11 +26,10 @@ namespace clawhud
 // distinct.
 inline constexpr UINT_PTR kEcHudTimerId = 2;
 inline constexpr UINT_PTR kBatteryHudTimerId = 3;
-inline constexpr UINT_PTR kGraphicsApiRetryTimerId = 4;
 inline constexpr UINT_PTR kPresentMonFpsTimerId = 6;
 
-// Owns production HUD telemetry: EC / system / battery / FPS / graphics-API
-// sampling, retention, target state, and the sampling timer lifecycle.
+// Owns production HUD telemetry: EC / system / battery / FPS sampling,
+// retention, target state, and the sampling timer lifecycle.
 //
 // It holds a non-owning reference to the one shared PresentMonTelemetryProvider
 // (App is the composition root for that; there is exactly one production API2
@@ -71,15 +69,6 @@ public:
     void SetInGameForegroundProcess(DWORD processId);
     void ClearInGameForegroundProcess();
     DWORD InGameForegroundProcessId() const noexcept { return inGameForegroundProcessId_; }
-
-    // --- graphics-API probe --------------------------------------------
-    void StartGraphicsApiProbe(DWORD processId);
-    void EnsureGraphicsApiProbe(DWORD processId);
-    void StopGraphicsApiProbe();
-    void StopGraphicsApiProbeIfTarget(DWORD processId);
-    void ReconcileGraphicsApiTargetLiveness();
-    void TryGraphicsApiProbe();
-    DWORD GraphicsApiProcessId() const noexcept { return graphicsApiProcessId_; }
 
     // --- sampling lifecycle ---------------------------------------------
     bool SamplingActive() const noexcept { return samplingActive_; }
@@ -123,11 +112,6 @@ private:
     // Always mode: FPS target authority is the current foreground PID only,
     // fully decoupled from game detection. In-Game Only is unaffected.
     AlwaysModeFpsTarget alwaysFpsTarget_;
-
-    IntelGraphicsApiProbe graphicsApiProbe_;
-    std::optional<std::wstring> latestGraphicsApi_;
-    DWORD graphicsApiProcessId_{};
-    unsigned graphicsApiAttempts_{};
 
     bool samplingActive_{};
 

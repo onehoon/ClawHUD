@@ -42,11 +42,6 @@ struct GameSessionHooks
     // Current foreground-game target changed: App reconciles HUD visibility.
     std::function<void()> reconcileHudVisibility;
 
-    // ProductionTelemetryController graphics-API probe target follows the
-    // current eligible foreground game.
-    std::function<void(DWORD)> startGraphicsApiProbe;
-    std::function<void(DWORD)> stopGraphicsApiProbeIfTarget;
-
     // ProductionTelemetryController In-Game Only FPS target. set(pid) means this
     // PID is the current eligible foreground game target now; clear() means there
     // is no current eligible foreground game. Not process-lifetime ownership.

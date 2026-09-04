@@ -116,7 +116,6 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/WindowsPowerTelemetry.cpp
     src/ClawHUD/BatteryPowerEstimator.cpp
     src/ClawHUD/WindowsMemoryTelemetry.cpp
-    src/ClawHUD/IntelGraphicsApiProbe.cpp
     src/ClawHUD/SupportedHardware.cpp
     src/ClawHUD/Tweaks/TweakStartupCoordinator.cpp
     src/ClawHUD/Tweaks/IntelVrr/AffectedPanelDetector.cpp
