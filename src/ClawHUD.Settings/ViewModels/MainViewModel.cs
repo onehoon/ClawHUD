@@ -21,6 +21,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool _mutationInFlight;
     private bool _refreshInFlight;
     private bool _runtimeLostRaised;
+    private bool _hudSizeGestureActive;
+    private int _hudSizeGestureValue;
 
     internal MainViewModel(IRuntimeControlClient client)
     {
@@ -60,13 +62,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
     // CanStartInteraction() so a click during a busy window is never accepted by
     // WPF only to be silently dropped by the ViewModel.
     public bool AreDiscreteSettingsControlsEnabled =>
-        _snapshot is not null && !_mutationInFlight && !_refreshInFlight && !_opacity.IsBusy;
+        _snapshot is not null && !_hudSizeGestureActive &&
+        !_mutationInFlight && !_refreshInFlight && !_opacity.IsBusy;
 
     // The opacity slider stays enabled through its own preview IPC so a drag is
     // never interrupted; it yields to a discrete mutation or an activation refresh
     // (neither of which can begin while an opacity gesture is active).
     public bool IsOpacitySliderEnabled =>
-        _snapshot is not null && !_mutationInFlight && !_refreshInFlight;
+        _snapshot is not null && !_hudSizeGestureActive && !_mutationInFlight && !_refreshInFlight;
 
     public bool IsOpacityInteractionActive => _opacity.IsActive;
 
@@ -76,13 +79,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public bool IsVisibilityInGameOnly => _snapshot?.VisibilityMode == WireVisibilityMode.InGameOnly;
 
     public int HudSizeOffset => _snapshot?.HudSizeOffset ?? 0;
-    public string HudSizeLabel => FormatSizeOffset(HudSizeOffset);
-    public bool CanDecreaseHudSizeByRange => _snapshot is not null &&
-        HudSizeOffset > ControlProtocol.MinHudSizeOffset;
-    public bool CanIncreaseHudSizeByRange => _snapshot is not null &&
-        HudSizeOffset < ControlProtocol.MaxHudSizeOffset;
-    public bool CanDecreaseHudSize => AreDiscreteSettingsControlsEnabled && HudSizeOffset > ControlProtocol.MinHudSizeOffset;
-    public bool CanIncreaseHudSize => AreDiscreteSettingsControlsEnabled && HudSizeOffset < ControlProtocol.MaxHudSizeOffset;
+    public int HudSizeSliderValue => _hudSizeGestureActive ? _hudSizeGestureValue : HudSizeOffset;
+    public string HudSizeLabel => FormatSizeOffset(HudSizeSliderValue);
+    public bool IsHudSizeGestureActive => _hudSizeGestureActive;
+    public bool IsHudSizeSliderEnabled => _snapshot is not null &&
+        !_mutationInFlight && !_refreshInFlight &&
+        (_hudSizeGestureActive || !_opacity.IsBusy);
 
     public bool IsFontUnispace => _snapshot?.HudFont == WireFont.Unispace;
     public bool IsFontSegoeUiVariable => _snapshot?.HudFont == WireFont.SegoeUiVariable;
@@ -132,15 +134,61 @@ public sealed class MainViewModel : INotifyPropertyChanged
             ? ReassertProjection()
             : Mutate(c => c.SetHudBackgroundModeAsync(mode));
 
-    internal Task StepHudSizeAsync(int delta)
+    internal void BeginHudSizeInteraction()
     {
-        if (_snapshot is null)
-            return ReassertProjection();
-        int target = _snapshot.HudSizeOffset + delta;
-        return WireValue.IsHudSizeOffset(target)
-            ? Mutate(c => c.SetHudSizeOffsetAsync(target))
-            : ReassertProjection();
+        if (!CanStartInteraction())
+            return;
+        _hudSizeGestureActive = true;
+        _hudSizeGestureValue = HudSizeOffset;
+        RaiseAllChanged();
     }
+
+    internal void UpdateHudSizeGesture(int value)
+    {
+        if (!_hudSizeGestureActive)
+            return;
+        _hudSizeGestureValue = Math.Clamp(value,
+            ControlProtocol.MinHudSizeOffset, ControlProtocol.MaxHudSizeOffset);
+        RaiseAllChanged();
+    }
+
+    internal async Task EndHudSizeInteractionAsync()
+    {
+        if (!_hudSizeGestureActive)
+            return;
+
+        int target = _hudSizeGestureValue;
+        int authoritative = HudSizeOffset;
+        if (target == authoritative)
+        {
+            _hudSizeGestureActive = false;
+            RaiseAllChanged();
+            return;
+        }
+
+        _mutationInFlight = true;
+        RaiseAllChanged();
+        try
+        {
+            ControlClientResult<SettingsSnapshot> result =
+                await _client.SetHudSizeOffsetAsync(target);
+            if (result.IsSuccess)
+                _snapshot = result.Value;
+            else
+                HandleFailedResult(result);
+        }
+        finally
+        {
+            _mutationInFlight = false;
+            _hudSizeGestureActive = false;
+            RaiseAllChanged();
+        }
+    }
+
+    internal Task ChangeHudSizeAsync(int value) =>
+        !WireValue.IsHudSizeOffset(value) || _snapshot?.HudSizeOffset == value
+            ? ReassertProjection()
+            : Mutate(c => c.SetHudSizeOffsetAsync(value));
 
     internal Task ToggleIntelVrrRangeFixAsync() =>
         Mutate(c => c.SetIntelVrrRangeFixEnabledAsync(!IntelVrrRangeFixEnabled));
@@ -172,7 +220,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// </summary>
     internal async Task RefreshOnActivationAsync()
     {
-        if (_snapshot is null || _mutationInFlight || _refreshInFlight || _opacity.IsBusy)
+        if (_snapshot is null || _hudSizeGestureActive || _mutationInFlight ||
+            _refreshInFlight || _opacity.IsBusy)
             return;
 
         _refreshInFlight = true;
@@ -195,7 +244,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     // ---- Shared mutation plumbing ---------------------------------
 
     private bool CanStartInteraction() =>
-        _snapshot is not null && !_mutationInFlight && !_refreshInFlight && !_opacity.IsBusy;
+        _snapshot is not null && !_hudSizeGestureActive && !_mutationInFlight &&
+        !_refreshInFlight && !_opacity.IsBusy;
 
     private async Task Mutate(Func<IRuntimeControlClient, Task<ControlClientResult<SettingsSnapshot>>> operation)
     {

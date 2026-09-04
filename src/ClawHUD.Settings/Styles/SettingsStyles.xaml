@@ -20,6 +20,12 @@
         <Setter Property="Margin" Value="0,0,0,4" />
     </Style>
 
+    <Style x:Key="InlineSettingSlider" TargetType="Slider">
+        <Setter Property="Width" Value="190" />
+        <Setter Property="MinHeight" Value="30" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
     <!-- Compact segmented choice built from a standard ToggleButton. OneWay
          authoritative binding + Click mutation semantics live on the instances. -->
     <Style x:Key="SegmentToggle" TargetType="ToggleButton">
@@ -50,59 +56,6 @@
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
-    </Style>
-
-    <Style x:Key="StepperButton" TargetType="Button">
-        <Setter Property="Width" Value="32" />
-        <Setter Property="Height" Value="32" />
-        <Setter Property="Padding" Value="0" />
-        <Setter Property="Background" Value="{DynamicResource ControlFillColorDefaultBrush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource ControlStrokeColorDefaultBrush}" />
-        <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Template">
-            <Setter.Value>
-                <ControlTemplate TargetType="Button">
-                    <Border x:Name="Bd" Width="32" Height="32" CornerRadius="16"
-                            Background="{TemplateBinding Background}"
-                            BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="{TemplateBinding BorderThickness}">
-                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Border>
-                    <ControlTemplate.Triggers>
-                        <MultiDataTrigger>
-                            <MultiDataTrigger.Conditions>
-                                <Condition Binding="{Binding IsEnabled, RelativeSource={RelativeSource TemplatedParent}}" Value="True" />
-                                <Condition Binding="{Binding IsMouseOver, RelativeSource={RelativeSource TemplatedParent}}" Value="True" />
-                            </MultiDataTrigger.Conditions>
-                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
-                        </MultiDataTrigger>
-                        <MultiDataTrigger>
-                            <MultiDataTrigger.Conditions>
-                                <Condition Binding="{Binding IsEnabled, RelativeSource={RelativeSource TemplatedParent}}" Value="True" />
-                                <Condition Binding="{Binding IsPressed, RelativeSource={RelativeSource TemplatedParent}}" Value="True" />
-                            </MultiDataTrigger.Conditions>
-                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentFillColorDefaultBrush}" />
-                        </MultiDataTrigger>
-                    </ControlTemplate.Triggers>
-                </ControlTemplate>
-            </Setter.Value>
-        </Setter>
-    </Style>
-
-    <Style x:Key="DecreaseStepperButton" TargetType="Button" BasedOn="{StaticResource StepperButton}">
-        <Style.Triggers>
-            <DataTrigger Binding="{Binding CanDecreaseHudSizeByRange}" Value="False">
-                <Setter Property="Opacity" Value="0.45" />
-            </DataTrigger>
-        </Style.Triggers>
-    </Style>
-
-    <Style x:Key="IncreaseStepperButton" TargetType="Button" BasedOn="{StaticResource StepperButton}">
-        <Style.Triggers>
-            <DataTrigger Binding="{Binding CanIncreaseHudSizeByRange}" Value="False">
-                <Setter Property="Opacity" Value="0.45" />
-            </DataTrigger>
-        </Style.Triggers>
     </Style>
 
     <!-- Compact Windows-11-like desktop switch. Same ToggleButton implementation,

@@ -22,6 +22,7 @@ public partial class MainWindow : Window
     private readonly IRuntimeControlClient _client;
     private readonly MainViewModel _viewModel;
     private bool _suppressOpacityValueChanged;
+    private bool _suppressHudSizeValueChanged;
     private bool _initialLoadComplete;
     private bool _closing;
 
@@ -45,6 +46,7 @@ public partial class MainWindow : Window
         DataContext = _viewModel;
 
         OpacitySlider.ValueChanged += OnOpacityValueChanged;
+        HudSizeSlider.ValueChanged += OnHudSizeValueChanged;
 
         Loaded += OnLoadedAsync;
         Activated += OnActivated;
@@ -111,12 +113,6 @@ public partial class MainWindow : Window
     private async void OnBackgroundModeClick(object sender, RoutedEventArgs e) =>
         await _viewModel.SelectBackgroundModeAsync(TagValue<WireBackgroundMode>(sender));
 
-    private async void OnHudSizeDecreaseClick(object sender, RoutedEventArgs e) =>
-        await _viewModel.StepHudSizeAsync(-1);
-
-    private async void OnHudSizeIncreaseClick(object sender, RoutedEventArgs e) =>
-        await _viewModel.StepHudSizeAsync(+1);
-
     private async void OnIntelVrrRangeFixClick(object sender, RoutedEventArgs e) =>
         await _viewModel.ToggleIntelVrrRangeFixAsync();
 
@@ -130,13 +126,41 @@ public partial class MainWindow : Window
     // so the flag reliably brackets exactly the programmatic change.
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        double target = _viewModel.SliderOpacityValue;
-        if (OpacitySlider.Value == target)
-            return;
-        _suppressOpacityValueChanged = true;
-        try { OpacitySlider.Value = target; }
-        finally { _suppressOpacityValueChanged = false; }
+        double opacityTarget = _viewModel.SliderOpacityValue;
+        if (OpacitySlider.Value != opacityTarget)
+        {
+            _suppressOpacityValueChanged = true;
+            try { OpacitySlider.Value = opacityTarget; }
+            finally { _suppressOpacityValueChanged = false; }
+        }
+
+        double sizeTarget = _viewModel.HudSizeSliderValue;
+        if (HudSizeSlider.Value != sizeTarget)
+        {
+            _suppressHudSizeValueChanged = true;
+            try { HudSizeSlider.Value = sizeTarget; }
+            finally { _suppressHudSizeValueChanged = false; }
+        }
     }
+
+    private void OnHudSizeDragStarted(object sender, DragStartedEventArgs e) =>
+        _viewModel.BeginHudSizeInteraction();
+
+    private async void OnHudSizeValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_suppressHudSizeValueChanged)
+            return;
+
+        int snapped = System.Math.Clamp((int)System.Math.Round(e.NewValue),
+            ControlProtocol.MinHudSizeOffset, ControlProtocol.MaxHudSizeOffset);
+        if (_viewModel.IsHudSizeGestureActive)
+            _viewModel.UpdateHudSizeGesture(snapped);
+        else
+            await _viewModel.ChangeHudSizeAsync(snapped);
+    }
+
+    private async void OnHudSizeDragCompleted(object sender, DragCompletedEventArgs e) =>
+        await _viewModel.EndHudSizeInteractionAsync();
 
     private void OnOpacityDragStarted(object sender, DragStartedEventArgs e) =>
         _viewModel.BeginOpacityInteraction();

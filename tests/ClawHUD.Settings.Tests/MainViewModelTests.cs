@@ -61,48 +61,110 @@ public class MainViewModelTests
         var vm = new MainViewModel(new FakeRuntimeControlClient());
 
         Assert.False(vm.AreDiscreteSettingsControlsEnabled);
-        Assert.False(vm.CanIncreaseHudSize);
-        Assert.False(vm.CanDecreaseHudSize);
+        Assert.False(vm.IsHudSizeSliderEnabled);
         Assert.Equal(string.Empty, vm.BackgroundOpacityText);
     }
 
-    // ---- Size boundaries (§16.7) -----------------------------------
+    // ---- HUD size slider interaction (§16.7) -----------------------
 
     [Fact]
-    public void HudSize_MinBoundary_DisablesDecrease()
+    public void HudSizeSlider_ProjectsAuthoritativeValueWithinRange()
     {
         var (vm, _) = Loaded(Snapshot(size: -2));
-        Assert.False(vm.CanDecreaseHudSize);
-        Assert.True(vm.CanIncreaseHudSize);
+        Assert.Equal(-2, vm.HudSizeSliderValue);
+        Assert.Equal("-2", vm.HudSizeLabel);
+
+        vm.BeginHudSizeInteraction();
+        vm.UpdateHudSizeGesture(99);
+        Assert.Equal(2, vm.HudSizeSliderValue);
     }
 
     [Fact]
-    public void HudSize_MaxBoundary_DisablesIncrease()
+    public async Task HudSizeSlider_DoesNotDispatchUntilRelease()
     {
-        var (vm, _) = Loaded(Snapshot(size: 2));
-        Assert.True(vm.CanDecreaseHudSize);
-        Assert.False(vm.CanIncreaseHudSize);
+        var (vm, fake) = Loaded(Snapshot(size: 0));
+        vm.BeginHudSizeInteraction();
+        vm.UpdateHudSizeGesture(-1);
+        vm.UpdateHudSizeGesture(1);
+        vm.UpdateHudSizeGesture(2);
+
+        Assert.Empty(fake.Calls);
+        Assert.Equal(2, vm.HudSizeSliderValue);
+        fake.NextSnapshot = Snapshot(size: 2);
+        await vm.EndHudSizeInteractionAsync();
+
+        Assert.Equal(new[] { ControlOperation.SetHudSizeOffset }, fake.Calls);
+        Assert.Equal(2, vm.HudSizeOffset);
     }
 
     [Fact]
-    public async Task StepHudSize_AtBoundary_SendsNothing()
+    public async Task HudSizeSlider_NoOpRelease_SendsNothing()
     {
-        var (vm, fake) = Loaded(Snapshot(size: 2));
-        await vm.StepHudSizeAsync(+1);
+        var (vm, fake) = Loaded(Snapshot(size: 1));
+        vm.BeginHudSizeInteraction();
+        vm.UpdateHudSizeGesture(-2);
+        vm.UpdateHudSizeGesture(1);
+        await vm.EndHudSizeInteractionAsync();
+
         Assert.Empty(fake.Calls);
     }
 
     [Fact]
-    public async Task StepHudSize_ComputesFromAuthoritativeOffsetNotLabel()
+    public async Task HudSizeSlider_RuntimeRollback_ProjectsAuthoritativeValue()
     {
-        var (vm, fake) = Loaded(Snapshot(size: 1));
-        fake.NextSnapshot = Snapshot(size: 2);
+        var (vm, fake) = Loaded(Snapshot(size: 0));
+        fake.NextSnapshot = Snapshot(size: 0);
+        vm.BeginHudSizeInteraction();
+        vm.UpdateHudSizeGesture(1);
 
-        await vm.StepHudSizeAsync(+1);
+        await vm.EndHudSizeInteractionAsync();
 
         Assert.Equal(new[] { ControlOperation.SetHudSizeOffset }, fake.Calls);
-        Assert.Equal(2, vm.HudSizeOffset);
-        Assert.Equal("+2", vm.HudSizeLabel);
+        Assert.Equal(0, vm.HudSizeOffset);
+        Assert.Equal("Default", vm.HudSizeLabel);
+    }
+
+    [Fact]
+    public async Task HudSizeSlider_DirectChange_CommitsOnceAndRejectsInvalidOrRedundantValues()
+    {
+        var (vm, fake) = Loaded(Snapshot(size: 0));
+        fake.NextSnapshot = Snapshot(size: 1);
+
+        await vm.ChangeHudSizeAsync(1);
+        await vm.ChangeHudSizeAsync(1);
+        await vm.ChangeHudSizeAsync(3);
+
+        Assert.Equal(new[] { ControlOperation.SetHudSizeOffset }, fake.Calls);
+        Assert.Equal(1, vm.HudSizeOffset);
+    }
+
+    [Fact]
+    public async Task HudSizeSlider_DuringGesture_OnlySizeRemainsEnabled()
+    {
+        var (vm, fake) = Loaded(Snapshot(size: 0));
+        vm.BeginHudSizeInteraction();
+        vm.UpdateHudSizeGesture(1);
+
+        Assert.True(vm.IsHudSizeSliderEnabled);
+        Assert.False(vm.AreDiscreteSettingsControlsEnabled);
+        Assert.False(vm.IsOpacitySliderEnabled);
+        await vm.SelectAlignmentAsync(WireAlignment.Left);
+        Assert.DoesNotContain(ControlOperation.SetHudAlignment, fake.Calls);
+
+        await vm.EndHudSizeInteractionAsync();
+    }
+
+    [Fact]
+    public void HudSizeSlider_IsBlockedByOpacityInteraction()
+    {
+        var (vm, _) = Loaded();
+        vm.BeginOpacityInteraction();
+        vm.UpdateOpacityGesture(80);
+
+        vm.BeginHudSizeInteraction();
+
+        Assert.False(vm.IsHudSizeGestureActive);
+        Assert.False(vm.IsHudSizeSliderEnabled);
     }
 
     // ---- Authoritative reconciliation (§16.6) ----------------------
