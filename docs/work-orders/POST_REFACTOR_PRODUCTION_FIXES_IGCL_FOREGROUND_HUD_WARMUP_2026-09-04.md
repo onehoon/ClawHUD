@@ -3,7 +3,7 @@
 **Status:** implementation work order  
 **Date:** 2026-09-04  
 **Target repository:** `onehoon/ClawHUD`  
-**Baseline:** `main` @ `841a073a7046aec5ba738fdd5fbc505682ddbc96` (PR #231)  
+**Code baseline:** `main` @ `841a073a7046aec5ba738fdd5fbc505682ddbc96` (PR #231; later work-order-only commits do not change the code baseline)  
 **Delivery:** **one PR** containing all three parts below
 
 ---
@@ -13,36 +13,35 @@
 Implement three production fixes discovered during post-refactor field validation:
 
 1. **Remove the remaining production IGCL Graphics API probe path.**
-   Graphics API identification is not reliable enough for product use and the HUD no longer displays the API label. The current production runtime still loads `ControlLib.dll`, probes the foreground game, retries, logs failures, and carries `graphicsApi` through the telemetry snapshot even though `FormatHud()` no longer renders it.
+   Graphics API identification through IGCL is not reliable enough for product use and the HUD no longer displays the API label. The current runtime still loads `ControlLib.dll`, probes foreground games, retries, logs failures, and carries `graphicsApi` through the HUD snapshot for no user-visible benefit.
 
 2. **Repair missed foreground authority updates without polling.**
-   The current split between `ForegroundTracker` and `ProductionGameWindowSource` can leave the canonical foreground PID stale when Windows changes the real foreground during a window lifecycle transition without delivering a usable `EVENT_SYSTEM_FOREGROUND` notification. This affects both game detection and Always-mode FPS targeting.
+   The current split between `ForegroundTracker` and `ProductionGameWindowSource` can leave Always-mode FPS authority stale even while `GameSessionController` has already re-read a newer `GetForegroundWindow()`. Production object events must also wake the existing canonical foreground reconciliation path.
 
-3. **Add a process-lifetime, one-shot HUD presentation warm-up after the first real visible Present.**
-   Field behavior indicates the first Presentation API / DirectComposition HUD instance after process launch can enter a state where Edge/Steam visually cover the HUD even though the HUD HWND remains visible and topmost. Completely restarting ClawHUD clears the behavior. As a pragmatic field workaround, after the first presentation has actually been shown and has successfully submitted one frame, tear it down once and recreate it through the exact same production presentation path.
+3. **Add a process-lifetime, one-shot HUD presentation warm-up after the first real non-empty visible Present.**
+   Field behavior indicates the first Presentation API / DirectComposition HUD instance after process launch can enter a state where Edge/Steam visually cover the HUD even though the HUD HWND remains visible and topmost. The workaround is deliberately bounded: let the first production presentation become visible and submit one real HUD frame, then recreate that presentation exactly once on the next message-pump turn through the same production contract/path.
 
-This is intentionally one PR: all three issues were exposed by the same post-refactor field run and the IGCL portion is primarily deletion, so review/field validation is easier as one production-cleanup/fix changeset.
+This is intentionally one PR. Part A is mainly deletion, while Parts B/C are small post-refactor production fixes that should be validated together on hardware.
 
 ---
 
-## 2. Field evidence that drives this work
+# 2. Verified field evidence
 
-### 2.1 IGCL is still executing although the HUD no longer displays Graphics API
+## 2.1 IGCL is still executing although Graphics API is no longer rendered
 
-Current `main` still contains:
+Current code still contains:
 
 - `src/ClawHUD/IntelGraphicsApiProbe.{h,cpp}`;
-- `ProductionTelemetryController::StartGraphicsApiProbe` / `EnsureGraphicsApiProbe` / `StopGraphicsApiProbe` / `TryGraphicsApiProbe` and associated target/retry state;
-- timer id `kGraphicsApiRetryTimerId = 4`;
+- `ProductionTelemetryController` graphics-API target/retry/timer state;
+- `kGraphicsApiRetryTimerId = 4`;
 - `GameSessionHooks::startGraphicsApiProbe` / `stopGraphicsApiProbeIfTarget`;
-- App hook wiring and timer dispatch;
+- App hook/timer/resume/shutdown wiring;
 - `HudTelemetrySnapshot::graphicsApi`;
-- `ProductionTelemetryController::FillSnapshot()` assigning `latestGraphicsApi_`;
 - CMake/test entries for `IntelGraphicsApiProbe`.
 
-But current `HudModel::FormatHud()` renders FPS as the Graphics segment and does **not** consume `snapshot.graphicsApi`.
+`HudModel::FormatHud()` now renders FPS for the Graphics segment and does not use `snapshot.graphicsApi`.
 
-The field log therefore contains real production work such as:
+Observed runtime work therefore includes:
 
 ```text
 IGCL Graphics API live state ...
@@ -50,64 +49,67 @@ IGCL Graphics API unresolved after bounded retries
 Graphics API resolved api=DX12
 ```
 
-with no corresponding user-visible product value.
+with no product output. This is dead production behavior and must be removed, not only silenced.
 
-This is dead production behavior and must be removed, not merely silenced.
+## 2.2 Mafia: the missing wake-up lasted ~79.7 s and ended only after a task switch
 
-### 2.2 Mafia: real game window existed, but foreground/game evaluation arrived ~80 s late
-
-Observed field sequence for `MafiaTheOldCountry.exe`, PID `14312`:
+Observed `MafiaTheOldCountry.exe`, PID `14312`:
 
 ```text
 19:01:39.412 CREATE UnrealWindow visible=0
 19:01:39.432 SHOW   UnrealWindow visible=1
-19:01:44.874 NAMECHANGE -> title "마피아: 올드 컨트리"
-                         rect=0,0,1920,1200
+19:01:44.874 NAMECHANGE title="마피아: 올드 컨트리" rect=0,0,1920,1200
+19:01:44.997 NAMECHANGE same top-level window
+19:01:45.004 NAMECHANGE same top-level window
 ```
 
-The production detector did not evaluate PID `14312` at that transition. PresentMon Always-mode sampling remained on Explorer PID `8856` until approximately `19:02:59`.
+Production did not switch foreground/FPS authority to PID `14312` at those transitions. Always-mode FPS remained on Explorer PID `8856`.
 
-Once an eventual foreground transition was observed:
+The eventual correction was **not a fixed ~80 s fallback**. Immediately before the correction the log shows the Windows Task Switch UI (`title="작업 전환"`, `XamlExplorerHostIslandWindow`) and then fresh foreground events:
 
 ```text
-foreground.evaluate ... pid=14312
-renderer.first-frame pid=14312
-foreground.target-set pid=14312
-PresentMonFPS pid=14312 displayed≈90 presented≈90
+19:02:58.876 Task Switch SHOW
+19:02:59.059 foreground -> pid 0
+19:02:59.073 Always foregroundPid=14312
+19:02:59.087 foreground.evaluate pid=14312
 ```
 
-Therefore:
+Once authority reached the game, renderer verification and PresentMon API2 worked normally and FPS was ~90.
 
-- PresentMon API2 works for the game;
-- renderer verification works;
-- the failure is before measurement, in foreground/window-event authority;
-- the decisive lifecycle event in this run was `EVENT_OBJECT_NAMECHANGE`, which production currently does not subscribe to.
+Conclusion: the ~79.7 s interval was time spent without a usable canonical foreground wake-up; the user's later task switch finally produced one. There is no evidence of a fixed 80-second fallback timer.
 
-### 2.3 American Truck Simulator: game detection recovered, Always FPS authority stayed on a stale Ghost PID
+## 2.3 ATS: same authority gap, but only ~21.7 s — not ~80 s
 
-Observed field sequence:
+Observed ATS sequence:
 
 ```text
-Windows Ghost foreground pid=1988
-...
-Ghost HIDE
-real ATS window SHOW pid=15172
-HudWindowState foregroundPid=15172
-GameDetection eventually targets pid=15172
+18:59:50.536 Always foregroundPid=1988     // Windows Ghost
+18:59:51.090 Ghost HIDE
+18:59:51.092 real game SHOW pid=15172
+18:59:52.118 HudWindowState foregroundPid=15172
 ```
 
-However Always-mode FPS continued sampling PID `1988` for a significant interval.
+At `18:59:52.118`, direct Win32 observation already reported the real game as foreground, yet Always-mode FPS continued sampling Ghost PID `1988` through `19:00:10.388`.
 
-This demonstrates the architectural gap:
+The canonical foreground tracker did not switch to PID `15172` until:
 
-- `GameSessionController` can re-read `GetForegroundWindow()` from production window events;
-- `ProductionTelemetryController::OnForegroundProcessChanged()` is only driven by the `ForegroundTracker` callback;
-- `ForegroundTracker` itself only wakes from `EVENT_SYSTEM_FOREGROUND` today;
-- therefore game detection and Always FPS can disagree about the current foreground.
+```text
+19:00:13.772 Task Switch HIDE
+19:00:13.800 Always foregroundPid=15172
+```
 
-### 2.4 Edge/Steam HUD disappearance is not a normal HWND visibility/topmost failure
+That is roughly **21.7 s** after the log already showed `GetForegroundWindow()` on the real ATS window, not ~80 s.
 
-At the reported disappearance, debug state showed:
+This proves the architectural split:
+
+- `GameSessionController` can re-read current Win32 foreground from production window events;
+- `ProductionTelemetryController::OnForegroundProcessChanged()` is updated only through `ForegroundTracker`;
+- `ForegroundTracker` currently wakes only from `EVENT_SYSTEM_FOREGROUND`;
+- therefore game detection and Always FPS can temporarily disagree about the same actual screen.
+
+## 2.4 Edge/Steam disappearance is not normal HWND hide/topmost loss
+
+At the reported disappearance the HUD debug state remained:
 
 ```text
 logicalVisible=1
@@ -116,19 +118,17 @@ isIconic=0
 exTopmost=1
 ```
 
-for the HUD. There was no `hide-applied` transition.
+There was no `hide-applied` transition.
 
-The Edge and Steam windows in the captured log were ordinary maximized/work-area windows, not a special exclusive-fullscreen ownership case.
+The field observation driving Part C is:
 
-The relevant field observation is:
+> after completely exiting ClawHUD from the tray and starting a new process, the same Edge maximize behavior no longer reproduced.
 
-> after completely exiting ClawHUD from the tray and restarting it, the same Edge maximize behavior no longer reproduced.
-
-The objective of Part C is therefore not to claim a proven root cause. It is a bounded, one-shot production workaround that reproduces the effective part of the manual recovery: **allow the first production presentation to become real/visible and submit a frame, then recreate the presentation once.**
+Part C is therefore an empirical one-shot workaround. It must not claim a proven DWM/Presentation API root cause.
 
 ---
 
-## 3. Non-negotiable HUD / VRR safety boundary
+# 3. Non-negotiable HUD / VRR safety boundary
 
 Part C MUST NOT modify, replace, weaken, bypass, or compensate around any existing production HUD presentation invariant.
 
@@ -138,10 +138,10 @@ Do **not** change:
 - `WS_EX_TRANSPARENT`;
 - `WS_EX_NOACTIVATE`;
 - `WS_EX_TOPMOST`;
-- current `WS_EX_LAYERED` behavior;
+- existing `WS_EX_LAYERED` behavior;
 - `WM_NCHITTEST -> HTTRANSPARENT`;
 - `WM_MOUSEACTIVATE -> MA_NOACTIVATE`;
-- `ProductionHudPresentationContract()` / `kHudPresentationContract` values;
+- `ProductionHudPresentationContract()` / `kHudPresentationContract`;
 - independent-flip requirement;
 - Presentation API production path;
 - DirectComposition production path;
@@ -149,11 +149,17 @@ Do **not** change:
 - presentation buffer format/count/resource flags;
 - click-through/no-activation/topmost semantics.
 
-Do not add a topmost watchdog, repeated `SetWindowPos` recovery loop, periodic presentation recreation, DWM polling, alternate swap-chain backend, or window-wide workaround.
+Do not add:
+
+- a topmost watchdog;
+- repeated `SetWindowPos` recovery;
+- periodic presentation recreation;
+- DWM polling;
+- an alternate swap-chain backend;
+- sleeps/delays used as a timing workaround;
+- window-wide opacity changes.
 
 The warm-up must use the **same `HudPresentation` implementation and the same production contract twice**.
-
-No opacity behavior is part of this PR.
 
 ---
 
@@ -161,20 +167,17 @@ No opacity behavior is part of this PR.
 
 ## 4. Product decision
 
-Graphics API (`DX11` / `DX12` / `Vulkan`) detection through IGCL is intentionally retired from the production HUD because it is not reliable enough to identify the active API consistently.
+Graphics API (`DX11` / `DX12` / `Vulkan`) detection through IGCL is retired from the production HUD because the result is not consistently reliable.
 
-The HUD already omits this value from `FormatHud()`. Production must now stop doing the probe as well.
-
-This is separate from:
+This decision does **not** remove or alter:
 
 - PresentMon API2 system/process telemetry;
+- PresentMon FPS/render verification;
 - Intel VRR Range Fix;
 - Intel panel detection used by the VRR tweak;
-- archived diagnostic/research source under `archive/`.
+- archived IGCL research under `archive/diagnostics/igcl/`.
 
-Do not remove or alter those unrelated Intel paths.
-
-## 5. Required production deletion
+## 5. Required deletion
 
 ### 5.1 Delete the production probe implementation
 
@@ -183,83 +186,59 @@ Delete:
 ```text
 src/ClawHUD/IntelGraphicsApiProbe.h
 src/ClawHUD/IntelGraphicsApiProbe.cpp
-```
-
-Delete its dedicated test source if it exists on the current branch:
-
-```text
 tests/IntelGraphicsApiProbeTests.cpp
-```
-
-Remove the corresponding test target from `cmake/ClawHUDTests.cmake`.
-
-Remove `src/ClawHUD/IntelGraphicsApiProbe.cpp` from the `ClawHUD` executable in `CMakeLists.txt`.
-
-Do **not** delete archived IGCL research solely because production stops using it.
-
-### 5.2 Simplify `ProductionTelemetryController`
-
-In `ProductionTelemetryController.h` remove:
-
-```cpp
-#include "IntelGraphicsApiProbe.h"
 ```
 
 Remove:
 
-```cpp
-kGraphicsApiRetryTimerId
-```
+- `src/ClawHUD/IntelGraphicsApiProbe.cpp` from `CMakeLists.txt`;
+- the `ClawHUD.IntelGraphicsApiProbeTests` target from `cmake/ClawHUDTests.cmake`.
 
-Remove the entire graphics-API public surface:
+Do **not** delete `archive/diagnostics/igcl/`.
 
-```cpp
-StartGraphicsApiProbe(...)
-EnsureGraphicsApiProbe(...)
-StopGraphicsApiProbe()
-StopGraphicsApiProbeIfTarget(...)
-ReconcileGraphicsApiTargetLiveness()
-TryGraphicsApiProbe()
-GraphicsApiProcessId()
-```
+### 5.2 Simplify `ProductionTelemetryController`
 
-Remove state:
-
-```cpp
-IntelGraphicsApiProbe graphicsApiProbe_;
-std::optional<std::wstring> latestGraphicsApi_;
-DWORD graphicsApiProcessId_{};
-unsigned graphicsApiAttempts_{};
-```
-
-Update class comments from:
+Remove from `ProductionTelemetryController.h/.cpp`:
 
 ```text
-EC / system / battery / FPS / graphics-API
+#include "IntelGraphicsApiProbe.h"
+kGraphicsApiRetryTimerId
+StartGraphicsApiProbe
+EnsureGraphicsApiProbe
+StopGraphicsApiProbe
+StopGraphicsApiProbeIfTarget
+ReconcileGraphicsApiTargetLiveness
+TryGraphicsApiProbe
+GraphicsApiProcessId
+graphicsApiProbe_
+latestGraphicsApi_
+graphicsApiProcessId_
+graphicsApiAttempts_
+all graphics-API retry constants/logs
 ```
 
-to the actual remaining production ownership.
+Also remove:
 
-In `ProductionTelemetryController.cpp`:
+```cpp
+snapshot.graphicsApi = latestGraphicsApi_;
+```
 
-- remove graphics-API retry constants;
-- remove `snapshot.graphicsApi = latestGraphicsApi_` from `FillSnapshot()`;
-- remove `ReconcileGraphicsApiTargetLiveness()` from `SampleSystemEc()`;
-- delete all graphics-API probe/retry/liveness methods;
-- remove any associated log strings.
+from `FillSnapshot()` and the current graphics-API liveness reconciliation call from `SampleSystemEc()`.
+
+Update ownership comments so the controller describes its actual remaining EC/system/battery/FPS responsibilities.
 
 ### 5.3 Remove GameSession cross-domain probe hooks
 
-From `GameSessionHooks` delete:
+Delete from `GameSessionHooks`:
 
 ```cpp
 std::function<void(DWORD)> startGraphicsApiProbe;
 std::function<void(DWORD)> stopGraphicsApiProbeIfTarget;
 ```
 
-From `GameSessionController.cpp` remove all calls to those hooks, including the current target set/clear/reset paths.
+Remove all calls in `GameSessionController.cpp` target set/clear/reset paths.
 
-The target-set sequence after removal should remain conceptually:
+The eligible target path must remain conceptually:
 
 ```text
 currentForegroundGameProcess_ = current.process
@@ -269,95 +248,99 @@ currentForegroundGameProcess_ = current.process
 -> reconcileHudVisibility()
 ```
 
-Do not disturb the established FPS/game-target ownership semantics while removing IGCL.
+Do not alter FPS/game-target semantics while removing IGCL.
 
-### 5.4 Remove App-level wiring
+### 5.4 Remove App wiring
 
-From `App::MakeGameSessionHooks()` remove graphics-probe hook assignments.
+Remove every production call to the graphics probe, including current sites in:
 
-Remove every App call such as:
+- `StopRuntimeSources()`;
+- `StopHud()`;
+- suspend/resume recovery;
+- `MakeGameSessionHooks()`;
+- `HandleTimer()` (`kGraphicsApiRetryTimerId`).
 
-```cpp
-productionTelemetry_.StartGraphicsApiProbe(...)
-productionTelemetry_.StopGraphicsApiProbe()
-productionTelemetry_.StopGraphicsApiProbeIfTarget(...)
-productionTelemetry_.EnsureGraphicsApiProbe(...)
-productionTelemetry_.TryGraphicsApiProbe()
-```
+After implementation, tree-search all production source for stale probe calls/timer constants.
 
-Known current sites include, but are not limited to:
+### 5.5 Remove `HudTelemetrySnapshot::graphicsApi` and all test fixtures
 
-- runtime shutdown;
-- HUD stop/disable;
-- resume recovery;
-- timer dispatch for `kGraphicsApiRetryTimerId`;
-- game-session hook construction.
-
-Search the complete tree after implementation; no production reference may remain.
-
-### 5.5 Remove the unused HUD snapshot field
-
-From `HudTelemetrySnapshot` remove:
+Delete:
 
 ```cpp
 std::optional<std::wstring> graphicsApi;
 ```
 
-Update sample factories and tests that still assign it, including `MakeGameDcSample()` / no-game sample setup and old formatter test fixtures.
+Update all current users, explicitly including:
 
-Do **not** remove the Graphics HUD segment itself: FPS still uses `HudSegmentKind::Graphics`.
+- `src/ClawHUD/HudModel.cpp` sample factories;
+- `tests/HudModelTests.cpp`;
+- `tests/HudTelemetryAggregatorTests.cpp` (`FillSnapshotLeavesUnownedFieldsAlone` currently seeds/asserts `graphicsApi`).
 
-### 5.6 Repository-wide IGCL cleanup rule
+Do **not** remove `HudSegmentKind::Graphics`; FPS still uses it.
 
-After the change:
+### 5.6 Third-party notice / archive rule
 
-- production `src/ClawHUD` must contain no Graphics API IGCL probe code;
-- no `ControlLib.dll` load may occur for this retired probe;
-- no `IGCL Graphics API ...` runtime log may remain;
-- no graphics-API retry timer may remain;
-- archived diagnostic/research material may remain;
-- attribution in `THIRD-PARTY-NOTICES.md` must only be removed if it is genuinely no longer required by any source retained in the repository. Do not remove attribution that is still required by archived source.
+The repository still contains archived IGCL-derived ABI declarations under `archive/diagnostics/igcl/`. Therefore:
+
+- keep the archived research files;
+- keep their required license material;
+- **do not remove the IGCL section from `THIRD-PARTY-NOTICES.md` merely because production no longer loads `ControlLib.dll`**;
+- remove only production build/source references to the retired probe.
+
+### 5.7 Part A completion search
+
+Production must contain none of:
+
+```text
+IntelGraphicsApiProbe
+kGraphicsApiRetryTimerId
+IGCL Graphics API
+StartGraphicsApiProbe
+TryGraphicsApiProbe
+HudTelemetrySnapshot::graphicsApi
+```
+
+Archived/reference documentation may still mention historical IGCL behavior.
 
 ---
 
 # Part B — repair foreground authority using existing event-driven sources
 
-## 6. Design rule
+## 6. Current production path and exact insertion point
 
-Do not add polling.
-
-Do not create a second foreground tracker.
-
-Do not create a second foreground PID cache in `ProductionTelemetryController` or `GameSessionController`.
-
-Use the existing source split:
+Current `GameSessionController::HandleProductionWindowEvent()` already does:
 
 ```text
-EVENT_SYSTEM_FOREGROUND
-        |
-        v
-ForegroundTracker::Reconcile()
-        |
-        +-> App hook -> ProductionTelemetryController::OnForegroundProcessChanged()
-        |
-        +-> GameSessionController::HandleProductionForegroundChanged()
-
-Production object events
-        |
-        v
-ProductionGameWindowSource
-        |
-        v
-GameSessionController::HandleProductionWindowEvent()
+production window event
+-> MicrosoftGameTrigger::InspectWindowEvent(...)
+-> if WindowEventAffectsCurrentForeground(event)
+     EvaluateCurrentForeground("window-event")
 ```
 
-The fix is to let production object events also **wake the existing foreground reconciliation authority**.
+Do not describe or replace that existing path as though it does not exist.
 
-`ForegroundTracker::Reconcile()` is already cheap and stateful: it re-reads `GetForegroundWindow()` / PID and emits its callback only when `(HWND, PID)` differs from its cached last foreground.
+The required fix is:
 
-## 7. Add `EVENT_OBJECT_NAMECHANGE` to production window observation
+```text
+production window event
+-> existing Microsoft evidence handling
+-> FIRST: foregroundTracker_.Reconcile()
+-> THEN: existing WindowEventAffectsCurrentForeground(event)
+         -> EvaluateCurrentForeground("window-event")
+```
 
-Current `ProductionGameWindowSource` observes five event types:
+`ForegroundTracker::Reconcile()` re-reads `GetForegroundWindow()` / PID and invokes its callback only when `(HWND, PID)` differs from its cached pair. That existing callback already updates both:
+
+```text
+ProductionTelemetryController::OnForegroundProcessChanged(pid)
+GameSessionController::HandleProductionForegroundChanged(...)
+```
+
+This is the intended single canonical repair path. Do not invent a second foreground cache.
+
+## 7. Add `EVENT_OBJECT_NAMECHANGE` to the production source
+
+Current `ProductionGameWindowSource` observes:
 
 ```text
 CREATE
@@ -370,284 +353,289 @@ DESTROY
 Add:
 
 ```text
-EVENT_OBJECT_NAMECHANGE
+NAMECHANGE
 ```
 
 Required changes:
 
 - add `ProductionWindowEventType::NameChange`;
-- map `EVENT_OBJECT_NAMECHANGE` in `MapProductionWindowEvent()`;
-- increase the observed-event array and hook storage from 5 to 6;
-- keep the existing `OBJID_WINDOW` + `CHILDID_SELF` filter;
-- keep the existing `GA_ROOT` top-level filter;
-- keep the bounded queue and worker design unchanged.
+- map `EVENT_OBJECT_NAMECHANGE`;
+- increase observed-event/hook arrays from 5 to 6;
+- preserve bounded queue/worker behavior.
 
-`NAMECHANGE` is **not game evidence by itself**. It is only another lifecycle/reconciliation trigger.
+### Mandatory callback filters
 
-The existing foreground-first detector still decides whether the current foreground is excluded, hidden, needs renderer verification, or eligible.
-
-## 8. Reconcile canonical foreground on production window events
-
-In `GameSessionController::HandleProductionWindowEvent()` preserve the existing Microsoft evidence handling, then invoke the existing foreground tracker reconciliation before/alongside the current same-screen evaluation path:
-
-```cpp
-foregroundTracker_.Reconcile();
-```
-
-The key property is that the current `ForegroundTracker` callback already does both required downstream actions:
+The existing filters are not optional and must remain before any event is queued:
 
 ```text
-hooks_.onForegroundChanged(window, processId)
-    -> ProductionTelemetryController::OnForegroundProcessChanged(pid)
-    -> ReconcileHudVisibility()
-    -> debug foreground observation
-
-if HUD enabled:
-    HandleProductionForegroundChanged(window, processId)
-    -> EvaluateCurrentForeground("foreground")
+objectId == OBJID_WINDOW
+childId == CHILDID_SELF
+hwnd != nullptr
+GetAncestor(hwnd, GA_ROOT) == hwnd
 ```
 
-Therefore this one reconciliation call closes the ATS split without introducing new ownership.
+`NAMECHANGE` is only a wake-up/re-evaluation trigger. It is **never game evidence by itself** and must never directly set FPS/game target authority.
 
-### Expected ATS recovery
+## 8. Why `WindowLifecycleSource` must not be reused for production
+
+`WindowLifecycleSource` already subscribes to `EVENT_OBJECT_NAMECHANGE`, but it is a **debug observation source** owned by `DebugObservationController` and is started only when developer debug logging is enabled.
+
+Production game detection must not become dependent on a diagnostic source that is absent in normal operation.
+
+Therefore the correct ownership is:
 
 ```text
-old tracked foreground = Ghost pid 1988
-real game SHOW/HIDE lifecycle event arrives
--> foregroundTracker_.Reconcile()
--> GetForegroundWindow() == real game pid 15172
--> callback fires because HWND/PID changed
--> Always FPS target immediately becomes 15172
--> game detection evaluates the same actual foreground
+WindowLifecycleSource       -> debug/evidence logging only
+ProductionGameWindowSource -> production authority triggers
 ```
 
-### Expected Mafia recovery
+Adding NAMECHANGE to `ProductionGameWindowSource` is intentional duplication of the OS event subscription to preserve the existing debug/production boundary. Do not merge these sources in this PR.
 
-If the `SHOW` event occurs before the game becomes authoritative foreground, it may legitimately do nothing.
+## 9. NAMECHANGE noise control is required
 
-Later:
+Global `WINEVENT_OUTOFCONTEXT` NAMECHANGE traffic can be noisy for top-level browser/app windows. The existing object/top-level filters reduce noise but do not eliminate repeated title changes on the live foreground window.
 
-```text
-NAMECHANGE on Mafia top-level window
--> foregroundTracker_.Reconcile()
--> if actual foreground has changed, callback repairs canonical PID
--> WindowEventAffectsCurrentForeground(NameChange) is also allowed to
-   re-evaluate the current foreground/current detector window
--> full-screen/title transition becomes visible to foreground-first admission
-```
+Implement **bounded event-driven suppression without a new timer**.
 
-The important point is that `NAMECHANGE` does not directly set a target. Every target still comes from a fresh `GetForegroundWindow()` observation and normal detector evaluation.
+Required behavior:
 
-## 9. Preserve current screen-affect policy
+1. `foregroundTracker_.Reconcile()` must still run first on each accepted production window event. Its own `(HWND, PID)` cache makes the callback cheap and ensures an actual foreground change is never hidden by NAMECHANGE throttling.
+2. Direct `EvaluateCurrentForeground("window-event")` caused specifically by repeated NAMECHANGE for the same `(HWND, PID)` must be debounced/rate-limited.
+3. Use event time/received tick state; do not add `SetTimer`, polling, sleeps, worker retries, or a new scheduler.
+4. A first NAMECHANGE for a current foreground/current detector window must be evaluated immediately.
+5. Repeated NAMECHANGE for the same `(HWND, PID)` inside a small fixed window (recommended ~250 ms) may be coalesced/skipped for direct detector evaluation.
+6. The first event after the debounce window must be eligible again.
+7. Background-window NAMECHANGE must not evaluate the current screen simply because its title changed.
 
-`WindowEventAffectsCurrentScreen()` currently rejects `Create` and accepts other events only when the event belongs to either:
+A small pure helper in `GameSessionCutoverPolicy.h` is preferred if it keeps the behavior unit-testable.
+
+Optional additional optimization, if implemented, must remain semantically narrow: a same-window foreground process already classified `Hidden / ExcludedExecutable` can suppress title-only reevaluation because a title change cannot turn that executable into an eligible game. **Do not** weaken reevaluation for `NotFullscreenLike` or renderer-verification candidates.
+
+## 10. Preserve current screen-affect semantics
+
+`WindowEventAffectsCurrentScreen()` currently rejects `Create` and otherwise requires the event to belong to either:
 
 - the live foreground `(HWND, PID)`; or
 - the current detector `(HWND, PID)`.
 
-Keep that principle.
+Keep that rule.
 
-Adding `NameChange` must not allow a background window to steal foreground authority.
+The PR #230 optimization for redundant `ExcludedExecutable` `LOCATIONCHANGE` must stay correctly scoped; do not accidentally suppress fullscreen/window-state transitions that can make a real game eligible.
 
-The PR #230 optimization for redundant `ExcludedExecutable` `LOCATIONCHANGE` must stay exactly scoped to `LOCATIONCHANGE`. Do not broaden it to `NameChange`.
+## 11. Expected recovery sequences
 
-## 10. No new polling or timers
+### ATS-like Ghost -> real game
 
-Explicitly prohibited for this fix:
+```text
+tracked foreground = Ghost pid 1988
+real game SHOW/HIDE event arrives
+-> foregroundTracker_.Reconcile()
+-> GetForegroundWindow() == pid 15172
+-> existing foreground callback fires
+-> Always FPS invalidates pid 1988 and targets pid 15172
+-> game detection sees the same fresh foreground
+```
+
+No later task switch should be required.
+
+### Mafia-like delayed title/fullscreen transition
+
+```text
+SHOW may occur while authority is still elsewhere
+later top-level NAMECHANGE arrives
+-> foregroundTracker_.Reconcile()
+-> if real foreground changed, canonical callback repairs it immediately
+-> if foreground was already the same HWND/PID, first non-debounced NAMECHANGE
+   may still drive the existing window-event evaluation
+-> normal admission / renderer verification decides eligibility
+```
+
+No target may be set from the NAMECHANGE event alone.
+
+## 12. Explicitly prohibited Part B changes
+
+Do not add:
 
 - periodic `GetForegroundWindow()` polling;
 - process scanning;
 - WMI process lifecycle resurrection;
 - ETW solely for this issue;
-- retry state machines;
-- scheduler-dependent recovery loops.
-
-The existing production window events are frequent enough to provide the missing wake-up path in the demonstrated real-world sequences.
+- a second `ForegroundTracker`;
+- a second foreground PID cache in telemetry/game detection;
+- retry state machines.
 
 ---
 
 # Part C — process-lifetime first-visible presentation warm-up/recreate
 
-## 11. Required behavior
+## 13. Required process-lifetime behavior
 
-Warm up the HUD presentation **once per ClawHUD process**, at the first time that a production HUD instance is truly visible and has successfully submitted a real frame.
+Warm up exactly once per `ClawHUD.exe` process.
 
-The process-lifetime rule is intentional:
+Do not repeat:
 
-- do not repeat per game;
-- do not repeat after a game exits and another game starts;
-- do not repeat because the same presentation is hidden/shown;
-- do not repeat after font/size/background-mode recreations;
-- do not repeat after HUD Disable -> Enable later in the same process;
-- process restart naturally resets the one-shot state.
+- per game;
+- after Game A exits and Game B starts;
+- after normal Hide/Show;
+- after font/size/background-mode recreation;
+- after HUD Disable -> Enable later in the same process;
+- after F8 toggles.
+
+A new process naturally gets a new one-shot allowance.
 
 ### Always mode
 
-Expected flow:
-
 ```text
 process starts
--> HUD Ensure
--> normal first Show
--> normal first Render/Present succeeds
--> one-shot warm-up is consumed
--> recreate presentation once
--> restore/render/show normal HUD
+-> normal HUD Ensure/Show
+-> first visible non-empty HUD frame successfully Present()s
+-> consume one-shot
+-> post deferred warm-up request
+-> next message-pump turn recreates presentation once
+-> fresh frame + visibility restored normally
 -> never warm up again in this process
 ```
 
 ### In-Game Only mode
 
-Do **not** make a hidden In-Game Only HUD visible at startup merely to warm it up.
-
-Expected flow:
+Do **not** show HUD at startup only to warm it.
 
 ```text
-process starts
--> presentation may exist but HUD remains hidden
--> no warm-up yet
+process starts hidden
+-> no warm-up
 -> first eligible game makes HUD visible
--> first visible Render/Present succeeds
--> one-shot warm-up is consumed
--> recreate presentation once
--> restore/render/show normal HUD
--> later games reuse the stabilized presentation with no extra warm-up
+-> first visible non-empty HUD frame successfully Present()s
+-> consume one-shot
+-> post deferred warm-up request
+-> next message-pump turn recreates once
+-> later games do not warm up again
 ```
 
-If F8/manual override causes the first real HUD visibility before a game, that real visible Present may consume the same process-lifetime one-shot. Do not create a separate F8 warm-up path.
+If F8/manual override causes the first real non-empty visible HUD frame before a game, that frame may consume the same process-wide one-shot. Do not create a separate F8 path.
 
-## 12. Trigger on a real successful Present, not on `Initialize()` or `Show()` alone
+## 14. Exact trigger: visible + non-empty + `Present()` success
 
-Do **not** warm up immediately after `HudPresentation::Initialize()`.
+Current `HudPresentation::Render()` ultimately returns `presentationManager_->Present()` after buffer acquisition/drawing. It may return `S_FALSE` when no presentation buffer is available.
 
-Do **not** warm up merely because `Show()` succeeded.
+A successful `S_OK` alone is **not enough**, because an empty `HudTelemetrySnapshot` can still reach `Present()` successfully.
 
-The first instance must first complete the normal visible presentation path.
-
-`HudPresentation::Render()` returns the result of `presentationManager_->Present()` after buffer acquisition/drawing. It can also return `S_FALSE` when no buffer is available.
-
-Therefore the warm-up trigger must require all of:
+The warm-up schedule condition must require all of:
 
 ```text
 presentation exists
-presentation is logically Visible()
-first-visible warm-up has not already been attempted
-HudPresentation::Render(...) returned S_OK
+presentation->Visible() == true
+firstVisiblePresentationWarmupAttempted_ == false
+FormatHud(snapshot) is non-empty (or an equivalent pure "has renderable HUD content" check)
+HudPresentation::Render(snapshot, ...) returned exactly S_OK
 ```
 
-`S_FALSE` does not count as the first successful Present.
+Do not consume on:
 
-A failed Render does not consume the one-shot before any frame has been successfully submitted.
+```text
+Initialize success only
+Show success only
+hidden Render
+empty HUD frame
+S_FALSE
+FAILED(hr)
+resume recovery's explicit empty RenderRecoveryFrame()
+```
 
-## 13. Keep one-shot ownership in `HudController`
+Prefer a small pure helper such as:
 
-`HudController` already owns:
+```cpp
+ShouldScheduleFirstVisibleHudWarmup(
+    bool attempted,
+    bool visible,
+    bool hasRenderableContent,
+    HRESULT renderResult)
+```
 
-- the concrete `HudPresentation` object;
-- every Initialize/Render/Show/Hide/Shutdown call site;
-- presentation recreate behavior;
-- presentation failure log latches.
+so this policy can be tested without D3D/DComp mocks.
 
-The one-shot state belongs here, not in `App`, game detection, telemetry, or `HudPresentationContract`.
+## 15. One-shot ownership remains in `HudController`
 
-Add process-lifetime state such as:
+`HudController` owns the concrete presentation lifecycle, so keep process-lifetime state there:
 
 ```cpp
 bool firstVisiblePresentationWarmupAttempted_{};
 ```
 
-Do not reset this member from:
+Do not reset it from:
 
 - `Recreate()`;
 - `ShutdownPresentation()`;
-- setting changes;
-- game target clear;
 - `MarkDisabled()`;
-- F8 hide/show.
+- setting mutations;
+- game target changes;
+- F8.
 
-It resets only because a new `HudController` is constructed for a new process.
+It resets only when a new `HudController` is constructed for a new process.
 
-## 14. Reuse the existing recreate path
+## 16. Do NOT call `Recreate()` from inside the Present/Render call stack
 
-Prefer the existing `HudController::Recreate(bool restoreVisible)` path instead of duplicating `HudPresentation` initialization internals.
+This is a required correction to the earlier draft.
 
-A minimal intended sequence inside/after the first successful visible `HudController::Render()` is:
+After the first qualifying frame returns `S_OK`:
 
-```text
-first presentation is already Show() == visible
--> Render(snapshot) returns S_OK (real Present submitted)
--> mark firstVisiblePresentationWarmupAttempted_ = true BEFORE any recursive render path
--> Recreate(restoreVisible = true)
-     -> old HudPresentation::Shutdown()
-     -> same HudPresentation::Initialize() production path
-     -> existing requestRender(true) supplies a fresh/current snapshot while hidden
-     -> Show() restores visibility
--> warm-up complete
-```
+1. set `firstVisiblePresentationWarmupAttempted_ = true` **before scheduling anything**;
+2. request a one-shot deferred action through the existing App/runtime message pump;
+3. return normally from the current `HudController::Render()` call;
+4. only on the **next message-pump turn** perform the presentation recreation.
 
-Mark the one-shot **before** calling `Recreate()` because `Recreate()` invokes the existing `requestRender_(true)` callback. That callback re-enters `HudController::Render()`; the guard must already prevent recursive warm-up.
+Do not call `Recreate()` directly from the same `Render()` stack.
 
-Do not add a second presentation backend or a special warm-up renderer.
-
-Do not add `Sleep()`.
-
-Do not wait on a blocking presentation fence.
-
-For this first field workaround, a successful visible `Present()` return is the boundary. If hardware testing later proves that the recreation must be deferred to a later message turn, handle that in a follow-up with evidence rather than adding arbitrary delay here.
-
-## 15. Warm-up failure behavior
-
-The workaround must never enter a recreate loop.
-
-Rules:
-
-1. mark the one-shot before attempting recreation;
-2. if warm-up recreation fails, log once with a distinct warm-up reason;
-3. do not automatically warm up again on the next render/game;
-4. preserve the existing `Recreate()` failure semantics rather than introducing a new retry state machine;
-5. no process termination solely because this workaround failed.
-
-Suggested logs:
+The preferred shape is one small App-private WM_APP message (choose an unused value after auditing current message IDs), for example conceptually:
 
 ```text
-[HudWarmup] first-visible present complete; recreating presentation
-[HudWarmup] presentation recreation complete
+HudController::Render
+-> qualifying first frame
+-> mark attempted=true
+-> return effect / invoke narrow callback that PostMessage()s kHudPresentationWarmup
+
+App::ProcessMessages (later turn)
+-> kHudPresentationWarmup
+-> hudController_.RunFirstVisiblePresentationWarmup()
 ```
 
-Failure:
+Either a narrow callback or a small render-effect return value is acceptable. Do not introduce a thread, async task, timer, `Sleep()`, or blocking wait.
+
+## 17. Deferred warm-up execution
+
+At deferred execution time:
 
 ```text
-[HudWarmup] presentation recreation failed hr=...
+capture current visibility (not the old schedule-time assumption)
+-> use existing HudController::Recreate(restoreVisible=currentVisible)
+-> Recreate performs existing Shutdown -> Initialize -> requestRender(true) -> Show restore path
 ```
 
-Keep logs concise; do not log every frame.
+This preserves state if visibility changed between scheduling and the next message turn.
 
-## 16. Do not change normal game-to-game lifecycle
+The one-shot was already consumed when scheduled. Therefore:
 
-Example after warm-up has completed:
+- if recreation succeeds: log completion;
+- if recreation fails: log once and do not re-arm;
+- if the presentation was destroyed/disabled before the deferred handler runs: safely no-op and do not re-arm;
+- never enter a recreation loop.
 
-```text
-Game A detected
--> HUD shown
--> warm-up already consumed
+`Recreate()` may invoke `requestRender_(true)`, but recursion cannot schedule another warm-up because the attempted flag was set before the deferred message was posted.
 
-Game A exits
--> HUD hidden (In-Game Only) / remains as normal (Always)
+## 18. Keep `HudPresentation` itself unchanged if possible
 
-Game B detected
--> existing normal presentation show/use
--> NO warm-up recreation
-```
+No new presentation backend/API is required.
 
-Only a new `ClawHUD.exe` process receives a new one-shot allowance.
+Current `HudPresentation::Render()` already propagates the `Present()` result, so the warm-up policy can be implemented above it.
+
+Avoid modifying `HudPresentation.cpp` unless a concrete implementation blocker is found. Any such change must preserve the production presentation contract exactly.
 
 ---
 
-# 17. Expected files
+# 19. Expected files
 
-The exact diff may vary slightly, but expect the PR to touch roughly these areas.
+The exact diff may vary, but expected areas are:
 
-### Part A
+## Part A
 
 ```text
 CMakeLists.txt
@@ -660,53 +648,58 @@ src/ClawHUD/GameDetection/GameSessionController.cpp
 src/ClawHUD/HudModel.h
 src/ClawHUD/HudModel.cpp
 tests/HudModelTests.cpp
-src/ClawHUD/IntelGraphicsApiProbe.h                  DELETE
-src/ClawHUD/IntelGraphicsApiProbe.cpp                DELETE
-tests/IntelGraphicsApiProbeTests.cpp                 DELETE (if still present)
+tests/HudTelemetryAggregatorTests.cpp
+src/ClawHUD/IntelGraphicsApiProbe.h          DELETE
+src/ClawHUD/IntelGraphicsApiProbe.cpp        DELETE
+tests/IntelGraphicsApiProbeTests.cpp         DELETE
 ```
 
-### Part B
+`THIRD-PARTY-NOTICES.md` should normally remain unchanged because archived IGCL-derived source remains in the repository.
+
+## Part B
 
 ```text
 src/ClawHUD/GameDetection/ProductionGameWindowSource.h
 src/ClawHUD/GameDetection/ProductionGameWindowSource.cpp
-src/ClawHUD/GameDetection/GameSessionController.cpp
+src/ClawHUD/GameDetection/GameSessionController.h/.cpp
+src/ClawHUD/GameDetection/GameSessionCutoverPolicy.h   if pure debounce/suppression helper used
 tests/ProductionGameWindowSourceTests.cpp
-tests/GameSessionCutoverPolicyTests.cpp               as needed
+tests/GameSessionCutoverPolicyTests.cpp
 ```
 
-### Part C
+Do not route production through `WindowLifecycleSource`.
+
+## Part C
 
 ```text
+src/ClawHUD/App.cpp
+src/ClawHUD/App.h                             if new private message handler declaration is needed
 src/ClawHUD/HudController.h
 src/ClawHUD/HudController.cpp
-src/ClawHUD/HudPresentationLifecycle.h/.cpp            only if a pure helper is useful
-tests/HudPresentationLifecycleTests.cpp                or existing HUD lifecycle/model tests
+src/ClawHUD/HudPresentationLifecycle.h/.cpp   only if a pure policy helper naturally belongs there
+tests/HudPresentationLifecycleTests.cpp       and/or existing HUD policy tests
 ```
 
 Do not modify `HudPresentationContract.*`.
 
-Avoid modifying `HudPresentation.cpp` unless implementation cannot be completed through the existing controller lifecycle. There should be no need to change its production contract or backend.
-
 ---
 
-# 18. Required tests
+# 20. Required automated tests
 
-## 18.1 IGCL removal
+## 20.1 IGCL removal
 
-Repository search / compile requirements:
+Verify by build/tree search:
 
-- no production include of `IntelGraphicsApiProbe.h`;
-- no production source entry for `IntelGraphicsApiProbe.cpp`;
-- no `kGraphicsApiRetryTimerId`;
-- no graphics API probe methods/state;
+- no production include/source for `IntelGraphicsApiProbe`;
+- no graphics API timer/retry/state/methods;
 - no `IGCL Graphics API` runtime log strings;
 - no `HudTelemetrySnapshot::graphicsApi`;
-- archived diagnostics are not counted as production references.
+- `HudTelemetryAggregatorTests` updated to verify its remaining unowned fields without `graphicsApi`;
+- archived IGCL diagnostics/license remain intact.
 
 `FormatHud()` FPS behavior must remain unchanged.
 
-## 18.2 Production window event mapping
+## 20.2 Production NAMECHANGE mapping
 
 Extend `ProductionGameWindowSourceTests`:
 
@@ -714,168 +707,193 @@ Extend `ProductionGameWindowSourceTests`:
 EVENT_OBJECT_NAMECHANGE -> ProductionWindowEventType::NameChange
 ```
 
-Keep unsupported events rejected.
+Also preserve:
 
-Keep queue ordering/capacity behavior unchanged.
+- OBJID_WINDOW / CHILDID_SELF filter expectations;
+- top-level-only behavior;
+- unsupported-event rejection;
+- bounded queue ordering/capacity.
 
-## 18.3 Foreground cutover policy
+## 20.3 Foreground/window-event policy
 
-Add/retain coverage showing:
+Cover at minimum:
 
-- `Create` still does not directly affect the current screen;
-- `NameChange` on the live foreground/current detector window is eligible to trigger reevaluation;
-- `NameChange` on an unrelated background `(HWND, PID)` does not become current-screen authority;
-- PR #230 excluded-foreground `LOCATIONCHANGE` suppression still applies only to `LOCATIONCHANGE`.
+- `Create` still does not directly affect current screen;
+- first `NameChange` on live foreground/current detector can evaluate;
+- background `NameChange` cannot steal authority;
+- repeated same `(HWND, PID)` NAMECHANGE inside debounce window does not repeatedly trigger direct `EvaluateCurrentForeground`;
+- first event after debounce window can evaluate again;
+- foreground reconciliation wake-up is not suppressed by the NAMECHANGE direct-evaluation debounce;
+- PR #230 excluded `LOCATIONCHANGE` behavior remains correct;
+- `NotFullscreenLike` transitions remain reevaluable.
 
-Do not add a large test-only dependency injection framework merely to fake `GetForegroundWindow()`.
+Do not create a large DI framework only to fake Win32 foreground APIs. Keep new policy helpers pure where practical.
 
-## 18.4 Foreground authority field scenarios
+## 20.4 HUD warm-up policy
 
-Hardware/debug-log validation is required for the exact real-world gap:
-
-### ATS-like Ghost -> real game
-
-Verify:
-
-```text
-real GetForegroundWindow pid changes on SHOW/HIDE lifecycle
--> ForegroundTracker reconcile updates immediately
--> [PresentMonFPS] mode=Always foregroundPid=<real game pid>
--> no prolonged stale Ghost PID sampling
-```
-
-### Mafia-like delayed full-screen identity
-
-Verify:
+Pure-policy minimum matrix:
 
 ```text
-SHOW/NAMECHANGE lifecycle occurs
--> game is evaluated without waiting ~80 s for a later task switch
--> renderer first-frame completes
--> target-set occurs
--> PresentMon FPS is obtained
+attempted=false, visible=true,  content=true,  Render=S_OK    -> schedule
+attempted=false, visible=true,  content=false, Render=S_OK    -> no
+attempted=false, visible=true,  content=true,  Render=S_FALSE -> no
+attempted=false, visible=false, content=true,  Render=S_OK    -> no
+attempted=true,  visible=true,  content=true,  Render=S_OK    -> no
+FAILED(Render)                                               -> no
 ```
 
-## 18.5 HUD warm-up one-shot policy
+Also verify:
 
-Add a small pure policy helper/test if useful rather than trying to fake D3D/DComp.
+- attempted flag is set before deferred request is posted;
+- deferred handler does not re-arm on failure;
+- later game/HUD Show does not schedule again;
+- normal setting-driven `Recreate()` does not reset the one-shot;
+- empty resume recovery frame cannot consume the warm-up.
 
-Minimum cases:
+## 20.5 Existing HUD/VRR tests
 
-```text
-attempted=false, visible=true, Render=S_OK    -> warm-up yes
-attempted=false, visible=true, Render=S_FALSE -> no
-attempted=false, visible=false, Render=S_OK   -> no
-attempted=true,  visible=true, Render=S_OK    -> no
-failed Render                                  -> no
-```
+All existing assertions for the following must remain green and unchanged in meaning:
 
-Also ensure the implementation sets the attempted flag before `Recreate()` can invoke `requestRender_(true)`.
-
-## 18.6 Always mode hardware smoke
-
-Fresh process:
-
-1. launch with HUD enabled + Always;
-2. observe normal first HUD appearance;
-3. confirm exactly one `[HudWarmup]` recreation sequence;
-4. maximize/restore Edge repeatedly;
-5. maximize/restore Steam repeatedly;
-6. confirm HUD remains visually present;
-7. confirm no second warm-up occurs;
-8. launch/exit multiple games and confirm no extra warm-up.
-
-## 18.7 In-Game Only hardware smoke
-
-Fresh process:
-
-1. launch with HUD enabled + In-Game Only;
-2. confirm no forced HUD appearance at app startup;
-3. launch first game;
-4. first real HUD visible Present triggers exactly one warm-up/recreate;
-5. exit first game;
-6. launch second game;
-7. confirm no second warm-up;
-8. confirm FPS targeting switches correctly.
-
-## 18.8 HUD/VRR regression suite
-
-All existing assertions/tests for the following must remain green and unchanged in meaning:
-
-- click-through behavior;
+- click-through;
 - no activation;
-- topmost behavior;
+- topmost;
 - transparent hit testing;
 - `WM_MOUSEACTIVATE -> MA_NOACTIVATE`;
 - independent flip;
 - premultiplied alpha;
 - production presentation contract.
 
-No test should be weakened to accommodate this PR.
+No test may be weakened for this PR.
 
 ---
 
-# 19. Build / validation
+# 21. Mandatory hardware smoke before merge
 
-Run the normal repository validation from a clean tree.
+Parts B and C are field-driven and cannot be fully proven by CTest alone. The PR description must contain a hardware smoke checklist/result summary before merge.
 
-At minimum:
+## 21.1 ATS-like foreground handoff
+
+Verify with debug logging:
+
+```text
+Ghost PID becomes foreground
+-> real ATS window becomes GetForegroundWindow()
+-> production SHOW/HIDE event wakes ForegroundTracker immediately
+-> Always foregroundPid changes to real game without task switching
+-> no prolonged Ghost FPS sampling
+```
+
+Record relevant timestamps/PIDs in the PR description.
+
+## 21.2 Mafia-like NAMECHANGE path
+
+Verify:
+
+```text
+SHOW/NAMECHANGE occurs
+-> foreground/game evaluation happens without later Alt-Tab/Task Switch
+-> renderer first-frame completes
+-> target-set occurs
+-> PresentMon FPS is obtained
+```
+
+Record the NAMECHANGE and target-set timestamps in the PR description.
+
+## 21.3 Always HUD warm-up
+
+Fresh process:
+
+1. start with HUD enabled + Always;
+2. normal HUD appears;
+3. exactly one first-visible non-empty Present schedules warm-up;
+4. next message-pump turn recreates presentation once;
+5. repeatedly maximize/restore Edge;
+6. repeatedly maximize/restore Steam;
+7. confirm HUD remains visually present;
+8. launch/exit multiple games;
+9. confirm no second warm-up.
+
+## 21.4 In-Game Only HUD warm-up
+
+Fresh process:
+
+1. start with HUD enabled + In-Game Only;
+2. confirm no HUD is forced visible at startup;
+3. launch first game;
+4. first actual non-empty in-game HUD Present schedules exactly one warm-up;
+5. recreation occurs on next message-pump turn;
+6. exit first game;
+7. launch second game;
+8. confirm no second warm-up;
+9. confirm FPS target switches correctly.
+
+## 21.5 Failure reporting
+
+If Edge/Steam still reproduces after the one-shot recreation, report that result. Do not expand this PR into speculative presentation/window-contract changes.
+
+---
+
+# 22. Build / validation
+
+Run from a clean tree:
 
 ```text
 Native CMake Debug build
 Native CMake Release build
 ctest -E DiagWinEventTests   (Debug)
 ctest -E DiagWinEventTests   (Release)
-WPF Settings Release build/tests if shared files/project references are touched
+WPF Settings Release build/tests if shared/project files are touched
 ```
 
-The exact CTest total may decrease because the dedicated `IntelGraphicsApiProbeTests` target is deleted. Document the old -> new count in the PR.
+The CTest total may decrease because `ClawHUD.IntelGraphicsApiProbeTests` is deleted. Document old -> new totals in the PR.
 
 No warning regressions.
 
 ---
 
-# 20. Completion criteria
+# 23. Completion criteria
 
-The PR is complete only when all of the following are true:
+The PR is complete only when all are true.
 
-### IGCL
+## IGCL
 
-- production Graphics API IGCL probe is gone;
-- no production Graphics API timer/retry/state remains;
-- no unused `graphicsApi` snapshot field remains;
+- production Graphics API IGCL probe/timer/retry/state is gone;
+- `HudTelemetrySnapshot::graphicsApi` and all fixtures are gone;
 - PresentMon API2 telemetry/FPS remains functional;
-- Intel VRR Range Fix remains untouched.
+- Intel VRR Range Fix remains untouched;
+- archived IGCL research/license remains intact.
 
-### Foreground authority
+## Foreground authority
 
-- production listens to top-level `NAMECHANGE`;
-- production window events wake the existing `ForegroundTracker::Reconcile()`;
-- Always FPS and game detection observe the same fresh foreground transition;
-- background window events cannot steal authority;
-- no polling was added.
+- production listens to filtered top-level `NAMECHANGE`;
+- every accepted production window event first wakes existing `ForegroundTracker::Reconcile()`;
+- current existing `window-event` evaluation path remains and runs after reconciliation;
+- repeated NAMECHANGE direct evaluation is bounded without polling/timers;
+- Always FPS and game detection converge on the same fresh foreground;
+- background title changes cannot steal authority;
+- no fixed-fallback-timer behavior is introduced.
 
-### HUD presentation warm-up
+## HUD presentation warm-up
 
-- warm-up happens only after a visible `Render()` returns `S_OK`;
-- exactly one warm-up recreation is attempted per process;
-- Always naturally triggers it on first actual HUD display;
-- In-Game Only naturally triggers it on the first actual in-game HUD display;
-- a second game does not trigger another warm-up;
-- existing `HudPresentation` production contract is byte/semantic unchanged;
-- no watchdog, delay loop, alternate presentation backend, or z-order workaround is added.
+- only a visible, non-empty HUD frame whose `Render()` returned `S_OK` can schedule warm-up;
+- warm-up recreation is deferred to a later App message-pump turn;
+- exactly one attempt per process;
+- Always triggers naturally on first actual HUD display;
+- In-Game Only triggers naturally on first actual in-game HUD display;
+- later games/setting recreations/HUD toggles do not re-arm it;
+- failed/no-op deferred recreation does not retry;
+- production presentation contract/backend remains unchanged.
 
-### Field validation
+## Merge gate
 
-- Edge/Steam maximize reproduction is re-tested after the warm-up change;
-- Mafia/ATS-like foreground transitions are re-tested with debug logging;
-- if Edge/Steam still reproduces, report that result rather than expanding the PR into speculative presentation changes.
+- automated builds/tests green;
+- hardware smoke results for ATS/Mafia and Always/In-Game Only included in PR description;
+- Edge/Steam maximize behavior re-tested;
+- no HUD/VRR invariant changed.
 
 ---
 
-# 21. PR structure / suggested title
-
-One PR is preferred.
+# 24. Suggested PR title / commit organization
 
 Suggested title:
 
@@ -883,7 +901,7 @@ Suggested title:
 Remove retired IGCL probe and harden foreground/HUD startup recovery
 ```
 
-Suggested commit organization is optional, but if multiple commits are used before squash they should follow the three logical parts:
+Optional pre-squash commit organization:
 
 ```text
 1. Remove retired production IGCL graphics API probe
