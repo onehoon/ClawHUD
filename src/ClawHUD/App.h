@@ -145,9 +145,9 @@ private:
     // stays lazily allocated.
     clawhud::HudController hudController_{instance_};
     clawhud::PresentMonTelemetryProvider presentMonTelemetryProvider_;
-    // Owns EC / system / battery / FPS / graphics-API telemetry, retention,
-    // target state, and the sampling timer lifecycle. Holds a non-owning
-    // reference to the shared provider above.
+    // Owns EC / system / battery / FPS telemetry, retention, target state, and
+    // the sampling timer lifecycle. Holds a non-owning reference to the shared
+    // provider above.
     clawhud::ProductionTelemetryController productionTelemetry_{
         presentMonTelemetryProvider_};
     // Owns the production game-session detector: triggers, the coordinator
