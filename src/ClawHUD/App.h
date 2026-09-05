@@ -41,10 +41,6 @@ constexpr UINT kRuntimeControlDispatchMessage = WM_APP + 11;
 // Posted by the pipe worker after a RequestShutdown response has been delivered;
 // the main-thread handler enters the normal App::Exit() path.
 constexpr UINT kRuntimeControlShutdownReadyMessage = WM_APP + 12;
-// Posted once per process by HudController after its first visible non-empty
-// HUD frame is presented; the main-thread handler performs the one-shot
-// first-visible presentation warm-up on a later message-pump turn.
-constexpr UINT kHudPresentationWarmupMessage = WM_APP + 13;
 
 class App : public clawhud::IRuntimeControl
 {
@@ -66,8 +62,6 @@ public:
     void HandleRuntimeControlDispatch();
     // Main-thread handler for a delivered IPC RequestShutdown; enters Exit().
     void HandleRuntimeControlShutdownReady();
-    // Main-thread handler for the deferred one-shot HUD presentation warm-up.
-    void HandleHudPresentationWarmup();
 
     // clawhud::IRuntimeControl — the semantic control boundary Settings frontends
     // use over Control IPC. App stays the implementation authority; these delegate

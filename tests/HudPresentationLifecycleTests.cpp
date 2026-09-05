@@ -33,20 +33,5 @@ int main()
     expect(opaque.layout.backgroundOpacity == 1.0f,
         "runtime opacity propagates to opaque render boundary");
 
-    // --- first-visible presentation warm-up one-shot -----------------------
-    using clawhud::ShouldScheduleFirstVisibleHudWarmup;
-    expect(ShouldScheduleFirstVisibleHudWarmup(false, true, true, S_OK),
-        "visible non-empty S_OK first frame schedules warm-up");
-    expect(!ShouldScheduleFirstVisibleHudWarmup(false, true, false, S_OK),
-        "empty HUD frame does not schedule warm-up");
-    expect(!ShouldScheduleFirstVisibleHudWarmup(false, true, true, S_FALSE),
-        "S_FALSE (no presentation buffer) does not schedule warm-up");
-    expect(!ShouldScheduleFirstVisibleHudWarmup(false, false, true, S_OK),
-        "a hidden render does not schedule warm-up");
-    expect(!ShouldScheduleFirstVisibleHudWarmup(true, true, true, S_OK),
-        "the one-shot never re-arms once attempted");
-    expect(!ShouldScheduleFirstVisibleHudWarmup(false, true, true, E_FAIL),
-        "a failed render does not schedule warm-up");
-
     return ok ? 0 : 1;
 }

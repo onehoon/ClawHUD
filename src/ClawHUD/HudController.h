@@ -55,11 +55,6 @@ public:
     // calls back into Render(snapshot, allowHidden). Bound once at startup.
     void SetRenderCallback(std::function<void(bool)> requestRender);
 
-    // Invoked once per process from Render() after the first visible non-empty
-    // frame is presented, to ask App to post a deferred warm-up message. The
-    // controller never calls Recreate() from inside the Render() stack.
-    void SetPresentationWarmupScheduler(std::function<void()> scheduler);
-
     void RestoreState(const HudControllerState& state);
 
     // --- queries (App forwards these to the Settings frontend / tray / recovery) --
@@ -81,11 +76,6 @@ public:
     bool Recreate(bool restoreVisible);
     void Render(const HudTelemetrySnapshot& snapshot, bool allowHidden);
     HRESULT RenderRecoveryFrame(); // resume recovery: render an empty snapshot
-    // Deferred first-visible warm-up: recreate the presentation once through the
-    // normal Recreate() path. Runs on a later App message-pump turn, never from
-    // inside Render(). Safe no-op if the presentation is already gone.
-    void RunFirstVisiblePresentationWarmup();
-
     // --- enabled state (App owns persistence + cross-domain reactions) ----
     void MarkEnabled(bool logTransition);
     void MarkDisabled();           // logs, resets the manual override (StopHud)
@@ -113,7 +103,6 @@ private:
 
     HINSTANCE instance_{};
     std::function<void(bool)> requestRender_;
-    std::function<void()> scheduleWarmup_;
     std::unique_ptr<HudPresentation> presentation_;
     HudLayoutOptions options_{};
     HudFont font_{HudFont::SegoeUiVariable};
@@ -121,10 +110,6 @@ private:
     bool enabled_{};
     std::optional<bool> manualOverride_;
     bool initializedLogged_{};
-    // Process-lifetime one-shot: set true before the deferred warm-up is
-    // scheduled and never reset (not by Recreate / Shutdown / MarkDisabled /
-    // setting mutations / F8). A new process gets a fresh HudController.
-    bool firstVisiblePresentationWarmupAttempted_{};
     bool renderFailureLogged_{};
     bool showFailureLogged_{};
     bool hideFailureLogged_{};
