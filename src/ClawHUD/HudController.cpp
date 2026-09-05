@@ -26,11 +26,6 @@ void HudController::SetRenderCallback(std::function<void(bool)> requestRender)
     requestRender_ = std::move(requestRender);
 }
 
-void HudController::SetPresentationWarmupScheduler(std::function<void()> scheduler)
-{
-    scheduleWarmup_ = std::move(scheduler);
-}
-
 void HudController::RestoreState(const HudControllerState& state)
 {
     enabled_ = state.enabled;
@@ -145,34 +140,11 @@ void HudController::Render(const HudTelemetrySnapshot& snapshot, bool allowHidde
     else
         renderFailureLogged_ = false;
 
-    if (!firstVisiblePresentationWarmupAttempted_ && scheduleWarmup_ &&
-        ShouldScheduleFirstVisibleHudWarmup(
-            firstVisiblePresentationWarmupAttempted_, presentation_->Visible(),
-            !FormatHud(snapshot).empty(), hr))
-    {
-        // Set the one-shot before scheduling so the requestRender(true) inside
-        // the deferred Recreate() cannot re-enter this branch.
-        firstVisiblePresentationWarmupAttempted_ = true;
-        scheduleWarmup_();
-    }
 }
 
 HRESULT HudController::RenderRecoveryFrame()
 {
     return presentation_->Render(HudTelemetrySnapshot{}, BuildRenderOptions());
-}
-
-void HudController::RunFirstVisiblePresentationWarmup()
-{
-    // The one-shot was already consumed when this was scheduled. Recreate once
-    // through the exact production path; never re-arm, never loop.
-    if (!presentation_)
-        return;
-    const bool restoreVisible = presentation_->Visible();
-    Log(L"HUD first-visible presentation warm-up");
-    if (!Recreate(restoreVisible))
-        RuntimeLogger::Log(RuntimeLogLevel::Warn,
-            L"HUD first-visible presentation warm-up recreate failed");
 }
 
 void HudController::MarkEnabled(bool logTransition)

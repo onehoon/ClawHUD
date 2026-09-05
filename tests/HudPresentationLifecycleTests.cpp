@@ -1,4 +1,5 @@
 #include "HudPresentation.h"
+#include "HudPresentationDiagnostics.h"
 #include "HudPresentationLifecycle.h"
 
 #include <iostream>
@@ -33,20 +34,42 @@ int main()
     expect(opaque.layout.backgroundOpacity == 1.0f,
         "runtime opacity propagates to opaque render boundary");
 
-    // --- first-visible presentation warm-up one-shot -----------------------
-    using clawhud::ShouldScheduleFirstVisibleHudWarmup;
-    expect(ShouldScheduleFirstVisibleHudWarmup(false, true, true, S_OK),
-        "visible non-empty S_OK first frame schedules warm-up");
-    expect(!ShouldScheduleFirstVisibleHudWarmup(false, true, false, S_OK),
-        "empty HUD frame does not schedule warm-up");
-    expect(!ShouldScheduleFirstVisibleHudWarmup(false, true, true, S_FALSE),
-        "S_FALSE (no presentation buffer) does not schedule warm-up");
-    expect(!ShouldScheduleFirstVisibleHudWarmup(false, false, true, S_OK),
-        "a hidden render does not schedule warm-up");
-    expect(!ShouldScheduleFirstVisibleHudWarmup(true, true, true, S_OK),
-        "the one-shot never re-arms once attempted");
-    expect(!ShouldScheduleFirstVisibleHudWarmup(false, true, true, E_FAIL),
-        "a failed render does not schedule warm-up");
+    clawhud::HudPresentationDiagnosticState diagnostics;
+    expect(diagnostics.RecordNoBuffer(100), "first no-buffer frame enters episode");
+    expect(!diagnostics.RecordNoBuffer(110) && diagnostics.ConsecutiveNoBufferCount() == 2,
+        "repeat no-buffer frame counts without re-entering");
+    auto recovery = diagnostics.RecordSuccessfulPresent(120);
+    expect(recovery.noBufferRecovered && recovery.noBufferDurationMs == 20 &&
+        recovery.noBufferCount == 2, "successful Present recovers no-buffer episode");
+    expect(diagnostics.RecordNoBuffer(130), "later no-buffer frame starts a new episode");
+
+    using clawhud::HudPresentationSubmissionStage;
+    expect(diagnostics.RecordSubmissionFailure(HudPresentationSubmissionStage::SetBuffer,
+        E_FAIL, 140), "first SetBuffer failure enters episode");
+    expect(!diagnostics.RecordSubmissionFailure(HudPresentationSubmissionStage::SetBuffer,
+        E_FAIL, 150) && diagnostics.SubmissionFailureCount() == 2,
+        "same SetBuffer failure counts without re-entering");
+    recovery = diagnostics.RecordSuccessfulPresent(160);
+    expect(recovery.submissionRecovered &&
+        recovery.previousFailureStage == HudPresentationSubmissionStage::SetBuffer &&
+        recovery.previousFailureHr == E_FAIL && recovery.submissionFailureCount == 2,
+        "successful Present recovers SetBuffer failure episode");
+    expect(diagnostics.RecordSubmissionFailure(HudPresentationSubmissionStage::Present,
+        E_INVALIDARG, 170), "Present failure is distinct from SetBuffer failure");
+    recovery = diagnostics.RecordSuccessfulPresent(180);
+    expect(recovery.submissionRecovered &&
+        recovery.previousFailureStage == HudPresentationSubmissionStage::Present,
+        "successful Present recovers Present failure episode");
+
+    clawhud::HudPresentationDiagnosticState heartbeat;
+    expect(heartbeat.RecordSuccessfulPresent(100).heartbeat,
+        "first successful Present establishes heartbeat baseline");
+    expect(!heartbeat.RecordSuccessfulPresent(5099).heartbeat,
+        "successful Presents inside heartbeat interval stay quiet");
+    expect(heartbeat.RecordSuccessfulPresent(5100).heartbeat,
+        "first successful Present after heartbeat interval logs");
+    expect(!heartbeat.RecordSuccessfulPresent(5101).heartbeat,
+        "subsequent successful Present inside interval stays quiet");
 
     return ok ? 0 : 1;
 }

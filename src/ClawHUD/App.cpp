@@ -54,11 +54,6 @@ App::App(HINSTANCE instance, clawhud::LaunchMode launchMode)
     LoadHudSettings();
     hudController_.SetRenderCallback(
         [this](bool allowHidden) { RenderProductionHud(allowHidden); });
-    hudController_.SetPresentationWarmupScheduler([this]
-    {
-        PostMessageW(runtimeMessageWindow_.Window(),
-            kHudPresentationWarmupMessage, 0, 0);
-    });
     gameSession_.SetHooks(MakeGameSessionHooks());
     productionTelemetry_.SyncVisibilityMode(hudController_.Options().visibilityMode);
     clawhud::RuntimeLogger::SetDebugLogging(debugLoggingEnabled_);
@@ -818,11 +813,6 @@ void App::HandleRuntimeControlShutdownReady()
     // The IPC RequestShutdown response was already delivered on the pipe
     // worker; enter the normal idempotent shutdown path.
     Exit();
-}
-
-void App::HandleHudPresentationWarmup()
-{
-    hudController_.RunFirstVisiblePresentationWarmup();
 }
 
 void App::Exit()
