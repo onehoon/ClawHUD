@@ -1,6 +1,7 @@
 #include "HudPresentation.h"
 #include "HudPresentationLifecycle.h"
 #include "RuntimeLogger.h"
+#include "Win32Format.h"
 #include "resource.h"
 
 #include <algorithm>
@@ -104,6 +105,8 @@ HRESULT HudPresentation::Initialize(HINSTANCE instance, const HudRenderOptions& 
     if (FAILED(hr = CreateBitmapTargets())) { Shutdown(); return hr; }
     displayChangePending_ = false;
     initialized_ = true;
+    ++presentationEpoch_;
+    diagnosticState_.Reset();
     if (!initializationLogged_)
     {
         std::wostringstream message;
@@ -114,6 +117,7 @@ HRESULT HudPresentation::Initialize(HINSTANCE instance, const HudRenderOptions& 
         RuntimeLogger::Log(RuntimeLogLevel::Info, message.str());
         initializationLogged_ = true;
     }
+    LogPresentationState(L"initialized");
     return S_OK;
 }
 
@@ -271,8 +275,15 @@ HRESULT HudPresentation::Render(const HudTelemetrySnapshot& snapshot, const HudR
         }
     }
     HudFrameBuffer* buffer{};
-    hr = TryAcquireAvailableBuffer(buffer);
-    if (FAILED(hr) || hr == S_FALSE)
+    UINT availableMask{};
+    hr = TryAcquireAvailableBuffer(buffer, availableMask);
+    if (hr == S_FALSE)
+    {
+        if (diagnosticState_.RecordNoBuffer(GetTickCount64()))
+            LogPresentationState(L"no-buffer-enter", availableMask);
+        return hr;
+    }
+    if (FAILED(hr))
         return hr;
     const float widthDip = DipFromPhysicalPixels(static_cast<float>(widthPx_), dpi_);
     const float heightDip = DipFromPhysicalPixels(static_cast<float>(heightPx_), dpi_);
@@ -304,8 +315,30 @@ HRESULT HudPresentation::Render(const HudTelemetrySnapshot& snapshot, const HudR
         debugLastValidatedAlpha_ = expectedBackgroundAlpha;
     }
 #endif
-    if (FAILED(hr = presentationSurface_->SetBuffer(buffer->presentationBuffer.Get()))) return hr;
-    return presentationManager_->Present();
+    hr = presentationSurface_->SetBuffer(buffer->presentationBuffer.Get());
+    if (FAILED(hr))
+    {
+        RecordSubmissionFailure(HudPresentationSubmissionStage::SetBuffer, hr, availableMask);
+        return hr;
+    }
+    hr = presentationManager_->Present();
+    if (hr == S_OK)
+    {
+        const auto recovery = diagnosticState_.RecordSuccessfulPresent(GetTickCount64());
+        if (recovery.noBufferRecovered)
+            LogPresentationState(L"no-buffer-recovered", availableMask,
+                HudPresentationSubmissionStage::Present, S_OK, &recovery);
+        if (recovery.submissionRecovered)
+            LogPresentationState(L"submit-recovered", availableMask,
+                HudPresentationSubmissionStage::Present, S_OK, &recovery);
+        if (recovery.heartbeat)
+            LogPresentationState(L"present-heartbeat", availableMask);
+    }
+    else if (FAILED(hr))
+    {
+        RecordSubmissionFailure(HudPresentationSubmissionStage::Present, hr, availableMask);
+    }
+    return hr;
 }
 
 #ifdef _DEBUG
@@ -415,22 +448,79 @@ HRESULT HudPresentation::RefreshDisplayIfNeeded()
     return S_OK;
 }
 
-HRESULT HudPresentation::TryAcquireAvailableBuffer(HudFrameBuffer*& selected) noexcept
+HRESULT HudPresentation::TryAcquireAvailableBuffer(HudFrameBuffer*& selected,
+    UINT& availableMask) noexcept
 {
     selected = nullptr;
-    for (auto& buffer : buffers_)
+    availableMask = 0;
+    for (UINT index = 0; index < buffers_.size(); ++index)
     {
+        auto& buffer = buffers_[index];
         BOOLEAN available{};
         const HRESULT hr = buffer.presentationBuffer->IsAvailable(&available);
         if (FAILED(hr))
             return hr;
         if (available)
         {
+            availableMask |= (1u << index);
             selected = &buffer;
             return S_OK;
         }
     }
     return S_FALSE;
+}
+
+void HudPresentation::RecordSubmissionFailure(HudPresentationSubmissionStage stage,
+    HRESULT hr, UINT availableMask) noexcept
+{
+    if (diagnosticState_.RecordSubmissionFailure(stage, hr, GetTickCount64()))
+        LogPresentationState(L"submit-failed", availableMask, stage, hr);
+}
+
+void HudPresentation::LogPresentationState(std::wstring_view reason, UINT availableMask,
+    HudPresentationSubmissionStage stage, HRESULT hr,
+    const HudPresentationDiagnosticRecovery* recovery) const noexcept
+{
+    try
+    {
+        const auto stageName = [](HudPresentationSubmissionStage value)
+        {
+            return value == HudPresentationSubmissionStage::SetBuffer
+                ? L"set-buffer" : L"present";
+        };
+        std::wostringstream message;
+        message << L"[HudPresentationState] reason=" << reason
+            << L" epoch=" << presentationEpoch_
+            << L" hwnd=0x" << std::hex << reinterpret_cast<std::uintptr_t>(window_) << std::dec
+            << L" surface=" << surfaceWidthPx_ << L"x" << heightPx_
+            << L" bufferCount=" << buffers_.size()
+            << L" visible=" << (visible_ ? 1 : 0)
+            << L" availableMask=0x" << std::hex << availableMask << std::dec
+            << L" successfulPresentCount=" << diagnosticState_.SuccessfulPresentCount()
+            << L" lastSuccessfulPresentTickMs=" << diagnosticState_.LastSuccessfulPresentTickMs()
+            << L" noBufferActive=" << (diagnosticState_.NoBufferActive() ? 1 : 0)
+            << L" consecutiveNoBuffer=" << diagnosticState_.ConsecutiveNoBufferCount()
+            << L" submissionFailureActive="
+                << (diagnosticState_.SubmissionFailureActive() ? 1 : 0)
+            << L" failureCount=" << diagnosticState_.SubmissionFailureCount();
+        if (reason == L"no-buffer-enter")
+            message << L" consecutiveNoBuffer=" << diagnosticState_.ConsecutiveNoBufferCount();
+        if (reason == L"submit-failed")
+            message << L" stage=" << stageName(stage) << L" hr=" << HexHresult(hr)
+                << L" failureCount=" << diagnosticState_.SubmissionFailureCount();
+        if (recovery && recovery->noBufferRecovered)
+            message << L" durationMs=" << recovery->noBufferDurationMs
+                << L" consecutiveNoBuffer=" << recovery->noBufferCount;
+        if (recovery && recovery->submissionRecovered)
+            message << L" previousStage=" << stageName(recovery->previousFailureStage)
+                << L" previousHr=" << HexHresult(recovery->previousFailureHr)
+                << L" durationMs=" << recovery->submissionDurationMs
+                << L" failureCount=" << recovery->submissionFailureCount;
+        RuntimeLogger::Log(RuntimeLogLevel::Debug, message.str());
+    }
+    catch (...)
+    {
+    }
 }
 
 HRESULT HudPresentation::CommitVisibility(bool visible)
@@ -548,6 +638,8 @@ HRESULT HudPresentation::SetHudOpacity(float opacityPercent)
 
 void HudPresentation::Shutdown() noexcept
 {
+    if (initialized_)
+        LogPresentationState(L"shutdown");
     if (visible_ && visual_ && compositionDevice_)
     {
         visual_->SetContent(nullptr);

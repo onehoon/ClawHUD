@@ -1,6 +1,7 @@
 #pragma once
 
 #include "HudPresentationContract.h"
+#include "HudPresentationDiagnostics.h"
 #include "HudRenderer.h"
 #include "HudWindowGeometry.h"
 
@@ -82,7 +83,8 @@ private:
         ID3D11Texture2D* texture, UINT sampleX, UINT sampleY,
         BYTE expectedAlpha);
 #endif
-    HRESULT TryAcquireAvailableBuffer(HudFrameBuffer*& selected) noexcept;
+    HRESULT TryAcquireAvailableBuffer(HudFrameBuffer*& selected,
+        UINT& availableMask) noexcept;
     HRESULT RefreshDisplayIfNeeded();
     HRESULT CommitVisibility(bool visible);
 
@@ -92,6 +94,11 @@ private:
     // behavior; on any probe failure it logs a neutral value and continues.
     void LogDebugWindowState(std::wstring_view reason,
         const WINDOWPOS* windowPos = nullptr) const noexcept;
+    void LogPresentationState(std::wstring_view reason, UINT availableMask = 0,
+        HudPresentationSubmissionStage stage = HudPresentationSubmissionStage::SetBuffer,
+        HRESULT hr = S_OK, const HudPresentationDiagnosticRecovery* recovery = nullptr) const noexcept;
+    void RecordSubmissionFailure(HudPresentationSubmissionStage stage, HRESULT hr,
+        UINT availableMask) noexcept;
 
     HINSTANCE instance_{};
     HWND window_{};
@@ -108,6 +115,8 @@ private:
     bool initialized_{};
     bool initializationLogged_{};
     bool displayChangePending_{};
+    std::uint64_t presentationEpoch_{};
+    HudPresentationDiagnosticState diagnosticState_{};
 #ifdef _DEBUG
     int debugLastValidatedAlpha_{ -1 };
 #endif
