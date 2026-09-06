@@ -116,32 +116,19 @@ bool HudController::Recreate(bool restoreVisible)
     return true;
 }
 
-HRESULT HudController::RunCompositionRebindDiagnostic()
+void HudController::LogVisibilityMarkerDiagnostic(
+    std::uint64_t sequence, bool coveredMarker) const noexcept
 {
     if (!presentation_)
     {
         RuntimeLogger::Log(RuntimeLogLevel::Debug,
-            L"[HudCompositionDiag] action=visual-rebind-skipped reason=no-presentation");
-        return S_FALSE;
+            L"[HudVisibilityMark] seq=" + std::to_wstring(sequence) +
+            L" pair=" + std::to_wstring((sequence + 1) / 2) +
+            L" marker=" + (coveredMarker ? L"covered" : L"restored") +
+            L" reason=no-presentation");
+        return;
     }
-    const HRESULT hr = presentation_->RebindCompositionContentForDiagnostic();
-    if (hr == S_OK && enabled_ && presentation_->Visible() && requestRender_)
-        requestRender_(false);
-    return hr;
-}
-
-HRESULT HudController::RunPresentationResourceRecreateDiagnostic()
-{
-    if (!presentation_)
-    {
-        RuntimeLogger::Log(RuntimeLogLevel::Debug,
-            L"[HudCompositionDiag] action=presentation-recreate-skipped reason=no-presentation");
-        return S_FALSE;
-    }
-    const HRESULT hr = presentation_->RecreatePresentationResourcesForDiagnostic();
-    if (hr == S_OK && enabled_ && presentation_->Visible() && requestRender_)
-        requestRender_(false);
-    return hr;
+    presentation_->LogVisibilityMarkerDiagnostic(sequence, coveredMarker);
 }
 
 void HudController::Refresh()

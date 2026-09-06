@@ -70,14 +70,9 @@ LRESULT CALLBACK RuntimeMessageWindow::WindowProc(HWND window, UINT message, WPA
         self->app_.HandleHudToggleHotkey();
         return 0;
     }
-    if (message == WM_HOTKEY && wParam == kHudCompositionRebindHotkeyId)
+    if (message == WM_HOTKEY && wParam == kHudVisibilityMarkerHotkeyId)
     {
-        self->app_.HandleHudCompositionRebindHotkey();
-        return 0;
-    }
-    if (message == WM_HOTKEY && wParam == kHudPresentationRecreateHotkeyId)
-    {
-        self->app_.HandleHudPresentationRecreateHotkey();
+        self->app_.HandleHudVisibilityMarkerHotkey();
         return 0;
     }
     if (message == WM_POWERBROADCAST)

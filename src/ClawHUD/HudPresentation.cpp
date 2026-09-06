@@ -103,7 +103,6 @@ HRESULT HudPresentation::Initialize(HINSTANCE instance, const HudRenderOptions& 
     }
     if (FAILED(hr = CreatePresentationSurface())) { Shutdown(); return hr; }
     if (FAILED(hr = CreateBitmapTargets())) { Shutdown(); return hr; }
-    presentationResourcesReady_ = true;
     displayChangePending_ = false;
     initialized_ = true;
     ++presentationEpoch_;
@@ -250,8 +249,7 @@ HRESULT HudPresentation::CreateBitmapTargets()
 
 HRESULT HudPresentation::Render(const HudTelemetrySnapshot& snapshot, const HudRenderOptions& options)
 {
-    if (!initialized_ || !renderer_ || !presentationResourcesReady_ ||
-        !presentationSurface_ || !presentationManager_ || !compositionSurface_)
+    if (!initialized_ || !renderer_)
         return E_UNEXPECTED;
     HRESULT hr = RefreshDisplayIfNeeded();
     if (FAILED(hr))
@@ -472,169 +470,6 @@ HRESULT HudPresentation::TryAcquireAvailableBuffer(HudFrameBuffer*& selected,
     return S_FALSE;
 }
 
-HRESULT HudPresentation::RebindCompositionContentForDiagnostic()
-{
-    if (!initialized_ || !visible_ || !presentationResourcesReady_ ||
-        !visual_ || !compositionDevice_ || !compositionSurface_)
-    {
-        LogCompositionDiagnostic(L"visual-rebind-skipped", L"not-visible", S_FALSE);
-        return S_FALSE;
-    }
-
-    LogCompositionDiagnostic(L"visual-rebind-begin");
-    HRESULT hr = visual_->SetContent(nullptr);
-    if (FAILED(hr))
-    {
-        LogCompositionDiagnostic(L"visual-rebind-failed", L"detach-content", hr);
-        return hr;
-    }
-    hr = compositionDevice_->Commit();
-    LogCompositionDiagnostic(L"visual-rebind-stage", L"detach-commit", hr);
-    if (FAILED(hr))
-    {
-        LogCompositionDiagnostic(L"visual-rebind-failed", L"detach-commit", hr);
-        return hr;
-    }
-    hr = compositionDevice_->WaitForCommitCompletion();
-    LogCompositionDiagnostic(L"visual-rebind-stage", L"detach-wait", hr);
-    if (FAILED(hr))
-    {
-        LogCompositionDiagnostic(L"visual-rebind-failed", L"detach-wait", hr);
-        return hr;
-    }
-
-    hr = visual_->SetContent(compositionSurface_.Get());
-    if (FAILED(hr))
-    {
-        LogCompositionDiagnostic(L"visual-rebind-failed", L"attach-content", hr);
-        return hr;
-    }
-    hr = compositionDevice_->Commit();
-    LogCompositionDiagnostic(L"visual-rebind-stage", L"attach-commit", hr);
-    if (FAILED(hr))
-    {
-        LogCompositionDiagnostic(L"visual-rebind-failed", L"attach-commit", hr);
-        return hr;
-    }
-    hr = compositionDevice_->WaitForCommitCompletion();
-    LogCompositionDiagnostic(L"visual-rebind-stage", L"attach-wait", hr);
-    if (FAILED(hr))
-    {
-        LogCompositionDiagnostic(L"visual-rebind-failed", L"attach-wait", hr);
-        return hr;
-    }
-
-    LogCompositionDiagnostic(L"visual-rebind-complete");
-    return S_OK;
-}
-
-HRESULT HudPresentation::RecreatePresentationResourcesForDiagnostic()
-{
-    if (!initialized_ || !visible_ || !presentationResourcesReady_ ||
-        !visual_ || !compositionDevice_ || !d2dContext_)
-    {
-        LogCompositionDiagnostic(L"presentation-recreate-skipped", L"not-visible", S_FALSE);
-        return S_FALSE;
-    }
-
-    const auto oldEpoch = presentationEpoch_;
-    const auto oldSuccessfulPresentCount = diagnosticState_.SuccessfulPresentCount();
-    LogCompositionDiagnostic(L"presentation-recreate-begin", {}, S_OK,
-        oldEpoch, oldSuccessfulPresentCount);
-
-    HRESULT hr = visual_->SetContent(nullptr);
-    if (FAILED(hr))
-    {
-        LogCompositionDiagnostic(L"presentation-recreate-failed", L"detach-content", hr,
-            oldEpoch);
-        return hr;
-    }
-    hr = compositionDevice_->Commit();
-    LogCompositionDiagnostic(L"presentation-recreate-stage", L"detach-commit", hr,
-        oldEpoch);
-    if (FAILED(hr))
-    {
-        LogCompositionDiagnostic(L"presentation-recreate-failed", L"detach-commit", hr,
-            oldEpoch);
-        return hr;
-    }
-    hr = compositionDevice_->WaitForCommitCompletion();
-    LogCompositionDiagnostic(L"presentation-recreate-stage", L"detach-wait", hr,
-        oldEpoch);
-    if (FAILED(hr))
-    {
-        LogCompositionDiagnostic(L"presentation-recreate-failed", L"detach-wait", hr,
-            oldEpoch);
-        return hr;
-    }
-
-    d2dContext_->SetTarget(nullptr);
-    presentationResourcesReady_ = false;
-    ReleasePresentationResources();
-    LogCompositionDiagnostic(L"presentation-recreate-stage", L"release-old", S_OK,
-        oldEpoch);
-
-    hr = CreatePresentationSurface();
-    if (FAILED(hr))
-    {
-        ReleasePresentationResources();
-        LogCompositionDiagnostic(L"presentation-recreate-failed", L"create-surface", hr,
-            oldEpoch);
-        return hr;
-    }
-    LogCompositionDiagnostic(L"presentation-recreate-stage", L"create-surface", S_OK,
-        oldEpoch);
-    hr = CreateBitmapTargets();
-    if (FAILED(hr))
-    {
-        ReleasePresentationResources();
-        LogCompositionDiagnostic(L"presentation-recreate-failed", L"create-bitmap-targets", hr,
-            oldEpoch);
-        return hr;
-    }
-    LogCompositionDiagnostic(L"presentation-recreate-stage", L"create-bitmap-targets", S_OK,
-        oldEpoch);
-
-    hr = visual_->SetContent(compositionSurface_.Get());
-    if (FAILED(hr))
-    {
-        ReleasePresentationResources();
-        LogCompositionDiagnostic(L"presentation-recreate-failed", L"attach-content", hr,
-            oldEpoch);
-        return hr;
-    }
-    hr = compositionDevice_->Commit();
-    LogCompositionDiagnostic(L"presentation-recreate-stage", L"attach-commit", hr,
-        oldEpoch);
-    if (FAILED(hr))
-    {
-        ReleasePresentationResources();
-        LogCompositionDiagnostic(L"presentation-recreate-failed", L"attach-commit", hr,
-            oldEpoch);
-        return hr;
-    }
-    hr = compositionDevice_->WaitForCommitCompletion();
-    LogCompositionDiagnostic(L"presentation-recreate-stage", L"attach-wait", hr,
-        oldEpoch);
-    if (FAILED(hr))
-    {
-        ReleasePresentationResources();
-        LogCompositionDiagnostic(L"presentation-recreate-failed", L"attach-wait", hr,
-            oldEpoch);
-        return hr;
-    }
-
-    presentationResourcesReady_ = true;
-    ++presentationEpoch_;
-    diagnosticState_.Reset();
-#ifdef _DEBUG
-    debugLastValidatedAlpha_ = -1;
-#endif
-    LogCompositionDiagnostic(L"presentation-recreate-complete", {}, S_OK, oldEpoch,
-        oldSuccessfulPresentCount);
-    return S_OK;
-}
-
 void HudPresentation::RecordSubmissionFailure(HudPresentationSubmissionStage stage,
     HRESULT hr, UINT availableMask) noexcept
 {
@@ -688,46 +523,94 @@ void HudPresentation::LogPresentationState(std::wstring_view reason, UINT availa
     }
 }
 
-void HudPresentation::ReleasePresentationResources() noexcept
-{
-    for (auto& buffer : buffers_)
-    {
-        buffer.bitmapTarget.Reset();
-        buffer.presentationBuffer.Reset();
-        buffer.texture.Reset();
-    }
-    presentationSurface_.Reset();
-    presentationManager_.Reset();
-    presentationFactory_.Reset();
-    compositionSurface_.Reset();
-    if (surfaceHandle_ != INVALID_HANDLE_VALUE)
-    {
-        CloseHandle(surfaceHandle_);
-        surfaceHandle_ = INVALID_HANDLE_VALUE;
-    }
-}
-
-void HudPresentation::LogCompositionDiagnostic(std::wstring_view action,
-    std::wstring_view stage, HRESULT hr, std::uint64_t oldEpoch,
-    std::uint64_t oldSuccessfulPresentCount) const noexcept
+void HudPresentation::LogVisibilityMarkerDiagnostic(
+    std::uint64_t sequence, bool coveredMarker) const noexcept
 {
     try
     {
+        const auto hex = [](HWND value)
+        {
+            std::wostringstream stream;
+            stream << L"0x" << std::hex
+                << reinterpret_cast<std::uintptr_t>(value) << std::dec;
+            return stream.str();
+        };
+        const HWND hud = window_;
+        const bool isWindow = hud && IsWindow(hud);
+        const bool isWindowVisible = isWindow && IsWindowVisible(hud);
+        const bool isIconic = isWindow && IsIconic(hud);
+        const LONG_PTR exStyle = isWindow ? GetWindowLongPtrW(hud, GWL_EXSTYLE) : 0;
+        RECT hudRect{};
+        if (!isWindow || !GetWindowRect(hud, &hudRect))
+            hudRect = RECT{};
+
+        const HWND foreground = GetForegroundWindow();
+        DWORD foregroundPid = 0;
+        if (foreground)
+            GetWindowThreadProcessId(foreground, &foregroundPid);
+        const bool foregroundIsWindow = foreground && IsWindow(foreground);
+        const bool foregroundVisible = foregroundIsWindow && IsWindowVisible(foreground);
+        const bool foregroundIconic = foregroundIsWindow && IsIconic(foreground);
+        const LONG_PTR foregroundExStyle = foregroundIsWindow
+            ? GetWindowLongPtrW(foreground, GWL_EXSTYLE) : 0;
+        RECT foregroundRect{};
+        if (!foregroundIsWindow || !GetWindowRect(foreground, &foregroundRect))
+            foregroundRect = RECT{};
+        wchar_t foregroundClass[256]{};
+        if (foregroundIsWindow)
+            GetClassNameW(foreground, foregroundClass, ARRAYSIZE(foregroundClass));
+
+        const HWND zPrev = isWindow ? GetWindow(hud, GW_HWNDPREV) : nullptr;
+        const HWND zNext = isWindow ? GetWindow(hud, GW_HWNDNEXT) : nullptr;
+        DWORD zPrevPid = 0;
+        DWORD zNextPid = 0;
+        if (zPrev) GetWindowThreadProcessId(zPrev, &zPrevPid);
+        if (zNext) GetWindowThreadProcessId(zNext, &zNextPid);
+
+        const auto markTick = GetTickCount64();
+        const auto lastPresentTick = diagnosticState_.LastSuccessfulPresentTickMs();
         std::wostringstream message;
-        message << L"[HudCompositionDiag] action=" << action
+        message << L"[HudVisibilityMark] seq=" << sequence
+            << L" pair=" << ((sequence + 1) / 2)
+            << L" marker=" << (coveredMarker ? L"covered" : L"restored")
+            << L" markTickMs=" << markTick
             << L" epoch=" << presentationEpoch_
-            << L" hwnd=0x" << std::hex
-            << reinterpret_cast<std::uintptr_t>(window_) << std::dec
-            << L" visible=" << (visible_ ? 1 : 0)
-            << L" hr=" << HexHresult(hr);
-        if (!stage.empty()) message << L" stage=" << stage;
-        if (oldEpoch) message << L" oldEpoch=" << oldEpoch;
-        if (oldSuccessfulPresentCount)
-            message << L" oldSuccessfulPresentCount=" << oldSuccessfulPresentCount;
+            << L" successfulPresentCount=" << diagnosticState_.SuccessfulPresentCount()
+            << L" lastSuccessfulPresentTickMs=" << lastPresentTick
+            << L" msSinceLastSuccessfulPresent="
+                << (lastPresentTick && markTick >= lastPresentTick
+                    ? markTick - lastPresentTick : 0)
+            << L" noBufferActive=" << (diagnosticState_.NoBufferActive() ? 1 : 0)
+            << L" consecutiveNoBuffer=" << diagnosticState_.ConsecutiveNoBufferCount()
+            << L" submissionFailureActive="
+                << (diagnosticState_.SubmissionFailureActive() ? 1 : 0)
+            << L" failureCount=" << diagnosticState_.SubmissionFailureCount()
+            << L" hwnd=" << hex(hud)
+            << L" initialized=" << (initialized_ ? 1 : 0)
+            << L" logicalVisible=" << (visible_ ? 1 : 0)
+            << L" isWindow=" << (isWindow ? 1 : 0)
+            << L" isWindowVisible=" << (isWindowVisible ? 1 : 0)
+            << L" isIconic=" << (isIconic ? 1 : 0)
+            << L" exStyle=0x" << std::hex << static_cast<std::uintptr_t>(exStyle)
+            << std::dec << L" exTopmost=" << ((exStyle & WS_EX_TOPMOST) ? 1 : 0)
+            << L" rect=" << hudRect.left << L"," << hudRect.top << L"," << hudRect.right
+            << L"," << hudRect.bottom
+            << L" foregroundHwnd=" << hex(foreground)
+            << L" foregroundPid=" << foregroundPid
+            << L" foregroundVisible=" << (foregroundVisible ? 1 : 0)
+            << L" foregroundIconic=" << (foregroundIconic ? 1 : 0)
+            << L" foregroundClass=\"" << foregroundClass << L"\""
+            << L" foregroundRect=" << foregroundRect.left << L"," << foregroundRect.top
+            << L"," << foregroundRect.right << L"," << foregroundRect.bottom
+            << L" foregroundExStyle=0x" << std::hex
+            << static_cast<std::uintptr_t>(foregroundExStyle) << std::dec
+            << L" zPrevHwnd=" << hex(zPrev) << L" zPrevPid=" << zPrevPid
+            << L" zNextHwnd=" << hex(zNext) << L" zNextPid=" << zNextPid;
         RuntimeLogger::Log(RuntimeLogLevel::Debug, message.str());
     }
     catch (...)
     {
+        // Marker diagnostics must never affect HUD behavior.
     }
 }
 
@@ -802,8 +685,7 @@ void HudPresentation::LogDebugWindowState(
 
 HRESULT HudPresentation::Show()
 {
-    if (!initialized_ || !presentationResourcesReady_ ||
-        !presentationSurface_ || !presentationManager_ || !compositionSurface_)
+    if (!initialized_)
         return E_UNEXPECTED;
     HRESULT hr = RefreshDisplayIfNeeded();
     if (FAILED(hr)) return hr;
@@ -878,7 +760,6 @@ void HudPresentation::Shutdown() noexcept
         window_ = nullptr;
     }
     initialized_ = false;
-    presentationResourcesReady_ = false;
     displayChangePending_ = false;
 }
 
