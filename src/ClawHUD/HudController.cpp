@@ -116,6 +116,34 @@ bool HudController::Recreate(bool restoreVisible)
     return true;
 }
 
+HRESULT HudController::RunCompositionRebindDiagnostic()
+{
+    if (!presentation_)
+    {
+        RuntimeLogger::Log(RuntimeLogLevel::Debug,
+            L"[HudCompositionDiag] action=visual-rebind-skipped reason=no-presentation");
+        return S_FALSE;
+    }
+    const HRESULT hr = presentation_->RebindCompositionContentForDiagnostic();
+    if (hr == S_OK && enabled_ && presentation_->Visible() && requestRender_)
+        requestRender_(false);
+    return hr;
+}
+
+HRESULT HudController::RunPresentationResourceRecreateDiagnostic()
+{
+    if (!presentation_)
+    {
+        RuntimeLogger::Log(RuntimeLogLevel::Debug,
+            L"[HudCompositionDiag] action=presentation-recreate-skipped reason=no-presentation");
+        return S_FALSE;
+    }
+    const HRESULT hr = presentation_->RecreatePresentationResourcesForDiagnostic();
+    if (hr == S_OK && enabled_ && presentation_->Visible() && requestRender_)
+        requestRender_(false);
+    return hr;
+}
+
 void HudController::Refresh()
 {
     if (enabled_ && presentation_ && presentation_->Visible() && requestRender_)

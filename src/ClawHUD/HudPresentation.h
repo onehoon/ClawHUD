@@ -59,8 +59,13 @@ public:
     HRESULT Show();
     HRESULT Hide();
     HRESULT SetHudOpacity(float opacityPercent);
+    HRESULT RebindCompositionContentForDiagnostic();
+    HRESULT RecreatePresentationResourcesForDiagnostic();
     bool Visible() const noexcept { return visible_; }
     bool Initialized() const noexcept { return initialized_; }
+    std::uint64_t PresentationEpoch() const noexcept { return presentationEpoch_; }
+    std::uint64_t SuccessfulPresentCount() const noexcept
+        { return diagnosticState_.SuccessfulPresentCount(); }
     void Shutdown() noexcept;
 
 private:
@@ -87,6 +92,11 @@ private:
         UINT& availableMask) noexcept;
     HRESULT RefreshDisplayIfNeeded();
     HRESULT CommitVisibility(bool visible);
+    void ReleasePresentationResources() noexcept;
+    void LogCompositionDiagnostic(std::wstring_view action,
+        std::wstring_view stage = {}, HRESULT hr = S_OK,
+        std::uint64_t oldEpoch = 0,
+        std::uint64_t oldSuccessfulPresentCount = 0) const noexcept;
 
     // Debug-only diagnostic: snapshots the real HUD HWND visibility / topmost /
     // Z-order state alongside the logical visible_ flag. Emits one
@@ -115,6 +125,7 @@ private:
     bool initialized_{};
     bool initializationLogged_{};
     bool displayChangePending_{};
+    bool presentationResourcesReady_{};
     std::uint64_t presentationEpoch_{};
     HudPresentationDiagnosticState diagnosticState_{};
 #ifdef _DEBUG

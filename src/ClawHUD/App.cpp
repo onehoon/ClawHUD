@@ -94,6 +94,12 @@ void App::StopRuntimeSources()
     if (hudHotkeyRegistered_ && runtimeMessageWindow_.Window())
         UnregisterHotKey(runtimeMessageWindow_.Window(), kHudToggleHotkeyId);
     hudHotkeyRegistered_ = false;
+    if (hudCompositionRebindHotkeyRegistered_ && runtimeMessageWindow_.Window())
+        UnregisterHotKey(runtimeMessageWindow_.Window(), kHudCompositionRebindHotkeyId);
+    if (hudPresentationRecreateHotkeyRegistered_ && runtimeMessageWindow_.Window())
+        UnregisterHotKey(runtimeMessageWindow_.Window(), kHudPresentationRecreateHotkeyId);
+    hudCompositionRebindHotkeyRegistered_ = false;
+    hudPresentationRecreateHotkeyRegistered_ = false;
 }
 
 clawhud::GameSessionHooks App::MakeGameSessionHooks()
@@ -196,6 +202,21 @@ int App::Run()
     if (!hudHotkeyRegistered_)
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
             L"RegisterHotKey(F8) failed; continuing without the global HUD toggle");
+    if (debugLoggingEnabled_)
+    {
+        hudCompositionRebindHotkeyRegistered_ = RegisterHotKey(
+            runtimeMessageWindow_.Window(), kHudCompositionRebindHotkeyId,
+            MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, '9') != FALSE;
+        if (!hudCompositionRebindHotkeyRegistered_)
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+                L"RegisterHotKey(Ctrl+Alt+Shift+9) failed; continuing without composition rebind diagnostic");
+        hudPresentationRecreateHotkeyRegistered_ = RegisterHotKey(
+            runtimeMessageWindow_.Window(), kHudPresentationRecreateHotkeyId,
+            MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, '0') != FALSE;
+        if (!hudPresentationRecreateHotkeyRegistered_)
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+                L"RegisterHotKey(Ctrl+Alt+Shift+0) failed; continuing without presentation recreate diagnostic");
+    }
     const bool providerReady = presentMonTelemetryProvider_.Initialize();
     Log(L"[PresentMon] providerReady=" + std::to_wstring(providerReady) +
         L" processReady=" + std::to_wstring(
@@ -610,6 +631,20 @@ void App::HandleHudToggleHotkey()
         *hotkeyOverride ? L"F8 HUD override=show" : L"F8 HUD override=hide");
     hudController_.SetManualOverride(*hotkeyOverride);
     ReconcileHudVisibility();
+}
+
+void App::HandleHudCompositionRebindHotkey()
+{
+    if (!debugLoggingEnabled_)
+        return;
+    hudController_.RunCompositionRebindDiagnostic();
+}
+
+void App::HandleHudPresentationRecreateHotkey()
+{
+    if (!debugLoggingEnabled_)
+        return;
+    hudController_.RunPresentationResourceRecreateDiagnostic();
 }
 
 void App::ReconcileHudVisibility()

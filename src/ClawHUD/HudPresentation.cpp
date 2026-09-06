@@ -103,6 +103,7 @@ HRESULT HudPresentation::Initialize(HINSTANCE instance, const HudRenderOptions& 
     }
     if (FAILED(hr = CreatePresentationSurface())) { Shutdown(); return hr; }
     if (FAILED(hr = CreateBitmapTargets())) { Shutdown(); return hr; }
+    presentationResourcesReady_ = true;
     displayChangePending_ = false;
     initialized_ = true;
     ++presentationEpoch_;
@@ -249,7 +250,8 @@ HRESULT HudPresentation::CreateBitmapTargets()
 
 HRESULT HudPresentation::Render(const HudTelemetrySnapshot& snapshot, const HudRenderOptions& options)
 {
-    if (!initialized_ || !renderer_)
+    if (!initialized_ || !renderer_ || !presentationResourcesReady_ ||
+        !presentationSurface_ || !presentationManager_ || !compositionSurface_)
         return E_UNEXPECTED;
     HRESULT hr = RefreshDisplayIfNeeded();
     if (FAILED(hr))
@@ -470,6 +472,169 @@ HRESULT HudPresentation::TryAcquireAvailableBuffer(HudFrameBuffer*& selected,
     return S_FALSE;
 }
 
+HRESULT HudPresentation::RebindCompositionContentForDiagnostic()
+{
+    if (!initialized_ || !visible_ || !presentationResourcesReady_ ||
+        !visual_ || !compositionDevice_ || !compositionSurface_)
+    {
+        LogCompositionDiagnostic(L"visual-rebind-skipped", L"not-visible", S_FALSE);
+        return S_FALSE;
+    }
+
+    LogCompositionDiagnostic(L"visual-rebind-begin");
+    HRESULT hr = visual_->SetContent(nullptr);
+    if (FAILED(hr))
+    {
+        LogCompositionDiagnostic(L"visual-rebind-failed", L"detach-content", hr);
+        return hr;
+    }
+    hr = compositionDevice_->Commit();
+    LogCompositionDiagnostic(L"visual-rebind-stage", L"detach-commit", hr);
+    if (FAILED(hr))
+    {
+        LogCompositionDiagnostic(L"visual-rebind-failed", L"detach-commit", hr);
+        return hr;
+    }
+    hr = compositionDevice_->WaitForCommitCompletion();
+    LogCompositionDiagnostic(L"visual-rebind-stage", L"detach-wait", hr);
+    if (FAILED(hr))
+    {
+        LogCompositionDiagnostic(L"visual-rebind-failed", L"detach-wait", hr);
+        return hr;
+    }
+
+    hr = visual_->SetContent(compositionSurface_.Get());
+    if (FAILED(hr))
+    {
+        LogCompositionDiagnostic(L"visual-rebind-failed", L"attach-content", hr);
+        return hr;
+    }
+    hr = compositionDevice_->Commit();
+    LogCompositionDiagnostic(L"visual-rebind-stage", L"attach-commit", hr);
+    if (FAILED(hr))
+    {
+        LogCompositionDiagnostic(L"visual-rebind-failed", L"attach-commit", hr);
+        return hr;
+    }
+    hr = compositionDevice_->WaitForCommitCompletion();
+    LogCompositionDiagnostic(L"visual-rebind-stage", L"attach-wait", hr);
+    if (FAILED(hr))
+    {
+        LogCompositionDiagnostic(L"visual-rebind-failed", L"attach-wait", hr);
+        return hr;
+    }
+
+    LogCompositionDiagnostic(L"visual-rebind-complete");
+    return S_OK;
+}
+
+HRESULT HudPresentation::RecreatePresentationResourcesForDiagnostic()
+{
+    if (!initialized_ || !visible_ || !presentationResourcesReady_ ||
+        !visual_ || !compositionDevice_ || !d2dContext_)
+    {
+        LogCompositionDiagnostic(L"presentation-recreate-skipped", L"not-visible", S_FALSE);
+        return S_FALSE;
+    }
+
+    const auto oldEpoch = presentationEpoch_;
+    const auto oldSuccessfulPresentCount = diagnosticState_.SuccessfulPresentCount();
+    LogCompositionDiagnostic(L"presentation-recreate-begin", {}, S_OK,
+        oldEpoch, oldSuccessfulPresentCount);
+
+    HRESULT hr = visual_->SetContent(nullptr);
+    if (FAILED(hr))
+    {
+        LogCompositionDiagnostic(L"presentation-recreate-failed", L"detach-content", hr,
+            oldEpoch);
+        return hr;
+    }
+    hr = compositionDevice_->Commit();
+    LogCompositionDiagnostic(L"presentation-recreate-stage", L"detach-commit", hr,
+        oldEpoch);
+    if (FAILED(hr))
+    {
+        LogCompositionDiagnostic(L"presentation-recreate-failed", L"detach-commit", hr,
+            oldEpoch);
+        return hr;
+    }
+    hr = compositionDevice_->WaitForCommitCompletion();
+    LogCompositionDiagnostic(L"presentation-recreate-stage", L"detach-wait", hr,
+        oldEpoch);
+    if (FAILED(hr))
+    {
+        LogCompositionDiagnostic(L"presentation-recreate-failed", L"detach-wait", hr,
+            oldEpoch);
+        return hr;
+    }
+
+    d2dContext_->SetTarget(nullptr);
+    presentationResourcesReady_ = false;
+    ReleasePresentationResources();
+    LogCompositionDiagnostic(L"presentation-recreate-stage", L"release-old", S_OK,
+        oldEpoch);
+
+    hr = CreatePresentationSurface();
+    if (FAILED(hr))
+    {
+        ReleasePresentationResources();
+        LogCompositionDiagnostic(L"presentation-recreate-failed", L"create-surface", hr,
+            oldEpoch);
+        return hr;
+    }
+    LogCompositionDiagnostic(L"presentation-recreate-stage", L"create-surface", S_OK,
+        oldEpoch);
+    hr = CreateBitmapTargets();
+    if (FAILED(hr))
+    {
+        ReleasePresentationResources();
+        LogCompositionDiagnostic(L"presentation-recreate-failed", L"create-bitmap-targets", hr,
+            oldEpoch);
+        return hr;
+    }
+    LogCompositionDiagnostic(L"presentation-recreate-stage", L"create-bitmap-targets", S_OK,
+        oldEpoch);
+
+    hr = visual_->SetContent(compositionSurface_.Get());
+    if (FAILED(hr))
+    {
+        ReleasePresentationResources();
+        LogCompositionDiagnostic(L"presentation-recreate-failed", L"attach-content", hr,
+            oldEpoch);
+        return hr;
+    }
+    hr = compositionDevice_->Commit();
+    LogCompositionDiagnostic(L"presentation-recreate-stage", L"attach-commit", hr,
+        oldEpoch);
+    if (FAILED(hr))
+    {
+        ReleasePresentationResources();
+        LogCompositionDiagnostic(L"presentation-recreate-failed", L"attach-commit", hr,
+            oldEpoch);
+        return hr;
+    }
+    hr = compositionDevice_->WaitForCommitCompletion();
+    LogCompositionDiagnostic(L"presentation-recreate-stage", L"attach-wait", hr,
+        oldEpoch);
+    if (FAILED(hr))
+    {
+        ReleasePresentationResources();
+        LogCompositionDiagnostic(L"presentation-recreate-failed", L"attach-wait", hr,
+            oldEpoch);
+        return hr;
+    }
+
+    presentationResourcesReady_ = true;
+    ++presentationEpoch_;
+    diagnosticState_.Reset();
+#ifdef _DEBUG
+    debugLastValidatedAlpha_ = -1;
+#endif
+    LogCompositionDiagnostic(L"presentation-recreate-complete", {}, S_OK, oldEpoch,
+        oldSuccessfulPresentCount);
+    return S_OK;
+}
+
 void HudPresentation::RecordSubmissionFailure(HudPresentationSubmissionStage stage,
     HRESULT hr, UINT availableMask) noexcept
 {
@@ -516,6 +681,49 @@ void HudPresentation::LogPresentationState(std::wstring_view reason, UINT availa
                 << L" previousHr=" << HexHresult(recovery->previousFailureHr)
                 << L" durationMs=" << recovery->submissionDurationMs
                 << L" failureCount=" << recovery->submissionFailureCount;
+        RuntimeLogger::Log(RuntimeLogLevel::Debug, message.str());
+    }
+    catch (...)
+    {
+    }
+}
+
+void HudPresentation::ReleasePresentationResources() noexcept
+{
+    for (auto& buffer : buffers_)
+    {
+        buffer.bitmapTarget.Reset();
+        buffer.presentationBuffer.Reset();
+        buffer.texture.Reset();
+    }
+    presentationSurface_.Reset();
+    presentationManager_.Reset();
+    presentationFactory_.Reset();
+    compositionSurface_.Reset();
+    if (surfaceHandle_ != INVALID_HANDLE_VALUE)
+    {
+        CloseHandle(surfaceHandle_);
+        surfaceHandle_ = INVALID_HANDLE_VALUE;
+    }
+}
+
+void HudPresentation::LogCompositionDiagnostic(std::wstring_view action,
+    std::wstring_view stage, HRESULT hr, std::uint64_t oldEpoch,
+    std::uint64_t oldSuccessfulPresentCount) const noexcept
+{
+    try
+    {
+        std::wostringstream message;
+        message << L"[HudCompositionDiag] action=" << action
+            << L" epoch=" << presentationEpoch_
+            << L" hwnd=0x" << std::hex
+            << reinterpret_cast<std::uintptr_t>(window_) << std::dec
+            << L" visible=" << (visible_ ? 1 : 0)
+            << L" hr=" << HexHresult(hr);
+        if (!stage.empty()) message << L" stage=" << stage;
+        if (oldEpoch) message << L" oldEpoch=" << oldEpoch;
+        if (oldSuccessfulPresentCount)
+            message << L" oldSuccessfulPresentCount=" << oldSuccessfulPresentCount;
         RuntimeLogger::Log(RuntimeLogLevel::Debug, message.str());
     }
     catch (...)
@@ -594,7 +802,9 @@ void HudPresentation::LogDebugWindowState(
 
 HRESULT HudPresentation::Show()
 {
-    if (!initialized_) return E_UNEXPECTED;
+    if (!initialized_ || !presentationResourcesReady_ ||
+        !presentationSurface_ || !presentationManager_ || !compositionSurface_)
+        return E_UNEXPECTED;
     HRESULT hr = RefreshDisplayIfNeeded();
     if (FAILED(hr)) return hr;
     if (visible_)
@@ -668,6 +878,7 @@ void HudPresentation::Shutdown() noexcept
         window_ = nullptr;
     }
     initialized_ = false;
+    presentationResourcesReady_ = false;
     displayChangePending_ = false;
 }
 
