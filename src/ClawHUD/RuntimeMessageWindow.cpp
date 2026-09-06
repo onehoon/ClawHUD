@@ -70,6 +70,16 @@ LRESULT CALLBACK RuntimeMessageWindow::WindowProc(HWND window, UINT message, WPA
         self->app_.HandleHudToggleHotkey();
         return 0;
     }
+    if (message == WM_HOTKEY && wParam == kHudCompositionRebindHotkeyId)
+    {
+        self->app_.HandleHudCompositionRebindHotkey();
+        return 0;
+    }
+    if (message == WM_HOTKEY && wParam == kHudPresentationRecreateHotkeyId)
+    {
+        self->app_.HandleHudPresentationRecreateHotkey();
+        return 0;
+    }
     if (message == WM_POWERBROADCAST)
     {
         switch (wParam)
