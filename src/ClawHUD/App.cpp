@@ -94,12 +94,9 @@ void App::StopRuntimeSources()
     if (hudHotkeyRegistered_ && runtimeMessageWindow_.Window())
         UnregisterHotKey(runtimeMessageWindow_.Window(), kHudToggleHotkeyId);
     hudHotkeyRegistered_ = false;
-    if (hudCompositionRebindHotkeyRegistered_ && runtimeMessageWindow_.Window())
-        UnregisterHotKey(runtimeMessageWindow_.Window(), kHudCompositionRebindHotkeyId);
-    if (hudPresentationRecreateHotkeyRegistered_ && runtimeMessageWindow_.Window())
-        UnregisterHotKey(runtimeMessageWindow_.Window(), kHudPresentationRecreateHotkeyId);
-    hudCompositionRebindHotkeyRegistered_ = false;
-    hudPresentationRecreateHotkeyRegistered_ = false;
+    if (hudVisibilityMarkerHotkeyRegistered_ && runtimeMessageWindow_.Window())
+        UnregisterHotKey(runtimeMessageWindow_.Window(), kHudVisibilityMarkerHotkeyId);
+    hudVisibilityMarkerHotkeyRegistered_ = false;
 }
 
 clawhud::GameSessionHooks App::MakeGameSessionHooks()
@@ -204,18 +201,12 @@ int App::Run()
             L"RegisterHotKey(F8) failed; continuing without the global HUD toggle");
     if (debugLoggingEnabled_)
     {
-        hudCompositionRebindHotkeyRegistered_ = RegisterHotKey(
-            runtimeMessageWindow_.Window(), kHudCompositionRebindHotkeyId,
-            MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, '9') != FALSE;
-        if (!hudCompositionRebindHotkeyRegistered_)
+        hudVisibilityMarkerHotkeyRegistered_ = RegisterHotKey(
+            runtimeMessageWindow_.Window(), kHudVisibilityMarkerHotkeyId,
+            MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, 'M') != FALSE;
+        if (!hudVisibilityMarkerHotkeyRegistered_)
             clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
-                L"RegisterHotKey(Ctrl+Alt+Shift+9) failed; continuing without composition rebind diagnostic");
-        hudPresentationRecreateHotkeyRegistered_ = RegisterHotKey(
-            runtimeMessageWindow_.Window(), kHudPresentationRecreateHotkeyId,
-            MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, '0') != FALSE;
-        if (!hudPresentationRecreateHotkeyRegistered_)
-            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
-                L"RegisterHotKey(Ctrl+Alt+Shift+0) failed; continuing without presentation recreate diagnostic");
+                L"RegisterHotKey(Ctrl+Alt+Shift+M) failed; continuing without visibility marker diagnostic");
     }
     const bool providerReady = presentMonTelemetryProvider_.Initialize();
     Log(L"[PresentMon] providerReady=" + std::to_wstring(providerReady) +
@@ -633,18 +624,12 @@ void App::HandleHudToggleHotkey()
     ReconcileHudVisibility();
 }
 
-void App::HandleHudCompositionRebindHotkey()
+void App::HandleHudVisibilityMarkerHotkey()
 {
     if (!debugLoggingEnabled_)
         return;
-    hudController_.RunCompositionRebindDiagnostic();
-}
-
-void App::HandleHudPresentationRecreateHotkey()
-{
-    if (!debugLoggingEnabled_)
-        return;
-    hudController_.RunPresentationResourceRecreateDiagnostic();
+    const auto sequence = ++hudVisibilityMarkerSequence_;
+    hudController_.LogVisibilityMarkerDiagnostic(sequence, (sequence % 2) != 0);
 }
 
 void App::ReconcileHudVisibility()
