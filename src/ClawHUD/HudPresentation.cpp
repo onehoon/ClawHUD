@@ -679,6 +679,7 @@ HRESULT HudPresentation::InitializePresentStatisticsDiagnostics() noexcept
     presentStatisticsDiagnosticsActive_.store(true);
     presentStatisticsMessagePending_.store(false);
     presentStatisticsLastSummaryTickMs_ = GetTickCount64();
+    lastDisplayStatisticsKind_.reset();
     lastCompositionInstanceKind_.reset();
     lastCompositionCrossAdapterCopy_.reset();
     lastCompositionDisplayUniqueId_.reset();
@@ -713,6 +714,7 @@ void HudPresentation::ShutdownPresentStatisticsDiagnostics() noexcept
     if (wasActive)
     {
         presentStatisticsLastSummaryTickMs_ = 0;
+        lastDisplayStatisticsKind_.reset();
         lastCompositionInstanceKind_.reset();
         lastCompositionCrossAdapterCopy_.reset();
         lastCompositionDisplayUniqueId_.reset();
@@ -853,6 +855,8 @@ void HudPresentation::ProcessPresentStatistics(IPresentStatistics* statistics) n
             UINT instanceCount = 0;
             const CompositionFrameDisplayInstance* instances = nullptr;
             composition->GetDisplayInstanceArray(&instanceCount, &instances);
+            const bool enteredComposition = !lastDisplayStatisticsKind_.has_value() ||
+                lastDisplayStatisticsKind_.value() != PresentStatisticsKind_CompositionFrame;
             for (UINT index = 0; index < instanceCount && instances; ++index)
             {
                 const auto& instance = instances[index];
@@ -892,7 +896,8 @@ void HudPresentation::ProcessPresentStatistics(IPresentStatistics* statistics) n
                 lastCompositionDisplayUniqueId_ = instance.displayUniqueId;
                 lastCompositionDisplayAdapterLuid_ = instance.displayAdapterLUID;
                 lastCompositionDisplayVidPnSourceId_ = instance.displayVidPnSourceId;
-                if (!(kindChanged || crossAdapterChanged || outputChanged))
+                if (!(enteredComposition && index == 0) &&
+                    !(kindChanged || crossAdapterChanged || outputChanged))
                     continue;
                 const wchar_t* instanceName = instance.instanceKind ==
                     CompositionFrameInstanceKind_ComposedOnScreen ? L"composed-on-screen" :
@@ -921,6 +926,7 @@ void HudPresentation::ProcessPresentStatistics(IPresentStatistics* statistics) n
                     << L"," << instance.finalTransform.M31 << L"," << instance.finalTransform.M32;
                 RuntimeLogger::Log(RuntimeLogLevel::Debug, message.str());
             }
+            lastDisplayStatisticsKind_ = PresentStatisticsKind_CompositionFrame;
             return;
         }
         if (kind == PresentStatisticsKind_IndependentFlipFrame)
@@ -935,12 +941,14 @@ void HudPresentation::ProcessPresentStatistics(IPresentStatistics* statistics) n
             const auto outputLuid = independent->GetOutputAdapterLUID();
             const auto displayedTime = independent->GetDisplayedTime().value;
             const auto presentDuration = independent->GetPresentDuration().value;
+            const bool enteredIndependentFlip = !lastDisplayStatisticsKind_.has_value() ||
+                lastDisplayStatisticsKind_.value() != PresentStatisticsKind_IndependentFlipFrame;
             const bool outputChanged = independentFlipObserved_ &&
                 (outputLuid.HighPart != lastIndependentFlipOutputAdapterLuid_.HighPart ||
                     outputLuid.LowPart != lastIndependentFlipOutputAdapterLuid_.LowPart ||
                     independent->GetOutputVidPnSourceId() != lastIndependentFlipOutputVidPnSourceId_);
             ++independentFlipCount_;
-            if (!independentFlipObserved_ || outputChanged)
+            if (!independentFlipObserved_ || enteredIndependentFlip || outputChanged)
             {
                 std::wostringstream message;
                 logBase(message, L"independent-flip");
@@ -959,6 +967,7 @@ void HudPresentation::ProcessPresentStatistics(IPresentStatistics* statistics) n
             lastIndependentFlipPresentDuration_ = presentDuration;
             lastIndependentFlipOutputAdapterLuid_ = outputLuid;
             lastIndependentFlipOutputVidPnSourceId_ = independent->GetOutputVidPnSourceId();
+            lastDisplayStatisticsKind_ = PresentStatisticsKind_IndependentFlipFrame;
         }
     }
     catch (...)
@@ -988,6 +997,14 @@ void HudPresentation::LogPresentStatisticsSummary(
 {
     try
     {
+        const wchar_t* lastDisplayKind = L"none";
+        if (lastDisplayStatisticsKind_)
+        {
+            lastDisplayKind = lastDisplayStatisticsKind_ ==
+                PresentStatisticsKind_CompositionFrame ? L"composition-frame" :
+                lastDisplayStatisticsKind_ == PresentStatisticsKind_IndependentFlipFrame
+                    ? L"independent-flip" : L"other";
+        }
         const wchar_t* lastKind = L"none";
         if (lastCompositionInstanceKind_)
         {
@@ -1007,6 +1024,7 @@ void HudPresentation::LogPresentStatisticsSummary(
             << L" composedToIntermediate=" << composedToIntermediateCount_
             << L" independentFlip=" << independentFlipCount_
             << L" lastPresentId=" << lastPresentStatisticsPresentId_
+            << L" lastDisplayKind=" << lastDisplayKind
             << L" lastInstanceKind=" << lastKind
             << L" lastDisplayedTime100ns=" << lastIndependentFlipDisplayedTime_
             << L" lastPresentDuration100ns=" << lastIndependentFlipPresentDuration_

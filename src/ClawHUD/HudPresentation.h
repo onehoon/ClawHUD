@@ -139,6 +139,7 @@ private:
     HANDLE presentStatisticsAvailableEvent_{};
     PTP_WAIT presentStatisticsWait_{};
     std::uint64_t presentStatisticsLastSummaryTickMs_{};
+    std::optional<PresentStatisticsKind> lastDisplayStatisticsKind_;
     std::optional<CompositionFrameInstanceKind> lastCompositionInstanceKind_;
     std::optional<bool> lastCompositionCrossAdapterCopy_;
     std::optional<UINT64> lastCompositionDisplayUniqueId_;
