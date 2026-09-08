@@ -97,6 +97,7 @@ private:
     HRESULT CommitVisibility(bool visible);
     HRESULT InitializePresentStatisticsDiagnostics() noexcept;
     void ShutdownPresentStatisticsDiagnostics() noexcept;
+    void DisablePresentStatisticsKinds() noexcept;
     void ArmPresentStatisticsWait() noexcept;
     void DrainPresentStatistics() noexcept;
     void ProcessPresentStatistics(IPresentStatistics* statistics) noexcept;

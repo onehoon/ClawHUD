@@ -698,6 +698,7 @@ void HudPresentation::ShutdownPresentStatisticsDiagnostics() noexcept
         CloseThreadpoolWait(presentStatisticsWait_);
         presentStatisticsWait_ = nullptr;
     }
+    DisablePresentStatisticsKinds();
     if (presentStatisticsAvailableEvent_)
     {
         CloseHandle(presentStatisticsAvailableEvent_);
@@ -721,6 +722,20 @@ void HudPresentation::ShutdownPresentStatisticsDiagnostics() noexcept
         lastIndependentFlipOutputVidPnSourceId_ = 0;
         independentFlipObserved_ = false;
     }
+}
+
+void HudPresentation::DisablePresentStatisticsKinds() noexcept
+{
+    if (!presentationManager_)
+        return;
+
+    // Best-effort cleanup. Diagnostics must never make HUD shutdown/fallback fail.
+    presentationManager_->EnablePresentStatisticsKind(
+        PresentStatisticsKind_IndependentFlipFrame, FALSE);
+    presentationManager_->EnablePresentStatisticsKind(
+        PresentStatisticsKind_CompositionFrame, FALSE);
+    presentationManager_->EnablePresentStatisticsKind(
+        PresentStatisticsKind_PresentStatus, FALSE);
 }
 
 void HudPresentation::ArmPresentStatisticsWait() noexcept
