@@ -140,6 +140,10 @@ private:
     PTP_WAIT presentStatisticsWait_{};
     std::uint64_t presentStatisticsLastSummaryTickMs_{};
     std::optional<CompositionFrameInstanceKind> lastCompositionInstanceKind_;
+    std::optional<bool> lastCompositionCrossAdapterCopy_;
+    std::optional<UINT64> lastCompositionDisplayUniqueId_;
+    std::optional<LUID> lastCompositionDisplayAdapterLuid_;
+    std::optional<UINT> lastCompositionDisplayVidPnSourceId_;
     std::uint64_t presentStatusQueuedCount_{};
     std::uint64_t presentStatusSkippedCount_{};
     std::uint64_t presentStatusCanceledCount_{};

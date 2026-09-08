@@ -678,6 +678,10 @@ HRESULT HudPresentation::InitializePresentStatisticsDiagnostics() noexcept
     presentStatisticsMessagePending_.store(false);
     presentStatisticsLastSummaryTickMs_ = GetTickCount64();
     lastCompositionInstanceKind_.reset();
+    lastCompositionCrossAdapterCopy_.reset();
+    lastCompositionDisplayUniqueId_.reset();
+    lastCompositionDisplayAdapterLuid_.reset();
+    lastCompositionDisplayVidPnSourceId_.reset();
     independentFlipObserved_ = false;
     ArmPresentStatisticsWait();
     std::wostringstream message;
@@ -708,6 +712,10 @@ void HudPresentation::ShutdownPresentStatisticsDiagnostics() noexcept
     {
         presentStatisticsLastSummaryTickMs_ = 0;
         lastCompositionInstanceKind_.reset();
+        lastCompositionCrossAdapterCopy_.reset();
+        lastCompositionDisplayUniqueId_.reset();
+        lastCompositionDisplayAdapterLuid_.reset();
+        lastCompositionDisplayVidPnSourceId_.reset();
         presentStatusQueuedCount_ = 0;
         presentStatusSkippedCount_ = 0;
         presentStatusCanceledCount_ = 0;
@@ -860,10 +868,29 @@ void HudPresentation::ProcessPresentStatistics(IPresentStatistics* statistics) n
                 default:
                     break;
                 }
-                const bool transition = !lastCompositionInstanceKind_.has_value() ||
+                const bool kindChanged = !lastCompositionInstanceKind_.has_value() ||
                     lastCompositionInstanceKind_.value() != instance.instanceKind;
+                const bool crossAdapterChanged =
+                    !lastCompositionCrossAdapterCopy_.has_value() ||
+                    lastCompositionCrossAdapterCopy_.value() !=
+                        !!instance.requiredCrossAdapterCopy;
+                const bool outputChanged =
+                    !lastCompositionDisplayUniqueId_.has_value() ||
+                    lastCompositionDisplayUniqueId_.value() != instance.displayUniqueId ||
+                    !lastCompositionDisplayAdapterLuid_.has_value() ||
+                    lastCompositionDisplayAdapterLuid_->HighPart !=
+                        instance.displayAdapterLUID.HighPart ||
+                    lastCompositionDisplayAdapterLuid_->LowPart !=
+                        instance.displayAdapterLUID.LowPart ||
+                    !lastCompositionDisplayVidPnSourceId_.has_value() ||
+                    lastCompositionDisplayVidPnSourceId_.value() !=
+                        instance.displayVidPnSourceId;
                 lastCompositionInstanceKind_ = instance.instanceKind;
-                if (!transition)
+                lastCompositionCrossAdapterCopy_ = !!instance.requiredCrossAdapterCopy;
+                lastCompositionDisplayUniqueId_ = instance.displayUniqueId;
+                lastCompositionDisplayAdapterLuid_ = instance.displayAdapterLUID;
+                lastCompositionDisplayVidPnSourceId_ = instance.displayVidPnSourceId;
+                if (!(kindChanged || crossAdapterChanged || outputChanged))
                     continue;
                 const wchar_t* instanceName = instance.instanceKind ==
                     CompositionFrameInstanceKind_ComposedOnScreen ? L"composed-on-screen" :
