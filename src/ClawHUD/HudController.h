@@ -55,6 +55,8 @@ public:
     // requestRender(allowHidden): App fetches a fresh HudTelemetrySnapshot and
     // calls back into Render(snapshot, allowHidden). Bound once at startup.
     void SetRenderCallback(std::function<void(bool)> requestRender);
+    void SetPresentationStatisticsDiagnosticsEnabled(bool enabled) noexcept
+        { presentationStatisticsDiagnosticsEnabled_ = enabled; }
 
     void RestoreState(const HudControllerState& state);
 
@@ -106,6 +108,7 @@ private:
     HINSTANCE instance_{};
     std::function<void(bool)> requestRender_;
     std::unique_ptr<HudPresentation> presentation_;
+    bool presentationStatisticsDiagnosticsEnabled_{};
     HudLayoutOptions options_{};
     HudFont font_{HudFont::SegoeUiVariable};
     int sizeOffset_{};
