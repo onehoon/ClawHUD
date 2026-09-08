@@ -436,13 +436,15 @@ HRESULT HudPresentation::ResizeContentWidth(UINT widthPx, HudAlignment alignment
 
 HRESULT HudPresentation::RefreshDisplayIfNeeded()
 {
-    const auto refreshPlan = BuildHudPresentationRefreshPlan(displayChangePending_, visible_);
+    const auto refreshPlan = BuildHudPresentationRefreshPlan(
+        displayChangePending_, visible_, presentStatisticsDiagnosticsEnabled_);
     if (!refreshPlan.recreate)
         return S_OK;
     displayChangePending_ = false;
     const HINSTANCE instance = instance_;
     Shutdown();
-    HRESULT hr = Initialize(instance, initializationOptions_, opacityPercent_);
+    HRESULT hr = Initialize(instance, initializationOptions_, opacityPercent_,
+        refreshPlan.enablePresentStatisticsDiagnostics);
     if (FAILED(hr) || !refreshPlan.restoreVisibility)
         return hr;
     hr = CommitVisibility(true);
