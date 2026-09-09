@@ -53,7 +53,8 @@ bool HudController::Ensure()
         presentation_ = std::make_unique<HudPresentation>();
     const auto options = BuildRenderOptions();
     HRESULT hr = presentation_->Initialize(instance_, options,
-        options_.backgroundOpacity * 100.0f);
+        options_.backgroundOpacity * 100.0f,
+        presentationStatisticsDiagnosticsEnabled_);
     if (FAILED(hr))
     {
         RuntimeLogger::Log(RuntimeLogLevel::Error,
@@ -94,7 +95,8 @@ bool HudController::Recreate(bool restoreVisible)
     const auto options = BuildRenderOptions();
     presentation_->Shutdown();
     HRESULT hr = presentation_->Initialize(instance_, options,
-        options_.backgroundOpacity * 100.0f);
+        options_.backgroundOpacity * 100.0f,
+        presentationStatisticsDiagnosticsEnabled_);
     if (FAILED(hr))
     {
         RuntimeLogger::Log(RuntimeLogLevel::Error,

@@ -52,6 +52,7 @@ App::App(HINSTANCE instance, clawhud::LaunchMode launchMode)
     wchar_t path[MAX_PATH]{}; const DWORD length = GetModuleFileNameW(instance_, path, ARRAYSIZE(path));
     executablePath_.assign(path, length);
     LoadHudSettings();
+    hudController_.SetPresentationStatisticsDiagnosticsEnabled(debugLoggingEnabled_);
     hudController_.SetRenderCallback(
         [this](bool allowHidden) { RenderProductionHud(allowHidden); });
     gameSession_.SetHooks(MakeGameSessionHooks());

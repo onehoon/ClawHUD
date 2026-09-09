@@ -15,9 +15,11 @@
 
 #include <array>
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <string_view>
 
 namespace clawhud
@@ -54,7 +56,8 @@ public:
     ~HudPresentation();
 
     HRESULT Initialize(HINSTANCE instance, const HudRenderOptions& options = {},
-        float opacityPercent = 100.0f);
+        float opacityPercent = 100.0f,
+        bool enablePresentStatisticsDiagnostics = false);
     HRESULT Render(const HudTelemetrySnapshot& snapshot, const HudRenderOptions& options);
     HRESULT Show();
     HRESULT Hide();
@@ -75,6 +78,9 @@ private:
     };
 
     static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
+    static void CALLBACK PresentStatisticsWaitCallback(
+        PTP_CALLBACK_INSTANCE callbackInstance, void* context,
+        PTP_WAIT wait, TP_WAIT_RESULT waitResult);
     HRESULT CreateWindowHost(HINSTANCE instance, float opacityPercent);
     HRESULT CreateGraphics();
     HRESULT CreatePresentationSurface();
@@ -89,6 +95,16 @@ private:
         UINT& availableMask) noexcept;
     HRESULT RefreshDisplayIfNeeded();
     HRESULT CommitVisibility(bool visible);
+    HRESULT InitializePresentStatisticsDiagnostics() noexcept;
+    void ShutdownPresentStatisticsDiagnostics() noexcept;
+    void DisablePresentStatisticsKinds() noexcept;
+    void ArmPresentStatisticsWait() noexcept;
+    void DrainPresentStatistics() noexcept;
+    void ProcessPresentStatistics(IPresentStatistics* statistics) noexcept;
+    void LogPresentStatisticsFailure(
+        std::wstring_view reason, std::wstring_view stage, HRESULT hr) const noexcept;
+    void LogPresentStatisticsSummary(std::uint64_t observedTickMs,
+        std::wstring_view reason = L"summary") noexcept;
 
     // Debug-only diagnostic: snapshots the real HUD HWND visibility / topmost /
     // Z-order state alongside the logical visible_ flag. Emits one
@@ -117,6 +133,31 @@ private:
     bool initialized_{};
     bool initializationLogged_{};
     bool displayChangePending_{};
+    bool presentStatisticsDiagnosticsEnabled_{};
+    std::atomic_bool presentStatisticsDiagnosticsActive_{};
+    std::atomic_bool presentStatisticsMessagePending_{};
+    HANDLE presentStatisticsAvailableEvent_{};
+    PTP_WAIT presentStatisticsWait_{};
+    std::uint64_t presentStatisticsLastSummaryTickMs_{};
+    std::optional<PresentStatisticsKind> lastDisplayStatisticsKind_;
+    std::optional<CompositionFrameInstanceKind> lastCompositionInstanceKind_;
+    std::optional<bool> lastCompositionCrossAdapterCopy_;
+    std::optional<UINT64> lastCompositionDisplayUniqueId_;
+    std::optional<LUID> lastCompositionDisplayAdapterLuid_;
+    std::optional<UINT> lastCompositionDisplayVidPnSourceId_;
+    std::uint64_t presentStatusQueuedCount_{};
+    std::uint64_t presentStatusSkippedCount_{};
+    std::uint64_t presentStatusCanceledCount_{};
+    std::uint64_t composedOnScreenCount_{};
+    std::uint64_t scanoutOnScreenCount_{};
+    std::uint64_t composedToIntermediateCount_{};
+    std::uint64_t independentFlipCount_{};
+    std::uint64_t lastPresentStatisticsPresentId_{};
+    std::uint64_t lastIndependentFlipDisplayedTime_{};
+    std::uint64_t lastIndependentFlipPresentDuration_{};
+    LUID lastIndependentFlipOutputAdapterLuid_{};
+    UINT lastIndependentFlipOutputVidPnSourceId_{};
+    bool independentFlipObserved_{};
     std::uint64_t presentationEpoch_{};
     HudPresentationDiagnosticState diagnosticState_{};
 #ifdef _DEBUG

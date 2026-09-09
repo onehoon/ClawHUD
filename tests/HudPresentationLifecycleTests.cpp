@@ -18,6 +18,12 @@ int main()
     expect(visible.recreate && visible.restoreVisibility, "visible recreation restores visibility");
     const auto wasHidden = clawhud::BuildHudPresentationRefreshPlan(true, false);
     expect(wasHidden.recreate && !wasHidden.restoreVisibility, "hidden recreation stays hidden");
+    const auto debugRefresh = clawhud::BuildHudPresentationRefreshPlan(true, true, true);
+    expect(debugRefresh.enablePresentStatisticsDiagnostics,
+        "display refresh preserves Presentation Statistics diagnostics");
+    const auto normalRefresh = clawhud::BuildHudPresentationRefreshPlan(true, true, false);
+    expect(!normalRefresh.enablePresentStatisticsDiagnostics,
+        "display refresh keeps Presentation Statistics diagnostics disabled for normal users");
 
     clawhud::HudRenderOptions initialized{};
     initialized.barPixelHeight = 30.0f;

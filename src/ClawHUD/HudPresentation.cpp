@@ -17,6 +17,9 @@ namespace clawhud
 namespace
 {
 constexpr wchar_t kWindowClass[] = L"ClawHUD.MockHudSurface";
+constexpr UINT kHudPresentationStatsReadyMessage = WM_APP + 1;
+constexpr UINT_PTR kHudPresentationStatsTag = 1;
+constexpr unsigned kMaxStatsPerDrain = 4096;
 
 HRESULT LastErrorResult() noexcept
 {
@@ -30,7 +33,7 @@ HudPresentation::~HudPresentation()
 }
 
 HRESULT HudPresentation::Initialize(HINSTANCE instance, const HudRenderOptions& options,
-    float opacityPercent)
+    float opacityPercent, bool enablePresentStatisticsDiagnostics)
 {
 #ifdef _DEBUG
     debugLastValidatedAlpha_ = -1;
@@ -41,6 +44,7 @@ HRESULT HudPresentation::Initialize(HINSTANCE instance, const HudRenderOptions& 
         return E_INVALIDARG;
 
     instance_ = instance;
+    presentStatisticsDiagnosticsEnabled_ = enablePresentStatisticsDiagnostics;
     initializationOptions_ = options;
     opacityPercent_ = opacityPercent;
     barPixelHeight_ = options.barPixelHeight;
@@ -106,6 +110,8 @@ HRESULT HudPresentation::Initialize(HINSTANCE instance, const HudRenderOptions& 
     displayChangePending_ = false;
     initialized_ = true;
     ++presentationEpoch_;
+    if (presentStatisticsDiagnosticsEnabled_)
+        InitializePresentStatisticsDiagnostics();
     diagnosticState_.Reset();
     if (!initializationLogged_)
     {
@@ -430,13 +436,15 @@ HRESULT HudPresentation::ResizeContentWidth(UINT widthPx, HudAlignment alignment
 
 HRESULT HudPresentation::RefreshDisplayIfNeeded()
 {
-    const auto refreshPlan = BuildHudPresentationRefreshPlan(displayChangePending_, visible_);
+    const auto refreshPlan = BuildHudPresentationRefreshPlan(
+        displayChangePending_, visible_, presentStatisticsDiagnosticsEnabled_);
     if (!refreshPlan.recreate)
         return S_OK;
     displayChangePending_ = false;
     const HINSTANCE instance = instance_;
     Shutdown();
-    HRESULT hr = Initialize(instance, initializationOptions_, opacityPercent_);
+    HRESULT hr = Initialize(instance, initializationOptions_, opacityPercent_,
+        refreshPlan.enablePresentStatisticsDiagnostics);
     if (FAILED(hr) || !refreshPlan.restoreVisibility)
         return hr;
     hr = CommitVisibility(true);
@@ -621,6 +629,421 @@ HRESULT HudPresentation::CommitVisibility(bool visible)
     return compositionDevice_->Commit();
 }
 
+void CALLBACK HudPresentation::PresentStatisticsWaitCallback(
+    PTP_CALLBACK_INSTANCE, void* context, PTP_WAIT, TP_WAIT_RESULT)
+{
+    auto* self = static_cast<HudPresentation*>(context);
+    if (!self || !self->presentStatisticsDiagnosticsActive_.load())
+        return;
+    if (self->presentStatisticsMessagePending_.exchange(true))
+        return;
+    if (!self->window_ || !PostMessageW(self->window_,
+        kHudPresentationStatsReadyMessage, 0, 0))
+    {
+        self->presentStatisticsMessagePending_.store(false);
+    }
+}
+
+HRESULT HudPresentation::InitializePresentStatisticsDiagnostics() noexcept
+{
+    if (!presentStatisticsDiagnosticsEnabled_ || !presentationManager_ ||
+        !presentationSurface_)
+        return S_FALSE;
+
+    const auto fail = [this](std::wstring_view stage, HRESULT hr)
+    {
+        LogPresentStatisticsFailure(L"init-failed", stage, hr);
+        ShutdownPresentStatisticsDiagnostics();
+        return hr;
+    };
+
+    presentationSurface_->SetTag(kHudPresentationStatsTag);
+    HRESULT hr = presentationManager_->EnablePresentStatisticsKind(
+        PresentStatisticsKind_PresentStatus, TRUE);
+    if (FAILED(hr)) return fail(L"enable-present-status", hr);
+    hr = presentationManager_->EnablePresentStatisticsKind(
+        PresentStatisticsKind_CompositionFrame, TRUE);
+    if (FAILED(hr)) return fail(L"enable-composition-frame", hr);
+    hr = presentationManager_->EnablePresentStatisticsKind(
+        PresentStatisticsKind_IndependentFlipFrame, TRUE);
+    if (FAILED(hr)) return fail(L"enable-independent-flip-frame", hr);
+    hr = presentationManager_->GetPresentStatisticsAvailableEvent(
+        &presentStatisticsAvailableEvent_);
+    if (FAILED(hr)) return fail(L"get-available-event", hr);
+
+    presentStatisticsWait_ = CreateThreadpoolWait(
+        &HudPresentation::PresentStatisticsWaitCallback, this, nullptr);
+    if (!presentStatisticsWait_)
+        return fail(L"create-threadpool-wait", HRESULT_FROM_WIN32(GetLastError()));
+
+    presentStatisticsDiagnosticsActive_.store(true);
+    presentStatisticsMessagePending_.store(false);
+    presentStatisticsLastSummaryTickMs_ = GetTickCount64();
+    lastDisplayStatisticsKind_.reset();
+    lastCompositionInstanceKind_.reset();
+    lastCompositionCrossAdapterCopy_.reset();
+    lastCompositionDisplayUniqueId_.reset();
+    lastCompositionDisplayAdapterLuid_.reset();
+    lastCompositionDisplayVidPnSourceId_.reset();
+    independentFlipObserved_ = false;
+    ArmPresentStatisticsWait();
+    std::wostringstream message;
+    message << L"[HudPresentStats] reason=initialized epoch=" << presentationEpoch_
+        << L" contentTag=" << kHudPresentationStatsTag;
+    RuntimeLogger::Log(RuntimeLogLevel::Debug, message.str());
+    return S_OK;
+}
+
+void HudPresentation::ShutdownPresentStatisticsDiagnostics() noexcept
+{
+    const bool wasActive = presentStatisticsDiagnosticsActive_.exchange(false);
+    presentStatisticsMessagePending_.store(false);
+    if (presentStatisticsWait_)
+    {
+        SetThreadpoolWait(presentStatisticsWait_, nullptr, nullptr);
+        WaitForThreadpoolWaitCallbacks(presentStatisticsWait_, TRUE);
+        CloseThreadpoolWait(presentStatisticsWait_);
+        presentStatisticsWait_ = nullptr;
+    }
+    DisablePresentStatisticsKinds();
+    if (presentStatisticsAvailableEvent_)
+    {
+        CloseHandle(presentStatisticsAvailableEvent_);
+        presentStatisticsAvailableEvent_ = nullptr;
+    }
+    if (wasActive)
+    {
+        presentStatisticsLastSummaryTickMs_ = 0;
+        lastDisplayStatisticsKind_.reset();
+        lastCompositionInstanceKind_.reset();
+        lastCompositionCrossAdapterCopy_.reset();
+        lastCompositionDisplayUniqueId_.reset();
+        lastCompositionDisplayAdapterLuid_.reset();
+        lastCompositionDisplayVidPnSourceId_.reset();
+        presentStatusQueuedCount_ = 0;
+        presentStatusSkippedCount_ = 0;
+        presentStatusCanceledCount_ = 0;
+        composedOnScreenCount_ = 0;
+        scanoutOnScreenCount_ = 0;
+        composedToIntermediateCount_ = 0;
+        independentFlipCount_ = 0;
+        lastPresentStatisticsPresentId_ = 0;
+        lastIndependentFlipDisplayedTime_ = 0;
+        lastIndependentFlipPresentDuration_ = 0;
+        lastIndependentFlipOutputAdapterLuid_ = {};
+        lastIndependentFlipOutputVidPnSourceId_ = 0;
+        independentFlipObserved_ = false;
+    }
+}
+
+void HudPresentation::DisablePresentStatisticsKinds() noexcept
+{
+    if (!presentationManager_)
+        return;
+
+    // Best-effort cleanup. Diagnostics must never make HUD shutdown/fallback fail.
+    presentationManager_->EnablePresentStatisticsKind(
+        PresentStatisticsKind_IndependentFlipFrame, FALSE);
+    presentationManager_->EnablePresentStatisticsKind(
+        PresentStatisticsKind_CompositionFrame, FALSE);
+    presentationManager_->EnablePresentStatisticsKind(
+        PresentStatisticsKind_PresentStatus, FALSE);
+}
+
+void HudPresentation::ArmPresentStatisticsWait() noexcept
+{
+    if (presentStatisticsDiagnosticsActive_.load() && presentStatisticsWait_ &&
+        presentStatisticsAvailableEvent_)
+        SetThreadpoolWait(presentStatisticsWait_, presentStatisticsAvailableEvent_, nullptr);
+}
+
+void HudPresentation::DrainPresentStatistics() noexcept
+{
+    if (!presentStatisticsDiagnosticsActive_.load() || !presentationManager_)
+        return;
+    if (presentStatisticsWait_)
+        SetThreadpoolWait(presentStatisticsWait_, nullptr, nullptr);
+
+    unsigned drained = 0;
+    for (;;)
+    {
+        ComPtr<IPresentStatistics> statistics;
+        const HRESULT hr = presentationManager_->GetNextPresentStatistics(&statistics);
+        if (FAILED(hr))
+        {
+            LogPresentStatisticsFailure(L"read-failed", L"drain", hr);
+            break;
+        }
+        if (!statistics)
+            break;
+        ProcessPresentStatistics(statistics.Get());
+        if (++drained >= kMaxStatsPerDrain)
+        {
+            RuntimeLogger::Log(RuntimeLogLevel::Warn,
+                L"[HudPresentStats] reason=drain-truncated maxStats=4096");
+            break;
+        }
+    }
+
+    const auto observedTickMs = GetTickCount64();
+    if (presentStatisticsLastSummaryTickMs_ == 0 ||
+        observedTickMs - presentStatisticsLastSummaryTickMs_ >= 5000)
+        LogPresentStatisticsSummary(observedTickMs);
+    ArmPresentStatisticsWait();
+}
+
+void HudPresentation::ProcessPresentStatistics(IPresentStatistics* statistics) noexcept
+{
+    if (!statistics)
+        return;
+    try
+    {
+        const UINT64 presentId = statistics->GetPresentId();
+        lastPresentStatisticsPresentId_ = presentId;
+        const auto kind = statistics->GetKind();
+        const auto logBase = [this, presentId](std::wostringstream& message,
+            std::wstring_view kindName)
+        {
+            message << L"[HudPresentStats] epoch=" << presentationEpoch_
+                << L" presentId=" << presentId << L" kind=" << kindName
+                << L" observedTickMs=" << GetTickCount64();
+        };
+        if (kind == PresentStatisticsKind_PresentStatus)
+        {
+            ComPtr<IPresentStatusPresentStatistics> presentStatus;
+            if (FAILED(statistics->QueryInterface(IID_PPV_ARGS(&presentStatus))))
+            {
+                LogPresentStatisticsFailure(
+                    L"read-failed", L"query-present-status", E_NOINTERFACE);
+                return;
+            }
+            const auto status = presentStatus->GetPresentStatus();
+            switch (status)
+            {
+            case PresentStatus_Queued:
+                ++presentStatusQueuedCount_;
+                break;
+            case PresentStatus_Skipped:
+                ++presentStatusSkippedCount_;
+                break;
+            case PresentStatus_Canceled:
+                ++presentStatusCanceledCount_;
+                break;
+            default:
+                break;
+            }
+            if (status != PresentStatus_Queued)
+            {
+                std::wostringstream message;
+                logBase(message, L"present-status");
+                message << L" status=" << (status == PresentStatus_Skipped
+                    ? L"skipped" : status == PresentStatus_Canceled ? L"canceled" : L"unknown")
+                    << L" compositionFrameId=" << presentStatus->GetCompositionFrameId();
+                RuntimeLogger::Log(RuntimeLogLevel::Debug, message.str());
+            }
+            return;
+        }
+        if (kind == PresentStatisticsKind_CompositionFrame)
+        {
+            ComPtr<ICompositionFramePresentStatistics> composition;
+            if (FAILED(statistics->QueryInterface(IID_PPV_ARGS(&composition))))
+            {
+                LogPresentStatisticsFailure(
+                    L"read-failed", L"query-composition-frame", E_NOINTERFACE);
+                return;
+            }
+            UINT instanceCount = 0;
+            const CompositionFrameDisplayInstance* instances = nullptr;
+            composition->GetDisplayInstanceArray(&instanceCount, &instances);
+            const bool enteredComposition = !lastDisplayStatisticsKind_.has_value() ||
+                lastDisplayStatisticsKind_.value() != PresentStatisticsKind_CompositionFrame;
+            for (UINT index = 0; index < instanceCount && instances; ++index)
+            {
+                const auto& instance = instances[index];
+                switch (instance.instanceKind)
+                {
+                case CompositionFrameInstanceKind_ComposedOnScreen:
+                    ++composedOnScreenCount_;
+                    break;
+                case CompositionFrameInstanceKind_ScanoutOnScreen:
+                    ++scanoutOnScreenCount_;
+                    break;
+                case CompositionFrameInstanceKind_ComposedToIntermediate:
+                    ++composedToIntermediateCount_;
+                    break;
+                default:
+                    break;
+                }
+                const bool kindChanged = !lastCompositionInstanceKind_.has_value() ||
+                    lastCompositionInstanceKind_.value() != instance.instanceKind;
+                const bool crossAdapterChanged =
+                    !lastCompositionCrossAdapterCopy_.has_value() ||
+                    lastCompositionCrossAdapterCopy_.value() !=
+                        !!instance.requiredCrossAdapterCopy;
+                const bool outputChanged =
+                    !lastCompositionDisplayUniqueId_.has_value() ||
+                    lastCompositionDisplayUniqueId_.value() != instance.displayUniqueId ||
+                    !lastCompositionDisplayAdapterLuid_.has_value() ||
+                    lastCompositionDisplayAdapterLuid_->HighPart !=
+                        instance.displayAdapterLUID.HighPart ||
+                    lastCompositionDisplayAdapterLuid_->LowPart !=
+                        instance.displayAdapterLUID.LowPart ||
+                    !lastCompositionDisplayVidPnSourceId_.has_value() ||
+                    lastCompositionDisplayVidPnSourceId_.value() !=
+                        instance.displayVidPnSourceId;
+                lastCompositionInstanceKind_ = instance.instanceKind;
+                lastCompositionCrossAdapterCopy_ = !!instance.requiredCrossAdapterCopy;
+                lastCompositionDisplayUniqueId_ = instance.displayUniqueId;
+                lastCompositionDisplayAdapterLuid_ = instance.displayAdapterLUID;
+                lastCompositionDisplayVidPnSourceId_ = instance.displayVidPnSourceId;
+                if (!(enteredComposition && index == 0) &&
+                    !(kindChanged || crossAdapterChanged || outputChanged))
+                    continue;
+                const wchar_t* instanceName = instance.instanceKind ==
+                    CompositionFrameInstanceKind_ComposedOnScreen ? L"composed-on-screen" :
+                    instance.instanceKind == CompositionFrameInstanceKind_ScanoutOnScreen
+                        ? L"scanout-on-screen" : L"composed-to-intermediate";
+                std::wostringstream message;
+                logBase(message, L"composition-frame");
+                message << L" contentTag=" << composition->GetContentTag()
+                    << L" compositionFrameId=" << composition->GetCompositionFrameId()
+                    << L" instanceCount=" << instanceCount
+                    << L" instanceIndex=" << index
+                    << L" instanceKind=" << instanceName
+                    << L" displayAdapterLuidHigh=0x" << std::hex
+                    << static_cast<ULONG>(instance.displayAdapterLUID.HighPart)
+                    << L" displayAdapterLuidLow=0x" << instance.displayAdapterLUID.LowPart
+                    << L" displayVidPnSourceId=" << std::dec << instance.displayVidPnSourceId
+                    << L" displayUniqueId=" << instance.displayUniqueId
+                    << L" renderAdapterLuidHigh=0x" << std::hex
+                    << static_cast<ULONG>(instance.renderAdapterLUID.HighPart)
+                    << L" renderAdapterLuidLow=0x" << instance.renderAdapterLUID.LowPart
+                    << L" requiredCrossAdapterCopy=" << std::dec
+                    << (instance.requiredCrossAdapterCopy ? 1 : 0)
+                    << L" colorSpace=" << static_cast<unsigned>(instance.colorSpace)
+                    << L" transform=" << instance.finalTransform.M11 << L"," << instance.finalTransform.M12
+                    << L"," << instance.finalTransform.M21 << L"," << instance.finalTransform.M22
+                    << L"," << instance.finalTransform.M31 << L"," << instance.finalTransform.M32;
+                RuntimeLogger::Log(RuntimeLogLevel::Debug, message.str());
+            }
+            lastDisplayStatisticsKind_ = PresentStatisticsKind_CompositionFrame;
+            return;
+        }
+        if (kind == PresentStatisticsKind_IndependentFlipFrame)
+        {
+            ComPtr<IIndependentFlipFramePresentStatistics> independent;
+            if (FAILED(statistics->QueryInterface(IID_PPV_ARGS(&independent))))
+            {
+                LogPresentStatisticsFailure(
+                    L"read-failed", L"query-independent-flip", E_NOINTERFACE);
+                return;
+            }
+            const auto outputLuid = independent->GetOutputAdapterLUID();
+            const auto displayedTime = independent->GetDisplayedTime().value;
+            const auto presentDuration = independent->GetPresentDuration().value;
+            const bool enteredIndependentFlip = !lastDisplayStatisticsKind_.has_value() ||
+                lastDisplayStatisticsKind_.value() != PresentStatisticsKind_IndependentFlipFrame;
+            const bool outputChanged = independentFlipObserved_ &&
+                (outputLuid.HighPart != lastIndependentFlipOutputAdapterLuid_.HighPart ||
+                    outputLuid.LowPart != lastIndependentFlipOutputAdapterLuid_.LowPart ||
+                    independent->GetOutputVidPnSourceId() != lastIndependentFlipOutputVidPnSourceId_);
+            ++independentFlipCount_;
+            if (!independentFlipObserved_ || enteredIndependentFlip || outputChanged)
+            {
+                std::wostringstream message;
+                logBase(message, L"independent-flip");
+                message << L" contentTag=" << independent->GetContentTag()
+                    << L" displayedTime100ns=" << displayedTime
+                    << L" presentDuration100ns=" << presentDuration
+                    << L" outputAdapterLuidHigh=0x" << std::hex
+                    << static_cast<ULONG>(outputLuid.HighPart)
+                    << L" outputAdapterLuidLow=0x" << outputLuid.LowPart
+                    << L" outputVidPnSourceId=" << std::dec
+                    << independent->GetOutputVidPnSourceId();
+                RuntimeLogger::Log(RuntimeLogLevel::Debug, message.str());
+            }
+            independentFlipObserved_ = true;
+            lastIndependentFlipDisplayedTime_ = displayedTime;
+            lastIndependentFlipPresentDuration_ = presentDuration;
+            lastIndependentFlipOutputAdapterLuid_ = outputLuid;
+            lastIndependentFlipOutputVidPnSourceId_ = independent->GetOutputVidPnSourceId();
+            lastDisplayStatisticsKind_ = PresentStatisticsKind_IndependentFlipFrame;
+        }
+    }
+    catch (...)
+    {
+        RuntimeLogger::Log(RuntimeLogLevel::Warn,
+            L"[HudPresentStats] reason=process-exception");
+    }
+}
+
+void HudPresentation::LogPresentStatisticsFailure(
+    std::wstring_view reason, std::wstring_view stage, HRESULT hr) const noexcept
+{
+    try
+    {
+        std::wostringstream message;
+        message << L"[HudPresentStats] reason=" << reason << L" stage=" << stage
+            << L" hr=" << HexHresult(hr) << L" epoch=" << presentationEpoch_;
+        RuntimeLogger::Log(RuntimeLogLevel::Warn, message.str());
+    }
+    catch (...)
+    {
+    }
+}
+
+void HudPresentation::LogPresentStatisticsSummary(
+    std::uint64_t observedTickMs, std::wstring_view reason) noexcept
+{
+    try
+    {
+        const wchar_t* lastDisplayKind = L"none";
+        if (lastDisplayStatisticsKind_)
+        {
+            lastDisplayKind = lastDisplayStatisticsKind_ ==
+                PresentStatisticsKind_CompositionFrame ? L"composition-frame" :
+                lastDisplayStatisticsKind_ == PresentStatisticsKind_IndependentFlipFrame
+                    ? L"independent-flip" : L"other";
+        }
+        const wchar_t* lastKind = L"none";
+        if (lastCompositionInstanceKind_)
+        {
+            lastKind = lastCompositionInstanceKind_ ==
+                CompositionFrameInstanceKind_ComposedOnScreen ? L"composed-on-screen" :
+                lastCompositionInstanceKind_ == CompositionFrameInstanceKind_ScanoutOnScreen
+                    ? L"scanout-on-screen" : L"composed-to-intermediate";
+        }
+        std::wostringstream message;
+        message << L"[HudPresentStats] reason=" << reason
+            << L" epoch=" << presentationEpoch_
+            << L" queued=" << presentStatusQueuedCount_
+            << L" skipped=" << presentStatusSkippedCount_
+            << L" canceled=" << presentStatusCanceledCount_
+            << L" composedOnScreen=" << composedOnScreenCount_
+            << L" scanoutOnScreen=" << scanoutOnScreenCount_
+            << L" composedToIntermediate=" << composedToIntermediateCount_
+            << L" independentFlip=" << independentFlipCount_
+            << L" lastPresentId=" << lastPresentStatisticsPresentId_
+            << L" lastDisplayKind=" << lastDisplayKind
+            << L" lastInstanceKind=" << lastKind
+            << L" lastDisplayedTime100ns=" << lastIndependentFlipDisplayedTime_
+            << L" lastPresentDuration100ns=" << lastIndependentFlipPresentDuration_
+            << L" observedTickMs=" << observedTickMs;
+        RuntimeLogger::Log(RuntimeLogLevel::Debug, message.str());
+        presentStatusQueuedCount_ = 0;
+        presentStatusSkippedCount_ = 0;
+        presentStatusCanceledCount_ = 0;
+        composedOnScreenCount_ = 0;
+        scanoutOnScreenCount_ = 0;
+        composedToIntermediateCount_ = 0;
+        independentFlipCount_ = 0;
+        presentStatisticsLastSummaryTickMs_ = observedTickMs;
+    }
+    catch (...)
+    {
+    }
+}
+
 void HudPresentation::LogDebugWindowState(
     std::wstring_view reason, const WINDOWPOS* windowPos) const noexcept
 {
@@ -732,6 +1155,12 @@ void HudPresentation::Shutdown() noexcept
 {
     if (initialized_)
         LogPresentationState(L"shutdown");
+    if (presentStatisticsDiagnosticsEnabled_)
+    {
+        if (presentStatisticsDiagnosticsActive_.load())
+            LogPresentStatisticsSummary(GetTickCount64(), L"shutdown-summary");
+        ShutdownPresentStatisticsDiagnostics();
+    }
     if (visible_ && visual_ && compositionDevice_)
     {
         visual_->SetContent(nullptr);
@@ -771,6 +1200,12 @@ LRESULT CALLBACK HudPresentation::WindowProc(HWND window, UINT message, WPARAM w
         SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(create->lpCreateParams));
     }
     auto* self = reinterpret_cast<HudPresentation*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+    if (self && message == kHudPresentationStatsReadyMessage)
+    {
+        self->presentStatisticsMessagePending_.store(false);
+        self->DrainPresentStatistics();
+        return 0;
+    }
     if (message == WM_DISPLAYCHANGE || message == WM_DPICHANGED)
     {
         if (self)
