@@ -1114,7 +1114,10 @@ HRESULT HudPresentation::Show()
     if (FAILED(hr)) return hr;
     if (visible_)
     {
-        LogDebugWindowState(L"show-already-visible");
+        if (!SetWindowPos(window_, HWND_TOPMOST, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER))
+            return LastErrorResult();
+        LogDebugWindowState(L"show-already-visible-topmost-reasserted");
         return S_OK;
     }
     hr = CommitVisibility(true);
