@@ -45,7 +45,7 @@ namespace clawhud
 {
 bool IsRejectedProductionTargetImage(std::wstring_view image) noexcept
 {
-    constexpr std::array<std::wstring_view, 44> rejected{
+    constexpr std::array<std::wstring_view, 45> rejected{
         L"clawhud.settings.exe",
         L"explorer.exe", L"searchhost.exe", L"shellexperiencehost.exe",
         L"startmenuexperiencehost.exe", L"applicationframehost.exe",
@@ -55,6 +55,7 @@ bool IsRejectedProductionTargetImage(std::wstring_view image) noexcept
         L"gamingservicesui.exe", L"pickerhost.exe", L"mongmode.exe",
         L"textinputhost.exe", L"chrome.exe", L"msedge.exe",
         L"firefox.exe", L"brave.exe", L"opera.exe", L"vivaldi.exe",
+        L"notepad++.exe",
         L"steaminputaddonforclaw.ui.exe",
         L"msi center m.exe", L"msi_center_m_launcher.exe",
         L"msi_center_m_server.exe", L"msi_center_m_server_controlmode.exe",
