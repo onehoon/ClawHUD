@@ -118,21 +118,6 @@ bool HudController::Recreate(bool restoreVisible)
     return true;
 }
 
-void HudController::LogVisibilityMarkerDiagnostic(
-    std::uint64_t sequence, bool coveredMarker) const noexcept
-{
-    if (!presentation_)
-    {
-        RuntimeLogger::Log(RuntimeLogLevel::Debug,
-            L"[HudVisibilityMark] seq=" + std::to_wstring(sequence) +
-            L" pair=" + std::to_wstring((sequence + 1) / 2) +
-            L" marker=" + (coveredMarker ? L"covered" : L"restored") +
-            L" reason=no-presentation");
-        return;
-    }
-    presentation_->LogVisibilityMarkerDiagnostic(sequence, coveredMarker);
-}
-
 void HudController::Refresh()
 {
     if (enabled_ && presentation_ && presentation_->Visible() && requestRender_)

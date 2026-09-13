@@ -62,8 +62,6 @@ public:
     HRESULT Show();
     HRESULT Hide();
     HRESULT SetHudOpacity(float opacityPercent);
-    void LogVisibilityMarkerDiagnostic(std::uint64_t sequence,
-        bool coveredMarker) const noexcept;
     bool Visible() const noexcept { return visible_; }
     bool Initialized() const noexcept { return initialized_; }
     void Shutdown() noexcept;

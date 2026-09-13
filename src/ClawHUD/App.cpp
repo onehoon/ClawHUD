@@ -95,9 +95,6 @@ void App::StopRuntimeSources()
     if (hudHotkeyRegistered_ && runtimeMessageWindow_.Window())
         UnregisterHotKey(runtimeMessageWindow_.Window(), kHudToggleHotkeyId);
     hudHotkeyRegistered_ = false;
-    if (hudVisibilityMarkerHotkeyRegistered_ && runtimeMessageWindow_.Window())
-        UnregisterHotKey(runtimeMessageWindow_.Window(), kHudVisibilityMarkerHotkeyId);
-    hudVisibilityMarkerHotkeyRegistered_ = false;
 }
 
 clawhud::GameSessionHooks App::MakeGameSessionHooks()
@@ -200,15 +197,6 @@ int App::Run()
     if (!hudHotkeyRegistered_)
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
             L"RegisterHotKey(F8) failed; continuing without the global HUD toggle");
-    if (debugLoggingEnabled_)
-    {
-        hudVisibilityMarkerHotkeyRegistered_ = RegisterHotKey(
-            runtimeMessageWindow_.Window(), kHudVisibilityMarkerHotkeyId,
-            MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, 'M') != FALSE;
-        if (!hudVisibilityMarkerHotkeyRegistered_)
-            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
-                L"RegisterHotKey(Ctrl+Alt+Shift+M) failed; continuing without visibility marker diagnostic");
-    }
     const bool providerReady = presentMonTelemetryProvider_.Initialize();
     Log(L"[PresentMon] providerReady=" + std::to_wstring(providerReady) +
         L" processReady=" + std::to_wstring(
@@ -623,14 +611,6 @@ void App::HandleHudToggleHotkey()
         *hotkeyOverride ? L"F8 HUD override=show" : L"F8 HUD override=hide");
     hudController_.SetManualOverride(*hotkeyOverride);
     ReconcileHudVisibility();
-}
-
-void App::HandleHudVisibilityMarkerHotkey()
-{
-    if (!debugLoggingEnabled_)
-        return;
-    const auto sequence = ++hudVisibilityMarkerSequence_;
-    hudController_.LogVisibilityMarkerDiagnostic(sequence, (sequence % 2) != 0);
 }
 
 void App::ReconcileHudVisibility()

@@ -70,11 +70,6 @@ LRESULT CALLBACK RuntimeMessageWindow::WindowProc(HWND window, UINT message, WPA
         self->app_.HandleHudToggleHotkey();
         return 0;
     }
-    if (message == WM_HOTKEY && wParam == kHudVisibilityMarkerHotkeyId)
-    {
-        self->app_.HandleHudVisibilityMarkerHotkey();
-        return 0;
-    }
     if (message == WM_POWERBROADCAST)
     {
         switch (wParam)

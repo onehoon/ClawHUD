@@ -2,7 +2,6 @@
 
 #include <windows.h>
 
-#include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -77,7 +76,6 @@ public:
     void ShutdownPresentation();   // Shutdown() then release (matches StopHud)
     void DestroyPresentation();    // release only (matches the App destructor)
     bool Recreate(bool restoreVisible);
-    void LogVisibilityMarkerDiagnostic(std::uint64_t sequence, bool coveredMarker) const noexcept;
     void Render(const HudTelemetrySnapshot& snapshot, bool allowHidden);
     HRESULT RenderRecoveryFrame(); // resume recovery: render an empty snapshot
     // --- enabled state (App owns persistence + cross-domain reactions) ----
