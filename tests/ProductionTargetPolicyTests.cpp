@@ -56,6 +56,10 @@ int main()
         clawhud::IsRejectedProductionTargetImage(L"msedge.exe") &&
         clawhud::IsRejectedProductionTargetImage(L"firefox.exe"),
         "browsers are not production targets");
+    ok &= Check(clawhud::IsRejectedProductionTargetImage(L"notepad++.exe") &&
+        !clawhud::IsEligibleProductionTargetImage(
+            L"C:\\Program Files\\Notepad++\\notepad++.EXE"),
+        "Notepad++ is not a production game target");
     ok &= Check(clawhud::IsRejectedProductionTargetImage(L"msi center m.exe") &&
         clawhud::IsRejectedProductionTargetImage(L"msi_center_m_launcher.exe") &&
         clawhud::IsRejectedProductionTargetImage(L"msi_center_m_server.exe") &&
