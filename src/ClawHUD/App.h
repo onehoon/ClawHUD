@@ -2,7 +2,6 @@
 
 #include <windows.h>
 
-#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -30,7 +29,6 @@ class DebugObservationController;
 }
 
 constexpr int kHudToggleHotkeyId = 1;
-constexpr int kHudVisibilityMarkerHotkeyId = 2;
 // The production telemetry timer ids (2, 3, 4, 6) live in
 // ProductionTelemetryController.h and the resume-recovery timer id (5) is
 // App-internal in App.cpp; the numeric values stay globally distinct because
@@ -59,7 +57,6 @@ public:
     void HandleSystemResume();
     void HandleTimer(UINT_PTR timerId);
     void HandleHudToggleHotkey();
-    void HandleHudVisibilityMarkerHotkey();
 
     // Main-thread wake handler for the runtime-control dispatch bridge.
     void HandleRuntimeControlDispatch();
@@ -159,8 +156,6 @@ private:
     bool exiting_{};
     std::wstring executablePath_;
     bool hudHotkeyRegistered_{};
-    bool hudVisibilityMarkerHotkeyRegistered_{};
-    std::uint64_t hudVisibilityMarkerSequence_{};
     bool intelVrrRangeFixEnabled_{ true };
     // Suspend/resume is deliberately kept as top-level App orchestration (R5):
     // App is the single authority for this state, and HandleSystemSuspend /
