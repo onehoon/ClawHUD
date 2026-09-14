@@ -1,6 +1,7 @@
 #include "ClawHudUpdateSource.h"
 
 #include <windows.h>
+#include <winhttp.h>
 
 #include <cassert>
 #include <filesystem>
@@ -34,6 +35,24 @@ std::string WideToUtf8(const std::wstring& wide)
 
 int main()
 {
+    {
+        const auto send = clawhud::FormatWinHttpFailure("send", 12007, 61);
+        assert(send.find("stage=send") != std::string::npos);
+        assert(send.find("error=12007") != std::string::npos);
+        assert(send.find("elapsedMs=61") != std::string::npos);
+
+        const auto receive = clawhud::FormatWinHttpFailure("receive", 12007, 63);
+        assert(receive.find("stage=receive") != std::string::npos);
+        assert(receive.find("within timeout") == std::string::npos);
+        assert(receive.find("timeout") == std::string::npos);
+
+        const auto timeout = clawhud::FormatWinHttpFailure(
+            "receive", ERROR_WINHTTP_TIMEOUT, 30000);
+        assert(timeout.find("stage=receive") != std::string::npos);
+        assert(timeout.find("error=12002") != std::string::npos);
+        assert(timeout.find("timeout") != std::string::npos);
+    }
+
     clawhud::ClawHudUpdateSource source;
 
     // --- FFI safety: forced failures return normally, never throw ------------

@@ -26,6 +26,7 @@
 namespace clawhud
 {
 inline constexpr wchar_t kStartupTaskName[] = L"ClawHUD";
+inline constexpr wchar_t kStartupTaskLogonTriggerDelay[] = L"PT5S";
 
 // Private main.cpp command-line tokens dispatched before App construction.
 // Each takes the intended interactive user's SID as its next argument.
@@ -44,6 +45,7 @@ struct StartupTaskSnapshot
     std::wstring workingDirectory;
     std::wstring principalUserId;
     std::wstring logonTriggerUserId;
+    std::wstring logonTriggerDelay;
     bool interactiveTokenLogonType{};
     bool leastPrivilegeRunLevel{};
     bool disallowStartIfOnBatteries{};
@@ -76,6 +78,7 @@ enum class StartupTaskMismatch : std::uint32_t
     DisallowStartIfOnBatteries = 1u << 9,
     StopIfGoingOnBatteries = 1u << 10,
     ExecutionTimeLimit = 1u << 11,
+    LogonTriggerDelay = 1u << 12,
 };
 
 constexpr StartupTaskMismatch operator|(StartupTaskMismatch left,

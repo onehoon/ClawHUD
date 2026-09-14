@@ -6,6 +6,7 @@
 
 #include <filesystem>
 #include <optional>
+#include <cstdint>
 #include <string>
 #include <string_view>
 
@@ -21,6 +22,12 @@ std::optional<std::filesystem::path> VeloPackUtf8Path(std::string_view utf8) noe
 // Best-effort removal of a partially written download, named by a UTF-8 VeloPack
 // path. Never throws.
 void RemovePartialDownloadBestEffort(std::string_view utf8Path) noexcept;
+
+// Formats a WinHTTP failure without guessing that every error is a timeout.
+// This is pure so the stage/error/elapsed contract can be tested without a
+// live network dependency.
+std::string FormatWinHttpFailure(std::string_view stage,
+    std::uint32_t error, std::uint64_t elapsedMs);
 
 // Bounded VeloPack custom update source for ClawHUD's public stable GitHub
 // Release layout. It exists only so every HTTP operation on the synchronous

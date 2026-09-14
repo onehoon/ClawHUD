@@ -33,6 +33,13 @@ void LogUpdateFailure(const wchar_t* stage, std::string_view what) noexcept
         std::wstring(what.begin(), what.end()) + L")");
 }
 
+std::string WinHttpFailure(std::string_view stage, DWORD error,
+    ULONGLONG startedAt)
+{
+    return FormatWinHttpFailure(stage, static_cast<std::uint32_t>(error),
+        GetTickCount64() - startedAt);
+}
+
 struct Response
 {
     HINTERNET session{};
@@ -53,11 +60,12 @@ struct Response
 // 2xx final status. Throws std::runtime_error on any failure or timeout.
 void OpenBoundedGet(Response& r, const std::wstring& url)
 {
+    const ULONGLONG startedAt = GetTickCount64();
     r.session = WinHttpOpen(L"ClawHUD-Updater",
         WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
         WINHTTP_NO_PROXY_BYPASS, 0);
     if (!r.session)
-        throw std::runtime_error("WinHttpOpen failed");
+        throw std::runtime_error(WinHttpFailure("open", GetLastError(), startedAt));
     WinHttpSetTimeouts(r.session, kUpdateResolveTimeoutMs,
         kUpdateConnectTimeoutMs, kUpdateSendTimeoutMs, kUpdateReceiveTimeoutMs);
 
@@ -69,26 +77,34 @@ void OpenBoundedGet(Response& r, const std::wstring& url)
     components.dwHostNameLength = static_cast<DWORD>(host.size());
     components.lpszUrlPath = path.data();
     components.dwUrlPathLength = static_cast<DWORD>(path.size());
-    if (!WinHttpCrackUrl(url.c_str(), 0, 0, &components) ||
-        components.nScheme != INTERNET_SCHEME_HTTPS)
+    if (!WinHttpCrackUrl(url.c_str(), 0, 0, &components))
+        throw std::runtime_error(WinHttpFailure("url-parse", GetLastError(), startedAt));
+    if (components.nScheme != INTERNET_SCHEME_HTTPS)
         throw std::runtime_error("update URL is not valid https");
 
     r.connect = WinHttpConnect(r.session, host.data(), components.nPort, 0);
     if (!r.connect)
-        throw std::runtime_error("WinHttpConnect failed");
+        throw std::runtime_error(WinHttpFailure("connect", GetLastError(), startedAt));
 
     r.request = WinHttpOpenRequest(r.connect, L"GET", path.data(), nullptr,
         WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
     if (!r.request)
-        throw std::runtime_error("WinHttpOpenRequest failed");
+        throw std::runtime_error(WinHttpFailure("open-request", GetLastError(), startedAt));
     DWORD redirectPolicy = WINHTTP_OPTION_REDIRECT_POLICY_DISALLOW_HTTPS_TO_HTTP;
     WinHttpSetOption(r.request, WINHTTP_OPTION_REDIRECT_POLICY, &redirectPolicy,
         sizeof(redirectPolicy));
 
     if (!WinHttpSendRequest(r.request, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
-            WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
-        !WinHttpReceiveResponse(r.request, nullptr))
-        throw std::runtime_error("update request failed within timeout");
+            WINHTTP_NO_REQUEST_DATA, 0, 0, 0))
+    {
+        const DWORD error = GetLastError();
+        throw std::runtime_error(WinHttpFailure("send", error, startedAt));
+    }
+    if (!WinHttpReceiveResponse(r.request, nullptr))
+    {
+        const DWORD error = GetLastError();
+        throw std::runtime_error(WinHttpFailure("receive", error, startedAt));
+    }
 
     DWORD status{};
     DWORD statusSize = sizeof(status);
@@ -96,7 +112,7 @@ void OpenBoundedGet(Response& r, const std::wstring& url)
             WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
             WINHTTP_HEADER_NAME_BY_INDEX, &status, &statusSize,
             WINHTTP_NO_HEADER_INDEX))
-        throw std::runtime_error("update response had no status code");
+        throw std::runtime_error(WinHttpFailure("status", GetLastError(), startedAt));
     if (status < 200 || status >= 300)
         throw std::runtime_error("update endpoint returned HTTP " +
             std::to_string(status));
@@ -112,6 +128,17 @@ std::optional<std::uint64_t> ContentLength(HINTERNET request)
         return value;
     return std::nullopt;
 }
+}
+
+std::string FormatWinHttpFailure(std::string_view stage,
+    std::uint32_t error, std::uint64_t elapsedMs)
+{
+    std::string result = "stage=" + std::string(stage) +
+        " error=" + std::to_string(error) +
+        " elapsedMs=" + std::to_string(elapsedMs);
+    if (error == ERROR_WINHTTP_TIMEOUT)
+        result += " timeout";
+    return result;
 }
 
 std::optional<std::filesystem::path> VeloPackUtf8Path(std::string_view utf8) noexcept
@@ -197,6 +224,7 @@ bool ClawHudUpdateSource::DownloadReleaseEntry(
 std::string ClawHudUpdateSource::GetReleaseFeedImpl(
     const std::string& releasesName)
 {
+    const ULONGLONG startedAt = GetTickCount64();
     const auto url = BuildReleaseFeedUrl(releasesName);
     if (!url)
         throw std::runtime_error("unsupported release feed name: " + releasesName);
@@ -209,7 +237,8 @@ std::string ClawHudUpdateSource::GetReleaseFeedImpl(
     {
         DWORD available{};
         if (!WinHttpQueryDataAvailable(response.request, &available))
-            throw std::runtime_error("release feed read failed within timeout");
+            throw std::runtime_error(WinHttpFailure("feed-read-available",
+                GetLastError(), startedAt));
         if (available == 0)
             break;
         const std::size_t offset = body.size();
@@ -219,7 +248,8 @@ std::string ClawHudUpdateSource::GetReleaseFeedImpl(
         DWORD read{};
         if (!WinHttpReadData(response.request, body.data() + offset, available,
                 &read))
-            throw std::runtime_error("release feed read failed within timeout");
+            throw std::runtime_error(WinHttpFailure("feed-read",
+                GetLastError(), startedAt));
         body.resize(offset + read);
         if (read == 0)
             break;
@@ -231,6 +261,7 @@ void ClawHudUpdateSource::DownloadReleaseEntryImpl(
     const Velopack::VelopackAsset& asset, const std::string& localFilePath,
     const Velopack::vpkc_progress_send_t& progress)
 {
+    const ULONGLONG startedAt = GetTickCount64();
     const auto url = BuildPackageUrl(asset.Version, asset.FileName);
     if (!url)
         throw std::runtime_error("update asset failed validation");
@@ -256,7 +287,8 @@ void ClawHudUpdateSource::DownloadReleaseEntryImpl(
     {
         DWORD available{};
         if (!WinHttpQueryDataAvailable(response.request, &available))
-            throw std::runtime_error("update download stalled past timeout");
+            throw std::runtime_error(WinHttpFailure("download-read-available",
+                GetLastError(), startedAt));
         if (available == 0)
             break;
         while (available > 0)
@@ -266,7 +298,8 @@ void ClawHudUpdateSource::DownloadReleaseEntryImpl(
                 : static_cast<DWORD>(buffer.size());
             DWORD read{};
             if (!WinHttpReadData(response.request, buffer.data(), want, &read))
-                throw std::runtime_error("update download stalled past timeout");
+                throw std::runtime_error(WinHttpFailure("download-read",
+                    GetLastError(), startedAt));
             if (read == 0)
             {
                 available = 0;

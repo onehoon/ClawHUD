@@ -38,6 +38,7 @@ clawhud::StartupTaskSnapshot CompliantSnapshot(const clawhud::DesiredStartupTask
     snapshot.workingDirectory = desired.workingDirectory;
     snapshot.principalUserId = desired.userId;
     snapshot.logonTriggerUserId = desired.userId;
+    snapshot.logonTriggerDelay = clawhud::kStartupTaskLogonTriggerDelay;
     snapshot.interactiveTokenLogonType = true;
     snapshot.leastPrivilegeRunLevel = true;
     snapshot.disallowStartIfOnBatteries = false;
@@ -160,6 +161,18 @@ int main()
         [](auto& s) { s.executionTimeLimit = L"PT1H"; },
         StartupTaskMismatch::ExecutionTimeLimit,
         "execution limit -> ExecutionTimeLimit mismatch");
+    ExpectOnlyMismatch(
+        [](auto& s) { s.logonTriggerDelay = L""; },
+        StartupTaskMismatch::LogonTriggerDelay,
+        "empty logon trigger delay -> LogonTriggerDelay mismatch");
+    ExpectOnlyMismatch(
+        [](auto& s) { s.logonTriggerDelay = L"PT1S"; },
+        StartupTaskMismatch::LogonTriggerDelay,
+        "PT1S logon trigger delay -> LogonTriggerDelay mismatch");
+    ExpectOnlyMismatch(
+        [](auto& s) { s.logonTriggerDelay = L"PT10S"; },
+        StartupTaskMismatch::LogonTriggerDelay,
+        "PT10S logon trigger delay -> LogonTriggerDelay mismatch");
     {
         auto s = CompliantSnapshot(desired);
         s.execPath = L"C:\\Wrong\\ClawHUD.exe";
