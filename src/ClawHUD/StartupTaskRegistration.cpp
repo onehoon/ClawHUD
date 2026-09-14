@@ -247,6 +247,12 @@ bool ReadStartupTaskSnapshot(StartupTaskSnapshot& out) noexcept
                 out.logonTriggerUserId = userId ? userId : L"";
                 if (userId) SysFreeString(userId);
             }
+            BSTR delay{};
+            if (SUCCEEDED(logonTrigger->get_Delay(&delay)))
+            {
+                out.logonTriggerDelay = delay ? delay : L"";
+                if (delay) SysFreeString(delay);
+            }
             break;
         }
 
@@ -333,6 +339,8 @@ bool RegisterStartupTask(const DesiredStartupTask& desired) noexcept
         ComPtr<ILogonTrigger> logonTrigger;
         if (FAILED(trigger.As(&logonTrigger))) return false;
         if (FAILED(logonTrigger->put_UserId(userId.value))) return false;
+        Bstr delay(kStartupTaskLogonTriggerDelay);
+        if (FAILED(logonTrigger->put_Delay(delay.value))) return false;
 
         ComPtr<IActionCollection> actions;
         if (FAILED(definition->get_Actions(&actions))) return false;
@@ -522,6 +530,8 @@ StartupTaskComplianceResult EvaluateStartupTaskCompliance(
         add(StartupTaskMismatch::StopIfGoingOnBatteries);
     if (snapshot.executionTimeLimit != L"PT0S")
         add(StartupTaskMismatch::ExecutionTimeLimit);
+    if (snapshot.logonTriggerDelay != kStartupTaskLogonTriggerDelay)
+        add(StartupTaskMismatch::LogonTriggerDelay);
     return result;
 }
 
@@ -564,6 +574,7 @@ std::wstring FormatComplianceFailure(const StartupTaskSnapshot& snapshot,
     add(StartupTaskMismatch::DisallowStartIfOnBatteries, L"DisallowStartIfOnBatteries");
     add(StartupTaskMismatch::StopIfGoingOnBatteries, L"StopIfGoingOnBatteries");
     add(StartupTaskMismatch::ExecutionTimeLimit, L"ExecutionTimeLimit");
+    add(StartupTaskMismatch::LogonTriggerDelay, L"LogonTriggerDelay");
 
     std::wstring message = L"mismatches=" + names;
     if (HasStartupTaskMismatch(result.mismatches, StartupTaskMismatch::ExecPath))
@@ -578,6 +589,10 @@ std::wstring FormatComplianceFailure(const StartupTaskSnapshot& snapshot,
         message += L"; executionTimeLimit expected=\"PT0S\" actual=\"" + snapshot.executionTimeLimit + L"\"";
     if (HasStartupTaskMismatch(result.mismatches, StartupTaskMismatch::Arguments))
         message += L"; arguments actual=\"" + snapshot.arguments + L"\"";
+    if (HasStartupTaskMismatch(result.mismatches, StartupTaskMismatch::LogonTriggerDelay))
+        message += L"; logonTriggerDelay expected=\"" +
+            std::wstring(kStartupTaskLogonTriggerDelay) + L"\" actual=\"" +
+            snapshot.logonTriggerDelay + L"\"";
     return message;
 }
 }

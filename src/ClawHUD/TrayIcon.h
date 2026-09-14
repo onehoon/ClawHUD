@@ -27,6 +27,9 @@ public:
 private:
     static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     bool AddIcon();
+    void StartAddRetry();
+    void StopAddRetry();
+    void RetryAddIcon();
     void ShowMenu();
 
     TrayActions actions_;
@@ -34,5 +37,6 @@ private:
     HWND window_{};
     NOTIFYICONDATAW notifyIcon_{};
     UINT taskbarCreatedMessage_{};
+    UINT retryAttempts_{};
     bool created_{};
 };

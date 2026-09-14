@@ -1,8 +1,10 @@
 #include "TrayIcon.h"
 
 #include "resource.h"
+#include "RuntimeLogger.h"
 
 #include <shellapi.h>
+#include <string>
 #include <utility>
 
 namespace
@@ -10,6 +12,9 @@ namespace
 constexpr UINT kTrayMessage = WM_APP + 10;
 constexpr UINT kSettingsCommand = 1001;
 constexpr UINT kExitCommand = 1002;
+constexpr UINT_PTR kTrayRetryTimerId = 1;
+constexpr UINT kTrayRetryIntervalMs = 1000;
+constexpr UINT kTrayMaxRetryAttempts = 15;
 constexpr wchar_t kTrayClassName[] = L"ClawHUD.TrayMessageWindow";
 }
 
@@ -48,9 +53,13 @@ bool TrayIcon::Create(HINSTANCE instance)
     notifyIcon_.uCallbackMessage = kTrayMessage;
     notifyIcon_.hIcon = windowClass.hIcon;
     wcscpy_s(notifyIcon_.szTip, L"ClawHUD");
-    created_ = AddIcon();
-    if (!created_) Destroy();
-    return created_;
+    if (!AddIcon())
+    {
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+            L"[Tray] initial NIM_ADD unavailable; retry scheduled");
+        StartAddRetry();
+    }
+    return true;
 }
 
 bool TrayIcon::AddIcon()
@@ -59,8 +68,57 @@ bool TrayIcon::AddIcon()
     return created_;
 }
 
+void TrayIcon::StartAddRetry()
+{
+    retryAttempts_ = 0;
+    if (!window_ || SetTimer(window_, kTrayRetryTimerId,
+            kTrayRetryIntervalMs, nullptr) == 0)
+    {
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+            L"[Tray] retry timer unavailable; runtime continues without tray icon");
+    }
+}
+
+void TrayIcon::StopAddRetry()
+{
+    if (window_)
+        KillTimer(window_, kTrayRetryTimerId);
+    retryAttempts_ = 0;
+}
+
+void TrayIcon::RetryAddIcon()
+{
+    if (created_)
+    {
+        StopAddRetry();
+        return;
+    }
+    if (retryAttempts_ >= kTrayMaxRetryAttempts)
+    {
+        StopAddRetry();
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+            L"[Tray] NIM_ADD retries exhausted; runtime continues without tray icon");
+        return;
+    }
+
+    const UINT attempt = ++retryAttempts_;
+    if (AddIcon())
+    {
+        StopAddRetry();
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info,
+            L"[Tray] NIM_ADD recovered attempt=" + std::to_wstring(attempt));
+    }
+    else if (retryAttempts_ >= kTrayMaxRetryAttempts)
+    {
+        StopAddRetry();
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+            L"[Tray] NIM_ADD retries exhausted; runtime continues without tray icon");
+    }
+}
+
 void TrayIcon::Destroy()
 {
+    StopAddRetry();
     if (created_)
     {
         Shell_NotifyIconW(NIM_DELETE, &notifyIcon_);
@@ -107,8 +165,19 @@ LRESULT CALLBACK TrayIcon::WindowProc(HWND window, UINT message, WPARAM wParam, 
     if (!self) return DefWindowProcW(window, message, wParam, lParam);
     if (message == self->taskbarCreatedMessage_)
     {
+        self->StopAddRetry();
         self->created_ = false;
-        self->AddIcon();
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info,
+            L"[Tray] TaskbarCreated received; restoring notification icon");
+        if (!self->AddIcon())
+        {
+            self->StartAddRetry();
+        }
+        return 0;
+    }
+    if (message == WM_TIMER && wParam == kTrayRetryTimerId)
+    {
+        self->RetryAddIcon();
         return 0;
     }
     if (message == kTrayMessage && lParam == WM_LBUTTONUP)
