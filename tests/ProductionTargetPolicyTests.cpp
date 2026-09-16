@@ -60,6 +60,10 @@ int main()
         !clawhud::IsEligibleProductionTargetImage(
             L"C:\\Program Files\\Notepad++\\notepad++.EXE"),
         "Notepad++ is not a production game target");
+    ok &= Check(clawhud::IsRejectedProductionTargetImage(L"opticlick.exe") &&
+        !clawhud::IsEligibleProductionTargetImage(
+            L"C:\\Program Files\\OptiClick\\OptiClick.EXE"),
+        "OptiClick is not a production game target");
     ok &= Check(clawhud::IsRejectedProductionTargetImage(L"msi center m.exe") &&
         clawhud::IsRejectedProductionTargetImage(L"msi_center_m_launcher.exe") &&
         clawhud::IsRejectedProductionTargetImage(L"msi_center_m_server.exe") &&
