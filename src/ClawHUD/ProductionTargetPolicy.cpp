@@ -132,7 +132,15 @@ bool IsClawHudOwnedProcess(DWORD processId, DWORD ownProcessId) noexcept
 DWORD ResolveAlwaysFpsForegroundTarget(DWORD foregroundProcessId,
     DWORD ownProcessId) noexcept
 {
-    return IsClawHudOwnedProcess(foregroundProcessId, ownProcessId)
+    if (IsClawHudOwnedProcess(foregroundProcessId, ownProcessId))
+        return 0;
+
+    // The central non-game policy applies to Always as well as InGameOnly:
+    // excluded foreground apps must never become an FPS target merely because
+    // Always mode bypasses game-session admission.
+    const auto inspection = InspectProductionTargetProcessDetailed(
+        foregroundProcessId, ownProcessId);
+    return inspection.status == ProductionTargetInspectionStatus::Excluded
         ? 0
         : foregroundProcessId;
 }

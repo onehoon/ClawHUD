@@ -393,6 +393,12 @@ void ProductionTelemetryController::OnForegroundProcessChanged(DWORD rawProcessI
         fpsStaleHold_.Reset();
         Log(L"[PresentMonFPS] mode=Always foregroundPid=" +
             std::to_wstring(processId) + L" fps-invalidated");
+
+        // A zero target means ClawHUD itself, a centrally excluded app, or no
+        // foreground. Redraw once at the transition so a previously rendered
+        // game's FPS cannot remain visible until unrelated telemetry arrives.
+        if (processId == 0 && requestRender_)
+            requestRender_();
     }
 }
 

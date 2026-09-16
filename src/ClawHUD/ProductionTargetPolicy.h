@@ -48,8 +48,9 @@ bool IsClawHudOwnedProcess(DWORD processId,
     DWORD ownProcessId = GetCurrentProcessId()) noexcept;
 
 // Sanitizes a foreground PID before it is adopted as the Always-mode FPS target:
-// a ClawHUD-owned foreground process yields PID 0 (FPS unavailable); every
-// external foreground process is passed through unchanged.
+// a ClawHUD-owned or centrally excluded foreground process yields PID 0 (FPS
+// unavailable); an inspectable eligible or uninspectable external process is
+// passed through unchanged.
 DWORD ResolveAlwaysFpsForegroundTarget(DWORD foregroundProcessId,
     DWORD ownProcessId = GetCurrentProcessId()) noexcept;
 

@@ -128,7 +128,8 @@ int main()
     ok &= Check(!clawhud::IsClawHudOwnedProcess(4, /*ownProcessId=*/1),
         "an uninspectable external PID is not suppressed as self");
 
-    // Always FPS foreground sanitizer: self -> 0, external -> passthrough.
+    // Always FPS foreground sanitizer: self and centrally excluded apps -> 0;
+    // eligible/uninspectable external processes -> passthrough.
     ok &= Check(clawhud::ResolveAlwaysFpsForegroundTarget(self, self) == 0,
         "a ClawHUD-owned foreground sanitizes the Always FPS target to 0");
     ok &= Check(clawhud::ResolveAlwaysFpsForegroundTarget(self, /*own=*/1) == self,
