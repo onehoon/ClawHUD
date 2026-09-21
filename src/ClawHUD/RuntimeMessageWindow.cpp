@@ -65,11 +65,6 @@ LRESULT CALLBACK RuntimeMessageWindow::WindowProc(HWND window, UINT message, WPA
         SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
     }
     if (!self) return DefWindowProcW(window, message, wParam, lParam);
-    if (message == WM_HOTKEY && wParam == kHudToggleHotkeyId)
-    {
-        self->app_.HandleHudToggleHotkey();
-        return 0;
-    }
     if (message == WM_POWERBROADCAST)
     {
         switch (wParam)

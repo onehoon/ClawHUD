@@ -21,9 +21,8 @@
 namespace clawhud
 {
 // Win32 timer ids owned by the production telemetry controller. They share the
-// application message window with App's own ids (kHudToggleHotkeyId in App.h,
-// the resume-recovery timer id in App.cpp): the numeric values stay globally
-// distinct.
+// application message window with App's own resume-recovery timer id in
+// App.cpp: the numeric values stay globally distinct.
 inline constexpr UINT_PTR kEcHudTimerId = 2;
 inline constexpr UINT_PTR kBatteryHudTimerId = 3;
 inline constexpr UINT_PTR kPresentMonFpsTimerId = 6;

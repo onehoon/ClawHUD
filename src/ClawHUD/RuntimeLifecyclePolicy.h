@@ -1,17 +1,12 @@
 #pragma once
 
-// CH-RTF-9 — the two mode-aware lifecycle decisions, isolated as pure
+// CH-I1 — the mode-aware lifecycle decisions, isolated as pure
 // constexpr predicates so they can be tested without App / Velopack / a HWND.
 //
-// Both are Standalone-only:
+// Standalone owns its own shell concerns:
 //  - Managed launch must not become the owner of the Standalone startup
 //    shortcut just because it was launched.
-//  - Managed update applies with restart=false; the surviving external owner
-//    relaunches `ClawHUD.exe --managed`, so Velopack must not restart it.
-//
-// Explicit SetStartWithWindows via IPC is NOT gated by these — a frontend
-// controlling a Managed runtime may still change the user's Standalone
-// preference.
+//  - Managed launch must not discover or apply ClawHUD self-updates.
 
 #include "LaunchMode.h"
 
@@ -22,7 +17,12 @@ constexpr bool ShouldReconcileStartupRegistration(LaunchMode mode) noexcept
     return mode == LaunchMode::Standalone;
 }
 
-constexpr bool ShouldRestartAfterVelopackUpdate(LaunchMode mode) noexcept
+constexpr bool ShouldAllowStartWithWindowsMutation(LaunchMode mode) noexcept
+{
+    return mode == LaunchMode::Standalone;
+}
+
+constexpr bool ShouldRunSelfUpdate(LaunchMode mode) noexcept
 {
     return mode == LaunchMode::Standalone;
 }

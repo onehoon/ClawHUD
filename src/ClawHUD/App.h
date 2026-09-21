@@ -28,7 +28,6 @@ namespace clawhud
 class DebugObservationController;
 }
 
-constexpr int kHudToggleHotkeyId = 1;
 // The production telemetry timer ids (2, 3, 4, 6) live in
 // ProductionTelemetryController.h and the resume-recovery timer id (5) is
 // App-internal in App.cpp; the numeric values stay globally distinct because
@@ -56,7 +55,6 @@ public:
     void HandleSystemSuspend();
     void HandleSystemResume();
     void HandleTimer(UINT_PTR timerId);
-    void HandleHudToggleHotkey();
 
     // Main-thread wake handler for the runtime-control dispatch bridge.
     void HandleRuntimeControlDispatch();
@@ -67,7 +65,7 @@ public:
     // use over Control IPC. App stays the implementation authority; these delegate
     // to the existing product methods below.
     clawhud::RuntimeSettingsSnapshot GetSettingsSnapshot() const override;
-    void SetStartWithWindows(bool enabled) override;
+    bool SetStartWithWindows(bool enabled) override;
     bool SetHudEnabled(bool enabled) override;
     void SetHudVisibilityMode(clawhud::HudVisibilityMode mode) override;
     void SetHudSizeOffset(int offset) override;
@@ -117,11 +115,10 @@ private:
     // identical in both modes. Never persisted; never mutated after construction.
     const clawhud::LaunchMode launchMode_;
     clawhud::HudSettingsStore hudSettingsStore_;
-    // Runtime-owned hidden message window: F8 hotkey, suspend/resume power
-    // notifications, the production WM_TIMER stream and the runtime-control
-    // dispatch / shutdown-ready wakes. Independent of the tray so Managed mode
-    // keeps this infrastructure without a tray. Created before any runtime
-    // component is bound to an HWND.
+    // Runtime-owned hidden message window: suspend/resume power notifications,
+    // the production WM_TIMER stream and runtime-control dispatch /
+    // shutdown-ready wakes. Independent of the tray so Managed mode keeps this
+    // infrastructure without a tray.
     RuntimeMessageWindow runtimeMessageWindow_;
     TrayIcon tray_;
     // Moves validated Control requests from a background producer to this
@@ -155,7 +152,6 @@ private:
     std::unique_ptr<clawhud::DebugObservationController> debugObservation_;
     bool exiting_{};
     std::wstring executablePath_;
-    bool hudHotkeyRegistered_{};
     bool intelVrrRangeFixEnabled_{ true };
     // Suspend/resume is deliberately kept as top-level App orchestration (R5):
     // App is the single authority for this state, and HandleSystemSuspend /

@@ -8,6 +8,13 @@
 > mentions a "future external owner" / SteamAddon, treat it as future
 > compatibility context, not the next required implementation step.
 
+> **Supersession note (CH-I1, 2026-09-21):** Managed mode is reserved for the
+> SteamAddon-owned companion runtime. Do not use older generic external
+> frontend, Managed self-update, or Managed startup-preference ownership
+> assumptions below. Standalone remains the owner of ClawHUD's tray, startup
+> registration, and self-update path; Managed retains the HUD runtime and
+> Control IPC surface.
+
 > **Decision date:** 2026-09-02  
 > **Status:** Implemented — ClawHUD-side complete (CH-RTF-1..10).  
 > **Scope:** ClawHUD runtime isolation, Control IPC, Standalone/Managed launch modes, SteamAddonforClaw integration boundary, lifecycle policy, and future standalone frontend options.  
@@ -759,7 +766,7 @@ CommitHudOpacity(value)
 
 ### 10.5 Runtime-originated changes
 
-Examples include F8 HUD toggling or rollback.
+Examples include runtime-originated visibility changes or rollback.
 
 The first implementation does not need a generic event bus.
 

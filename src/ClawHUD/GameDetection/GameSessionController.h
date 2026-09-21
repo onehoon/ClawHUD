@@ -105,7 +105,7 @@ public:
     // target and its downstream effects; preserve the known-game cache.
     void ResetForegroundGameSession(const wchar_t* reason);
 
-    // --- narrow queries (resume recovery / F8 / HUD reconcile) --------
+    // --- narrow queries (resume recovery / HUD reconcile) --------
     void ReconcileForeground();
     // The current eligible foreground game: true only when the latest
     // foreground-first evaluation is Eligible for a still-matching exact

@@ -35,7 +35,9 @@ public:
 
     virtual RuntimeSettingsSnapshot GetSettingsSnapshot() const = 0;
 
-    virtual void SetStartWithWindows(bool enabled) = 0;
+    // Returns false when the runtime rejects the mutation (for example, in
+    // SteamAddon-owned Managed mode).
+    virtual bool SetStartWithWindows(bool enabled) = 0;
     virtual bool SetHudEnabled(bool enabled) = 0;
     virtual void SetHudVisibilityMode(HudVisibilityMode mode) = 0;
     virtual void SetHudSizeOffset(int offset) = 0;

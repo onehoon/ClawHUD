@@ -160,7 +160,6 @@ void HudController::MarkDisabled()
 {
     if (enabled_) Log(L"HUD disabled");
     enabled_ = false;
-    manualOverride_.reset();
 }
 
 void HudController::AbandonEnable() noexcept
@@ -285,7 +284,6 @@ HudVisibilityMode HudController::SetVisibilityMode(HudVisibilityMode mode)
 {
     const auto previous = options_.visibilityMode;
     options_.visibilityMode = mode;
-    manualOverride_.reset();
     return previous;
 }
 
@@ -317,8 +315,8 @@ HudVisibilityEffects HudController::ReconcileVisibility(bool foregroundGameActiv
     // Precondition (App-guaranteed): presentation_ != nullptr and neither
     // suspended nor resume-recovery-active (those route to HideForLifecycleGate).
     HudVisibilityEffects effects{};
-    const bool resolvedShow = ResolveHudVisible(enabled_, manualOverride_,
-        options_.visibilityMode, foregroundGameActive);
+    const bool resolvedShow = ResolveHudVisible(enabled_, options_.visibilityMode,
+        foregroundGameActive);
     if (resolvedShow)
     {
         const bool wasVisible = presentation_->Visible();
