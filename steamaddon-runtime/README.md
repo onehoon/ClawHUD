@@ -15,6 +15,11 @@ package, or the Standalone update feed.
 generation, zip creation, and SHA-256 sidecar generation. It never builds,
 downloads, installs, or publishes anything.
 
+`release-request.json` is the explicit publication request for the
+integration-only release channel. Updating its strict `MAJOR.MINOR.PATCH`
+version on `integration/steamaddon` triggers the dedicated workflow; ordinary
+source pushes do not publish a Runtime.
+
 The generated external `runtime-manifest.json` records the exact Runtime
 version, immutable tag, source commit, asset name, and SHA-256 of the final
 `ClawHUDRuntime.zip`. The same identity manifest is staged inside the payload

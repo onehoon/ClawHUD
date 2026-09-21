@@ -1,12 +1,11 @@
 name: Build SteamAddon Runtime
 
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Managed Runtime version (MAJOR.MINOR.PATCH, for example 1.0.0)'
-        required: true
-        type: string
+  push:
+    branches:
+      - integration/steamaddon
+    paths:
+      - steamaddon-runtime/release-request.json
 
 permissions:
   contents: write
@@ -17,7 +16,6 @@ concurrency:
 
 env:
   REPOSITORY_URL: https://github.com/onehoon/ClawHUD
-  RUNTIME_VERSION_INPUT: ${{ inputs.version }}
 
 jobs:
   release:
@@ -32,22 +30,30 @@ jobs:
             throw 'SteamAddon Runtime publication is allowed only from integration/steamaddon.'
           }
 
-      - name: Validate Runtime version
-        id: version
-        shell: pwsh
-        run: |
-          $version = $env:RUNTIME_VERSION_INPUT.Trim()
-          if ($version -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') {
-            throw "Runtime version must be MAJOR.MINOR.PATCH without a leading v, prerelease suffix, or build metadata: '$version'."
-          }
-          "version=$version" >> $env:GITHUB_OUTPUT
-          Write-Host "Runtime version: $version"
-
       - name: Checkout exact source commit
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ github.sha }}
+
+      - name: Validate Runtime release request
+        id: version
+        shell: pwsh
+        run: |
+          $requestPath = '.\steamaddon-runtime\release-request.json'
+          if (-not (Test-Path -LiteralPath $requestPath -PathType Leaf)) {
+            throw "Runtime release request is missing: $requestPath"
+          }
+          $request = Get-Content -LiteralPath $requestPath -Raw | ConvertFrom-Json
+          if ($request.schema_version -ne 1) {
+            throw "Unsupported Runtime release request schema: $($request.schema_version)"
+          }
+          $version = ([string]$request.version).Trim()
+          if ($version -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') {
+            throw "Runtime version must be MAJOR.MINOR.PATCH without a leading v, prerelease suffix, or build metadata: '$version'."
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          Write-Host "Runtime version: $version"
 
       - name: Resolve source commit and reject existing Runtime identity
         shell: pwsh
