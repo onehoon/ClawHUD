@@ -1,1187 +1,1211 @@
-# Work Order — CH-I3 SteamAddon Companion Runtime Payload
+
+# Work Order — CH-I3 SteamAddon Managed Runtime Pre-release Channel
 
 **Date:** 2026-09-21  
 **Status:** Ready for implementation  
-**Target repository:** `onehoon/ClawHUD`  
-**Target branch:** `integration/steamaddon`  
-**Reviewed baseline:** `integration/steamaddon` at `830c250d6c306d492be3a905d968a4066395f7e2`  
-**Baseline note:** includes CH-I1 / PR #245 and CH-I2 / PR #246  
-**Expected PR count:** 1 focused PR  
-**PR base:** `integration/steamaddon`  
-**PR head:** implementation branch created from `integration/steamaddon`
+**Target repository:** onehoon/ClawHUD  
+**Target branch:** integration/steamaddon  
+**Production-code baseline reviewed:** CH-I1 + CH-I2 through 830c250d6c306d492be3a905d968a4066395f7e2  
+**Expected implementation PR count:** 1 focused ClawHUD PR  
+**PR base:** integration/steamaddon
 
 ---
 
-# CRITICAL BRANCH POLICY
+## 0. Mandatory branch rule
 
-This is an integration-branch packaging task.
+This is a ClawHUD-side SteamAddon integration task.
 
-It does **not** target `main`.
+    Work from: integration/steamaddon
+    PR base:   integration/steamaddon
 
-```text
-Work only from integration/steamaddon.
-Create the implementation branch from integration/steamaddon.
-Open the PR against integration/steamaddon.
-DO NOT target main.
-DO NOT merge this PR directly into main.
-DO NOT rebase onto a newer main unless explicitly requested.
-```
+Do not target main.  
+Do not merge this PR directly into main.  
+Do not change SteamAddonforClaw in this PR.
 
-If GitHub or local tooling defaults to:
-
-```text
-base = main
-```
-
-stop and correct it to:
-
-```text
-base = integration/steamaddon
-```
-
-before opening the PR.
-
-The completed ClawHUD/SteamAddon integration will be hardware-validated on the integration branches before any later explicit main-branch cutover.
+The future SteamAddon consumer, pin, downloader, and process owner are separate Addon-side work.
 
 ---
 
 ## 1. Objective
 
-Produce a **small, explicit SteamAddon companion payload** from the existing ClawHUD build.
+Create a dedicated immutable SteamAddon Managed Runtime distribution channel in the ClawHUD repository.
 
-The payload will later be embedded under the SteamAddon package as a dedicated subdirectory.
+Final ownership:
 
-Target product layout:
+    ClawHUD Standalone
+    -> existing stable releases
+    -> existing Velopack stable feed
+    -> existing Standalone updater
 
-```text
-SteamAddon publish root/
-├─ SteamInputAddonforClaw.exe
-├─ ui/
-├─ qam/
-├─ overlay/
-├─ fse/
-└─ clawhud/
-   ├─ ClawHUD.exe
-   ├─ ClawHUD.EcHelper.exe
-   ├─ PresentMonAPI2Loader.dll
-   ├─ velopack_libc.dll
-   ├─ LICENSE
-   ├─ THIRD-PARTY-NOTICES.md
-   ├─ fonts/
-   │  ├─ Unispace.otf
-   │  └─ Unispace-LICENSE.txt
-   └─ runtime/
-      └─ ClawHUD.PresentMonRuntime.msi
-```
+    ClawHUD for SteamAddon
+    -> separate GitHub Pre-release
+    -> tag namespace steamaddon-runtime-vX.Y.Z
+    -> ClawHUDRuntime.zip
+    -> SHA-256 + machine-readable runtime manifest
+    -> future SteamAddon consumes an exact pin
 
-The executable remains:
+SteamAddon must not embed ClawHUD in its normal installer/package.
 
-```text
-ClawHUD.exe --managed
-```
+SteamAddon must not rebuild ClawHUD on every Addon release.
 
-Do **not** create:
-
-```text
-ClawHUD.Managed.exe
-ClawHUD.Runtime.exe
-SteamAddon.ClawHudHost.exe
-a second C++ runtime target
-a source fork
-a duplicated renderer
-```
-
-CH-I1/CH-I2 already made the existing Managed mode the SteamAddon-owned runtime contract.
-
-CH-I3 only creates a clean distributable payload around that proven runtime.
+Publish a new SteamAddon Runtime only when the Managed ClawHUD payload itself changed and is intentionally released.
 
 ---
 
-## 2. Why this is the preferred architecture
+## 2. Current code facts reviewed
 
-The current ClawHUD standalone release stages all of these together:
+### 2.1 Existing Standalone release workflow is already a separate stable channel
 
-```text
-ClawHUD.exe
-ClawHUD.EcHelper.exe
-velopack_libc.dll
-PresentMonAPI2Loader.dll
-PresentMon runtime MSI
-fonts
-ClawHUD.Settings.exe/.dll/.deps.json/.runtimeconfig.json
-THIRD-PARTY-NOTICES.md
-```
+Current .github/workflows/Build-Release.yml is manual workflow_dispatch and publishes the Standalone product.
 
-The SteamAddon integration does not need the standalone Settings frontend.
+It currently:
 
-It also does not need a separate ClawHUD installer, ClawHUD VeloPack package, diagnostic executable, or standalone release metadata.
+    resolves v0.1.x
+    builds ClawHUD
+    builds WPF Settings
+    stages the Standalone composition
+    packs Velopack stable
+    publishes v0.1.x
+    publishes releases.stable.json
+    prunes old Standalone releases
 
-At the same time, creating a second native executable target would duplicate a large and VRR-sensitive source list and increase the chance that standalone and Managed runtime behavior diverge.
+Its release-number scan is limited to v0.1.*.
 
-Therefore:
+Its pruning logic only considers releases which are all of:
 
-```text
-one runtime binary
-+ two packaging compositions
-```
+    non-draft
+    non-prerelease
+    tag matches v0.1.x
 
-is the intended design.
+Therefore a Pre-release tag such as steamaddon-runtime-v1.0.0 does not participate in Standalone numbering and is not a candidate for current Standalone pruning.
 
-### Standalone composition
+Do not broaden those existing selectors in CH-I3.
 
-```text
-ClawHUD VeloPack package
--> ClawHUD.exe
--> WPF Settings
--> standalone updater/startup support
--> runtime dependencies
-```
-
-### SteamAddon composition
-
-```text
-SteamAddon package
--> clawhud/ClawHUD.exe --managed
--> only Managed runtime dependencies
--> no WPF Settings frontend
--> no ClawHUD installer/package ownership
-```
-
----
-
-## 3. Do not change runtime behavior in CH-I3
-
-CH-I3 is packaging/build infrastructure.
-
-Preferred production-code diff:
-
-```text
-zero C++ runtime behavior changes
-```
-
-Do not modify:
-
-```text
-App startup
-Managed exit codes
-Control IPC
-PresentMon bootstrap behavior
-EC helper behavior
-settings persistence
-game detection
-Intel VRR Fix
-suspend/resume
-HUD visibility
-renderer/presentation
-```
-
-If a runtime code change appears necessary to package the existing binary, stop and re-evaluate before expanding scope.
-
----
-
-## 4. Payload directory must be isolated
-
-The SteamAddon product already uses dedicated companion directories:
-
-```text
-ui/
-qam/
-overlay/
-fse/
-```
-
-ClawHUD must follow the same model:
-
-```text
-clawhud/
-```
-
-Do not flatten ClawHUD files into the SteamAddon publish root.
-
-This is important because ClawHUD has sibling native dependencies such as:
-
-```text
-velopack_libc.dll
-PresentMonAPI2Loader.dll
-ClawHUD.EcHelper.exe
-```
-
-and SteamAddon has its own dependencies/package lifecycle.
-
-The dedicated directory prevents DLL-name collisions and keeps ClawHUD relative-path assumptions intact.
-
----
-
-## 5. Exact required payload
-
-The authoritative CH-I3 payload is:
-
-```text
-clawhud/
-├─ ClawHUD.exe
-├─ ClawHUD.EcHelper.exe
-├─ PresentMonAPI2Loader.dll
-├─ velopack_libc.dll
-├─ LICENSE
-├─ THIRD-PARTY-NOTICES.md
-├─ fonts/
-│  ├─ Unispace.otf
-│  └─ Unispace-LICENSE.txt
-└─ runtime/
-   └─ ClawHUD.PresentMonRuntime.msi
-```
-
-### Why each binary/runtime file is required
-
-#### ClawHUD.exe
-
-The native HUD runtime.
-
-SteamAddon later launches:
-
-```text
-clawhud\ClawHUD.exe --managed
-```
-
-#### ClawHUD.EcHelper.exe
-
-Required by the existing EC telemetry client.
-
-Current code resolves it as:
-
-```cpp
-std::filesystem::path(module).parent_path() / L"ClawHUD.EcHelper.exe"
-```
-
-Therefore it must remain beside `ClawHUD.exe`.
-
-#### PresentMonAPI2Loader.dll
-
-Required by the current PresentMon API2 client/runtime path.
-
-Keep it beside `ClawHUD.exe`, matching the existing proven build layout.
-
-#### runtime/ClawHUD.PresentMonRuntime.msi
-
-Current bootstrap resolves the MSI relative to the running module:
-
-```text
-<ClawHUD.exe directory>\runtime\ClawHUD.PresentMonRuntime.msi
-```
-
-Preserve that exact relationship.
-
-#### fonts/Unispace.otf
-
-Required by the existing private-font renderer path.
-
-Preserve the existing `fonts/` layout.
-
-#### velopack_libc.dll
-
-Keep it in CH-I3.
-
-Although CH-I1 disabled ClawHUD self-update in Managed mode, the current shared `wWinMain` still executes the VeloPack fast-exit lifecycle bootstrap before launch-mode resolution.
-
-Therefore the current binary still has a real startup dependency on `velopack_libc.dll`.
-
-Do not attempt to compile VeloPack out of Managed in CH-I3.
-
-That would turn a packaging PR into a second executable/build-mode refactor for no demonstrated product benefit.
-
-If package size or embedded VeloPack behavior later proves to be a real issue, handle it as a separate focused optimization.
-
-### LICENSE / THIRD-PARTY-NOTICES.md
-
-The SteamAddon payload redistributes the ClawHUD binary and third-party runtime components.
-
-Ship the existing ClawHUD GPL license and third-party notices inside the isolated `clawhud/` payload.
-
-Do not silently rely on the standalone installer to provide them.
-
----
-
-## 6. Explicitly forbidden payload files
-
-The SteamAddon companion payload must **not** contain the standalone UI or standalone delivery artifacts.
-
-Forbidden:
-
-```text
-ClawHUD.Settings.exe
-ClawHUD.Settings.dll
-ClawHUD.Settings.deps.json
-ClawHUD.Settings.runtimeconfig.json
-
-ClawHUD.Diag.exe
-
-Setup.exe
-*-full.nupkg
-*-delta.nupkg
-releases.stable.json
-
-private .NET runtime:
-coreclr.dll
-clrjit.dll
-hostfxr.dll
-hostpolicy.dll
-dotnet.exe
-```
-
-Do not include the WPF Settings frontend “just in case.”
-
-Managed mode has no standalone Settings ownership, and `OpenSettings()` already guards against Managed launch.
-
-The SteamAddon UI will later control ClawHUD over the existing Control IPC.
-
----
-
-## 7. Keep the existing ClawHUD standalone package unchanged
-
-CH-I3 must not remove or weaken the current standalone release composition.
-
-The existing `.github/workflows/Build-Release.yml` still owns the standalone product:
-
-```text
-ClawHUD VeloPack release
-+ WPF Settings frontend
-+ standalone update feed
-+ standalone Setup/package artifacts
-```
-
-Do not remove Settings from the standalone release.
-
-Do not change its main executable.
-
-Do not change its VeloPack feed semantics.
-
-The new SteamAddon payload is an **additional packaging composition**, not a replacement for Standalone.
-
----
-
-## 8. Add one authoritative staging script
-
-Create a small reusable script, preferred path:
-
-```text
-scripts/package-steamaddon-runtime.ps1
-```
-
-The script should be the one source of truth for the SteamAddon runtime payload file list.
-
-Do not duplicate the required/forbidden file list across multiple workflows if avoidable.
-
-Recommended parameters:
-
-```powershell
-param(
-    [Parameter(Mandatory)]
-    [string]$BuildDirectory,
-
-    [Parameter(Mandatory)]
-    [string]$OutputDirectory
-)
-```
-
-Expected call example:
-
-```powershell
-./scripts/package-steamaddon-runtime.ps1 `
-    -BuildDirectory ./build/Release `
-    -OutputDirectory ./artifacts/SteamAddonRuntime
-```
-
-The script should create:
-
-```text
-artifacts/SteamAddonRuntime/
-└─ clawhud/
-   └─ <exact required payload>
-```
-
-### Script responsibilities
-
-The script must:
-
-1. clean only its own output directory;
-2. create `clawhud/fonts` and `clawhud/runtime`;
-3. copy the exact required files;
-4. fail if any required file is missing;
-5. fail if any explicitly forbidden standalone artifact appears in the payload;
-6. preserve the relative layout;
-7. print the final file list and sizes.
-
-Do not make the script:
-
-```text
-download dependencies
-build C++
-build WPF
-publish GitHub releases
-install PresentMon
-run VeloPack pack
-modify settings
-write registry
-```
-
-It packages an already-built runtime only.
-
----
-
-## 9. Use existing build output as the source
-
-Current CMake already produces/copies the runtime dependencies into:
-
-```text
-build/Release/
-├─ ClawHUD.exe
-├─ ClawHUD.EcHelper.exe
-├─ velopack_libc.dll
-├─ PresentMonAPI2Loader.dll
-├─ fonts/
-└─ runtime/
-```
-
-Reuse this.
-
-Do not duplicate the CMake source list in a second target.
-
-Do not create a second `add_executable()` containing the same HUD/runtime implementation.
-
-The staging script may copy:
-
-```text
-LICENSE
-THIRD-PARTY-NOTICES.md
-```
-
-from the repository root because those are distribution documents rather than build outputs.
-
----
-
-## 10. Add CI validation for the companion payload
-
-Extend the existing Build Test workflow rather than creating a second full native compile pipeline unless there is a concrete CI reason not to.
+### 2.2 Existing Standalone updater does not consume arbitrary releases
 
 Current:
 
-```text
-.github/workflows/Build-Test.yml
+    src/ClawHUD/ClawHudUpdateUrl.cpp
+    src/ClawHUD/ClawHudUpdateSource.cpp
 
-WPF build/test
--> CMake configure
--> native Release build
--> CTest
-```
+reads the stable feed at:
 
-After the native build/CTest, add a step:
+    https://github.com/onehoon/ClawHUD/releases/latest/download/releases.stable.json
 
-```text
-Stage SteamAddon companion payload
-```
+and downloads normal Standalone packages through the version-tag path.
 
-using the new script.
+The SteamAddon Runtime channel must not create:
 
-The staging/validation step should run on PR CI so payload breakage blocks integration changes.
+    releases.stable.json
+    Velopack stable nupkg
+    Standalone Setup.exe
 
-### Push coverage
+for its Pre-release.
 
-Current Build Test push trigger is only:
+### 2.3 Managed mode already refuses Standalone update ownership
 
-```yaml
-push:
-  branches:
-    - main
-```
+Current RuntimeLifecyclePolicy.h defines Managed so self-update runs only in Standalone.
 
-During this integration phase, add:
+App::Run() skips ClawHUD self-update in Managed mode.
 
-```yaml
-    - integration/steamaddon
-```
+This remains the authority boundary:
 
-so the merged integration branch always has a validated payload artifact.
+    Standalone ClawHUD
+    -> ClawHUD updater owns ClawHUD updates
 
-This does not make `integration/steamaddon` a release branch.
+    ClawHUD.exe --managed
+    -> no ClawHUD self-update
+    -> SteamAddon later owns which Runtime package is installed and launched
 
-It only runs build/test packaging validation.
+Do not add another updater inside Managed ClawHUD.
 
----
+### 2.4 Existing native build already produces the required runtime dependencies
 
-## 11. Upload an integration artifact
+Current CMake already places beside the Release executable:
 
-For:
+    ClawHUD.exe
+    ClawHUD.EcHelper.exe
+    PresentMonAPI2Loader.dll
+    velopack_libc.dll
+    fonts/Unispace.otf
+    fonts/Unispace-LICENSE.txt
+    runtime/ClawHUD.PresentMonRuntime.msi
 
-```text
-push to integration/steamaddon
-PR whose base is integration/steamaddon
-manual integration validation if the workflow supports it
-```
+No second executable target is needed.
 
-upload the staged directory as a GitHub Actions artifact.
+### 2.5 velopack_libc.dll remains a real shared-binary dependency
 
-Suggested artifact name:
+Current main.cpp executes the Velopack application bootstrap before launch-mode resolution and ClawHUD is linked with delay-load velopack_libc.dll.
 
-```text
-ClawHUD-SteamAddonRuntime
-```
+Therefore the Managed payload must still contain velopack_libc.dll.
 
-Suggested path:
+Do not introduce a second binary or Managed-only compile target solely to remove this dependency.
 
-```text
-artifacts/SteamAddonRuntime/clawhud
-```
+### 2.6 Current application-version validation is Standalone-specific
 
-Suggested retention:
+Current CMake only accepts ClawHUD versions from 0.1.0 through 0.1.999.
 
-```text
-7 days
-```
+That value is used by:
 
-The artifact is for integration testing.
+    runtime log version
+    GetRuntimeInfo.applicationVersion
 
-It is **not** a public standalone ClawHUD release.
-
-Do not create a GitHub Release from CH-I3.
-
-Do not create or push a tag.
-
-Do not publish a new stable VeloPack feed.
+A Runtime release such as 1.0.0 therefore needs a narrow build-version validation change.
 
 ---
 
-## 12. Optional zip for handoff
+## 3. Final release-channel model
 
-It is acceptable for the workflow/script to also create:
+Use the same ClawHUD GitHub repository with two intentionally separate channels.
 
-```text
-ClawHUD-SteamAddonRuntime.zip
-```
+### Standalone — unchanged
 
-containing the top-level:
+    v0.1.106
+    v0.1.107
+    v0.1.108
 
-```text
-clawhud/
-```
+Properties:
 
-directory.
+    normal GitHub Release
+    not prerelease
+    Velopack stable
+    releases.stable.json
+    WPF Settings included
+    Standalone updater consumes it
 
-If produced, also emit the SHA-256 in CI output or a sidecar text file.
+### SteamAddon Managed Runtime — new
+
+    steamaddon-runtime-v1.0.0
+    steamaddon-runtime-v1.0.1
+    steamaddon-runtime-v1.1.0
+
+Properties:
+
+    GitHub Pre-release
+    no Velopack stable feed
+    no WPF Settings
+    no Standalone Setup
+    no nupkg
+    no releases.stable.json
+    ClawHUD.exe --managed runtime only
+    future SteamAddon consumes exact immutable tag + SHA-256
+
+The Pre-release flag is part of the channel contract, not only UI decoration.
+
+---
+
+## 4. Runtime versioning
+
+SteamAddon Managed Runtime has an independent version identity.
 
 Example:
 
-```text
-ClawHUD-SteamAddonRuntime.zip
-ClawHUD-SteamAddonRuntime.zip.sha256
-```
+    Standalone ClawHUD          = 0.1.108
+    SteamAddonforClaw           = 0.3.24
+    SteamAddon ClawHUD Runtime  = 1.0.2
 
-Do not invent a new signing system in CH-I3.
+They do not need to match.
 
-The future SteamAddon dependency/pin work will decide the permanent source-commit/archive-hash record.
+Several Addon releases may pin the same Runtime release:
 
-If the zip adds unnecessary script complexity, the GitHub Actions directory artifact alone is sufficient for CH-I3.
+    Addon 0.3.24 ----    Addon 0.3.25 -----    Addon 0.3.26 ------> steamaddon-runtime-v1.0.2
+    Addon 0.3.27 -----/
 
----
+Do not rebuild or republish Runtime 1.0.2 because SteamAddon published another version.
 
-## 13. CI smoke: prove the staged Managed binary actually starts
+### Immutable tags
 
-The packaging validation should test more than file existence.
+A published Runtime tag and its assets are immutable.
 
-On the GitHub-hosted Windows runner, launch the staged binary:
+Never overwrite steamaddon-runtime-v1.0.2 with new bytes.
 
-```text
-artifacts/SteamAddonRuntime/clawhud/ClawHUD.exe --managed
-```
+If payload changes, publish steamaddon-runtime-v1.0.3.
 
-The GitHub runner is not a supported MSI Claw device, so CH-I2 should make the process terminate non-interactively before PresentMon installation.
+Do not use a single moving runtime tag as dependency authority.
 
-Expected Managed result:
+### Explicit version input
 
-```text
-21 = UnsupportedHardware
-or
-22 = HardwareIndeterminate
-```
+The dedicated workflow should use workflow_dispatch with a required version input.
 
-Accept either value in CI because runner WMI/baseboard behavior may vary.
+Input format:
 
-Example shape:
+    MAJOR.MINOR.PATCH
 
-```powershell
-$process = Start-Process `
-    -FilePath "$payload\ClawHUD.exe" `
-    -ArgumentList '--managed' `
-    -PassThru -Wait
+Examples:
 
-if ($process.ExitCode -notin @(21, 22)) {
-    throw "Unexpected staged Managed startup exit code: $($process.ExitCode)"
-}
-```
+    1.0.0    valid
+    1.2.17   valid
 
-This smoke proves several important packaging facts at once:
+    v1.0.0   invalid
+    1.0      invalid
+    1.0.0-beta invalid for CH-I3
 
-```text
-ClawHUD.exe can load from the staged directory
-velopack_libc.dll is resolvable
-the Managed argument reaches CH-I2 policy
-Managed does not show a blocking ClawHUD startup MessageBox
-the process exits deterministically on unsupported CI hardware
-```
-
-Do not bypass the hardware gate merely to test deeper startup in CI.
-
-Do not install PresentMon on the GitHub runner.
+Do not infer or consume a mutable latest Runtime version.
 
 ---
 
-## 14. Do not add a second Managed executable target
+## 5. Narrow CMake version-validation change
 
-A tempting design is:
+Update CLAWHUD_VERSION validation so both Standalone 0.1.x and independent Runtime versions are accepted.
 
-```text
-add_executable(ClawHUD ...)
-add_executable(ClawHUD.Managed ...)
-```
+Target rule:
 
-with different source lists or preprocessor definitions.
+    non-negative numeric MAJOR.MINOR.PATCH
+    no leading tag prefix
+    no prerelease suffix
+    no build metadata suffix
 
-Do not do this in CH-I3.
+Equivalent CMake regex is acceptable:
 
-Reasons:
-
-- the renderer/presentation path is production-sensitive;
-- duplicated source lists drift;
-- standalone and Managed would no longer prove that they run the same HUD core;
-- CH-I1 already made launch-mode policy explicit;
-- CH-I2 already made Managed startup non-interactive and diagnosable;
-- current extra VeloPack native DLL cost is small compared with the maintenance risk of a second native target.
-
-The target architecture remains:
-
-```text
-same executable
-different launch mode
-different package composition
-```
-
----
-
-## 15. Do not remove VeloPack from Managed yet
-
-CH-I1 removed Managed **self-update ownership**.
-
-That is not the same as removing the VeloPack native bootstrap dependency from the shared executable.
-
-Current `wWinMain` performs:
-
-```cpp
-Velopack::VelopackApp::Build()
-    .SetAutoApplyOnStartup(false)
-    .OnBeforeUninstall(...)
-    .Run();
-```
-
-before launch-mode resolution.
-
-Therefore CH-I3 payload includes:
-
-```text
-velopack_libc.dll
-```
-
-Do not alter `main.cpp` or introduce a compile flag just to remove this dependency.
-
-A future optimization may revisit this only if there is a demonstrated reason.
-
----
-
-## 16. Preserve settings location
+    ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$
 
 Do not change:
 
-```text
-%LOCALAPPDATA%\ClawHUD\settings.ini
-```
+    GetRuntimeInfo wire format
+    Version.h macro names
+    runtime protocol
+    Standalone v0.1.x release numbering
+    Standalone tag policy
 
-The existing location is independent of install directory.
+For Managed Runtime builds:
 
-This has a useful migration property:
+    release tag                  = steamaddon-runtime-v1.0.2
+    CLAWHUD_VERSION              = 1.0.2
+    GetRuntimeInfo app version   = 1.0.2
+    runtime log version          = 1.0.2
 
-```text
-existing standalone ClawHUD user
--> later uses SteamAddon-bundled Managed runtime
--> same ClawHUD settings authority/data can be read
-```
+For Standalone builds, existing 0.1.x input remains unchanged.
+
+---
+
+## 6. Dedicated source-controlled Runtime contract folder
+
+Create:
+
+    steamaddon-runtime/
+      README.md
+      payload.manifest.json
+      package-runtime.ps1
+
+This folder is the packaging contract and recipe.
+
+Do not commit generated binaries, MSI files, or ClawHUDRuntime.zip into this folder.
+
+---
+
+## 7. payload.manifest.json
+
+Create steamaddon-runtime/payload.manifest.json as the authoritative payload-shape definition.
+
+Recommended schema:
+
+    {
+      "schema_version": 1,
+      "launch": {
+        "executable": "ClawHUD.exe",
+        "arguments": ["--managed"]
+      },
+      "required_files": [
+        "ClawHUD.exe",
+        "ClawHUD.EcHelper.exe",
+        "PresentMonAPI2Loader.dll",
+        "velopack_libc.dll",
+        "LICENSE",
+        "THIRD-PARTY-NOTICES.md",
+        "fonts/Unispace.otf",
+        "fonts/Unispace-LICENSE.txt",
+        "runtime/ClawHUD.PresentMonRuntime.msi"
+      ],
+      "forbidden_files": [
+        "ClawHUD.Settings.exe",
+        "ClawHUD.Settings.dll",
+        "ClawHUD.Settings.deps.json",
+        "ClawHUD.Settings.runtimeconfig.json",
+        "ClawHUD.Diag.exe",
+        "Setup.exe",
+        "releases.stable.json"
+      ]
+    }
+
+Do not put a mutable download URL here.
+
+Do not put the current Runtime version here.
+
+Do not duplicate Control IPC protocol constants here.
+
+This file describes payload shape, not a release instance.
+
+---
+
+## 8. Exact Managed payload
+
+The staged package must be:
+
+    clawhud/
+      ClawHUD.exe
+      ClawHUD.EcHelper.exe
+      PresentMonAPI2Loader.dll
+      velopack_libc.dll
+      LICENSE
+      THIRD-PARTY-NOTICES.md
+      fonts/
+        Unispace.otf
+        Unispace-LICENSE.txt
+      runtime/
+        ClawHUD.PresentMonRuntime.msi
+
+Explicitly exclude:
+
+    ClawHUD.Settings.exe
+    ClawHUD.Settings.dll
+    ClawHUD.Settings.deps.json
+    ClawHUD.Settings.runtimeconfig.json
+    ClawHUD.Diag.exe
+    Setup.exe
+    *-full.nupkg
+    *-delta.nupkg
+    releases.stable.json
+
+Also reject accidental private .NET runtime files:
+
+    coreclr.dll
+    clrjit.dll
+    hostfxr.dll
+    hostpolicy.dll
+    dotnet.exe
+
+The repository already contains LICENSE and THIRD-PARTY-NOTICES.md; both must ship with this redistributed runtime.
+
+---
+
+## 9. Preserve runtime-relative paths
+
+Do not flatten or rename dependencies.
+
+Required relationships:
+
+    ClawHUD.EcHelper.exe
+    -> sibling of ClawHUD.exe
+
+    PresentMonAPI2Loader.dll
+    -> sibling of ClawHUD.exe
+
+    velopack_libc.dll
+    -> sibling of ClawHUD.exe
+
+    ClawHUD.PresentMonRuntime.msi
+    -> runtime/ child
+
+    Unispace.otf
+    -> fonts/ child
+
+The zip must contain top-level clawhud/ rather than dumping payload files at zip root.
+
+---
+
+## 10. package-runtime.ps1
+
+Create steamaddon-runtime/package-runtime.ps1.
+
+Recommended inputs:
+
+    BuildDirectory
+    OutputDirectory
+    RuntimeVersion
+    SourceCommit
+
+Validate:
+
+    RuntimeVersion = strict MAJOR.MINOR.PATCH
+    SourceCommit   = exact 40 hexadecimal characters
+
+Responsibilities:
+
+1. Read payload.manifest.json.
+2. Clean only its own output directory.
+3. Create OutputDirectory/clawhud.
+4. Copy required runtime files from existing Release output and repo root.
+5. Preserve fonts/ and runtime/ paths.
+6. Fail when any required file is missing.
+7. Fail when a forbidden file appears.
+8. Fail when a private .NET runtime appears.
+9. Generate runtime-manifest.json.
+10. Create ClawHUDRuntime.zip.
+11. Compute SHA-256 of the exact zip.
+12. Write ClawHUDRuntime.zip.sha256.
+13. Print final file list, sizes, source commit, Runtime version, and hash.
+
+The script must not:
+
+    compile C++
+    compile WPF
+    download ClawHUD
+    publish GitHub releases
+    install PresentMon
+    write registry
+    modify settings
+    run Velopack pack
+
+One script owns payload composition. Do not duplicate the entire required-file list in workflow YAML.
+
+---
+
+## 11. Generated runtime-manifest.json
+
+Generate:
+
+    artifacts/SteamAddonRuntime/runtime-manifest.json
+
+and place the same identity manifest inside:
+
+    clawhud/runtime-manifest.json
+
+before zipping.
+
+Recommended minimum:
+
+    {
+      "schema_version": 1,
+      "runtime_version": "1.0.2",
+      "tag": "steamaddon-runtime-v1.0.2",
+      "source_commit": "0123456789abcdef0123456789abcdef01234567",
+      "asset": "ClawHUDRuntime.zip",
+      "sha256": "<canonical sha256>"
+    }
+
+The external manifest, embedded manifest, and SHA sidecar must agree.
 
 Do not add:
 
-```text
-%LOCALAPPDATA%\SteamAddonforClaw\ClawHUD
-SteamAddon-owned duplicate settings file
-settings migration copy
-two-way sync
-```
+    latest URL
+    update-channel URL
+    SteamAddon application version
+    machine-local state
 
-The future Addon UI uses Control IPC and ClawHUD remains the settings authority.
+Runtime version is independent from Addon version.
 
 ---
 
-## 17. Standalone ClawHUD conflict is not CH-I3
+## 12. Release assets
 
-Current single-instance identity remains:
+Each Runtime Pre-release should contain:
 
-```text
-Local\ClawHUD.SingleInstance
-```
+    ClawHUDRuntime.zip
+    ClawHUDRuntime.zip.sha256
+    runtime-manifest.json
 
-Do not change it in this packaging PR.
+Do not publish Runtime-channel assets such as:
 
-If an independently installed Standalone ClawHUD is already running, a future SteamAddon Managed launch may receive CH-I2:
-
-```text
-AlreadyRunning = exit code 20
-```
-
-That migration/adoption UX belongs to the SteamAddon integration work.
-
-Do not solve it by allowing two simultaneous ClawHUD processes.
+    Setup.exe
+    nupkg
+    releases.stable.json
+    WPF Settings
+    ClawHUD.Diag
 
 ---
 
-## 18. PresentMon install/update contract remains unchanged
+## 13. Dedicated workflow
 
-The companion payload includes:
+Create:
 
-```text
-runtime/ClawHUD.PresentMonRuntime.msi
-```
+    .github/workflows/Build-SteamAddon-Runtime.yml
+
+Keep it separate from:
+
+    .github/workflows/Build-Release.yml
+
+Do not merge the two release pipelines.
+
+### Trigger
+
+Use manual publication only:
+
+    workflow_dispatch:
+      inputs:
+        version:
+          required: true
+
+The workflow must fail immediately unless:
+
+    github.ref == refs/heads/integration/steamaddon
+
+A Runtime release must not be published from main or an arbitrary branch.
+
+### Permissions
+
+Use only required ClawHUD-repository publication permission:
+
+    contents: write
+
+Do not add cross-repository pull-request permissions in CH-I3.
+
+### Concurrency
+
+Use a dedicated group:
+
+    clawhud-steamaddon-runtime-release
+
+with cancel-in-progress false.
+
+Do not share the Standalone release concurrency group.
+
+---
+
+## 14. Runtime workflow sequence
+
+The dedicated workflow should perform:
+
+1. Verify branch is integration/steamaddon.
+2. Validate Runtime version input.
+3. Checkout exact selected commit with full history/tags.
+4. Resolve exact source commit.
+5. Fail if Runtime tag already exists.
+6. Fail if GitHub Runtime release already exists.
+7. Configure native Release with BUILD_TESTING=ON and CLAWHUD_VERSION equal to Runtime version.
+8. Build Release.
+9. Run CTest Release.
+10. Run package-runtime.ps1.
+11. Validate generated manifest and SHA.
+12. Run staged Managed startup smoke.
+13. Only now create the immutable Runtime tag/Pre-release at the exact built commit.
+14. Upload exactly the three Runtime release assets.
+
+No WPF publish is required for this Runtime composition. Existing normal Build Test continues to cover the WPF frontend.
+
+---
+
+## 15. Pre-release creation
+
+Tag:
+
+    steamaddon-runtime-v<RuntimeVersion>
+
+Example:
+
+    steamaddon-runtime-v1.0.2
+
+Release title:
+
+    SteamAddon Runtime v1.0.2
+
+Required GitHub Release state:
+
+    draft       = false
+    prerelease  = true
+    target      = exact built source commit
+
+The release description should clearly state:
+
+    SteamAddon Managed Runtime
+    not intended for standalone installation
+    launch mode = ClawHUD.exe --managed
+    Runtime version
+    source commit
+
+Do not create or update the Standalone stable feed.
+
+---
+
+## 16. Never overwrite a Runtime release
+
+Before build/publication, fail if either exists:
+
+    tag steamaddon-runtime-vX.Y.Z
+    GitHub Release steamaddon-runtime-vX.Y.Z
+
+Never automatically:
+
+    delete existing runtime tag
+    delete existing runtime release
+    replace existing Runtime zip
+    force-push Runtime tag
+
+If new bytes are required, publish a new Runtime version.
+
+SteamAddon will later trust tag + source commit + SHA-256, so mutability is unacceptable.
+
+---
+
+## 17. Standalone release cleanup must continue to ignore Runtime Pre-releases
+
+Do not modify current Standalone pruning so it starts touching Runtime Pre-releases.
+
+Current Stable pruning is already scoped to non-prerelease v0.1.x.
+
+Preserve that behavior.
+
+Do not introduce a generalized release manager.
+
+---
+
+## 18. Staged Managed startup smoke
+
+Before publication, launch:
+
+    <staged>/clawhud/ClawHUD.exe --managed
+
+On GitHub-hosted unsupported Windows hardware, CH-I2 should return:
+
+    21 = UnsupportedHardware
+    22 = HardwareIndeterminate
+
+Accept either.
+
+Use a small CI-only bounded timeout. If the process does not exit, terminate the CI process and fail the workflow.
+
+Do not add production watchdog/process supervision for this test.
+
+This smoke proves:
+
+    staged executable loads
+    velopack_libc.dll resolves
+    --managed reaches Managed policy
+    no blocking startup MessageBox
+    unsupported hardware exits deterministically
+    PresentMon installation is not attempted before the hardware gate
+
+---
+
+## 19. Do not use Actions artifacts as the permanent distribution identity
+
+The permanent downloadable Runtime is the GitHub Pre-release asset.
+
+Do not make actions/upload-artifact IDs the pin/distribution mechanism.
+
+Temporary runner files are fine during CI, but the product identity is:
+
+    immutable Runtime tag
+    exact source commit
+    ClawHUDRuntime.zip
+    SHA-256
+
+This avoids workflow-artifact retention becoming part of product lifecycle.
+
+---
+
+## 20. SteamAddon package must not embed ClawHUD
+
+Future SteamAddon Setup/nupkg must not contain:
+
+    ClawHUDRuntime.zip
+    ClawHUD.exe
+    ClawHUD.EcHelper.exe
+    PresentMon Runtime MSI for ClawHUD
+
+The future Addon downloads the exact pinned Runtime only when needed.
+
+Most naturally:
+
+    HUD Off
+    -> no ClawHUD runtime process
+    -> no Runtime download requirement
+
+    HUD first On
+    -> check exact pinned Runtime
+    -> download only if absent
+    -> verify
+    -> install
+    -> launch --managed
+
+Do not modify Addon packaging in CH-I3.
+
+---
+
+## 21. Future SteamAddon dependency lock — contract only
+
+The future Addon-side lock should conceptually contain:
+
+    {
+      "schema_version": 1,
+      "runtime_version": "1.0.2",
+      "tag": "steamaddon-runtime-v1.0.2",
+      "asset": "ClawHUDRuntime.zip",
+      "source_commit": "0123456789abcdef0123456789abcdef01234567",
+      "sha256": "..."
+    }
+
+The Addon must never resolve:
+
+    latest
+    latest prerelease
+    highest Runtime version
+    latest ClawHUD commit
+
+at product runtime.
+
+It uses the exact reviewed lock only.
+
+---
+
+## 22. Future dependency propagation to SteamAddon
+
+The final architecture should notify SteamAddon when a new Runtime Pre-release is intentionally published.
+
+Do not add this cross-repository write path in CH-I3 before the Addon receiver exists.
+
+Later flow:
+
+    ClawHUD Runtime Pre-release published
+    -> trusted repository_dispatch or equivalent GitHub App event
+    -> SteamAddon dependency-update workflow
+    -> fetch exact tag/manifest/zip
+    -> independently verify source commit + hash + payload shape
+    -> create dependency update PR
+    -> never auto-merge
+
+The existing SteamAddon VIIPER dependency workflow is the architectural precedent:
+
+    repository_dispatch
+    exact immutable identity
+    independent verification
+    mechanical adoption
+    reviewed PR
+    no automatic merge
+
+Reuse that pattern later instead of inventing a second dependency-management framework.
+
+Prefer the existing GitHub App model over a broad long-lived classic PAT.
+
+---
+
+## 23. Future local runtime location — context only
+
+Do not extract ClawHUD into SteamAddon Velopack's current app directory.
+
+Preferred future model:
+
+    %LOCALAPPDATA%\SteamInputAddonforClaw\Runtime\ClawHUD\<runtime-version>\
+
+Example:
+
+    Runtime\ClawHUD\1.0.2\
+      runtime-manifest.json
+      ClawHUD.exe
+      ClawHUD.EcHelper.exe
+      PresentMonAPI2Loader.dll
+      velopack_libc.dll
+      fonts\
+      runtime\
+
+Versioned directories are preferred because they avoid replacing a running ClawHUD.exe in place and keep Addon VeloPack application-directory swaps independent.
+
+Do not implement consumer installation in CH-I3.
+
+---
+
+## 24. Full1902 isolation
+
+The mandatory Full1902 controller architecture remains independent.
+
+Future failures must be feature-local:
+
+    ClawHUD download failure
+    -> HUD unavailable
+    -> controller authority unchanged
+
+    ClawHUD SHA mismatch
+    -> refuse HUD runtime
+    -> controller authority unchanged
+
+    PresentMon startup/install failure
+    -> Managed HUD startup fails
+    -> controller authority unchanged
+
+    ClawHUD crash
+    -> HUD stops
+    -> Full1902 continues
+
+Never make ClawHUD network/bootstrap success a gate for:
+
+    PID1902 ownership
+    HidHide
+    DirectInput
+    VIIPER
+    Xbox360 / SteamDeck presentation
+    Center M Disabled authority
+    Full1902 startup / recovery
+
+---
+
+## 25. PresentMon ownership remains inside ClawHUD
+
+Managed payload includes:
+
+    runtime/ClawHUD.PresentMonRuntime.msi
 
 ClawHUD remains responsible for:
 
-```text
-readiness check
-version floor
-ABI compatibility
-reuse of newer compatible runtime
-install/upgrade when missing or old
-post-install validation
-Managed startup exit result
-```
+    readiness
+    compatible version/ABI checks
+    reuse of compatible installed Runtime
+    install/upgrade
+    post-install validation
+    Managed startup exit mapping
 
-SteamAddon does not install PresentMon during its own controller startup.
+SteamAddon must not install PresentMon as part of controller startup.
 
-Do not move PresentMon to the Addon root dependencies in CH-I3.
-
-Keep it physically and logically inside:
-
-```text
-clawhud/runtime/
-```
+Do not move this MSI into a generic Addon dependency root.
 
 ---
 
-## 19. Full 1902 isolation
-
-The SteamAddon Full PID1902 controller runtime is a high-criticality independent authority.
-
-The ClawHUD payload must remain a sibling feature payload.
-
-CH-I3 must not touch:
-
-```text
-PID1901/PID1902 ownership
-DirectInput
-HidHide
-VIIPER
-Xbox360/SteamDeck presentation
-Center M authority
-controller startup
-controller shutdown
-controller recovery
-```
-
-The future Addon package containing ClawHUD does not make ClawHUD part of controller authority.
-
-HUD failure remains feature-local.
-
----
-
-## 20. NON-NEGOTIABLE presentation / TopMost / VRR boundary
-
-CH-I3 must have zero behavior changes in the production HUD presentation path.
-
-Do not modify:
-
-```text
-src/ClawHUD/HudPresentation*
-src/ClawHUD/HudRenderer*
-src/ClawHUD/HudWindowGeometry*
-src/ClawHUD/HudPresentationContract*
-src/ClawHUD/HudPresentationLifecycle*
-```
+## 26. Settings authority remains unchanged
 
 Do not change:
 
-```text
-D3D11
-DXGI
-Presentation API
-DirectComposition
-D2D/DWrite
-TopMost / Z-order
-WS_EX_TOPMOST
-window styles
-independent flip
-premultiplied alpha
-Show/Hide order
-presentation create/destroy order
-present cadence
-resume presentation recovery
-```
+    %LOCALAPPDATA%\ClawHUD\settings.ini
 
-Preferred PR property:
+Downloaded runtime location is not a new settings authority.
 
-```text
-no src/ClawHUD production C++ diff at all
-```
+Future SteamAddon UI talks to ClawHUD over existing Control IPC.
+
+ClawHUD continues to validate and persist its own HUD settings.
 
 ---
 
-## 21. Intel VRR Fix remains unchanged
+## 27. Single-instance behavior remains unchanged
+
+Keep:
+
+    Local\ClawHUD.SingleInstance
+
+Do not allow Standalone and Managed ClawHUD to coexist.
+
+CH-I2 already provides Managed startup exit 20 for AlreadyRunning.
+
+Do not add another mutex, takeover protocol, or process-kill mechanism in CH-I3.
+
+---
+
+## 28. Runtime / presentation code must remain unchanged
+
+CH-I3 is packaging/distribution infrastructure plus the narrow CMake version validation.
+
+Preferred production behavior diff:
+
+    none
 
 Do not modify:
 
-```text
-TweakStartupCoordinator
-IntelVrrRangeTweak
-IntelArcSyncClient
-AffectedPanelDetector
-IntelVrrResultStore
-SetIntelVrrRangeFixEnabled
-retry behavior
-no-rollback semantics
-```
+    App startup semantics
+    Managed exit-code contract
+    Control IPC
+    PresentMon bootstrap behavior
+    EC helper behavior
+    game detection
+    suspend/resume
+    Intel VRR Fix
+    HUD visibility behavior
+    renderer/presentation behavior
+    TopMost behavior
 
-The payload must simply contain the same runtime binary that already owns this feature.
+Do not modify HudPresentation*, HudRenderer*, HudWindowGeometry*, HudPresentationContract*, or HudPresentationLifecycle*.
 
----
-
-## 22. Expected implementation scope
-
-Preferred files:
-
-```text
-scripts/package-steamaddon-runtime.ps1        # new
-.github/workflows/Build-Test.yml              # stage/validate/upload integration payload
-```
-
-Potential documentation update only if necessary:
-
-```text
-docs/work-orders/managed/CLAW_HUD_RUNTIME_FRONTEND_SEPARATION_ARCHITECTURE_2026-09-02.md
-```
-
-No CMake change should be necessary because the current native build output already contains the required runtime files.
-
-If implementation evidence proves a small CMake packaging helper is cleaner, keep it packaging-only.
-
-Do not add a second executable target.
+Do not change D3D11, DXGI, DirectComposition, D2D/DWrite, TopMost/Z-order, independent flip, presentation create/destroy ordering, or present cadence.
 
 ---
 
-## 23. Validation requirements
+## 29. Intel VRR Fix remains unchanged
 
-### 23.1 Exact required files
+Do not modify:
 
-Assert all are present:
+    TweakStartupCoordinator
+    IntelVrrRangeTweak
+    IntelArcSyncClient
+    AffectedPanelDetector
+    IntelVrrResultStore
+    SetIntelVrrRangeFixEnabled
+    retry policy
+    no-rollback policy
 
-```text
-clawhud/ClawHUD.exe
-clawhud/ClawHUD.EcHelper.exe
-clawhud/PresentMonAPI2Loader.dll
-clawhud/velopack_libc.dll
-clawhud/LICENSE
-clawhud/THIRD-PARTY-NOTICES.md
-clawhud/fonts/Unispace.otf
-clawhud/fonts/Unispace-LICENSE.txt
-clawhud/runtime/ClawHUD.PresentMonRuntime.msi
-```
-
-### 23.2 Forbidden files
-
-Assert absent:
-
-```text
-ClawHUD.Settings.*
-ClawHUD.Diag.exe
-*.nupkg
-Setup.exe
-releases.stable.json
-private .NET runtime files
-```
-
-### 23.3 Directory shape
-
-Assert:
-
-```text
-EC helper is sibling of ClawHUD.exe
-PresentMon MSI is runtime/ child
-Unispace font is fonts/ child
-```
-
-Do not rename those runtime files in CH-I3.
-
-### 23.4 Managed staged-start smoke
-
-Run staged:
-
-```text
-ClawHUD.exe --managed
-```
-
-on CI and require exit:
-
-```text
-21 or 22
-```
-
-on unsupported hosted hardware.
-
-If it fails to load because a dependency is missing, CH-I3 fails.
-
-### 23.5 Existing test suite
-
-Run normal CI:
-
-```text
-WPF Settings build
-WPF Settings tests
-WPF publish-shape validation
-native Release build
-CTest Release
-SteamAddon companion payload validation
-```
-
-Even though WPF Settings is not in the companion payload, do not remove its existing standalone CI coverage.
+The SteamAddon Runtime is only another distribution composition of the proven Managed binary.
 
 ---
 
-## 24. Manual local validation
+## 30. Expected implementation files
 
-On a supported MSI Claw after building the branch:
+Primary expected files:
 
-1. Stage the payload with the new script.
-2. Launch only:
+    CMakeLists.txt
+    steamaddon-runtime/README.md
+    steamaddon-runtime/payload.manifest.json
+    steamaddon-runtime/package-runtime.ps1
+    .github/workflows/Build-SteamAddon-Runtime.yml
 
-```text
-<stage>\clawhud\ClawHUD.exe --managed
-```
+A small PowerShell packaging test is acceptable if it provides useful contract coverage.
 
-3. Confirm:
-
-```text
-no tray
-no standalone Settings window
-no ClawHUD self-update
-no startup-task mutation
-PresentMon bootstrap still works
-Control IPC becomes Ready
-HUD renders normally
-TopMost behavior unchanged
-VRR remains working
-Intel VRR Fix behavior unchanged
-EC helper resolves from the staged sibling path
-```
-
-4. Send normal `RequestShutdown` over Control IPC.
-
-Confirm clean process exit.
-
-Do not perform any presentation-specific code modification based on packaging validation.
+Preferred outcome: existing .github/workflows/Build-Release.yml remains unchanged.
 
 ---
 
-## 25. Release workflow policy for CH-I3
+## 31. Validation
 
-Do **not** publish a normal ClawHUD GitHub Release from `integration/steamaddon`.
+### CMake version contract
 
-Do **not** add an integration tag.
+Prove:
 
-Do **not** modify release pruning.
+    0.1.108   accepted
+    1.0.0     accepted
+    12.34.56  accepted
 
-Do **not** change stable VeloPack release numbering.
+    v1.0.0    rejected
+    1.0       rejected
+    1.0.0-beta rejected
 
-The integration artifact is temporary input for the upcoming SteamAddon integration branch.
+Do not create a general versioning abstraction.
 
-After both products are integrated and hardware-validated, a later explicit main/release task can decide whether the standalone ClawHUD release also publishes a permanent:
+### Payload shape
 
-```text
-ClawHUD-SteamAddonRuntime-<version>.zip
-```
+Assert every required file in payload.manifest.json exists.
 
-asset.
+Assert forbidden files are absent.
 
-That decision is not required for CH-I3.
+Assert private .NET runtime files are absent.
 
----
+### Generated runtime manifest
 
-## 26. Future SteamAddon consumption — context only
+Verify:
 
-Do not implement this in the ClawHUD repository in CH-I3.
+    runtime_version == workflow input
+    tag == steamaddon-runtime-v<version>
+    source_commit == exact 40-character checkout SHA
+    asset == ClawHUDRuntime.zip
+    sha256 == actual zip SHA-256
 
-The intended future Addon publish layout is:
+### Zip layout
 
-```text
-artifacts/publish/
-├─ SteamInputAddonforClaw.exe
-├─ ui/
-├─ qam/
-├─ overlay/
-├─ fse/
-└─ clawhud/
-   └─ <CH-I3 payload>
-```
+Verify top-level clawhud/ exists and payload files are not flattened into zip root.
 
-SteamAddon will later own:
+### Managed smoke
 
-```text
-pinned ClawHUD source/artifact revision
-payload integrity verification
-process launch with --managed
-bounded IPC readiness
-CH-I2 startup exit-code translation
-RequestShutdown
-Addon Overlay settings tab
-Addon package/update lifecycle
-```
+Require exit 21 or 22 on hosted unsupported hardware within bounded CI time.
 
-Do not pre-build those responsibilities into ClawHUD.
+### Existing native suite
+
+Run CTest Release before publication.
 
 ---
 
-## 27. Overengineering guard
+## 32. Publication must be last
+
+Do not create the Runtime tag/Pre-release until all of these pass:
+
+    configure
+    native build
+    CTest
+    payload staging
+    payload validation
+    zip generation
+    SHA verification
+    Managed startup smoke
+
+A failed validation must leave:
+
+    no new Runtime tag
+    no new Runtime GitHub Release
+
+Do not add elaborate transaction/state machinery.
+
+---
+
+## 33. No automatic publication on source push
+
+Do not publish a Runtime Pre-release for every integration/steamaddon push.
+
+HUD changes are relatively infrequent and Runtime adoption should be intentional.
+
+Published tags are immutable, so intermediate integration commits should not automatically become downloadable Runtime releases.
+
+The release workflow is an explicit manual product action.
+
+---
+
+## 34. No separate SteamAddon build of ClawHUD
+
+Future ordinary SteamAddon Release CI must not rebuild ClawHUD.
+
+Final ownership:
+
+    ClawHUD repository
+    -> builds/publishes Managed Runtime when HUD changes
+
+    SteamAddon repository
+    -> pins a published Runtime version/hash
+    -> ordinary Addon release does not rebuild HUD
+
+This is the reason for the independent Runtime Pre-release channel.
+
+---
+
+## 35. Future Addon update behavior — context only
+
+If Addon A and Addon B both pin Runtime 1.0.2:
+
+    Addon A -> Addon B
+    Runtime pin 1.0.2 -> 1.0.2
+
+then:
+
+    no ClawHUD download
+    no ClawHUD replacement
+
+If a later Addon pin changes to 1.0.3:
+
+    download exact steamaddon-runtime-v1.0.3
+    verify SHA-256
+    verify runtime manifest
+    install versioned runtime
+    launch ClawHUD.exe --managed
+
+The Addon never asks GitHub which Runtime is latest.
+
+---
+
+## 36. Overengineering guard
 
 Do not add:
 
-```text
-second ClawHUD runtime executable
-new host process
-new IPC protocol
-new service
-plugin loader
-generic package manager
-new updater
-runtime dependency resolver
-dynamic download at ClawHUD startup
-embedded resource extraction framework
-heartbeat
-watchdog
-parent PID monitor
-source submodule
-binary self-extractor
-```
+    second ClawHUD runtime executable
+    generic package manager
+    new updater service
+    runtime update daemon
+    latest-version resolver
+    release database
+    runtime catalog API
+    new IPC protocol
+    heartbeat
+    watchdog
+    parent PID monitor
+    new settings store
+    new lifecycle manager
+    Windows service
+    source submodule
+    self-extracting binary
 
-CH-I3 is deliberately small:
+Required design:
 
-```text
-existing proven binary
-+ exact dependency list
-+ isolated directory
-+ reusable staging script
-+ CI validation artifact
-```
+    existing ClawHUD.exe --managed
+    + one source-controlled payload contract
+    + one package script
+    + one explicit Pre-release workflow
+    + immutable tag
+    + SHA-256
 
 ---
 
-## 28. PR review checklist
+## 37. PR review checklist
 
-```text
-[ ] PR base is integration/steamaddon, NOT main
-[ ] implementation branch starts from current integration/steamaddon
-[ ] one existing ClawHUD.exe is reused
-[ ] no second native runtime target added
-[ ] payload root is clawhud/
-[ ] ClawHUD.exe included
-[ ] ClawHUD.EcHelper.exe included beside it
-[ ] PresentMonAPI2Loader.dll included beside it
-[ ] velopack_libc.dll included beside it
-[ ] runtime/ClawHUD.PresentMonRuntime.msi included
-[ ] fonts/Unispace.otf included
-[ ] fonts/Unispace-LICENSE.txt included
-[ ] LICENSE included
-[ ] THIRD-PARTY-NOTICES.md included
-[ ] ClawHUD.Settings.* excluded
-[ ] ClawHUD.Diag.exe excluded
-[ ] standalone VeloPack package artifacts excluded
-[ ] private .NET runtime excluded
-[ ] staging script is the authoritative file-list owner
-[ ] Build-Test validates the payload
-[ ] integration/steamaddon push CI is enabled
-[ ] integration artifact is uploaded with bounded retention
-[ ] staged --managed CI smoke exits 21 or 22
-[ ] no PresentMon installation is attempted on unsupported CI hardware
-[ ] existing Standalone package remains unchanged
-[ ] settings path remains %LOCALAPPDATA%\ClawHUD\settings.ini
-[ ] single-instance contract unchanged
-[ ] PresentMon bootstrap/update logic unchanged
-[ ] Intel VRR Fix unchanged
-[ ] Control IPC unchanged
-[ ] HudPresentation* unchanged
-[ ] HudRenderer* unchanged
-[ ] TopMost behavior unchanged
-[ ] VRR-safe presentation unchanged
-[ ] Full 1902/controller code untouched
-[ ] existing build/tests remain green
-```
+    [ ] PR base is integration/steamaddon
+    [ ] main is not modified directly
+    [ ] existing Standalone Build-Release behavior remains unchanged
+    [ ] separate Build-SteamAddon-Runtime workflow exists
+    [ ] Runtime publication only allowed from integration/steamaddon
+    [ ] publication is manual workflow_dispatch
+    [ ] Runtime version input is strict MAJOR.MINOR.PATCH
+    [ ] CMake still accepts Standalone 0.1.x and accepts independent Runtime version
+    [ ] Runtime tag is steamaddon-runtime-vX.Y.Z
+    [ ] Runtime release is GitHub Pre-release
+    [ ] release target is exact built source commit
+    [ ] existing Runtime tag/release cannot be overwritten
+    [ ] no releases.stable.json for Runtime
+    [ ] no Velopack nupkg for Runtime
+    [ ] no Standalone Setup for Runtime
+    [ ] no WPF Settings in Runtime payload
+    [ ] no ClawHUD.Diag.exe in Runtime payload
+    [ ] no private .NET runtime in Runtime payload
+    [ ] existing ClawHUD.exe reused
+    [ ] no second native runtime target
+    [ ] EC helper is sibling of ClawHUD.exe
+    [ ] PresentMonAPI2Loader.dll is sibling of ClawHUD.exe
+    [ ] velopack_libc.dll is sibling of ClawHUD.exe
+    [ ] PresentMon MSI remains under runtime/
+    [ ] Unispace files remain under fonts/
+    [ ] LICENSE included
+    [ ] THIRD-PARTY-NOTICES.md included
+    [ ] payload.manifest.json owns payload shape
+    [ ] runtime-manifest records Runtime version/tag/source commit/asset/hash
+    [ ] ClawHUDRuntime.zip contains top-level clawhud/
+    [ ] SHA sidecar matches exact zip
+    [ ] staged --managed smoke exits 21/22 on CI
+    [ ] publication happens only after build/test/validation
+    [ ] Managed self-update remains disabled
+    [ ] single-instance contract unchanged
+    [ ] PresentMon behavior unchanged
+    [ ] Control IPC unchanged
+    [ ] settings authority unchanged
+    [ ] Intel VRR Fix unchanged
+    [ ] HudPresentation/HudRenderer unchanged
+    [ ] TopMost and VRR-safe presentation unchanged
+    [ ] Full1902/controller code untouched
+    [ ] no cross-repo auto-merge
 
 ---
 
-## 29. Completion result
+## 38. Completion result
 
-After CH-I3, ClawHUD should have a reproducible integration artifact:
+After CH-I3:
 
-```text
-ClawHUD source @ integration/steamaddon
-        |
-        v
-normal Release native build
-        |
-        v
-package-steamaddon-runtime.ps1
-        |
-        v
-artifacts/SteamAddonRuntime/
-└─ clawhud/
-   ├─ ClawHUD.exe
-   ├─ ClawHUD.EcHelper.exe
-   ├─ PresentMonAPI2Loader.dll
-   ├─ velopack_libc.dll
-   ├─ LICENSE
-   ├─ THIRD-PARTY-NOTICES.md
-   ├─ fonts/...
-   └─ runtime/ClawHUD.PresentMonRuntime.msi
-        |
-        v
-CI shape validation
-        |
-        v
-staged --managed startup smoke
-        |
-        v
-GitHub Actions integration artifact
-```
+    onehoon/ClawHUD
+    integration/steamaddon
+            |
+            | intentional manual Runtime publish
+            v
+    Build-SteamAddon-Runtime.yml
+            |
+            +-- build with Runtime version
+            +-- CTest
+            +-- package-runtime.ps1
+            +-- payload verification
+            +-- --managed smoke
+            +-- SHA-256
+            |
+            v
+    GitHub Pre-release
+    steamaddon-runtime-v1.0.2
+            |
+            +-- ClawHUDRuntime.zip
+            +-- ClawHUDRuntime.zip.sha256
+            +-- runtime-manifest.json
 
-No runtime/presentation behavior changes are required.
+Existing Standalone path remains independently:
 
-The next step after CH-I3 is the SteamAddon-side integration branch work:
+    Build-Release.yml
+            |
+            v
+    v0.1.x normal Release
+            |
+            v
+    Velopack stable feed
+            |
+            v
+    Standalone ClawHUD updater
 
-```text
-ClawHUD payload pin/verification
-+ Managed process owner
-+ Control IPC client
-+ HUD On/Off process lifetime
-+ Addon Overlay settings UI
-```
+The two channels share source code but do not share release/update authority.
 
-That future work belongs in the SteamAddon repository, not this PR.
+---
+
+## 39. Next work after CH-I3
+
+The next work order belongs to onehoon/SteamAddonforClaw on an integration branch, not main.
+
+It should implement:
+
+    ClawHUD exact dependency lock
+    exact Pre-release download client
+    SHA-256 + runtime-manifest verification
+    versioned LocalAppData Runtime installation
+    HUD On lazy bootstrap
+    Managed process owner
+    bounded IPC readiness / GetRuntimeInfo verification
+    RequestShutdown
+    CH-I2 startup-exit translation
+    Full1902 isolation
+
+After that Addon receiver/pin path exists, add the small dependency-notification bridge:
+
+    new ClawHUD Runtime Pre-release
+    -> trusted repository_dispatch
+    -> SteamAddon dependency update workflow
+    -> verified lock update PR
+    -> never automatic merge
+
+Use the existing Addon VIIPER dependency-automation pattern as the reference rather than creating another dependency-management architecture.
