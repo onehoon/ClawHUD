@@ -209,3 +209,71 @@ jobs:
           if ($targetSha.ToLowerInvariant() -ne $env:SOURCE_COMMIT) {
             throw "Published Runtime tag does not target the built source commit: $targetSha"
           }
+
+      - name: Verify SteamAddon dispatch configuration
+        shell: pwsh
+        env:
+          APP_CLIENT_ID: ${{ vars.VIIPER_ADDON_BOT_CLIENT_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.VIIPER_ADDON_BOT_PRIVATE_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:APP_CLIENT_ID) -or
+              [string]::IsNullOrWhiteSpace($env:APP_PRIVATE_KEY)) {
+            throw 'SteamAddon dispatch configuration is missing. Set VIIPER_ADDON_BOT_CLIENT_ID and VIIPER_ADDON_BOT_PRIVATE_KEY for the ClawHUD repository.'
+          }
+
+      - name: Generate SteamAddon dispatch token
+        id: steamaddon-app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.VIIPER_ADDON_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.VIIPER_ADDON_BOT_PRIVATE_KEY }}
+          owner: onehoon
+          repositories: |
+            SteamAddonforClaw
+          permission-contents: write
+
+      - name: Dispatch verified Runtime identity to SteamAddon
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ steps.steamaddon-app-token.outputs.token }}
+          RUNTIME_VERSION: ${{ steps.identity.outputs.version }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
+            throw 'SteamAddon dispatch token is empty. Verify the VIIPER_ADDON_BOT GitHub App installation and repository secrets.'
+          }
+
+          $artifactRoot = Join-Path $pwd 'artifacts\SteamAddonRuntime'
+          $zip = Join-Path $artifactRoot 'ClawHUDRuntime.zip'
+          $manifest = Get-Content -LiteralPath (Join-Path $artifactRoot 'runtime-manifest.json') -Raw | ConvertFrom-Json
+          $actualSha = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          $sidecarSha = ((Get-Content -LiteralPath "${zip}.sha256" -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+
+          if ($manifest.runtime_version -ne $env:RUNTIME_VERSION) { throw 'Dispatch manifest Runtime version mismatch.' }
+          if ($manifest.tag -ne $env:RUNTIME_TAG) { throw 'Dispatch manifest tag mismatch.' }
+          if ($manifest.source_commit -ne $env:SOURCE_COMMIT) { throw 'Dispatch manifest source commit mismatch.' }
+          if ($manifest.runtime_version -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') { throw 'Dispatch Runtime version is not an exact semantic version.' }
+          if ($manifest.tag -notmatch '^steamaddon-runtime-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') { throw 'Dispatch Runtime tag is not immutable Runtime tag format.' }
+          if ($manifest.source_commit -notmatch '^[0-9a-f]{40}$') { throw 'Dispatch source commit is not an exact 40-character SHA.' }
+          if ($manifest.asset -ne 'ClawHUDRuntime.zip') { throw 'Dispatch manifest asset mismatch.' }
+          if ($manifest.sha256 -notmatch '^[0-9a-fA-F]{64}$' -or
+              $manifest.sha256.ToLowerInvariant() -ne $actualSha -or
+              $sidecarSha -ne $actualSha) {
+            throw 'Dispatch manifest and SHA sidecar do not match the exact Runtime ZIP.'
+          }
+
+          $payload = [ordered]@{
+            event_type = 'clawhud-runtime-ready'
+            client_payload = [ordered]@{
+              runtime_version = [string]$manifest.runtime_version
+              tag = [string]$manifest.tag
+              source_commit = [string]$manifest.source_commit
+              asset = [string]$manifest.asset
+              sha256 = [string]$manifest.sha256.ToLowerInvariant()
+            }
+          } | ConvertTo-Json -Depth 4 -Compress
+
+          $payload | gh api --method POST repos/onehoon/SteamAddonforClaw/dispatches --input -
+          if ($LASTEXITCODE -ne 0) {
+            throw 'clawhud-runtime-ready repository_dispatch failed. The immutable Runtime release remains valid; use the receiver manual fallback with the exact tag.'
+          }
+          Write-Host "Dispatched clawhud-runtime-ready for $($manifest.tag) ($($manifest.source_commit))."
