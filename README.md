@@ -27,7 +27,6 @@ ClawHUD checks the baseboard ID at startup. Unsupported devices are rejected ins
 - FPS and system/hardware telemetry
 - `Always` and `In-game only` display modes
 - Automatic foreground game detection
-- Global `F8` hotkey to show or hide the HUD
 - Start ClawHUD with Windows
 - HUD size adjustment
 - `Unispace` and `Segoe UI Variable` fonts
@@ -74,7 +73,6 @@ Game detection is still under development and **may not work perfectly with ever
 
 - **Always** keeps the HUD visible without depending on game detection. FPS follows the current eligible foreground application when PresentMon can provide a valid stream.
 - **In-game only** depends on automatic game detection. If a game is not detected correctly, the HUD may not appear automatically.
-- `F8` can be used to manually show or hide the HUD.
 
 The implementation intentionally avoids continuous process polling for game detection. See [Game Detection Redesign](docs/GAME_DETECTION_REDESIGN_PR_PLAN_2026-08-31.md) for the internal design.
 
