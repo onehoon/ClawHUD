@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "launch": {
+    "executable": "ClawHUD.exe",
+    "arguments": ["--managed"]
+  },
+  "required_files": [
+    "ClawHUD.exe",
+    "ClawHUD.EcHelper.exe",
+    "PresentMonAPI2Loader.dll",
+    "velopack_libc.dll",
+    "LICENSE",
+    "THIRD-PARTY-NOTICES.md",
+    "fonts/Unispace.otf",
+    "fonts/Unispace-LICENSE.txt",
+    "runtime/ClawHUD.PresentMonRuntime.msi"
+  ],
+  "forbidden_files": [
+    "ClawHUD.Settings.exe",
+    "ClawHUD.Settings.dll",
+    "ClawHUD.Settings.deps.json",
+    "ClawHUD.Settings.runtimeconfig.json",
+    "ClawHUD.Diag.exe",
+    "Setup.exe",
+    "releases.stable.json"
+  ]
+}

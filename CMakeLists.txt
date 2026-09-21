@@ -9,8 +9,8 @@ if(NOT MSVC)
 endif()
 
 set(CLAWHUD_VERSION "0.1.0" CACHE STRING "ClawHUD package and displayed application version")
-if(NOT CLAWHUD_VERSION MATCHES "^0\\.1\\.(0|[1-9][0-9]?[0-9]?)$")
-    message(FATAL_ERROR "CLAWHUD_VERSION must match 0.1.0 through 0.1.999")
+if(NOT CLAWHUD_VERSION MATCHES "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")
+    message(FATAL_ERROR "CLAWHUD_VERSION must be a numeric MAJOR.MINOR.PATCH without a tag prefix or suffix")
 endif()
 file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/generated")
 configure_file(
