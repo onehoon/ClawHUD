@@ -162,10 +162,11 @@ public:
         const_cast<FakeRuntimeControl*>(this)->lastCallThread = std::this_thread::get_id();
         return state;
     }
-    void SetStartWithWindows(bool enabled) override
+    bool SetStartWithWindows(bool enabled) override
     {
         lastCallThread = std::this_thread::get_id();
         lastStartWithWindows = enabled; // deliberately does NOT adopt it (rollback sim)
+        return true;
     }
     bool SetHudEnabled(bool enabled) override
     {

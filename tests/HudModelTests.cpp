@@ -86,31 +86,14 @@ int main()
     ok &= Check(!ShouldShowHud(HudVisibilityMode::InGameOnly, false), "in-game-only visibility");
     ok &= Check(ShouldShowHud(HudVisibilityMode::InGameOnly, true), "foreground game visibility");
 
-    ok &= Check(!ResolveHudVisible(false, std::nullopt, HudVisibilityMode::Always, true),
+    ok &= Check(!ResolveHudVisible(false, HudVisibilityMode::Always, true),
         "HUD off resolves hidden regardless of mode or foreground");
-    ok &= Check(!ResolveHudVisible(false, std::optional<bool>(true),
-        HudVisibilityMode::Always, true),
-        "HUD off resolves hidden even with a show override");
-    ok &= Check(ResolveHudVisible(true, std::nullopt, HudVisibilityMode::Always, false),
+    ok &= Check(ResolveHudVisible(true, HudVisibilityMode::Always, false),
         "Always mode shows with no foreground game");
-    ok &= Check(!ResolveHudVisible(true, std::nullopt, HudVisibilityMode::InGameOnly, false),
+    ok &= Check(!ResolveHudVisible(true, HudVisibilityMode::InGameOnly, false),
         "InGameOnly hides with no foreground game");
-    ok &= Check(ResolveHudVisible(true, std::nullopt, HudVisibilityMode::InGameOnly, true),
+    ok &= Check(ResolveHudVisible(true, HudVisibilityMode::InGameOnly, true),
         "InGameOnly shows with a foreground game");
-    ok &= Check(!ResolveHudVisible(true, std::optional<bool>(false),
-        HudVisibilityMode::Always, true),
-        "a hide override beats Always mode and foreground");
-    ok &= Check(ResolveHudVisible(true, std::optional<bool>(true),
-        HudVisibilityMode::InGameOnly, false),
-        "a show override beats InGameOnly with no game");
-    ok &= Check(!ResolveHudHotkeyOverride(false, false).has_value(),
-        "F8 ignored when HUD master disabled (hidden)");
-    ok &= Check(!ResolveHudHotkeyOverride(false, true).has_value(),
-        "F8 ignored when HUD master disabled (visible)");
-    ok &= Check(ResolveHudHotkeyOverride(true, true) == std::optional<bool>(false),
-        "F8 while enabled+visible resolves to force hide");
-    ok &= Check(ResolveHudHotkeyOverride(true, false) == std::optional<bool>(true),
-        "F8 while enabled+hidden resolves to force show");
 
     ok &= Check(ShouldSampleProductionTelemetry(
         ShouldShowHud(HudVisibilityMode::Always, false), false),

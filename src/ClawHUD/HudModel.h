@@ -96,17 +96,11 @@ struct HudTextRun
 
 bool ShouldShowHud(HudVisibilityMode mode, bool foregroundGameActive) noexcept;
 // The production HUD visibility decision used by App::ReconcileHudVisibility
-// after its suspended / resume-recovery early-out: a manual override (the F8
-// toggle) wins, otherwise the configured mode and the foreground-tracked-process
-// state decide. Always hidden when the HUD is off.
-bool ResolveHudVisible(bool hudEnabled, std::optional<bool> manualOverride,
-    HudVisibilityMode mode, bool foregroundActive) noexcept;
-// F8 test-override policy. When the persisted master (Enable HUD) is off the
-// hotkey is ignored (std::nullopt) and must not revive the HUD. Otherwise it is
-// a non-persistent two-direction toggle keyed off the current visibility:
-// visible -> force hide (false), hidden -> force show (true).
-std::optional<bool> ResolveHudHotkeyOverride(bool hudEnabled,
-    bool currentlyVisible) noexcept;
+// after its suspended / resume-recovery early-out. Always hidden when the HUD
+// is off; otherwise the configured mode and foreground-tracked-process state
+// decide.
+bool ResolveHudVisible(bool hudEnabled, HudVisibilityMode mode,
+    bool foregroundActive) noexcept;
 std::uint8_t HudOpacityByte(float opacityPercent) noexcept;
 bool ShouldSampleProductionTelemetry(bool resolvedShow, bool suspended) noexcept;
 std::vector<HudTextRun> FormatHud(const HudTelemetrySnapshot& snapshot);

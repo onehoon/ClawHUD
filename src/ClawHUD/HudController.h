@@ -4,7 +4,6 @@
 
 #include <functional>
 #include <memory>
-#include <optional>
 
 #include "HudModel.h"
 #include "HudPresentationLifecycle.h"
@@ -32,8 +31,8 @@ struct HudVisibilityEffects
     bool stopProductionSampling{};
 };
 
-// Owns the HUD user state (enabled / options / font / size / manual visibility
-// override), the existing concrete HudPresentation object, and every
+// Owns the HUD user state (enabled / options / font / size), the existing
+// concrete HudPresentation object, and every
 // Initialize / Render / Show / Hide / Shutdown call site plus the recreate +
 // rollback lifecycle and the presentation failure log latches.
 //
@@ -67,7 +66,6 @@ public:
     const HudLayoutOptions& Options() const noexcept { return options_; }
     HudFont Font() const noexcept { return font_; }
     HudVisibilityMode VisibilityMode() const noexcept { return options_.visibilityMode; }
-    std::optional<bool> ManualOverride() const noexcept { return manualOverride_; }
 
     HudRenderOptions BuildRenderOptions() const;
 
@@ -80,10 +78,8 @@ public:
     HRESULT RenderRecoveryFrame(); // resume recovery: render an empty snapshot
     // --- enabled state (App owns persistence + cross-domain reactions) ----
     void MarkEnabled(bool logTransition);
-    void MarkDisabled();           // logs, resets the manual override (StopHud)
+    void MarkDisabled();           // logs and clears enabled state (StopHud)
     void AbandonEnable() noexcept; // startup Ensure() failure: bare enabled_=false
-    void SetManualOverride(bool visible) { manualOverride_ = visible; }
-    void ResetManualOverride() { manualOverride_.reset(); }
 
     // --- HUD setting mutations; true => App should persist ---------------
     bool SetAlignment(HudAlignment alignment);
@@ -111,7 +107,6 @@ private:
     HudFont font_{HudFont::SegoeUiVariable};
     int sizeOffset_{};
     bool enabled_{};
-    std::optional<bool> manualOverride_;
     bool initializedLogged_{};
     bool renderFailureLogged_{};
     bool showFailureLogged_{};

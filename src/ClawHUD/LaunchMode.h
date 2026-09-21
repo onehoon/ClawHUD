@@ -2,9 +2,10 @@
 
 // CH-RTF-8 — process-internal launch mode.
 //
-// Standalone is the permanent default; Managed is entered only with an explicit
-// `--managed` command-line token. The mode changes shell composition only (tray
-// + legacy Settings); the runtime implementation is identical in both modes.
+// Standalone is the ClawHUD product shell; Managed is the SteamAddon-owned
+// runtime, entered only with an explicit `--managed` command-line token. The
+// mode changes shell/lifecycle ownership only; the HUD runtime implementation
+// is identical in both modes.
 // It is never persisted and never inferred from SteamAddon / environment /
 // previous launches.
 

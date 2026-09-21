@@ -73,19 +73,10 @@ bool ShouldShowHud(HudVisibilityMode mode, bool foregroundGameActive) noexcept
     return mode == HudVisibilityMode::Always || foregroundGameActive;
 }
 
-bool ResolveHudVisible(bool hudEnabled, std::optional<bool> manualOverride,
-    HudVisibilityMode mode, bool foregroundActive) noexcept
+bool ResolveHudVisible(bool hudEnabled, HudVisibilityMode mode,
+    bool foregroundActive) noexcept
 {
-    return hudEnabled &&
-        (manualOverride ? *manualOverride : ShouldShowHud(mode, foregroundActive));
-}
-
-std::optional<bool> ResolveHudHotkeyOverride(bool hudEnabled,
-    bool currentlyVisible) noexcept
-{
-    if (!hudEnabled)
-        return std::nullopt;
-    return !currentlyVisible;
+    return hudEnabled && ShouldShowHud(mode, foregroundActive);
 }
 
 bool ShouldSampleProductionTelemetry(bool resolvedShow, bool suspended) noexcept

@@ -11,7 +11,8 @@
 using clawhud::LaunchMode;
 using clawhud::ResolveLaunchMode;
 using clawhud::ShouldReconcileStartupRegistration;
-using clawhud::ShouldRestartAfterVelopackUpdate;
+using clawhud::ShouldAllowStartWithWindowsMutation;
+using clawhud::ShouldRunSelfUpdate;
 using clawhud::ToWireLaunchMode;
 namespace ctl = clawhud::control;
 
@@ -69,16 +70,20 @@ void LifecyclePolicy()
         "Standalone reconciles the startup shortcut at launch");
     Check(!ShouldReconcileStartupRegistration(LaunchMode::Managed),
         "Managed launch does not touch the startup shortcut");
+    Check(ShouldAllowStartWithWindowsMutation(LaunchMode::Standalone),
+        "Standalone accepts Start with Windows mutations");
+    Check(!ShouldAllowStartWithWindowsMutation(LaunchMode::Managed),
+        "Managed rejects Start with Windows mutations");
 
-    // Velopack restart-after-apply: Standalone only. The same predicate drives
-    // both the pending-update and newly-downloaded-update paths.
-    Check(ShouldRestartAfterVelopackUpdate(LaunchMode::Standalone),
-        "Standalone update restarts ClawHUD after apply");
-    Check(!ShouldRestartAfterVelopackUpdate(LaunchMode::Managed),
-        "Managed update applies with restart=false");
+    // ClawHUD self-update discovery/apply is Standalone-only.
+    Check(ShouldRunSelfUpdate(LaunchMode::Standalone),
+        "Standalone runs the ClawHUD self-update path");
+    Check(!ShouldRunSelfUpdate(LaunchMode::Managed),
+        "Managed does not run the ClawHUD self-update path");
 
     static_assert(ShouldReconcileStartupRegistration(LaunchMode::Standalone));
-    static_assert(!ShouldRestartAfterVelopackUpdate(LaunchMode::Managed));
+    static_assert(!ShouldAllowStartWithWindowsMutation(LaunchMode::Managed));
+    static_assert(!ShouldRunSelfUpdate(LaunchMode::Managed));
 }
 
 void EmptySpan()

@@ -22,12 +22,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
             })
         .Run();
 
-    // Reached only for a normal ClawHUD launch (Standalone, a Velopack restart,
-    // or an owner-driven `--managed` launch after a restart=false Managed
-    // update). The PresentMon shared-runtime prerequisite is now gated inside
-    // App::Run() -- after the single-instance and supported-hardware gates -- so
-    // an unsupported device or a losing second instance never triggers the
-    // elevated MSI path.
+    // Reached only for a normal ClawHUD launch (Standalone, a Standalone
+    // VeloPack restart, or an explicit SteamAddon-owned --managed launch).
+    // The PresentMon shared-runtime prerequisite is gated inside App::Run()
+    // after the single-instance and supported-hardware gates, so an unsupported
+    // device or a losing second instance never triggers the elevated MSI path.
     if (!SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2))
         return 1;
 

@@ -92,9 +92,6 @@ void App::StopRuntimeSources()
     gameSession_.StopSources();
     if (debugObservation_)
         debugObservation_->Stop();
-    if (hudHotkeyRegistered_ && runtimeMessageWindow_.Window())
-        UnregisterHotKey(runtimeMessageWindow_.Window(), kHudToggleHotkeyId);
-    hudHotkeyRegistered_ = false;
 }
 
 clawhud::GameSessionHooks App::MakeGameSessionHooks()
@@ -126,7 +123,11 @@ clawhud::GameSessionHooks App::MakeGameSessionHooks()
 int App::Run()
 {
     if (!AcquireSingleInstance()) return 0;
-    CheckForUpdates();
+    if (clawhud::ShouldRunSelfUpdate(launchMode_))
+        CheckForUpdates();
+    else
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info,
+            L"ClawHUD self-update skipped launchMode=Managed");
     const auto hardware = CheckSupportedHardware();
     if (hardware == HardwareSupport::Unsupported)
     {
@@ -148,7 +149,7 @@ int App::Run()
         return 0;
     // Managed launch is not the owner of the Standalone startup task and must
     // not create / delete / rewrite it; explicit SetStartWithWindows over IPC
-    // still can (see RuntimeLifecyclePolicy.h).
+    // is rejected by the semantic control boundary below.
     if (clawhud::ShouldReconcileStartupRegistration(launchMode_))
     {
         if (!ApplyStartupRegistration())
@@ -192,11 +193,6 @@ int App::Run()
             presentMonTelemetryProvider_);
         debugObservation_->Start();
     }
-    hudHotkeyRegistered_ = RegisterHotKey(runtimeMessageWindow_.Window(), kHudToggleHotkeyId,
-        MOD_NOREPEAT, VK_F8) != FALSE;
-    if (!hudHotkeyRegistered_)
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
-            L"RegisterHotKey(F8) failed; continuing without the global HUD toggle");
     const bool providerReady = presentMonTelemetryProvider_.Initialize();
     Log(L"[PresentMon] providerReady=" + std::to_wstring(providerReady) +
         L" processReady=" + std::to_wstring(
@@ -286,10 +282,16 @@ bool App::CommitHudOpacity(float opacity)
     return SetHudOpacity(opacity, true);
 }
 
-void App::SetStartWithWindows(bool enabled)
+bool App::SetStartWithWindows(bool enabled)
 {
+    if (!clawhud::ShouldAllowStartWithWindowsMutation(launchMode_))
+    {
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+            L"SetStartWithWindows rejected in Managed mode");
+        return false;
+    }
     if (startWithWindows_ == enabled)
-        return;
+        return true;
     const bool previous = startWithWindows_;
     startWithWindows_ = enabled;
     if (!ApplyStartupRegistration())
@@ -297,9 +299,10 @@ void App::SetStartWithWindows(bool enabled)
         startWithWindows_ = previous;
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
             enabled ? L"Startup registration failed" : L"Startup task removal failed");
-        return;
+        return false;
     }
     SaveHudSettings();
+    return true;
 }
 
 void App::HandleSystemSuspend()
@@ -350,14 +353,10 @@ void App::TryResumeRecovery()
         processId, gameSession_.VerifierProcessId(), gameSession_.VerifierRunning());
     const bool rendererForegroundActive = gameSession_.CurrentForegroundGameActive();
     const bool hudEnabled = hudController_.Enabled();
-    const auto manualOverride = hudController_.ManualOverride();
     const auto visibilityMode = hudController_.VisibilityMode();
-    const bool expectedVisible = hudEnabled &&
-        (manualOverride.has_value()
-            ? *manualOverride
-            : visibilityMode == clawhud::HudVisibilityMode::Always ||
-                rendererForegroundActive);
-    const bool visibilityUsesForeground = !manualOverride.has_value() &&
+    const bool expectedVisible = clawhud::ResolveHudVisible(
+        hudEnabled, visibilityMode, rendererForegroundActive);
+    const bool visibilityUsesForeground =
         visibilityMode == clawhud::HudVisibilityMode::InGameOnly;
     gameSession_.DiscardPendingRenderVerifierEvents();
     if (clawhud::ResumeRecoveryShouldWaitForForeground(
@@ -454,7 +453,6 @@ bool App::SetHudEnabled(bool enabled)
     if (!hudController_.Ensure()) return false;
     hudController_.MarkEnabled(true);
     gameSession_.ReevaluateForeground();
-    hudController_.ResetManualOverride();
     ReconcileHudVisibility();
     SaveHudEnabledSetting(true);
     return true;
@@ -597,22 +595,6 @@ void App::SetHudVisibilityMode(clawhud::HudVisibilityMode mode)
     ReconcileHudVisibility();
 }
 
-void App::HandleHudToggleHotkey()
-{
-    const auto hotkeyOverride = clawhud::ResolveHudHotkeyOverride(
-        hudController_.Enabled(), HudVisible());
-    if (!hotkeyOverride.has_value())
-    {
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
-            L"F8 HUD override ignored: HUD disabled");
-        return;
-    }
-    clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info,
-        *hotkeyOverride ? L"F8 HUD override=show" : L"F8 HUD override=hide");
-    hudController_.SetManualOverride(*hotkeyOverride);
-    ReconcileHudVisibility();
-}
-
 void App::ReconcileHudVisibility()
 {
     if (!hudController_.HasPresentation())
@@ -710,18 +692,13 @@ void App::CheckForUpdates()
         // VeloPack still owns version comparison, delta selection, staging, and
         // package validation.
         Velopack::UpdateManager manager(std::make_unique<clawhud::ClawHudUpdateSource>());
-        // Standalone lets Velopack restart ClawHUD normally; Managed applies and
-        // exits so the external owner relaunches `ClawHUD.exe --managed` itself.
-        // Both update sources use this one decision.
-        const bool restart = clawhud::ShouldRestartAfterVelopackUpdate(launchMode_);
         const std::wstring modeLog = std::wstring(L" launchMode=") +
-            clawhud::LaunchModeName(launchMode_) + L" restart=" +
-            (restart ? L"1" : L"0");
+            clawhud::LaunchModeName(launchMode_);
         const auto pending = manager.UpdatePendingRestart();
         if (pending.has_value())
         {
             Log(L"Velopack: applying pending update silently" + modeLog);
-            manager.WaitExitThenApplyUpdates(*pending, true, restart);
+            manager.WaitExitThenApplyUpdates(*pending, true, true);
             std::exit(0);
         }
         const auto update = manager.CheckForUpdates();
@@ -732,7 +709,7 @@ void App::CheckForUpdates()
         }
         Log(L"Velopack: downloaded update apply silently" + modeLog);
         manager.DownloadUpdates(*update);
-        manager.WaitExitThenApplyUpdates(*update, true, restart);
+        manager.WaitExitThenApplyUpdates(*update, true, true);
         std::exit(0);
     }
     catch (const std::exception&)
