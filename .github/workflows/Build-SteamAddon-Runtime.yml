@@ -1,0 +1,457 @@
+name: Build SteamAddon Runtime
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: clawhud-steamaddon-runtime-release
+  cancel-in-progress: false
+
+env:
+  REPOSITORY_URL: https://github.com/onehoon/ClawHUD
+
+jobs:
+  release:
+    name: Build and publish SteamAddon Managed Runtime
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout integration source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: integration/steamaddon
+
+      - name: Resolve source commit and next Runtime version
+        id: identity
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $sourceCommit = (git rev-parse HEAD).Trim().ToLowerInvariant()
+          if ($sourceCommit -notmatch '^[0-9a-f]{40}
+        shell: pwsh
+        run: >-
+          cmake -S . -B build -G "Visual Studio 18 2026" -A x64 -T v145
+          -DBUILD_TESTING=ON
+          "-DCLAWHUD_VERSION=${{ steps.identity.outputs.version }}"
+
+      - name: Build native Release x64
+        shell: pwsh
+        run: cmake --build build --config Release --parallel 2
+
+      - name: Run CTest Release
+        shell: pwsh
+        run: ctest --test-dir build -C Release --output-on-failure -E 'ClawHUD\.DiagWinEventTests'
+
+      - name: Package and validate Managed Runtime payload
+        shell: pwsh
+        run: >-
+          .\steamaddon-runtime\package-runtime.ps1
+          -BuildDirectory .\build
+          -OutputDirectory .\artifacts\SteamAddonRuntime
+          -RuntimeVersion "${{ steps.identity.outputs.version }}"
+          -SourceCommit "$env:SOURCE_COMMIT"
+
+      - name: Validate generated manifest and SHA-256
+        shell: pwsh
+        run: |
+          $artifactRoot = Join-Path $pwd 'artifacts\SteamAddonRuntime'
+          $zip = Join-Path $artifactRoot 'ClawHUDRuntime.zip'
+          $manifestPath = Join-Path $artifactRoot 'runtime-manifest.json'
+          $sidecar = Join-Path $artifactRoot 'ClawHUDRuntime.zip.sha256'
+          foreach ($path in @($zip, $manifestPath, $sidecar)) {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing Runtime artifact: $path" }
+          }
+          $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          $actual = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          $sidecarHash = ((Get-Content -LiteralPath $sidecar -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+          if ($manifest.runtime_version -ne '${{ steps.identity.outputs.version }}') { throw 'Runtime manifest version mismatch.' }
+          if ($manifest.tag -ne $env:RUNTIME_TAG) { throw 'Runtime manifest tag mismatch.' }
+          if ($manifest.source_commit -ne $env:SOURCE_COMMIT) { throw 'Runtime manifest source commit mismatch.' }
+          if ($manifest.asset -ne 'ClawHUDRuntime.zip') { throw 'Runtime manifest asset mismatch.' }
+          if ($manifest.sha256.ToLowerInvariant() -ne $actual -or $sidecarHash -ne $actual) { throw 'Runtime SHA-256 metadata does not match the exact zip.' }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [IO.Compression.ZipFile]::OpenRead($zip)
+          try {
+            $names = @($archive.Entries | ForEach-Object { $_.FullName -replace '\\', '/' })
+            if (-not ($names | Where-Object { $_ -like 'clawhud/*' })) { throw 'Runtime zip is missing the top-level clawhud/ directory.' }
+            if ($names | Where-Object { $_ -match '^([^/]+)$' }) { throw 'Runtime payload is flattened at zip root.' }
+            $embedded = $archive.GetEntry('clawhud/runtime-manifest.json')
+            if ($null -eq $embedded) { throw 'Embedded runtime manifest is missing.' }
+            $reader = New-Object IO.StreamReader($embedded.Open())
+            try { $embeddedManifest = $reader.ReadToEnd() | ConvertFrom-Json } finally { $reader.Dispose() }
+            if ($null -ne $embeddedManifest.sha256) { throw 'Embedded runtime manifest sha256 must be null.' }
+            foreach ($property in @('schema_version', 'runtime_version', 'tag', 'source_commit', 'asset')) {
+              if ($embeddedManifest.$property -ne $manifest.$property) { throw "Embedded runtime manifest field mismatch: $property" }
+            }
+          } finally { $archive.Dispose() }
+
+      - name: Managed startup smoke
+        shell: pwsh
+        run: |
+          $exe = Join-Path $pwd 'artifacts\SteamAddonRuntime\.staging\clawhud\ClawHUD.exe'
+          if (-not (Test-Path -LiteralPath $exe)) {
+            # The package script removes staging after packaging. Extract only
+            # the already-validated zip into a CI-private directory for smoke.
+            $smokeRoot = Join-Path $env:RUNNER_TEMP 'clawhud-managed-smoke'
+            Remove-Item -LiteralPath $smokeRoot -Recurse -Force -ErrorAction SilentlyContinue
+            New-Item -ItemType Directory -Force -Path $smokeRoot | Out-Null
+            Expand-Archive -LiteralPath (Join-Path $pwd 'artifacts\SteamAddonRuntime\ClawHUDRuntime.zip') -DestinationPath $smokeRoot -Force
+            $exe = Join-Path $smokeRoot 'clawhud\ClawHUD.exe'
+          }
+          $process = Start-Process -FilePath $exe -ArgumentList '--managed' -PassThru -WindowStyle Hidden
+          if (-not $process.WaitForExit(30000)) {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            throw 'Managed startup smoke exceeded the 30-second bound.'
+          }
+          if (@(21, 22) -notcontains $process.ExitCode) {
+            throw "Managed startup smoke returned unexpected exit code $($process.ExitCode); expected 21 or 22."
+          }
+          Write-Host "Managed startup smoke exit code: $($process.ExitCode)"
+
+      - name: Publish immutable Runtime Pre-release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $notes = @"
+          SteamAddon Managed Runtime
+
+          This pre-release is not intended for standalone installation.
+          Launch mode: ClawHUD.exe --managed
+          Runtime version: ${{ steps.identity.outputs.version }}
+          Source commit: $env:SOURCE_COMMIT
+          "@
+          gh release create $env:RUNTIME_TAG `
+            (Join-Path $pwd 'artifacts\SteamAddonRuntime\ClawHUDRuntime.zip') `
+            (Join-Path $pwd 'artifacts\SteamAddonRuntime\ClawHUDRuntime.zip.sha256') `
+            (Join-Path $pwd 'artifacts\SteamAddonRuntime\runtime-manifest.json') `
+            --repo $env:GITHUB_REPOSITORY `
+            --target $env:SOURCE_COMMIT `
+            --title "SteamAddon Runtime v${{ steps.identity.outputs.version }}" `
+            --notes $notes `
+            --prerelease
+
+      - name: Verify published Runtime assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $release = gh release view $env:RUNTIME_TAG --repo $env:GITHUB_REPOSITORY --json isDraft,isPrerelease,tagName,assets | ConvertFrom-Json
+          if ($release.isDraft -or -not $release.isPrerelease) { throw 'Published Runtime release is not a non-draft Pre-release.' }
+          $names = @($release.assets | ForEach-Object { $_.name } | Sort-Object)
+          $expected = @('ClawHUDRuntime.zip', 'ClawHUDRuntime.zip.sha256', 'runtime-manifest.json')
+          if (($names -join '|') -ne ($expected -join '|')) {
+            throw "Runtime release assets are not exactly the three contract assets: $($names -join ', ')"
+          }
+          $tagRef = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/tags/$env:RUNTIME_TAG" | ConvertFrom-Json
+          $targetSha = $tagRef.object.sha
+          if ($tagRef.object.type -eq 'tag') {
+            $targetSha = (gh api "repos/$env:GITHUB_REPOSITORY/git/tags/$targetSha" | ConvertFrom-Json).object.sha
+          }
+          if ($targetSha.ToLowerInvariant() -ne $env:SOURCE_COMMIT) {
+            throw "Published Runtime tag does not target the built source commit: $targetSha"
+          }
+) {
+            throw "Could not resolve integration/steamaddon HEAD: '$sourceCommit'."
+          }
+
+          git fetch --tags --force origin
+
+          $runtimeTags = @(
+            git tag --list 'steamaddon-runtime-v*' | ForEach-Object {
+              $tag = ([string]$_).Trim()
+              if ($tag -match '^steamaddon-runtime-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)
+        shell: pwsh
+        run: >-
+          cmake -S . -B build -G "Visual Studio 18 2026" -A x64 -T v145
+          -DBUILD_TESTING=ON
+          "-DCLAWHUD_VERSION=${{ steps.identity.outputs.version }}"
+
+      - name: Build native Release x64
+        shell: pwsh
+        run: cmake --build build --config Release --parallel 2
+
+      - name: Run CTest Release
+        shell: pwsh
+        run: ctest --test-dir build -C Release --output-on-failure -E 'ClawHUD\.DiagWinEventTests'
+
+      - name: Package and validate Managed Runtime payload
+        shell: pwsh
+        run: >-
+          .\steamaddon-runtime\package-runtime.ps1
+          -BuildDirectory .\build
+          -OutputDirectory .\artifacts\SteamAddonRuntime
+          -RuntimeVersion "${{ steps.identity.outputs.version }}"
+          -SourceCommit "$env:SOURCE_COMMIT"
+
+      - name: Validate generated manifest and SHA-256
+        shell: pwsh
+        run: |
+          $artifactRoot = Join-Path $pwd 'artifacts\SteamAddonRuntime'
+          $zip = Join-Path $artifactRoot 'ClawHUDRuntime.zip'
+          $manifestPath = Join-Path $artifactRoot 'runtime-manifest.json'
+          $sidecar = Join-Path $artifactRoot 'ClawHUDRuntime.zip.sha256'
+          foreach ($path in @($zip, $manifestPath, $sidecar)) {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing Runtime artifact: $path" }
+          }
+          $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          $actual = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          $sidecarHash = ((Get-Content -LiteralPath $sidecar -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+          if ($manifest.runtime_version -ne '${{ steps.identity.outputs.version }}') { throw 'Runtime manifest version mismatch.' }
+          if ($manifest.tag -ne $env:RUNTIME_TAG) { throw 'Runtime manifest tag mismatch.' }
+          if ($manifest.source_commit -ne $env:SOURCE_COMMIT) { throw 'Runtime manifest source commit mismatch.' }
+          if ($manifest.asset -ne 'ClawHUDRuntime.zip') { throw 'Runtime manifest asset mismatch.' }
+          if ($manifest.sha256.ToLowerInvariant() -ne $actual -or $sidecarHash -ne $actual) { throw 'Runtime SHA-256 metadata does not match the exact zip.' }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [IO.Compression.ZipFile]::OpenRead($zip)
+          try {
+            $names = @($archive.Entries | ForEach-Object { $_.FullName -replace '\\', '/' })
+            if (-not ($names | Where-Object { $_ -like 'clawhud/*' })) { throw 'Runtime zip is missing the top-level clawhud/ directory.' }
+            if ($names | Where-Object { $_ -match '^([^/]+)$' }) { throw 'Runtime payload is flattened at zip root.' }
+            $embedded = $archive.GetEntry('clawhud/runtime-manifest.json')
+            if ($null -eq $embedded) { throw 'Embedded runtime manifest is missing.' }
+            $reader = New-Object IO.StreamReader($embedded.Open())
+            try { $embeddedManifest = $reader.ReadToEnd() | ConvertFrom-Json } finally { $reader.Dispose() }
+            foreach ($property in @('schema_version', 'runtime_version', 'tag', 'source_commit', 'asset')) {
+              if ($embeddedManifest.$property -ne $manifest.$property) { throw "Embedded runtime manifest field mismatch: $property" }
+            }
+          } finally { $archive.Dispose() }
+
+      - name: Managed startup smoke
+        shell: pwsh
+        run: |
+          $exe = Join-Path $pwd 'artifacts\SteamAddonRuntime\.staging\clawhud\ClawHUD.exe'
+          if (-not (Test-Path -LiteralPath $exe)) {
+            # The package script removes staging after packaging. Extract only
+            # the already-validated zip into a CI-private directory for smoke.
+            $smokeRoot = Join-Path $env:RUNNER_TEMP 'clawhud-managed-smoke'
+            Remove-Item -LiteralPath $smokeRoot -Recurse -Force -ErrorAction SilentlyContinue
+            New-Item -ItemType Directory -Force -Path $smokeRoot | Out-Null
+            Expand-Archive -LiteralPath (Join-Path $pwd 'artifacts\SteamAddonRuntime\ClawHUDRuntime.zip') -DestinationPath $smokeRoot -Force
+            $exe = Join-Path $smokeRoot 'clawhud\ClawHUD.exe'
+          }
+          $process = Start-Process -FilePath $exe -ArgumentList '--managed' -PassThru -WindowStyle Hidden
+          if (-not $process.WaitForExit(30000)) {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            throw 'Managed startup smoke exceeded the 30-second bound.'
+          }
+          if (@(21, 22) -notcontains $process.ExitCode) {
+            throw "Managed startup smoke returned unexpected exit code $($process.ExitCode); expected 21 or 22."
+          }
+          Write-Host "Managed startup smoke exit code: $($process.ExitCode)"
+
+      - name: Publish immutable Runtime Pre-release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $notes = @"
+          SteamAddon Managed Runtime
+
+          This pre-release is not intended for standalone installation.
+          Launch mode: ClawHUD.exe --managed
+          Runtime version: ${{ steps.identity.outputs.version }}
+          Source commit: $env:SOURCE_COMMIT
+          "@
+          gh release create $env:RUNTIME_TAG `
+            (Join-Path $pwd 'artifacts\SteamAddonRuntime\ClawHUDRuntime.zip') `
+            (Join-Path $pwd 'artifacts\SteamAddonRuntime\ClawHUDRuntime.zip.sha256') `
+            (Join-Path $pwd 'artifacts\SteamAddonRuntime\runtime-manifest.json') `
+            --repo $env:GITHUB_REPOSITORY `
+            --target $env:SOURCE_COMMIT `
+            --title "SteamAddon Runtime v${{ steps.identity.outputs.version }}" `
+            --notes $notes `
+            --prerelease
+
+      - name: Verify published Runtime assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $release = gh release view $env:RUNTIME_TAG --repo $env:GITHUB_REPOSITORY --json isDraft,isPrerelease,tagName,assets | ConvertFrom-Json
+          if ($release.isDraft -or -not $release.isPrerelease) { throw 'Published Runtime release is not a non-draft Pre-release.' }
+          $names = @($release.assets | ForEach-Object { $_.name } | Sort-Object)
+          $expected = @('ClawHUDRuntime.zip', 'ClawHUDRuntime.zip.sha256', 'runtime-manifest.json')
+          if (($names -join '|') -ne ($expected -join '|')) {
+            throw "Runtime release assets are not exactly the three contract assets: $($names -join ', ')"
+          }
+          $tagRef = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/tags/$env:RUNTIME_TAG" | ConvertFrom-Json
+          $targetSha = $tagRef.object.sha
+          if ($tagRef.object.type -eq 'tag') {
+            $targetSha = (gh api "repos/$env:GITHUB_REPOSITORY/git/tags/$targetSha" | ConvertFrom-Json).object.sha
+          }
+          if ($targetSha.ToLowerInvariant() -ne $env:SOURCE_COMMIT) {
+            throw "Published Runtime tag does not target the built source commit: $targetSha"
+          }
+) {
+                [pscustomobject]@{
+                  Tag = $tag
+                  Version = [version]"$($Matches[1]).$($Matches[2]).$($Matches[3])"
+                }
+              }
+            }
+          )
+
+          if ($runtimeTags.Count -eq 0) {
+            $version = '1.0.0'
+          }
+          else {
+            $latest = $runtimeTags | Sort-Object Version -Descending | Select-Object -First 1
+            $latestCommit = (git rev-list -n 1 $latest.Tag).Trim().ToLowerInvariant()
+            if ($latestCommit -eq $sourceCommit) {
+              throw "integration/steamaddon HEAD is already published as $($latest.Tag)."
+            }
+            $version = "$($latest.Version.Major).$($latest.Version.Minor).$($latest.Version.Build + 1)"
+          }
+
+          $tag = "steamaddon-runtime-v$version"
+
+          git ls-remote --exit-code --tags origin "refs/tags/$tag" *> $null
+          if ($LASTEXITCODE -eq 0) {
+            throw "Runtime tag already exists and is immutable: $tag"
+          }
+          $LASTEXITCODE = 0
+
+          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            throw "GitHub Runtime release already exists and is immutable: $tag"
+          }
+          $LASTEXITCODE = 0
+
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "SOURCE_COMMIT=$sourceCommit" >> $env:GITHUB_ENV
+          "RUNTIME_TAG=$tag" >> $env:GITHUB_ENV
+
+          Write-Host "Source branch: integration/steamaddon"
+          Write-Host "Source commit: $sourceCommit"
+          Write-Host "Runtime version: $version"
+          Write-Host "Runtime tag: $tag"
+
+      - name: Configure native Release x64
+        shell: pwsh
+        run: >-
+          cmake -S . -B build -G "Visual Studio 18 2026" -A x64 -T v145
+          -DBUILD_TESTING=ON
+          "-DCLAWHUD_VERSION=${{ steps.identity.outputs.version }}"
+
+      - name: Build native Release x64
+        shell: pwsh
+        run: cmake --build build --config Release --parallel 2
+
+      - name: Run CTest Release
+        shell: pwsh
+        run: ctest --test-dir build -C Release --output-on-failure -E 'ClawHUD\.DiagWinEventTests'
+
+      - name: Package and validate Managed Runtime payload
+        shell: pwsh
+        run: >-
+          .\steamaddon-runtime\package-runtime.ps1
+          -BuildDirectory .\build
+          -OutputDirectory .\artifacts\SteamAddonRuntime
+          -RuntimeVersion "${{ steps.identity.outputs.version }}"
+          -SourceCommit "$env:SOURCE_COMMIT"
+
+      - name: Validate generated manifest and SHA-256
+        shell: pwsh
+        run: |
+          $artifactRoot = Join-Path $pwd 'artifacts\SteamAddonRuntime'
+          $zip = Join-Path $artifactRoot 'ClawHUDRuntime.zip'
+          $manifestPath = Join-Path $artifactRoot 'runtime-manifest.json'
+          $sidecar = Join-Path $artifactRoot 'ClawHUDRuntime.zip.sha256'
+          foreach ($path in @($zip, $manifestPath, $sidecar)) {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing Runtime artifact: $path" }
+          }
+          $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          $actual = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          $sidecarHash = ((Get-Content -LiteralPath $sidecar -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+          if ($manifest.runtime_version -ne '${{ steps.identity.outputs.version }}') { throw 'Runtime manifest version mismatch.' }
+          if ($manifest.tag -ne $env:RUNTIME_TAG) { throw 'Runtime manifest tag mismatch.' }
+          if ($manifest.source_commit -ne $env:SOURCE_COMMIT) { throw 'Runtime manifest source commit mismatch.' }
+          if ($manifest.asset -ne 'ClawHUDRuntime.zip') { throw 'Runtime manifest asset mismatch.' }
+          if ($manifest.sha256.ToLowerInvariant() -ne $actual -or $sidecarHash -ne $actual) { throw 'Runtime SHA-256 metadata does not match the exact zip.' }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [IO.Compression.ZipFile]::OpenRead($zip)
+          try {
+            $names = @($archive.Entries | ForEach-Object { $_.FullName -replace '\\', '/' })
+            if (-not ($names | Where-Object { $_ -like 'clawhud/*' })) { throw 'Runtime zip is missing the top-level clawhud/ directory.' }
+            if ($names | Where-Object { $_ -match '^([^/]+)$' }) { throw 'Runtime payload is flattened at zip root.' }
+            $embedded = $archive.GetEntry('clawhud/runtime-manifest.json')
+            if ($null -eq $embedded) { throw 'Embedded runtime manifest is missing.' }
+            $reader = New-Object IO.StreamReader($embedded.Open())
+            try { $embeddedManifest = $reader.ReadToEnd() | ConvertFrom-Json } finally { $reader.Dispose() }
+            foreach ($property in @('schema_version', 'runtime_version', 'tag', 'source_commit', 'asset')) {
+              if ($embeddedManifest.$property -ne $manifest.$property) { throw "Embedded runtime manifest field mismatch: $property" }
+            }
+          } finally { $archive.Dispose() }
+
+      - name: Managed startup smoke
+        shell: pwsh
+        run: |
+          $exe = Join-Path $pwd 'artifacts\SteamAddonRuntime\.staging\clawhud\ClawHUD.exe'
+          if (-not (Test-Path -LiteralPath $exe)) {
+            # The package script removes staging after packaging. Extract only
+            # the already-validated zip into a CI-private directory for smoke.
+            $smokeRoot = Join-Path $env:RUNNER_TEMP 'clawhud-managed-smoke'
+            Remove-Item -LiteralPath $smokeRoot -Recurse -Force -ErrorAction SilentlyContinue
+            New-Item -ItemType Directory -Force -Path $smokeRoot | Out-Null
+            Expand-Archive -LiteralPath (Join-Path $pwd 'artifacts\SteamAddonRuntime\ClawHUDRuntime.zip') -DestinationPath $smokeRoot -Force
+            $exe = Join-Path $smokeRoot 'clawhud\ClawHUD.exe'
+          }
+          $process = Start-Process -FilePath $exe -ArgumentList '--managed' -PassThru -WindowStyle Hidden
+          if (-not $process.WaitForExit(30000)) {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            throw 'Managed startup smoke exceeded the 30-second bound.'
+          }
+          if (@(21, 22) -notcontains $process.ExitCode) {
+            throw "Managed startup smoke returned unexpected exit code $($process.ExitCode); expected 21 or 22."
+          }
+          Write-Host "Managed startup smoke exit code: $($process.ExitCode)"
+
+      - name: Publish immutable Runtime Pre-release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $notes = @"
+          SteamAddon Managed Runtime
+
+          This pre-release is not intended for standalone installation.
+          Launch mode: ClawHUD.exe --managed
+          Runtime version: ${{ steps.identity.outputs.version }}
+          Source commit: $env:SOURCE_COMMIT
+          "@
+          gh release create $env:RUNTIME_TAG `
+            (Join-Path $pwd 'artifacts\SteamAddonRuntime\ClawHUDRuntime.zip') `
+            (Join-Path $pwd 'artifacts\SteamAddonRuntime\ClawHUDRuntime.zip.sha256') `
+            (Join-Path $pwd 'artifacts\SteamAddonRuntime\runtime-manifest.json') `
+            --repo $env:GITHUB_REPOSITORY `
+            --target $env:SOURCE_COMMIT `
+            --title "SteamAddon Runtime v${{ steps.identity.outputs.version }}" `
+            --notes $notes `
+            --prerelease
+
+      - name: Verify published Runtime assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $release = gh release view $env:RUNTIME_TAG --repo $env:GITHUB_REPOSITORY --json isDraft,isPrerelease,tagName,assets | ConvertFrom-Json
+          if ($release.isDraft -or -not $release.isPrerelease) { throw 'Published Runtime release is not a non-draft Pre-release.' }
+          $names = @($release.assets | ForEach-Object { $_.name } | Sort-Object)
+          $expected = @('ClawHUDRuntime.zip', 'ClawHUDRuntime.zip.sha256', 'runtime-manifest.json')
+          if (($names -join '|') -ne ($expected -join '|')) {
+            throw "Runtime release assets are not exactly the three contract assets: $($names -join ', ')"
+          }
+          $tagRef = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/tags/$env:RUNTIME_TAG" | ConvertFrom-Json
+          $targetSha = $tagRef.object.sha
+          if ($tagRef.object.type -eq 'tag') {
+            $targetSha = (gh api "repos/$env:GITHUB_REPOSITORY/git/tags/$targetSha" | ConvertFrom-Json).object.sha
+          }
+          if ($targetSha.ToLowerInvariant() -ne $env:SOURCE_COMMIT) {
+            throw "Published Runtime tag does not target the built source commit: $targetSha"
+          }
