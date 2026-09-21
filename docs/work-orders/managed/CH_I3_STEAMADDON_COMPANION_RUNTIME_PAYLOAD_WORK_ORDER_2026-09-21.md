@@ -223,41 +223,31 @@ If payload changes, publish steamaddon-runtime-v1.0.3.
 
 Do not use a single moving runtime tag as dependency authority.
 
-### Explicit release request
+### One-click release workflow
 
-The dedicated workflow must be usable while `integration/steamaddon` is not the
-repository default branch. GitHub does not expose `workflow_dispatch` for a
-workflow file that exists only on a non-default branch, so publication is
-requested by an explicit change to:
+The repository default branch contains only the `Build SteamAddon Runtime`
+GitHub Actions entry point so the Actions UI exposes `Run workflow`.
 
-    steamaddon-runtime/release-request.json
+The workflow takes no user inputs. It always checks out the latest:
 
-The request is the only path trigger for the Runtime workflow. Its format is:
+    integration/steamaddon
 
-    {
-      "schema_version": 1,
-      "version": "1.0.0"
-    }
+HEAD and resolves the exact source commit after checkout.
 
-The workflow reads and validates `version` from that file at the exact pushed
-`integration/steamaddon` commit. Updating the request file to a new version is
-the intentional publication action; ordinary source pushes do not publish a
-Runtime.
+Runtime versioning is automatic:
 
-Version format:
+    no steamaddon-runtime-v* tag -> 1.0.0
+    latest 1.0.0                -> 1.0.1
+    latest 1.0.1                -> 1.0.2
 
-    MAJOR.MINOR.PATCH
+Only strict `steamaddon-runtime-vMAJOR.MINOR.PATCH` tags participate.
+The workflow increments PATCH only. If the latest Runtime tag already
+targets the current integration HEAD, it fails instead of publishing the
+same source commit again.
 
-Examples:
+The user must not choose a source branch or enter a version.
 
-    1.0.0    valid
-    1.2.17   valid
-
-    v1.0.0   invalid
-    1.0      invalid
-    1.0.0-beta invalid for CH-I3
-
-Do not infer or consume a mutable latest Runtime version.
+Do not infer or consume a mutable latest Runtime asset URL.
 
 ---
 
@@ -546,19 +536,20 @@ Do not merge the two release pipelines.
 
 ### Trigger
 
-Use an explicit release-request push only:
+Use a zero-input manual workflow:
 
-    push:
-      branches:
-        - integration/steamaddon
-      paths:
-        - steamaddon-runtime/release-request.json
+    workflow_dispatch:
 
-The workflow must fail immediately unless:
+The workflow file exists on the default branch only to expose the GitHub
+Actions `Run workflow` button. Product/runtime source selection is not taken
+from the workflow UI ref.
 
-    github.ref == refs/heads/integration/steamaddon
+The workflow itself always checks out:
 
-A Runtime release must not be published from main or an arbitrary branch.
+    integration/steamaddon
+
+and resolves that branch HEAD to an exact source commit before building.
+No user branch selection or version input participates in product identity.
 
 ### Permissions
 
@@ -584,13 +575,13 @@ Do not share the Standalone release concurrency group.
 
 The dedicated workflow should perform:
 
-1. Verify branch is integration/steamaddon.
-2. Checkout the exact pushed commit with full history/tags.
-3. Read and validate `steamaddon-runtime/release-request.json`.
-4. Resolve exact source commit.
-5. Fail if Runtime tag already exists.
-6. Fail if GitHub Runtime release already exists.
-7. Configure native Release with BUILD_TESTING=ON and CLAWHUD_VERSION equal to Runtime version.
+1. Checkout latest `integration/steamaddon` with full history/tags.
+2. Resolve the exact source commit.
+3. Enumerate strict existing `steamaddon-runtime-vMAJOR.MINOR.PATCH` tags.
+4. Start at `1.0.0` when none exist, otherwise increment latest PATCH.
+5. Fail if latest Runtime tag already targets the current source commit.
+6. Fail if the next Runtime tag or GitHub Release already exists.
+7. Configure native Release with BUILD_TESTING=ON and CLAWHUD_VERSION equal to the derived Runtime version.
 8. Build Release.
 9. Run CTest Release.
 10. Run package-runtime.ps1.
@@ -958,7 +949,6 @@ Primary expected files:
     steamaddon-runtime/README.md
     steamaddon-runtime/payload.manifest.json
     steamaddon-runtime/package-runtime.ps1
-    steamaddon-runtime/release-request.json
     .github/workflows/Build-SteamAddon-Runtime.yml
 
 A small PowerShell packaging test is acceptable if it provides useful contract coverage.
@@ -995,7 +985,7 @@ Assert private .NET runtime files are absent.
 
 Verify:
 
-    runtime_version == release-request.json version
+    runtime_version == automatically derived Runtime version
     tag == steamaddon-runtime-v<version>
     source_commit == exact 40-character checkout SHA
     asset == ClawHUDRuntime.zip
@@ -1040,17 +1030,19 @@ Do not add elaborate transaction/state machinery.
 
 ---
 
-## 33. No automatic publication on ordinary source push
+## 33. Publication is explicit and one-click
 
-Do not publish a Runtime Pre-release for every integration/steamaddon push.
+Ordinary pushes to `integration/steamaddon` do not publish Runtime releases.
 
-HUD changes are relatively infrequent and Runtime adoption should be intentional.
+Publication happens only when a user opens GitHub Actions and runs:
 
-Published tags are immutable, so intermediate integration commits should not
-automatically become downloadable Runtime releases. The only publication
-trigger is an explicit change to `steamaddon-runtime/release-request.json` on
-`integration/steamaddon`; the request version is validated before any build
-or publication step.
+    Build SteamAddon Runtime
+
+with no inputs.
+
+The workflow always builds current `integration/steamaddon` HEAD and derives
+the next PATCH version from immutable Runtime tags. This keeps publication
+intentional without requiring a version-file commit or branch/version entry.
 
 ---
 
@@ -1133,9 +1125,10 @@ Required design:
     [ ] main is not modified directly
     [ ] existing Standalone Build-Release behavior remains unchanged
     [ ] separate Build-SteamAddon-Runtime workflow exists
-    [ ] Runtime publication only allowed from integration/steamaddon
-    [ ] publication is triggered only by an explicit release-request file change on integration/steamaddon
-    [ ] release-request version is strict MAJOR.MINOR.PATCH
+    [ ] workflow UI requires no branch or version input
+    [ ] workflow always checks out latest integration/steamaddon HEAD
+    [ ] Runtime version is automatically derived from strict immutable Runtime tags
+    [ ] duplicate publication of the same integration source commit is rejected
     [ ] CMake still accepts Standalone 0.1.x and accepts independent Runtime version
     [ ] Runtime tag is steamaddon-runtime-vX.Y.Z
     [ ] Runtime release is GitHub Pre-release
@@ -1183,7 +1176,7 @@ After CH-I3:
     onehoon/ClawHUD
     integration/steamaddon
             |
-            | intentional release-request commit
+            | Run workflow (no inputs)
             v
     Build-SteamAddon-Runtime.yml
             |
