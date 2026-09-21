@@ -223,11 +223,28 @@ If payload changes, publish steamaddon-runtime-v1.0.3.
 
 Do not use a single moving runtime tag as dependency authority.
 
-### Explicit version input
+### Explicit release request
 
-The dedicated workflow should use workflow_dispatch with a required version input.
+The dedicated workflow must be usable while `integration/steamaddon` is not the
+repository default branch. GitHub does not expose `workflow_dispatch` for a
+workflow file that exists only on a non-default branch, so publication is
+requested by an explicit change to:
 
-Input format:
+    steamaddon-runtime/release-request.json
+
+The request is the only path trigger for the Runtime workflow. Its format is:
+
+    {
+      "schema_version": 1,
+      "version": "1.0.0"
+    }
+
+The workflow reads and validates `version` from that file at the exact pushed
+`integration/steamaddon` commit. Updating the request file to a new version is
+the intentional publication action; ordinary source pushes do not publish a
+Runtime.
+
+Version format:
 
     MAJOR.MINOR.PATCH
 
@@ -456,7 +473,7 @@ Generate:
 
     artifacts/SteamAddonRuntime/runtime-manifest.json
 
-and place the same identity manifest inside:
+and place the same non-hash identity manifest inside:
 
     clawhud/runtime-manifest.json
 
@@ -473,7 +490,18 @@ Recommended minimum:
       "sha256": "<canonical sha256>"
     }
 
-The external manifest, embedded manifest, and SHA sidecar must agree.
+The external release manifest and `ClawHUDRuntime.zip.sha256` sidecar contain
+the canonical SHA-256 of the exact final zip. The embedded manifest must keep
+the same `schema_version`, `runtime_version`, `tag`, `source_commit`, and
+`asset` fields, but its `sha256` value must be `null`. An archive cannot
+contain the final hash of the archive that contains that same manifest without
+a self-referential hash.
+
+The future Addon consumer verifies the exact zip against its locally pinned
+SHA-256 (or the downloaded external manifest) before extraction. After
+extraction it compares only the embedded manifest's non-hash identity fields
+against the external manifest/lock. It must not reject a valid payload because
+the embedded `sha256` is `null`.
 
 Do not add:
 
@@ -518,12 +546,13 @@ Do not merge the two release pipelines.
 
 ### Trigger
 
-Use manual publication only:
+Use an explicit release-request push only:
 
-    workflow_dispatch:
-      inputs:
-        version:
-          required: true
+    push:
+      branches:
+        - integration/steamaddon
+      paths:
+        - steamaddon-runtime/release-request.json
 
 The workflow must fail immediately unless:
 
@@ -556,8 +585,8 @@ Do not share the Standalone release concurrency group.
 The dedicated workflow should perform:
 
 1. Verify branch is integration/steamaddon.
-2. Validate Runtime version input.
-3. Checkout exact selected commit with full history/tags.
+2. Checkout the exact pushed commit with full history/tags.
+3. Read and validate `steamaddon-runtime/release-request.json`.
 4. Resolve exact source commit.
 5. Fail if Runtime tag already exists.
 6. Fail if GitHub Runtime release already exists.
@@ -929,6 +958,7 @@ Primary expected files:
     steamaddon-runtime/README.md
     steamaddon-runtime/payload.manifest.json
     steamaddon-runtime/package-runtime.ps1
+    steamaddon-runtime/release-request.json
     .github/workflows/Build-SteamAddon-Runtime.yml
 
 A small PowerShell packaging test is acceptable if it provides useful contract coverage.
@@ -965,11 +995,14 @@ Assert private .NET runtime files are absent.
 
 Verify:
 
-    runtime_version == workflow input
+    runtime_version == release-request.json version
     tag == steamaddon-runtime-v<version>
     source_commit == exact 40-character checkout SHA
     asset == ClawHUDRuntime.zip
-    sha256 == actual zip SHA-256
+    external manifest sha256 == actual zip SHA-256
+    SHA sidecar == actual zip SHA-256
+    embedded manifest sha256 == null
+    embedded non-hash identity fields == external manifest
 
 ### Zip layout
 
@@ -1007,15 +1040,17 @@ Do not add elaborate transaction/state machinery.
 
 ---
 
-## 33. No automatic publication on source push
+## 33. No automatic publication on ordinary source push
 
 Do not publish a Runtime Pre-release for every integration/steamaddon push.
 
 HUD changes are relatively infrequent and Runtime adoption should be intentional.
 
-Published tags are immutable, so intermediate integration commits should not automatically become downloadable Runtime releases.
-
-The release workflow is an explicit manual product action.
+Published tags are immutable, so intermediate integration commits should not
+automatically become downloadable Runtime releases. The only publication
+trigger is an explicit change to `steamaddon-runtime/release-request.json` on
+`integration/steamaddon`; the request version is validated before any build
+or publication step.
 
 ---
 
@@ -1099,8 +1134,8 @@ Required design:
     [ ] existing Standalone Build-Release behavior remains unchanged
     [ ] separate Build-SteamAddon-Runtime workflow exists
     [ ] Runtime publication only allowed from integration/steamaddon
-    [ ] publication is manual workflow_dispatch
-    [ ] Runtime version input is strict MAJOR.MINOR.PATCH
+    [ ] publication is triggered only by an explicit release-request file change on integration/steamaddon
+    [ ] release-request version is strict MAJOR.MINOR.PATCH
     [ ] CMake still accepts Standalone 0.1.x and accepts independent Runtime version
     [ ] Runtime tag is steamaddon-runtime-vX.Y.Z
     [ ] Runtime release is GitHub Pre-release
@@ -1122,7 +1157,8 @@ Required design:
     [ ] LICENSE included
     [ ] THIRD-PARTY-NOTICES.md included
     [ ] payload.manifest.json owns payload shape
-    [ ] runtime-manifest records Runtime version/tag/source commit/asset/hash
+    [ ] external runtime-manifest records Runtime version/tag/source commit/asset/exact zip hash
+    [ ] embedded runtime-manifest records the same non-hash identity fields and sha256=null
     [ ] ClawHUDRuntime.zip contains top-level clawhud/
     [ ] SHA sidecar matches exact zip
     [ ] staged --managed smoke exits 21/22 on CI
@@ -1147,7 +1183,7 @@ After CH-I3:
     onehoon/ClawHUD
     integration/steamaddon
             |
-            | intentional manual Runtime publish
+            | intentional release-request commit
             v
     Build-SteamAddon-Runtime.yml
             |
