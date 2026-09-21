@@ -18,8 +18,17 @@ This is a ClawHUD-side SteamAddon integration task.
     Work from: integration/steamaddon
     PR base:   integration/steamaddon
 
-Do not target main.  
-Do not merge this PR directly into main.  
+Runtime/product implementation remains on `integration/steamaddon`.
+
+The only intentional `main` exception is:
+
+    .github/workflows/Build-SteamAddon-Runtime.yml
+
+That default-branch workflow exists solely so GitHub exposes the `Run workflow`
+button. It always checks out `integration/steamaddon` before resolving source
+identity, building, testing, packaging, and publishing.
+
+Do not move ClawHUD Runtime/product implementation to main during this integration.
 Do not change SteamAddonforClaw in this PR.
 
 The future SteamAddon consumer, pin, downloader, and process owner are separate Addon-side work.
@@ -1121,8 +1130,8 @@ Required design:
 
 ## 37. PR review checklist
 
-    [ ] PR base is integration/steamaddon
-    [ ] main is not modified directly
+    [ ] Runtime/product implementation remains based on integration/steamaddon
+    [ ] main contains only the intentional workflow entry point for one-click publication
     [ ] existing Standalone Build-Release behavior remains unchanged
     [ ] separate Build-SteamAddon-Runtime workflow exists
     [ ] workflow UI requires no branch or version input
