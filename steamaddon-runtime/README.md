@@ -26,6 +26,7 @@ existing `steamaddon-runtime-vX.Y.Z` tags. If none exist it starts at
 `1.0.0`; otherwise it increments PATCH. If the current integration HEAD is
 already the latest published Runtime commit, publication fails instead of
 creating duplicate Runtime versions for identical source.
+
 The generated external `runtime-manifest.json` records the exact Runtime
 version, immutable tag, source commit, asset name, and SHA-256 of the final
 `ClawHUDRuntime.zip`. The same identity manifest is staged inside the payload
