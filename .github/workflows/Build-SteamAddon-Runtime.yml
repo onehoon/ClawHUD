@@ -50,33 +50,41 @@ jobs:
             }
           )
 
+          $reuseExisting = $false
           if ($runtimeTags.Count -eq 0) {
             $version = '1.0.0'
+            $tag = "steamaddon-runtime-v$version"
           }
           else {
             $latest = $runtimeTags | Sort-Object Version -Descending | Select-Object -First 1
             $latestCommit = (git rev-list -n 1 $latest.Tag).Trim().ToLowerInvariant()
             if ($latestCommit -eq $sourceCommit) {
-              throw "integration/steamaddon HEAD is already published as $($latest.Tag)."
+              $version = "$($latest.Version.Major).$($latest.Version.Minor).$($latest.Version.Build)"
+              $tag = $latest.Tag
+              $reuseExisting = $true
             }
-            $version = "$($latest.Version.Major).$($latest.Version.Minor).$($latest.Version.Build + 1)"
+            else {
+              $version = "$($latest.Version.Major).$($latest.Version.Minor).$($latest.Version.Build + 1)"
+              $tag = "steamaddon-runtime-v$version"
+            }
           }
 
-          $tag = "steamaddon-runtime-v$version"
+          if (-not $reuseExisting) {
+            git ls-remote --exit-code --tags origin "refs/tags/$tag" *> $null
+            if ($LASTEXITCODE -eq 0) {
+              throw "Runtime tag already exists and is immutable: $tag"
+            }
+            $LASTEXITCODE = 0
 
-          git ls-remote --exit-code --tags origin "refs/tags/$tag" *> $null
-          if ($LASTEXITCODE -eq 0) {
-            throw "Runtime tag already exists and is immutable: $tag"
+            gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+            if ($LASTEXITCODE -eq 0) {
+              throw "GitHub Runtime release already exists and is immutable: $tag"
+            }
+            $LASTEXITCODE = 0
           }
-          $LASTEXITCODE = 0
-
-          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
-          if ($LASTEXITCODE -eq 0) {
-            throw "GitHub Runtime release already exists and is immutable: $tag"
-          }
-          $LASTEXITCODE = 0
 
           "version=$version" >> $env:GITHUB_OUTPUT
+          "reuse_existing=$($reuseExisting.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
           "SOURCE_COMMIT=$sourceCommit" >> $env:GITHUB_ENV
           "RUNTIME_TAG=$tag" >> $env:GITHUB_ENV
 
@@ -84,8 +92,49 @@ jobs:
           Write-Host "Source commit: $sourceCommit"
           Write-Host "Runtime version: $version"
           Write-Host "Runtime tag: $tag"
+          Write-Host "Reuse existing release: $reuseExisting"
+
+      - name: Verify SteamAddon dispatch configuration
+        shell: pwsh
+        env:
+          APP_CLIENT_ID: ${{ vars.VIIPER_ADDON_BOT_CLIENT_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.VIIPER_ADDON_BOT_PRIVATE_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:APP_CLIENT_ID) -or
+              [string]::IsNullOrWhiteSpace($env:APP_PRIVATE_KEY)) {
+            throw 'SteamAddon dispatch configuration is missing. Set VIIPER_ADDON_BOT_CLIENT_ID and VIIPER_ADDON_BOT_PRIVATE_KEY for the ClawHUD repository.'
+          }
+
+      - name: Generate SteamAddon dispatch token
+        id: steamaddon-app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.VIIPER_ADDON_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.VIIPER_ADDON_BOT_PRIVATE_KEY }}
+          owner: onehoon
+          repositories: |
+            SteamAddonforClaw
+          permission-contents: write
+
+      - name: Download already-published Runtime artifacts
+        if: steps.identity.outputs.reuse_existing == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $artifactRoot = Join-Path $pwd 'artifacts\SteamAddonRuntime'
+          Remove-Item -LiteralPath $artifactRoot -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $artifactRoot | Out-Null
+          foreach ($asset in @('ClawHUDRuntime.zip', 'ClawHUDRuntime.zip.sha256', 'runtime-manifest.json')) {
+            gh release download $env:RUNTIME_TAG --repo $env:GITHUB_REPOSITORY --pattern $asset --dir $artifactRoot --clobber
+            if ($LASTEXITCODE -ne 0) {
+              throw "Could not download existing Runtime asset '$asset' from $env:RUNTIME_TAG."
+            }
+          }
+          Write-Host "Reusing already-published Runtime $env:RUNTIME_TAG for dispatch recovery."
 
       - name: Configure native Release x64
+        if: steps.identity.outputs.reuse_existing != 'true'
         shell: pwsh
         run: >-
           cmake -S . -B build -G "Visual Studio 18 2026" -A x64 -T v145
@@ -93,14 +142,17 @@ jobs:
           "-DCLAWHUD_VERSION=${{ steps.identity.outputs.version }}"
 
       - name: Build native Release x64
+        if: steps.identity.outputs.reuse_existing != 'true'
         shell: pwsh
         run: cmake --build build --config Release --parallel 2
 
       - name: Run CTest Release
+        if: steps.identity.outputs.reuse_existing != 'true'
         shell: pwsh
         run: ctest --test-dir build -C Release --output-on-failure -E 'ClawHUD\.DiagWinEventTests'
 
       - name: Package and validate Managed Runtime payload
+        if: steps.identity.outputs.reuse_existing != 'true'
         shell: pwsh
         run: >-
           .\steamaddon-runtime\package-runtime.ps1
@@ -144,6 +196,7 @@ jobs:
           } finally { $archive.Dispose() }
 
       - name: Managed startup smoke
+        if: steps.identity.outputs.reuse_existing != 'true'
         shell: pwsh
         run: |
           $exe = Join-Path $pwd 'artifacts\SteamAddonRuntime\.staging\clawhud\ClawHUD.exe'
@@ -167,6 +220,7 @@ jobs:
           Write-Host "Managed startup smoke exit code: $($process.ExitCode)"
 
       - name: Publish immutable Runtime Pre-release
+        if: steps.identity.outputs.reuse_existing != 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -209,28 +263,6 @@ jobs:
           if ($targetSha.ToLowerInvariant() -ne $env:SOURCE_COMMIT) {
             throw "Published Runtime tag does not target the built source commit: $targetSha"
           }
-
-      - name: Verify SteamAddon dispatch configuration
-        shell: pwsh
-        env:
-          APP_CLIENT_ID: ${{ vars.VIIPER_ADDON_BOT_CLIENT_ID }}
-          APP_PRIVATE_KEY: ${{ secrets.VIIPER_ADDON_BOT_PRIVATE_KEY }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:APP_CLIENT_ID) -or
-              [string]::IsNullOrWhiteSpace($env:APP_PRIVATE_KEY)) {
-            throw 'SteamAddon dispatch configuration is missing. Set VIIPER_ADDON_BOT_CLIENT_ID and VIIPER_ADDON_BOT_PRIVATE_KEY for the ClawHUD repository.'
-          }
-
-      - name: Generate SteamAddon dispatch token
-        id: steamaddon-app-token
-        uses: actions/create-github-app-token@v3
-        with:
-          client-id: ${{ vars.VIIPER_ADDON_BOT_CLIENT_ID }}
-          private-key: ${{ secrets.VIIPER_ADDON_BOT_PRIVATE_KEY }}
-          owner: onehoon
-          repositories: |
-            SteamAddonforClaw
-          permission-contents: write
 
       - name: Dispatch verified Runtime identity to SteamAddon
         shell: pwsh
