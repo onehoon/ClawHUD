@@ -42,6 +42,16 @@ void Log(const std::wstring& message)
 
 using clawhud::ProcessAlive;
 
+int ReportManagedStartupFailure(clawhud::ManagedStartupExitCode code)
+{
+    const int exitCode = clawhud::ToProcessExitCode(code);
+    clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
+        std::wstring(L"Managed startup failed reason=") +
+        clawhud::ManagedStartupFailureReason(code) +
+        L" exitCode=" + std::to_wstring(exitCode));
+    return exitCode;
+}
+
 }
 
 App::App(HINSTANCE instance, clawhud::LaunchMode launchMode)
@@ -122,7 +132,16 @@ clawhud::GameSessionHooks App::MakeGameSessionHooks()
 
 int App::Run()
 {
-    if (!AcquireSingleInstance()) return 0;
+    const auto instanceResult = AcquireSingleInstance();
+    if (instanceResult != SingleInstanceResult::Acquired)
+    {
+        if (launchMode_ != clawhud::LaunchMode::Managed)
+            return 0;
+        return ReportManagedStartupFailure(
+            instanceResult == SingleInstanceResult::AlreadyRunning
+                ? clawhud::ManagedStartupExitCode::AlreadyRunning
+                : clawhud::ManagedStartupExitCode::RuntimeInitializationFailed);
+    }
     if (clawhud::ShouldRunSelfUpdate(launchMode_))
         CheckForUpdates();
     else
@@ -131,12 +150,18 @@ int App::Run()
     const auto hardware = CheckSupportedHardware();
     if (hardware == HardwareSupport::Unsupported)
     {
+        if (!clawhud::ShouldShowStartupFailureUi(launchMode_))
+            return ReportManagedStartupFailure(
+                clawhud::ManagedStartupExitCode::UnsupportedHardware);
         MessageBoxW(nullptr, L"This device is not supported by ClawHUD.", L"ClawHUD",
             MB_OK | MB_ICONWARNING);
         return 0;
     }
     if (hardware == HardwareSupport::Indeterminate)
     {
+        if (!clawhud::ShouldShowStartupFailureUi(launchMode_))
+            return ReportManagedStartupFailure(
+                clawhud::ManagedStartupExitCode::HardwareIndeterminate);
         MessageBoxW(nullptr,
             L"This device could not be identified. ClawHUD will exit without making any changes.",
             L"ClawHUD", MB_OK | MB_ICONWARNING);
@@ -145,8 +170,9 @@ int App::Run()
     // PresentMon shared-runtime prerequisite. Gated here so an unsupported device
     // or a losing second instance never reaches the elevated MSI path, and so a
     // fatal result stops startup before any runtime side effect below.
-    if (!HandlePresentMonRuntimeBootstrapResult(clawhud::EnsurePresentMonRuntime()))
-        return 0;
+    if (const auto startupExitCode = HandlePresentMonRuntimeBootstrapResult(
+            clawhud::EnsurePresentMonRuntime()))
+        return *startupExitCode;
     // Managed launch is not the owner of the Standalone startup task and must
     // not create / delete / rewrite it; explicit SetStartWithWindows over IPC
     // is rejected by the semantic control boundary below.
@@ -163,6 +189,9 @@ int App::Run()
     }
     if (!runtimeMessageWindow_.Create(instance_))
     {
+        if (launchMode_ == clawhud::LaunchMode::Managed)
+            return ReportManagedStartupFailure(
+                clawhud::ManagedStartupExitCode::RuntimeInitializationFailed);
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
             L"Runtime message window initialization failed");
         return 1;
@@ -201,6 +230,9 @@ int App::Run()
             presentMonTelemetryProvider_.SystemReady()));
     if (!gameSession_.StartForegroundTracking())
     {
+        if (launchMode_ == clawhud::LaunchMode::Managed)
+            return ReportManagedStartupFailure(
+                clawhud::ManagedStartupExitCode::RuntimeInitializationFailed);
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
             L"Foreground tracker initialization failed");
         return 1;
@@ -233,7 +265,7 @@ int App::Run()
             metadata.launchMode = clawhud::ToWireLaunchMode(launchMode_);
             return clawhud::ExecuteRuntimeControlRequest(request, *this, metadata);
         });
-    if (!runtimeControlPipeServer_.Start(
+    const bool controlPipeStarted = runtimeControlPipeServer_.Start(
             [this](const clawhud::control::ControlRequest& request)
             {
                 return runtimeControlBridge_.Dispatch(request);
@@ -242,7 +274,12 @@ int App::Run()
             {
                 return PostMessageW(runtimeMessageWindow_.Window(),
                     kRuntimeControlShutdownReadyMessage, 0, 0) != FALSE;
-            }))
+            });
+    if (!controlPipeStarted &&
+        clawhud::ShouldFailStartupWhenControlIpcUnavailable(launchMode_))
+        return ReportManagedStartupFailure(
+            clawhud::ManagedStartupExitCode::ControlIpcUnavailable);
+    if (!controlPipeStarted)
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
             L"Control pipe server did not start; continuing without external Control IPC");
     return ProcessMessages();
@@ -613,23 +650,31 @@ void App::ReconcileHudVisibility()
         StopProductionSampling(clawhud::SamplingStopCause::HudHidden, false);
 }
 
-bool App::AcquireSingleInstance()
+App::SingleInstanceResult App::AcquireSingleInstance()
 {
     instanceMutex_ = CreateMutexW(nullptr, TRUE, kInstanceMutexName);
     if (!instanceMutex_)
     {
+        if (launchMode_ == clawhud::LaunchMode::Managed)
+            return SingleInstanceResult::Failed;
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
             L"CreateMutex failed; exiting");
-        return false;
+        return SingleInstanceResult::Failed;
     }
     if (GetLastError() == ERROR_ALREADY_EXISTS)
     {
+        if (launchMode_ == clawhud::LaunchMode::Managed)
+        {
+            CloseHandle(instanceMutex_);
+            instanceMutex_ = nullptr;
+            return SingleInstanceResult::AlreadyRunning;
+        }
         Log(L"another ClawHUD instance already exists");
         CloseHandle(instanceMutex_);
         instanceMutex_ = nullptr;
-        return false;
+        return SingleInstanceResult::AlreadyRunning;
     }
-    return true;
+    return SingleInstanceResult::Acquired;
 }
 
 void App::LoadHudSettings()
@@ -720,13 +765,20 @@ void App::CheckForUpdates()
     }
 }
 
-bool App::HandlePresentMonRuntimeBootstrapResult(
+std::optional<int> App::HandlePresentMonRuntimeBootstrapResult(
     clawhud::PresentMonRuntimeBootstrapResult result)
 {
     using clawhud::PresentMonRuntimeStartupAction;
     const auto action = clawhud::PresentMonRuntimeStartupActionForResult(result);
     if (action == PresentMonRuntimeStartupAction::Continue)
-        return true;
+        return std::nullopt;
+
+    if (!clawhud::ShouldShowStartupFailureUi(launchMode_))
+    {
+        const auto exitCode = clawhud::ManagedPresentMonStartupExitCodeForResult(result);
+        return ReportManagedStartupFailure(
+            exitCode.value_or(clawhud::ManagedStartupExitCode::PresentMonInstallFailed));
+    }
 
     clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
         std::wstring(L"PresentMon runtime prerequisite failed result=") +
@@ -763,7 +815,7 @@ bool App::HandlePresentMonRuntimeBootstrapResult(
         ? MB_ICONWARNING
         : MB_ICONERROR;
     MessageBoxW(nullptr, message, L"ClawHUD", MB_OK | icon);
-    return false;
+    return 0;
 }
 
 void App::OpenSettings()

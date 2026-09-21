@@ -10,6 +10,21 @@ using clawhud::PresentMonRuntimeBootstrapResult;
 using clawhud::PresentMonRuntimeStartupAction;
 using clawhud::PresentMonRuntimeStartupActionForResult;
 using clawhud::PresentMonRuntimeBootstrapResultName;
+using clawhud::ManagedPresentMonStartupExitCodeForResult;
+using clawhud::ManagedStartupExitCode;
+using clawhud::ToProcessExitCode;
+
+static_assert(ToProcessExitCode(ManagedStartupExitCode::AlreadyRunning) == 20);
+static_assert(ToProcessExitCode(ManagedStartupExitCode::UnsupportedHardware) == 21);
+static_assert(ToProcessExitCode(ManagedStartupExitCode::HardwareIndeterminate) == 22);
+static_assert(ToProcessExitCode(ManagedStartupExitCode::PresentMonRebootRequired) == 30);
+static_assert(ToProcessExitCode(ManagedStartupExitCode::PresentMonElevationCancelled) == 31);
+static_assert(ToProcessExitCode(ManagedStartupExitCode::PresentMonMsiMissing) == 32);
+static_assert(ToProcessExitCode(ManagedStartupExitCode::PresentMonInstallTimedOut) == 33);
+static_assert(ToProcessExitCode(ManagedStartupExitCode::PresentMonInstallFailed) == 34);
+static_assert(ToProcessExitCode(ManagedStartupExitCode::PresentMonValidationFailed) == 35);
+static_assert(ToProcessExitCode(ManagedStartupExitCode::RuntimeInitializationFailed) == 40);
+static_assert(ToProcessExitCode(ManagedStartupExitCode::ControlIpcUnavailable) == 41);
 
 static_assert(PresentMonRuntimeStartupActionForResult(
     PresentMonRuntimeBootstrapResult::AlreadyReady) ==
@@ -72,5 +87,28 @@ int main()
         PresentMonRuntimeBootstrapResult::InstallTimedOut)) == L"InstallTimedOut");
     assert(std::wstring(PresentMonRuntimeBootstrapResultName(
         PresentMonRuntimeBootstrapResult::AlreadyReady)) == L"AlreadyReady");
+
+    assert(!ManagedPresentMonStartupExitCodeForResult(
+        PresentMonRuntimeBootstrapResult::AlreadyReady));
+    assert(!ManagedPresentMonStartupExitCodeForResult(
+        PresentMonRuntimeBootstrapResult::Installed));
+    assert(ManagedPresentMonStartupExitCodeForResult(
+        PresentMonRuntimeBootstrapResult::InstalledRebootRequired) ==
+        ManagedStartupExitCode::PresentMonRebootRequired);
+    assert(ManagedPresentMonStartupExitCodeForResult(
+        PresentMonRuntimeBootstrapResult::ElevationCancelled) ==
+        ManagedStartupExitCode::PresentMonElevationCancelled);
+    assert(ManagedPresentMonStartupExitCodeForResult(
+        PresentMonRuntimeBootstrapResult::MsiMissing) ==
+        ManagedStartupExitCode::PresentMonMsiMissing);
+    assert(ManagedPresentMonStartupExitCodeForResult(
+        PresentMonRuntimeBootstrapResult::InstallTimedOut) ==
+        ManagedStartupExitCode::PresentMonInstallTimedOut);
+    assert(ManagedPresentMonStartupExitCodeForResult(
+        PresentMonRuntimeBootstrapResult::InstallFailed) ==
+        ManagedStartupExitCode::PresentMonInstallFailed);
+    assert(ManagedPresentMonStartupExitCodeForResult(
+        PresentMonRuntimeBootstrapResult::ValidationFailed) ==
+        ManagedStartupExitCode::PresentMonValidationFailed);
     return 0;
 }

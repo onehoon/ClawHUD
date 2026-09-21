@@ -18,6 +18,7 @@
 #include "ProductionTelemetryController.h"
 #include "EcHelperLifetimePolicy.h"
 #include "PresentMonRuntimeBootstrap.h"
+#include "ManagedStartupExitCode.h"
 #include "HudController.h"
 #include "HudSettingsStore.h"
 #include "Tweaks/TweakStartupCoordinator.h"
@@ -77,15 +78,21 @@ public:
     void SetIntelVrrRangeFixEnabled(bool enabled) override;
 
 private:
+    enum class SingleInstanceResult
+    {
+        Acquired,
+        AlreadyRunning,
+        Failed,
+    };
+
     std::optional<clawhud::IntelVrrRunResult> IntelVrrLastResult() const;
     bool SetHudOpacity(float opacity, bool persist);
-    bool AcquireSingleInstance();
+    SingleInstanceResult AcquireSingleInstance();
     void CheckForUpdates();
     // PresentMon shared-runtime prerequisite gate. Runs after the single-instance
-    // and supported-hardware gates and before any startup side effect. Returns
-    // true to continue; false means a Win32 message was shown and Run() must exit
-    // without initializing the tray / runtime window / provider / HUD.
-    bool HandlePresentMonRuntimeBootstrapResult(
+    // and supported-hardware gates and before any startup side effect. A value
+    // means Run() must exit; nullopt continues normal startup.
+    std::optional<int> HandlePresentMonRuntimeBootstrapResult(
         clawhud::PresentMonRuntimeBootstrapResult result);
     int ProcessMessages();
     void LoadHudSettings();
