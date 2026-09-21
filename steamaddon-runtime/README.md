@@ -15,11 +15,17 @@ package, or the Standalone update feed.
 generation, zip creation, and SHA-256 sidecar generation. It never builds,
 downloads, installs, or publishes anything.
 
-`release-request.json` is the explicit publication request for the
-integration-only release channel. Updating its strict `MAJOR.MINOR.PATCH`
-version on `integration/steamaddon` triggers the dedicated workflow; ordinary
-source pushes do not publish a Runtime.
+The GitHub Actions `Build SteamAddon Runtime` workflow is the publication
+entry point. It is exposed from the repository default branch so the
+`Run workflow` button is always available, but the workflow itself always
+checks out the latest `integration/steamaddon` HEAD. No branch or version
+input is required.
 
+The workflow derives the next immutable Runtime version automatically from
+existing `steamaddon-runtime-vX.Y.Z` tags. If none exist it starts at
+`1.0.0`; otherwise it increments PATCH. If the current integration HEAD is
+already the latest published Runtime commit, publication fails instead of
+creating duplicate Runtime versions for identical source.
 The generated external `runtime-manifest.json` records the exact Runtime
 version, immutable tag, source commit, asset name, and SHA-256 of the final
 `ClawHUDRuntime.zip`. The same identity manifest is staged inside the payload
