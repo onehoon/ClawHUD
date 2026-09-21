@@ -456,7 +456,7 @@ Generate:
 
     artifacts/SteamAddonRuntime/runtime-manifest.json
 
-and place the same identity manifest inside:
+and place the same non-hash identity manifest inside:
 
     clawhud/runtime-manifest.json
 
@@ -473,7 +473,18 @@ Recommended minimum:
       "sha256": "<canonical sha256>"
     }
 
-The external manifest, embedded manifest, and SHA sidecar must agree.
+The external release manifest and `ClawHUDRuntime.zip.sha256` sidecar contain
+the canonical SHA-256 of the exact final zip. The embedded manifest must keep
+the same `schema_version`, `runtime_version`, `tag`, `source_commit`, and
+`asset` fields, but its `sha256` value must be `null`. An archive cannot
+contain the final hash of the archive that contains that same manifest without
+a self-referential hash.
+
+The future Addon consumer verifies the exact zip against its locally pinned
+SHA-256 (or the downloaded external manifest) before extraction. After
+extraction it compares only the embedded manifest's non-hash identity fields
+against the external manifest/lock. It must not reject a valid payload because
+the embedded `sha256` is `null`.
 
 Do not add:
 
@@ -969,7 +980,10 @@ Verify:
     tag == steamaddon-runtime-v<version>
     source_commit == exact 40-character checkout SHA
     asset == ClawHUDRuntime.zip
-    sha256 == actual zip SHA-256
+    external manifest sha256 == actual zip SHA-256
+    SHA sidecar == actual zip SHA-256
+    embedded manifest sha256 == null
+    embedded non-hash identity fields == external manifest
 
 ### Zip layout
 
@@ -1122,7 +1136,8 @@ Required design:
     [ ] LICENSE included
     [ ] THIRD-PARTY-NOTICES.md included
     [ ] payload.manifest.json owns payload shape
-    [ ] runtime-manifest records Runtime version/tag/source commit/asset/hash
+    [ ] external runtime-manifest records Runtime version/tag/source commit/asset/exact zip hash
+    [ ] embedded runtime-manifest records the same non-hash identity fields and sha256=null
     [ ] ClawHUDRuntime.zip contains top-level clawhud/
     [ ] SHA sidecar matches exact zip
     [ ] staged --managed smoke exits 21/22 on CI
