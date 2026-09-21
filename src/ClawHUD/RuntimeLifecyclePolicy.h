@@ -26,4 +26,14 @@ constexpr bool ShouldRunSelfUpdate(LaunchMode mode) noexcept
 {
     return mode == LaunchMode::Standalone;
 }
+
+constexpr bool ShouldShowStartupFailureUi(LaunchMode mode) noexcept
+{
+    return mode == LaunchMode::Standalone;
+}
+
+constexpr bool ShouldFailStartupWhenControlIpcUnavailable(LaunchMode mode) noexcept
+{
+    return mode == LaunchMode::Managed;
+}
 }

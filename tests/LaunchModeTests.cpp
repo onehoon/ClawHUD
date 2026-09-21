@@ -12,7 +12,9 @@ using clawhud::LaunchMode;
 using clawhud::ResolveLaunchMode;
 using clawhud::ShouldReconcileStartupRegistration;
 using clawhud::ShouldAllowStartWithWindowsMutation;
+using clawhud::ShouldFailStartupWhenControlIpcUnavailable;
 using clawhud::ShouldRunSelfUpdate;
+using clawhud::ShouldShowStartupFailureUi;
 using clawhud::ToWireLaunchMode;
 namespace ctl = clawhud::control;
 
@@ -80,10 +82,20 @@ void LifecyclePolicy()
         "Standalone runs the ClawHUD self-update path");
     Check(!ShouldRunSelfUpdate(LaunchMode::Managed),
         "Managed does not run the ClawHUD self-update path");
+    Check(ShouldShowStartupFailureUi(LaunchMode::Standalone),
+        "Standalone owns startup failure UI");
+    Check(!ShouldShowStartupFailureUi(LaunchMode::Managed),
+        "Managed does not show ClawHUD startup failure UI");
+    Check(!ShouldFailStartupWhenControlIpcUnavailable(LaunchMode::Standalone),
+        "Standalone tolerates Control IPC startup failure");
+    Check(ShouldFailStartupWhenControlIpcUnavailable(LaunchMode::Managed),
+        "Managed treats Control IPC startup failure as fatal");
 
     static_assert(ShouldReconcileStartupRegistration(LaunchMode::Standalone));
     static_assert(!ShouldAllowStartWithWindowsMutation(LaunchMode::Managed));
     static_assert(!ShouldRunSelfUpdate(LaunchMode::Managed));
+    static_assert(!ShouldShowStartupFailureUi(LaunchMode::Managed));
+    static_assert(ShouldFailStartupWhenControlIpcUnavailable(LaunchMode::Managed));
 }
 
 void EmptySpan()
