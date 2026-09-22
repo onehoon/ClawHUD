@@ -5,7 +5,7 @@ ClawHUD includes or redistributes the following third-party components. Each com
 ## Velopack
 
 - Component: Velopack `velopack_libc.dll`
-- Version currently pinned by ClawHUD: 1.2.0
+- Version currently pinned by ClawHUD: 1.2.158
 - License: MIT
 - Project: https://github.com/velopack/velopack
 
