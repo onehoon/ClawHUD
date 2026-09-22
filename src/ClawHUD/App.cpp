@@ -705,7 +705,7 @@ void App::CheckForUpdates()
 {
     try
     {
-        // Bounded custom source: the pinned VeloPack 1.2.0 GithubSource has no
+        // Bounded custom source: the pinned VeloPack 1.2.158 GithubSource has no
         // request timeout, so a stalled endpoint could block startup forever.
         // VeloPack still owns version comparison, delta selection, staging, and
         // package validation.
