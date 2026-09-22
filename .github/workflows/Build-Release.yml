@@ -72,7 +72,7 @@ jobs:
       - name: Install Velopack CLI
         shell: pwsh
         run: |
-          dotnet tool install --global vpk --version 1.2.0
+          dotnet tool install --global vpk --version 1.2.158
           $env:PATH = "$env:USERPROFILE\.dotnet\tools;$env:PATH"
           "PATH=$env:PATH" >> $env:GITHUB_ENV
 
