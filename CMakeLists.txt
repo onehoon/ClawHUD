@@ -58,7 +58,10 @@ add_executable(ClawHUD.Diag
     src/ClawHUD.Diag/VrrApi2FrameCapture.cpp
     src/ClawHUD.Diag/VrrTargetAcquisition.cpp
     src/ClawHUD.Diag/DisplayPathProbe.cpp
-    src/ClawHUD.Diag/DiagIntelVrrStateProbe.cpp)
+    src/ClawHUD.Diag/DiagIntelVrrStateProbe.cpp
+    src/ClawHUD.Diag/DiagD3dkmtCadenceProbe.cpp
+    src/ClawHUD.Diag/DiagD3dkmtCadenceAnalysis.cpp
+    src/ClawHUD.Diag/VrrAnalysis.cpp)
 target_compile_features(ClawHUD.Diag PRIVATE cxx_std_20)
 target_compile_definitions(ClawHUD.Diag PRIVATE
     UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
@@ -66,7 +69,7 @@ set_target_properties(ClawHUD.Diag PROPERTIES CXX_EXTENSIONS OFF)
 target_include_directories(ClawHUD.Diag PRIVATE
     src/ClawHUD.Diag
     "${CMAKE_BINARY_DIR}/generated")
-target_link_libraries(ClawHUD.Diag PRIVATE advapi32 dwmapi user32 pdh)
+target_link_libraries(ClawHUD.Diag PRIVATE advapi32 dwmapi gdi32 user32 pdh)
 
 add_library(ClawHUD.Velopack SHARED IMPORTED GLOBAL)
 set_target_properties(ClawHUD.Velopack PROPERTIES

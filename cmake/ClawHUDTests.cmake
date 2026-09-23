@@ -620,6 +620,17 @@
     add_test(NAME ClawHUD.DiagIntelVrrStateProbeTests
         COMMAND ClawHUD.DiagIntelVrrStateProbeTests)
 
+    add_executable(ClawHUD.DiagVrrAnalysisTests
+        tests/DiagVrrAnalysisTests.cpp
+        src/ClawHUD.Diag/DiagD3dkmtCadenceAnalysis.cpp
+        src/ClawHUD.Diag/VrrAnalysis.cpp)
+    target_compile_features(ClawHUD.DiagVrrAnalysisTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.DiagVrrAnalysisTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.DiagVrrAnalysisTests PRIVATE src/ClawHUD.Diag)
+    set_target_properties(ClawHUD.DiagVrrAnalysisTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.DiagVrrAnalysisTests COMMAND ClawHUD.DiagVrrAnalysisTests)
+
     add_executable(ClawHUD.DiagProcessMetadataTests
         tests/DiagProcessMetadataTests.cpp
         src/ClawHUD.Diag/DiagnosticSession.cpp
