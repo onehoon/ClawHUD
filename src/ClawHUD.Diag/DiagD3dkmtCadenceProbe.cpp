@@ -14,6 +14,13 @@ bool SameLuid(const LUID& left, const LUID& right) noexcept
 {
     return left.LowPart == right.LowPart && left.HighPart == right.HighPart;
 }
+
+std::optional<std::int32_t> LastErrorStatus() noexcept
+{
+    const auto error = GetLastError();
+    if (error == ERROR_SUCCESS) return std::nullopt;
+    return static_cast<std::int32_t>(error);
+}
 }
 
 DiagD3dkmtCadenceProbe::~DiagD3dkmtCadenceProbe()
@@ -30,36 +37,72 @@ bool DiagD3dkmtCadenceProbe::Initialize(
     HMONITOR monitor, const VrrDisplayPath& expectedPath) noexcept
 {
     Shutdown();
+    attempted_ = true;
     failure_ = DiagD3dkmtCaptureFailure::None;
+    failureDetail_ = {};
+    failureStatusDomain_ = DiagD3dkmtFailureStatusDomain::None;
     failureStatus_.reset();
     timestamps_.clear();
+    qpcFrequency_ = 0;
+    adapterLuid_ = {};
+    vidPnSourceId_ = 0;
+    targetIdentified_ = false;
     if (!monitor)
     {
-        SetFailure(DiagD3dkmtCaptureFailure::InvalidTarget);
+        SetFailure(DiagD3dkmtCaptureFailure::InvalidTarget, "monitor handle is null");
         return false;
     }
 
+    SetLastError(ERROR_SUCCESS);
     gdi32_ = LoadLibraryExW(L"gdi32.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
-    if (gdi32_)
+    if (!gdi32_)
     {
-        waitForVerticalBlankEvent2_ = reinterpret_cast<WaitForVerticalBlankEvent2>(
-            GetProcAddress(gdi32_, "D3DKMTWaitForVerticalBlankEvent2"));
-        openAdapterFromHdc_ = reinterpret_cast<OpenAdapterFromHdc>(
-            GetProcAddress(gdi32_, "D3DKMTOpenAdapterFromHdc"));
-        closeAdapter_ = reinterpret_cast<CloseAdapter>(
-            GetProcAddress(gdi32_, "D3DKMTCloseAdapter"));
+        const auto error = LastErrorStatus();
+        SetFailure(DiagD3dkmtCaptureFailure::ApiUnavailable,
+            "LoadLibraryExW(gdi32.dll)", error,
+            error ? DiagD3dkmtFailureStatusDomain::Win32 :
+                DiagD3dkmtFailureStatusDomain::None);
+        Shutdown();
+        return false;
     }
-    if (!gdi32_ || !waitForVerticalBlankEvent2_ || !openAdapterFromHdc_ || !closeAdapter_)
+
+    waitForVerticalBlankEvent2_ = reinterpret_cast<WaitForVerticalBlankEvent2>(
+        GetProcAddress(gdi32_, "D3DKMTWaitForVerticalBlankEvent2"));
+    openAdapterFromHdc_ = reinterpret_cast<OpenAdapterFromHdc>(
+        GetProcAddress(gdi32_, "D3DKMTOpenAdapterFromHdc"));
+    closeAdapter_ = reinterpret_cast<CloseAdapter>(
+        GetProcAddress(gdi32_, "D3DKMTCloseAdapter"));
+    if (!waitForVerticalBlankEvent2_)
     {
-        SetFailure(DiagD3dkmtCaptureFailure::ApiUnavailable);
+        SetFailure(DiagD3dkmtCaptureFailure::ApiUnavailable,
+            "missing gdi32.dll export D3DKMTWaitForVerticalBlankEvent2");
+        Shutdown();
+        return false;
+    }
+    if (!openAdapterFromHdc_)
+    {
+        SetFailure(DiagD3dkmtCaptureFailure::ApiUnavailable,
+            "missing gdi32.dll export D3DKMTOpenAdapterFromHdc");
+        Shutdown();
+        return false;
+    }
+    if (!closeAdapter_)
+    {
+        SetFailure(DiagD3dkmtCaptureFailure::ApiUnavailable,
+            "missing gdi32.dll export D3DKMTCloseAdapter");
         Shutdown();
         return false;
     }
 
     LARGE_INTEGER frequency{};
+    SetLastError(ERROR_SUCCESS);
     if (!QueryPerformanceFrequency(&frequency) || frequency.QuadPart <= 0)
     {
-        SetFailure(DiagD3dkmtCaptureFailure::QpcUnavailable);
+        const auto error = LastErrorStatus();
+        SetFailure(DiagD3dkmtCaptureFailure::QpcUnavailable,
+            "QueryPerformanceFrequency", error,
+            error ? DiagD3dkmtFailureStatusDomain::Win32 :
+                DiagD3dkmtFailureStatusDomain::None);
         Shutdown();
         return false;
     }
@@ -67,17 +110,26 @@ bool DiagD3dkmtCadenceProbe::Initialize(
 
     MONITORINFOEXW monitorInfo{};
     monitorInfo.cbSize = sizeof(monitorInfo);
+    SetLastError(ERROR_SUCCESS);
     if (!GetMonitorInfoW(monitor, reinterpret_cast<MONITORINFO*>(&monitorInfo)))
     {
-        SetFailure(DiagD3dkmtCaptureFailure::InvalidTarget);
+        const auto error = LastErrorStatus();
+        SetFailure(DiagD3dkmtCaptureFailure::InvalidTarget, "GetMonitorInfoW", error,
+            error ? DiagD3dkmtFailureStatusDomain::Win32 :
+                DiagD3dkmtFailureStatusDomain::None);
         Shutdown();
         return false;
     }
 
+    SetLastError(ERROR_SUCCESS);
     HDC dc = CreateDCW(monitorInfo.szDevice, monitorInfo.szDevice, nullptr, nullptr);
     if (!dc)
     {
-        SetFailure(DiagD3dkmtCaptureFailure::InvalidTarget);
+        const auto error = LastErrorStatus();
+        SetFailure(DiagD3dkmtCaptureFailure::InvalidTarget,
+            "CreateDCW for target monitor", error,
+            error ? DiagD3dkmtFailureStatusDomain::Win32 :
+                DiagD3dkmtFailureStatusDomain::None);
         Shutdown();
         return false;
     }
@@ -88,10 +140,14 @@ bool DiagD3dkmtCadenceProbe::Initialize(
     if (openStatus != 0)
     {
         SetFailure(DiagD3dkmtCaptureFailure::AdapterOpenFailed,
-            static_cast<std::int32_t>(openStatus));
+            "D3DKMTOpenAdapterFromHdc", static_cast<std::int32_t>(openStatus),
+            DiagD3dkmtFailureStatusDomain::NtStatus);
         Shutdown();
         return false;
     }
+    targetIdentified_ = true;
+    adapterLuid_ = open.AdapterLuid;
+    vidPnSourceId_ = open.VidPnSourceId;
 
     if (!InitializeResolvedTarget(monitorInfo.szDevice, open.hAdapter,
             open.AdapterLuid, open.VidPnSourceId, qpcFrequency_, expectedPath))
@@ -108,16 +164,21 @@ bool DiagD3dkmtCadenceProbe::InitializeResolvedTarget(
     LUID adapterLuid, UINT32 vidPnSourceId, std::int64_t qpcFrequency,
     const VrrDisplayPath& expectedPath) noexcept
 {
+    attempted_ = true;
     if (initialized_ || sampling_ || sampler_.joinable())
     {
-        SetFailure(DiagD3dkmtCaptureFailure::InvalidTarget);
+        SetFailure(DiagD3dkmtCaptureFailure::InvalidTarget,
+            "probe is already initialized or sampling");
         return false;
     }
     failure_ = DiagD3dkmtCaptureFailure::None;
+    failureDetail_ = {};
+    failureStatusDomain_ = DiagD3dkmtFailureStatusDomain::None;
     failureStatus_.reset();
     adapterHandle_ = adapterHandle;
     adapterLuid_ = adapterLuid;
     vidPnSourceId_ = vidPnSourceId;
+    targetIdentified_ = adapterHandle != 0;
     qpcFrequency_ = qpcFrequency;
     if (monitorDeviceName.empty() || expectedPath.monitorDeviceName.empty() ||
         monitorDeviceName.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()) ||
@@ -128,19 +189,22 @@ bool DiagD3dkmtCadenceProbe::InitializeResolvedTarget(
         !SameLuid(adapterLuid, expectedPath.sourceAdapterLuid) ||
         vidPnSourceId != expectedPath.sourceId)
     {
-        SetFailure(DiagD3dkmtCaptureFailure::DisplayPathMismatch);
+        SetFailure(DiagD3dkmtCaptureFailure::DisplayPathMismatch,
+            "monitor, adapter LUID, or VidPnSourceId does not match display path");
         return false;
     }
     if (!adapterHandle || qpcFrequency <= 0)
     {
         SetFailure(qpcFrequency <= 0 ? DiagD3dkmtCaptureFailure::QpcUnavailable :
-            DiagD3dkmtCaptureFailure::AdapterOpenFailed);
+            DiagD3dkmtCaptureFailure::AdapterOpenFailed,
+            qpcFrequency <= 0 ? "non-positive QPC frequency" : "adapter handle is null");
         return false;
     }
     if ((!api_.waitForVerticalBlankEvent2 && !waitForVerticalBlankEvent2_) ||
         (!api_.closeAdapter && !closeAdapter_))
     {
-        SetFailure(DiagD3dkmtCaptureFailure::ApiUnavailable);
+        SetFailure(DiagD3dkmtCaptureFailure::ApiUnavailable,
+            "required D3DKMT wait or close function is unavailable");
         return false;
     }
 
@@ -155,6 +219,8 @@ bool DiagD3dkmtCadenceProbe::Start() noexcept
     {
         std::lock_guard lock(mutex_);
         failure_ = DiagD3dkmtCaptureFailure::None;
+        failureDetail_ = {};
+        failureStatusDomain_ = DiagD3dkmtFailureStatusDomain::None;
         failureStatus_.reset();
         timestamps_.clear();
         try
@@ -164,14 +230,19 @@ bool DiagD3dkmtCadenceProbe::Start() noexcept
         catch (...)
         {
             failure_ = DiagD3dkmtCaptureFailure::SampleStorageFailed;
+            failureDetail_ = "reserve initial VBlank sample storage";
             return false;
         }
     }
+    SetLastError(ERROR_SUCCESS);
     cancellationEvent_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     if (!cancellationEvent_)
     {
+        const auto error = LastErrorStatus();
         SetFailure(DiagD3dkmtCaptureFailure::CancelEventFailed,
-            static_cast<std::int32_t>(GetLastError()));
+            "CreateEventW for VBlank cancellation", error,
+            error ? DiagD3dkmtFailureStatusDomain::Win32 :
+                DiagD3dkmtFailureStatusDomain::None);
         return false;
     }
     stopRequested_.store(false, std::memory_order_release);
@@ -184,7 +255,8 @@ bool DiagD3dkmtCadenceProbe::Start() noexcept
         stopRequested_.store(true, std::memory_order_release);
         CloseHandle(cancellationEvent_);
         cancellationEvent_ = nullptr;
-        SetFailure(DiagD3dkmtCaptureFailure::SamplerStartFailed);
+        SetFailure(DiagD3dkmtCaptureFailure::SamplerStartFailed,
+            "create D3DKMT sampler thread");
         return false;
     }
     sampling_ = true;
@@ -208,16 +280,22 @@ void DiagD3dkmtCadenceProbe::SampleLoop() noexcept
         if (status != kStatusWaitForVblank)
         {
             SetFailure(DiagD3dkmtCaptureFailure::WaitFailed,
-                static_cast<std::int32_t>(status));
+                "D3DKMTWaitForVerticalBlankEvent2", static_cast<std::int32_t>(status),
+                DiagD3dkmtFailureStatusDomain::NtStatus);
             return;
         }
 
         LARGE_INTEGER counter{};
+        SetLastError(ERROR_SUCCESS);
         const auto counterAvailable = api_.queryPerformanceCounter ?
             api_.queryPerformanceCounter(&counter) : QueryPerformanceCounter(&counter);
         if (!counterAvailable)
         {
-            SetFailure(DiagD3dkmtCaptureFailure::QueryCounterFailed);
+            const auto error = LastErrorStatus();
+            SetFailure(DiagD3dkmtCaptureFailure::QueryCounterFailed,
+                "QueryPerformanceCounter after VBlank", error,
+                error ? DiagD3dkmtFailureStatusDomain::Win32 :
+                    DiagD3dkmtFailureStatusDomain::None);
             return;
         }
         try
@@ -225,26 +303,35 @@ void DiagD3dkmtCadenceProbe::SampleLoop() noexcept
             std::lock_guard lock(mutex_);
             if (timestamps_.size() >= kMaximumSamples)
             {
-                failure_ = DiagD3dkmtCaptureFailure::SampleStorageFailed;
+                if (failure_ == DiagD3dkmtCaptureFailure::None)
+                {
+                    failure_ = DiagD3dkmtCaptureFailure::SampleStorageFailed;
+                    failureDetail_ = "maximum VBlank sample count reached";
+                }
                 return;
             }
             timestamps_.push_back(static_cast<std::uint64_t>(counter.QuadPart));
         }
         catch (...)
         {
-            SetFailure(DiagD3dkmtCaptureFailure::SampleStorageFailed);
+            SetFailure(DiagD3dkmtCaptureFailure::SampleStorageFailed,
+                "append VBlank QPC sample");
             return;
         }
     }
 }
 
 void DiagD3dkmtCadenceProbe::SetFailure(
-    DiagD3dkmtCaptureFailure failure, std::optional<std::int32_t> status) noexcept
+    DiagD3dkmtCaptureFailure failure, std::string_view detail,
+    std::optional<std::int32_t> status,
+    DiagD3dkmtFailureStatusDomain statusDomain) noexcept
 {
     std::lock_guard lock(mutex_);
     if (failure_ == DiagD3dkmtCaptureFailure::None)
     {
         failure_ = failure;
+        failureDetail_ = detail;
+        failureStatusDomain_ = statusDomain;
         failureStatus_ = status;
     }
 }
@@ -252,9 +339,15 @@ void DiagD3dkmtCadenceProbe::SetFailure(
 void DiagD3dkmtCadenceProbe::CancelAndJoin() noexcept
 {
     stopRequested_.store(true, std::memory_order_release);
+    SetLastError(ERROR_SUCCESS);
     if (cancellationEvent_ && !SetEvent(cancellationEvent_))
+    {
+        const auto error = LastErrorStatus();
         SetFailure(DiagD3dkmtCaptureFailure::CancelEventFailed,
-            static_cast<std::int32_t>(GetLastError()));
+            "SetEvent for VBlank cancellation", error,
+            error ? DiagD3dkmtFailureStatusDomain::Win32 :
+                DiagD3dkmtFailureStatusDomain::None);
+    }
     if (sampler_.joinable()) sampler_.join();
     sampling_ = false;
 
@@ -265,7 +358,8 @@ void DiagD3dkmtCadenceProbe::CancelAndJoin() noexcept
         const auto status = api_.closeAdapter ? api_.closeAdapter(&close) : closeAdapter_(&close);
         if (status != 0)
             SetFailure(DiagD3dkmtCaptureFailure::AdapterCloseFailed,
-                static_cast<std::int32_t>(status));
+                "D3DKMTCloseAdapter", static_cast<std::int32_t>(status),
+                DiagD3dkmtFailureStatusDomain::NtStatus);
     }
     adapterHandle_ = {};
     if (cancellationEvent_)
@@ -282,7 +376,11 @@ DiagD3dkmtCadenceCapture DiagD3dkmtCadenceProbe::Stop()
     {
         std::lock_guard lock(mutex_);
         result.available = initialized_ && failure_ == DiagD3dkmtCaptureFailure::None;
+        result.attempted = attempted_;
+        result.targetIdentified = targetIdentified_;
         result.failure = failure_;
+        result.failureDetail = failureDetail_;
+        result.failureStatusDomain = failureStatusDomain_;
         result.failureStatus = failureStatus_;
         result.timestamps = timestamps_;
     }
@@ -298,9 +396,6 @@ void DiagD3dkmtCadenceProbe::Shutdown() noexcept
 {
     CancelAndJoin();
     initialized_ = false;
-    qpcFrequency_ = 0;
-    vidPnSourceId_ = 0;
-    adapterLuid_ = {};
     waitForVerticalBlankEvent2_ = nullptr;
     openAdapterFromHdc_ = nullptr;
     closeAdapter_ = nullptr;

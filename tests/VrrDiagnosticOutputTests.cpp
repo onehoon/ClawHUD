@@ -131,6 +131,11 @@ void TestReportWriterCreatesCompleteRunFiles()
     assert(summary.find("VRR Status                   INCONCLUSIVE") != std::string::npos);
     assert(summary.find("foreground_changed") != std::string::npos);
     assert(summary.find("API                          3.4") != std::string::npos);
+    assert(summary.find("2570") == std::string::npos);
+    assert(summary.find("Configuration                UNKNOWN\n  Probe failures") != std::string::npos);
+    assert(summary.find("    none\n\nD3DKMT\n") != std::string::npos);
+    assert(summary.find("Capture status               AVAILABLE\n  Failure") != std::string::npos);
+    assert(summary.find("Failure status               n/a\n\nOverall\n") != std::string::npos);
 
     const auto framesCsv = ReadText(first->framesCsv);
     assert(framesCsv.starts_with("ElapsedMs,ProcessId,SwapChainAddress,PresentStartQpc"));
@@ -143,6 +148,43 @@ void TestReportWriterCreatesCompleteRunFiles()
     assert(vblankCsv.find("1,1200,200.000") != std::string::npos);
     assert(vblankCsv.find("950") == std::string::npos);
     assert(vblankCsv.find("3000") == std::string::npos);
+
+    auto failedReport = report;
+    failedReport.igcl.attempted = true;
+    failedReport.igcl.initialized = true;
+    failedReport.igcl.enumerationComplete = false;
+    failedReport.igcl.adapterCount = 2;
+    failedReport.igcl.displayOutputCount = 3;
+    failedReport.igcl.displayPropertiesSuccessCount = 2;
+    failedReport.igcl.targetMatchCount = 0;
+    failedReport.igcl.capabilityResult = 0x4800000Fu;
+    failedReport.igcl.profileResult = 0;
+    failedReport.igcl.failureRecordCount = 1;
+    failedReport.igcl.failures[0] = { DiagIgclProbeFailureStage::GetDisplayProperties,
+        DiagIgclProbeResultDomain::ControlLibrary, 0x4800000Fu,
+        "ctlGetDisplayProperties", 1, 2 };
+
+    DiagD3dkmtCadenceCapture failedCapture;
+    failedCapture.attempted = true;
+    failedCapture.targetIdentified = true;
+    failedCapture.adapterLuidLow = 42;
+    failedCapture.adapterLuidHigh = 7;
+    failedCapture.vidPnSourceId = 3;
+    failedCapture.qpcFrequency = 1000;
+    failedCapture.failure = DiagD3dkmtCaptureFailure::WaitFailed;
+    failedCapture.failureDetail = "D3DKMTWaitForVerticalBlankEvent2";
+    failedCapture.failureStatusDomain = DiagD3dkmtFailureStatusDomain::NtStatus;
+    failedCapture.failureStatus = static_cast<std::int32_t>(0xC000000Du);
+    const auto failureFiles = WriteVrrDiagnosticFiles(root, failedReport, {}, failedCapture);
+    assert(failureFiles);
+    const auto failureSummary = ReadText(failureFiles->report);
+    assert(failureSummary.find("Probe status                 INITIALIZED") != std::string::npos);
+    assert(failureSummary.find("CTL_RESULT 0x4800000F") != std::string::npos);
+    assert(failureSummary.find("ctlGetDisplayProperties") != std::string::npos);
+    assert(failureSummary.find("Failure                      wait_failed") != std::string::npos);
+    assert(failureSummary.find("NTSTATUS 0xC000000D") != std::string::npos);
+    assert(failureSummary.find("0x00000007:0000002A") != std::string::npos);
+    assert(failureSummary.find("2570") == std::string::npos);
 
     std::filesystem::remove_all(root);
 }

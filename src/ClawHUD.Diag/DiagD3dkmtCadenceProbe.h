@@ -11,6 +11,7 @@
 #include <functional>
 #include <mutex>
 #include <optional>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -47,7 +48,10 @@ private:
     void SampleLoop() noexcept;
     void CancelAndJoin() noexcept;
     void SetFailure(DiagD3dkmtCaptureFailure failure,
-        std::optional<std::int32_t> status = std::nullopt) noexcept;
+        std::string_view detail = {},
+        std::optional<std::int32_t> status = std::nullopt,
+        DiagD3dkmtFailureStatusDomain statusDomain =
+            DiagD3dkmtFailureStatusDomain::None) noexcept;
 
     using WaitForVerticalBlankEvent2 = PFND3DKMT_WAITFORVERTICALBLANKEVENT2;
     using OpenAdapterFromHdc = PFND3DKMT_OPENADAPTERFROMHDC;
@@ -67,8 +71,13 @@ private:
     std::thread sampler_;
     mutable std::mutex mutex_;
     DiagD3dkmtCaptureFailure failure_{ DiagD3dkmtCaptureFailure::None };
+    std::string_view failureDetail_;
+    DiagD3dkmtFailureStatusDomain failureStatusDomain_{
+        DiagD3dkmtFailureStatusDomain::None };
     std::optional<std::int32_t> failureStatus_;
     std::vector<std::uint64_t> timestamps_;
     bool initialized_{};
     bool sampling_{};
+    bool attempted_{};
+    bool targetIdentified_{};
 };

@@ -205,10 +205,9 @@ void VrrDiagnosticCommand::RunImpl()
     if (initialPath)
     {
         igclReady = igclProbe.Initialize();
-        if (igclReady)
-            initialIgcl = igclProbe.Query(initialPath->targetAdapterLuid,
-                initialPath->targetId);
-        else
+        initialIgcl = igclProbe.Query(initialPath->targetAdapterLuid,
+            initialPath->targetId);
+        if (!igclReady)
             AddReason(reasons, "igcl_unavailable");
     }
 

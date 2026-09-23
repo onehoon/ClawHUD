@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <string_view>
 #include <vector>
 
 enum class DiagD3dkmtCaptureFailure
@@ -21,6 +22,13 @@ enum class DiagD3dkmtCaptureFailure
     SampleStorageFailed,
 };
 
+enum class DiagD3dkmtFailureStatusDomain
+{
+    None,
+    Win32,
+    NtStatus,
+};
+
 struct DiagD3dkmtCadenceCapture
 {
     bool available{};
@@ -31,6 +39,11 @@ struct DiagD3dkmtCadenceCapture
     DiagD3dkmtCaptureFailure failure{ DiagD3dkmtCaptureFailure::None };
     std::optional<std::int32_t> failureStatus;
     std::vector<std::uint64_t> timestamps;
+    bool attempted{};
+    bool targetIdentified{};
+    std::string_view failureDetail;
+    DiagD3dkmtFailureStatusDomain failureStatusDomain{
+        DiagD3dkmtFailureStatusDomain::None };
 };
 
 enum class DiagD3dkmtCadenceClass

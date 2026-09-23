@@ -23,6 +23,17 @@ struct DiagD3dkmtCadenceProbeTestAccess
         return probe.InitializeResolvedTarget(path.monitorDeviceName, adapter,
             path.sourceAdapterLuid, path.sourceId, 1000, path);
     }
+
+    static bool InitializeMismatchedPath(DiagD3dkmtCadenceProbe& probe,
+        D3DKMT_HANDLE adapter)
+    {
+        VrrDisplayPath path;
+        path.monitorDeviceName = L"DISPLAY2";
+        path.sourceAdapterLuid = LUID{ 42, 7 };
+        path.sourceId = 3;
+        return probe.InitializeResolvedTarget(L"DISPLAY1", adapter,
+            path.sourceAdapterLuid, path.sourceId, 1000, path);
+    }
 };
 
 namespace
@@ -84,6 +95,8 @@ void TestWaitForVblankRecordsSampleAndCancellationIsClean()
 
     assert(WaitForSignal(cancellationObserved));
     assert(capture.available);
+    assert(capture.attempted);
+    assert(capture.targetIdentified);
     assert(capture.failure == DiagD3dkmtCaptureFailure::None);
     assert(capture.timestamps.size() == 1);
     assert(capture.timestamps.front() == 12345);
@@ -124,9 +137,39 @@ void TestWaitFailureTerminatesAndIsReported()
 
     assert(!capture.available);
     assert(capture.failure == DiagD3dkmtCaptureFailure::WaitFailed);
+    assert(capture.failureDetail == "D3DKMTWaitForVerticalBlankEvent2");
+    assert(capture.failureStatusDomain == DiagD3dkmtFailureStatusDomain::NtStatus);
     assert(capture.failureStatus == static_cast<std::int32_t>(kStatusInvalidParameter));
     assert(adapterCloses == 1);
     CloseHandle(failureReturned);
+}
+
+void TestDisplayPathMismatchPreservesAdapterIdentity()
+{
+    std::atomic<int> adapterCloses{};
+    DiagD3dkmtCadenceProbeApi api;
+    api.waitForVerticalBlankEvent2 = [](D3DKMT_WAITFORVERTICALBLANKEVENT2*)
+    {
+        return kStatusCancelled;
+    };
+    api.closeAdapter = [&](D3DKMT_CLOSEADAPTER*)
+    {
+        ++adapterCloses;
+        return static_cast<NTSTATUS>(0);
+    };
+
+    DiagD3dkmtCadenceProbe probe(std::move(api));
+    assert(!DiagD3dkmtCadenceProbeTestAccess::InitializeMismatchedPath(probe, 21));
+    const auto capture = probe.Stop();
+    assert(capture.attempted);
+    assert(!capture.available);
+    assert(capture.targetIdentified);
+    assert(capture.failure == DiagD3dkmtCaptureFailure::DisplayPathMismatch);
+    assert(capture.failureDetail.find("does not match display path") != std::string_view::npos);
+    assert(capture.adapterLuidLow == 42);
+    assert(capture.adapterLuidHigh == 7);
+    assert(capture.vidPnSourceId == 3);
+    assert(adapterCloses == 1);
 }
 
 void TestCancellationAllowsASecondSamplerRun()
@@ -199,6 +242,7 @@ int main()
 {
     TestWaitForVblankRecordsSampleAndCancellationIsClean();
     TestWaitFailureTerminatesAndIsReported();
+    TestDisplayPathMismatchPreservesAdapterIdentity();
     TestCancellationAllowsASecondSamplerRun();
     return 0;
 }
