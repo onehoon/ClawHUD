@@ -184,6 +184,23 @@ const char* D3dkmtStatusDomainName(DiagD3dkmtFailureStatusDomain value) noexcept
     }
 }
 
+std::string D3dkmtNoObjectProbeResult(bool attempted,
+    const std::optional<std::int32_t>& status)
+{
+    if (!attempted) return "NOT RUN";
+    if (!status) return "STATUS UNAVAILABLE";
+
+    const auto value = static_cast<std::uint32_t>(*status);
+    std::string result = "NTSTATUS " + Hex32(value);
+    if (value <= 8)
+        result += " (STATUS_WAIT_" + std::to_string(value) + ")";
+    else if (value == 0xC000000Du)
+        result += " (STATUS_INVALID_PARAMETER)";
+    else if (value == 0xC0000022u)
+        result += " (STATUS_ACCESS_DENIED)";
+    return result;
+}
+
 std::string IgclFailureResult(const DiagIgclProbeFailure& failure)
 {
     if (!failure.result) return "n/a";
@@ -462,6 +479,8 @@ bool WriteReport(const std::filesystem::path& path,
                  ? std::to_string(d3dkmt.vidPnSourceId) : "n/a") << '\n'
             << "  QPC frequency                " << (d3dkmt.qpcFrequency > 0
                  ? std::to_string(d3dkmt.qpcFrequency) : "n/a") << '\n'
+            << "  Event2 NumObjects=0 probe   " << D3dkmtNoObjectProbeResult(
+                d3dkmt.noObjectProbeAttempted, d3dkmt.noObjectProbeStatus) << '\n'
             << "  Samples                      " << d3dkmt.timestamps.size() << '\n'
             << "  Complete 1s windows          " << cadence.windows.size() << '\n'
            << "  Window range                 " << Range(cadence.minimumHz, cadence.maximumHz) << '\n'

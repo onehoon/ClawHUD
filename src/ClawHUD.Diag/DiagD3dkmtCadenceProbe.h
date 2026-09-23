@@ -74,6 +74,8 @@ private:
     std::string_view failureDetail_;
     DiagD3dkmtFailureStatusDomain failureStatusDomain_{
         DiagD3dkmtFailureStatusDomain::None };
+    bool noObjectProbeAttempted_{};
+    std::optional<std::int32_t> noObjectProbeStatus_;
     std::optional<std::int32_t> failureStatus_;
     std::vector<std::uint64_t> timestamps_;
     bool initialized_{};

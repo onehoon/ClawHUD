@@ -42,6 +42,8 @@ bool DiagD3dkmtCadenceProbe::Initialize(
     failureDetail_ = {};
     failureStatusDomain_ = DiagD3dkmtFailureStatusDomain::None;
     failureStatus_.reset();
+    noObjectProbeAttempted_ = false;
+    noObjectProbeStatus_.reset();
     timestamps_.clear();
     qpcFrequency_ = 0;
     adapterLuid_ = {};
@@ -175,6 +177,8 @@ bool DiagD3dkmtCadenceProbe::InitializeResolvedTarget(
     failureDetail_ = {};
     failureStatusDomain_ = DiagD3dkmtFailureStatusDomain::None;
     failureStatus_.reset();
+    noObjectProbeAttempted_ = false;
+    noObjectProbeStatus_.reset();
     adapterHandle_ = adapterHandle;
     adapterLuid_ = adapterLuid;
     vidPnSourceId_ = vidPnSourceId;
@@ -209,6 +213,16 @@ bool DiagD3dkmtCadenceProbe::InitializeResolvedTarget(
     }
 
     timestamps_.clear();
+
+    D3DKMT_WAITFORVERTICALBLANKEVENT2 probe{};
+    probe.hAdapter = adapterHandle_;
+    probe.VidPnSourceId = vidPnSourceId_;
+    probe.NumObjects = 0;
+    const auto probeStatus = api_.waitForVerticalBlankEvent2 ?
+        api_.waitForVerticalBlankEvent2(&probe) : waitForVerticalBlankEvent2_(&probe);
+    noObjectProbeAttempted_ = true;
+    noObjectProbeStatus_ = static_cast<std::int32_t>(probeStatus);
+
     initialized_ = true;
     return true;
 }
@@ -382,6 +396,8 @@ DiagD3dkmtCadenceCapture DiagD3dkmtCadenceProbe::Stop()
         result.failureDetail = failureDetail_;
         result.failureStatusDomain = failureStatusDomain_;
         result.failureStatus = failureStatus_;
+        result.noObjectProbeAttempted = noObjectProbeAttempted_;
+        result.noObjectProbeStatus = noObjectProbeStatus_;
         result.timestamps = timestamps_;
     }
     result.qpcFrequency = qpcFrequency_;

@@ -36,6 +36,8 @@ struct DiagD3dkmtCadenceCapture
     std::uint32_t adapterLuidLow{};
     std::int32_t adapterLuidHigh{};
     std::uint32_t vidPnSourceId{};
+    bool noObjectProbeAttempted{};
+    std::optional<std::int32_t> noObjectProbeStatus;
     DiagD3dkmtCaptureFailure failure{ DiagD3dkmtCaptureFailure::None };
     std::optional<std::int32_t> failureStatus;
     std::vector<std::uint64_t> timestamps;

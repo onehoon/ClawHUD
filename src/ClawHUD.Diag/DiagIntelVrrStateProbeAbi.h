@@ -51,9 +51,9 @@ inline void InitializeDisplayProperties(DisplayProperties& properties) noexcept
 {
     properties = {};
     properties.size = sizeof(properties);
-    properties.version = 1;
+    properties.version = 0;
     properties.displayTiming.size = sizeof(properties.displayTiming);
-    properties.displayTiming.version = 1;
+    properties.displayTiming.version = 0;
 }
 
 static_assert(sizeof(GenericVoidDatatype) == 16);

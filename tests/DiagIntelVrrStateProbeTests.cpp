@@ -13,9 +13,9 @@ int main()
     diag_igcl_abi::DisplayProperties displayProperties{};
     diag_igcl_abi::InitializeDisplayProperties(displayProperties);
     assert(displayProperties.size == sizeof(displayProperties));
-    assert(displayProperties.version == 1);
+    assert(displayProperties.version == 0);
     assert(displayProperties.displayTiming.size == sizeof(displayProperties.displayTiming));
-    assert(displayProperties.displayTiming.version == 1);
+    assert(displayProperties.displayTiming.version == 0);
 
     const LUID intel{ 17, 2 };
     const LUID discrete{ 21, 3 };

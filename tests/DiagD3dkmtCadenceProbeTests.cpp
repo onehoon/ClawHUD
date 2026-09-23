@@ -41,6 +41,7 @@ namespace
 constexpr NTSTATUS kStatusWaitForVblank = 0;
 constexpr NTSTATUS kStatusCancelled = 1;
 constexpr NTSTATUS kStatusInvalidParameter = static_cast<NTSTATUS>(0xC000000Du);
+constexpr NTSTATUS kStatusAccessDenied = static_cast<NTSTATUS>(0xC0000022u);
 constexpr DWORD kSignalTimeoutMs = 5000;
 
 bool WaitForSignal(HANDLE event)
@@ -62,6 +63,7 @@ void TestWaitForVblankRecordsSampleAndCancellationIsClean()
     {
         assert(args->hAdapter == 17);
         assert(args->VidPnSourceId == 3);
+        if (args->NumObjects == 0) return kStatusWaitForVblank;
         assert(args->NumObjects == 1);
         if (waitCalls.fetch_add(1) == 0)
         {
@@ -98,6 +100,8 @@ void TestWaitForVblankRecordsSampleAndCancellationIsClean()
     assert(capture.attempted);
     assert(capture.targetIdentified);
     assert(capture.failure == DiagD3dkmtCaptureFailure::None);
+    assert(capture.noObjectProbeAttempted);
+    assert(capture.noObjectProbeStatus == static_cast<std::int32_t>(kStatusWaitForVblank));
     assert(capture.timestamps.size() == 1);
     assert(capture.timestamps.front() == 12345);
     assert(adapterCloses == 1);
@@ -113,8 +117,9 @@ void TestWaitFailureTerminatesAndIsReported()
 
     std::atomic<int> adapterCloses{};
     DiagD3dkmtCadenceProbeApi api;
-    api.waitForVerticalBlankEvent2 = [&](D3DKMT_WAITFORVERTICALBLANKEVENT2*)
+    api.waitForVerticalBlankEvent2 = [&](D3DKMT_WAITFORVERTICALBLANKEVENT2* args)
     {
+        if (args->NumObjects == 0) return kStatusAccessDenied;
         SetEvent(failureReturned);
         return kStatusInvalidParameter;
     };
@@ -140,6 +145,8 @@ void TestWaitFailureTerminatesAndIsReported()
     assert(capture.failureDetail == "D3DKMTWaitForVerticalBlankEvent2");
     assert(capture.failureStatusDomain == DiagD3dkmtFailureStatusDomain::NtStatus);
     assert(capture.failureStatus == static_cast<std::int32_t>(kStatusInvalidParameter));
+    assert(capture.noObjectProbeAttempted);
+    assert(capture.noObjectProbeStatus == static_cast<std::int32_t>(kStatusAccessDenied));
     assert(adapterCloses == 1);
     CloseHandle(failureReturned);
 }
@@ -185,6 +192,8 @@ void TestCancellationAllowsASecondSamplerRun()
     DiagD3dkmtCadenceProbeApi api;
     api.waitForVerticalBlankEvent2 = [&](D3DKMT_WAITFORVERTICALBLANKEVENT2* args)
     {
+        if (args->NumObjects == 0) return kStatusWaitForVblank;
+        assert(args->NumObjects == 1);
         if ((waitCalls.fetch_add(1) % 2) == 0) return kStatusWaitForVblank;
         {
             std::lock_guard lock(sampleMutex);
