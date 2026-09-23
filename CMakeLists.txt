@@ -29,8 +29,8 @@ file(DOWNLOAD
     TLS_VERIFY OFF)
 file(ARCHIVE_EXTRACT INPUT "${VELOPACK_ARCHIVE}" DESTINATION "${VELOPACK_ROOT}")
 
-set(PRESENTMON_VERSION "2.5.1")
-set(PRESENTMON_API2_ROOT "${CMAKE_SOURCE_DIR}/third_party/presentmon/2.5.1")
+set(PRESENTMON_VERSION "2.6.0")
+set(PRESENTMON_API2_ROOT "${CMAKE_SOURCE_DIR}/third_party/presentmon/2.6.0")
 
 # One source of truth: the bundled runtime path, the readiness version floor, and
 # the wrapper MSI ProductVersion all derive from PRESENTMON_VERSION.

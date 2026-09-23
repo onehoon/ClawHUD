@@ -114,7 +114,7 @@ const std::string kExceptionBody =
 
 std::size_t Api2AlignedRowBytes(const std::vector<PM_QUERY_ELEMENT>& elements) noexcept
 {
-    // Match PresentMon 2.5.1 DynamicQuery: blobSize_ = PadToAlignment(cursor, 16).
+    // Match PresentMon 2.6.0 DynamicQuery: blobSize_ = PadToAlignment(cursor, 16).
     constexpr std::uint64_t kAlignment = 16;
     std::uint64_t end{};
     for (const auto& element : elements)
@@ -298,7 +298,7 @@ bool Api2Evidence::Start(std::string& detail) noexcept
         if (state->elements.empty() || state->client.RegisterDynamicQuery(&state->query,
             state->elements.data(), state->elements.size(), 1000, 0) != PM_STATUS_SUCCESS || !state->query)
         { detail = "query_unavailable"; return false; }
-        // 16-byte-aligned per-row stride, matching PresentMon 2.5.1. Using the
+        // 16-byte-aligned per-row stride, matching PresentMon 2.6.0. Using the
         // unaligned element end misdecodes row 1+ and under-allocates the blob.
         state->rowBytes = Api2AlignedRowBytes(state->elements);
         // PresentMon rejects a zero input capacity, so the blob must hold

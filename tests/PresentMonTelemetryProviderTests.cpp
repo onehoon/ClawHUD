@@ -256,8 +256,13 @@ void CheckProcessLifecycle(bool& ok)
         snapshot->swapChainAddress == 0xABCDULL &&
         client.started.size() == 1 && client.registerCount == 1,
         "first PID starts tracking, registers the query, returns both rates");
-    ok &= Check(client.lastWindowMs == 1000.0 && client.lastOffsetMs == 80.0,
-        "query uses the official 1000 ms window and 80 ms offset");
+    ok &= Check(kPresentMonFpsWindowMs == 1000.0 &&
+        kPresentMonFpsOffsetMs == 150.0 &&
+        kPresentMonEtwFlushPeriodMs == 8,
+        "FPS timing matches the PresentMon v2.6.0 UI defaults");
+    ok &= Check(client.lastWindowMs == kPresentMonFpsWindowMs &&
+        client.lastOffsetMs == kPresentMonFpsOffsetMs,
+        "registered query uses the configured v2.6.0 FPS timing");
     ok &= Check(client.lastPollSwapChainRequest == 1,
         "poll requests exactly one swap-chain result");
 
