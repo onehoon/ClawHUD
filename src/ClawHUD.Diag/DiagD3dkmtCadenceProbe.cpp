@@ -8,7 +8,6 @@ namespace
 {
 constexpr std::size_t kMaximumSamples = 100000;
 constexpr NTSTATUS kStatusWaitForVblank = 0x00000000L;
-constexpr NTSTATUS kStatusCancelled = 0x00000001L;
 
 bool SameLuid(const LUID& left, const LUID& right) noexcept
 {
@@ -42,8 +41,6 @@ bool DiagD3dkmtCadenceProbe::Initialize(
     failureDetail_ = {};
     failureStatusDomain_ = DiagD3dkmtFailureStatusDomain::None;
     failureStatus_.reset();
-    noObjectProbeAttempted_ = false;
-    noObjectProbeStatus_.reset();
     timestamps_.clear();
     qpcFrequency_ = 0;
     adapterLuid_ = {};
@@ -177,8 +174,6 @@ bool DiagD3dkmtCadenceProbe::InitializeResolvedTarget(
     failureDetail_ = {};
     failureStatusDomain_ = DiagD3dkmtFailureStatusDomain::None;
     failureStatus_.reset();
-    noObjectProbeAttempted_ = false;
-    noObjectProbeStatus_.reset();
     adapterHandle_ = adapterHandle;
     adapterLuid_ = adapterLuid;
     vidPnSourceId_ = vidPnSourceId;
@@ -214,15 +209,6 @@ bool DiagD3dkmtCadenceProbe::InitializeResolvedTarget(
 
     timestamps_.clear();
 
-    D3DKMT_WAITFORVERTICALBLANKEVENT2 probe{};
-    probe.hAdapter = adapterHandle_;
-    probe.VidPnSourceId = vidPnSourceId_;
-    probe.NumObjects = 0;
-    const auto probeStatus = api_.waitForVerticalBlankEvent2 ?
-        api_.waitForVerticalBlankEvent2(&probe) : waitForVerticalBlankEvent2_(&probe);
-    noObjectProbeAttempted_ = true;
-    noObjectProbeStatus_ = static_cast<std::int32_t>(probeStatus);
-
     initialized_ = true;
     return true;
 }
@@ -248,17 +234,6 @@ bool DiagD3dkmtCadenceProbe::Start() noexcept
             return false;
         }
     }
-    SetLastError(ERROR_SUCCESS);
-    cancellationEvent_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    if (!cancellationEvent_)
-    {
-        const auto error = LastErrorStatus();
-        SetFailure(DiagD3dkmtCaptureFailure::CancelEventFailed,
-            "CreateEventW for VBlank cancellation", error,
-            error ? DiagD3dkmtFailureStatusDomain::Win32 :
-                DiagD3dkmtFailureStatusDomain::None);
-        return false;
-    }
     stopRequested_.store(false, std::memory_order_release);
     try
     {
@@ -267,8 +242,6 @@ bool DiagD3dkmtCadenceProbe::Start() noexcept
     catch (...)
     {
         stopRequested_.store(true, std::memory_order_release);
-        CloseHandle(cancellationEvent_);
-        cancellationEvent_ = nullptr;
         SetFailure(DiagD3dkmtCaptureFailure::SamplerStartFailed,
             "create D3DKMT sampler thread");
         return false;
@@ -286,11 +259,9 @@ void DiagD3dkmtCadenceProbe::SampleLoop() noexcept
         D3DKMT_WAITFORVERTICALBLANKEVENT2 args{};
         args.hAdapter = adapterHandle_;
         args.VidPnSourceId = vidPnSourceId_;
-        args.NumObjects = 1;
-        args.ObjectHandleArray[0] = cancellationEvent_;
+        args.NumObjects = 0;
         const auto status = api_.waitForVerticalBlankEvent2 ?
             api_.waitForVerticalBlankEvent2(&args) : waitForVerticalBlankEvent2_(&args);
-        if (status == kStatusCancelled) return;
         if (status != kStatusWaitForVblank)
         {
             SetFailure(DiagD3dkmtCaptureFailure::WaitFailed,
@@ -298,6 +269,7 @@ void DiagD3dkmtCadenceProbe::SampleLoop() noexcept
                 DiagD3dkmtFailureStatusDomain::NtStatus);
             return;
         }
+        if (stopRequested_.load(std::memory_order_acquire)) return;
 
         LARGE_INTEGER counter{};
         SetLastError(ERROR_SUCCESS);
@@ -350,18 +322,9 @@ void DiagD3dkmtCadenceProbe::SetFailure(
     }
 }
 
-void DiagD3dkmtCadenceProbe::CancelAndJoin() noexcept
+void DiagD3dkmtCadenceProbe::StopAndJoin() noexcept
 {
     stopRequested_.store(true, std::memory_order_release);
-    SetLastError(ERROR_SUCCESS);
-    if (cancellationEvent_ && !SetEvent(cancellationEvent_))
-    {
-        const auto error = LastErrorStatus();
-        SetFailure(DiagD3dkmtCaptureFailure::CancelEventFailed,
-            "SetEvent for VBlank cancellation", error,
-            error ? DiagD3dkmtFailureStatusDomain::Win32 :
-                DiagD3dkmtFailureStatusDomain::None);
-    }
     if (sampler_.joinable()) sampler_.join();
     sampling_ = false;
 
@@ -376,16 +339,11 @@ void DiagD3dkmtCadenceProbe::CancelAndJoin() noexcept
                 DiagD3dkmtFailureStatusDomain::NtStatus);
     }
     adapterHandle_ = {};
-    if (cancellationEvent_)
-    {
-        CloseHandle(cancellationEvent_);
-        cancellationEvent_ = nullptr;
-    }
 }
 
 DiagD3dkmtCadenceCapture DiagD3dkmtCadenceProbe::Stop()
 {
-    CancelAndJoin();
+    StopAndJoin();
     DiagD3dkmtCadenceCapture result;
     {
         std::lock_guard lock(mutex_);
@@ -396,8 +354,6 @@ DiagD3dkmtCadenceCapture DiagD3dkmtCadenceProbe::Stop()
         result.failureDetail = failureDetail_;
         result.failureStatusDomain = failureStatusDomain_;
         result.failureStatus = failureStatus_;
-        result.noObjectProbeAttempted = noObjectProbeAttempted_;
-        result.noObjectProbeStatus = noObjectProbeStatus_;
         result.timestamps = timestamps_;
     }
     result.qpcFrequency = qpcFrequency_;
@@ -410,7 +366,7 @@ DiagD3dkmtCadenceCapture DiagD3dkmtCadenceProbe::Stop()
 
 void DiagD3dkmtCadenceProbe::Shutdown() noexcept
 {
-    CancelAndJoin();
+    StopAndJoin();
     initialized_ = false;
     waitForVerticalBlankEvent2_ = nullptr;
     openAdapterFromHdc_ = nullptr;

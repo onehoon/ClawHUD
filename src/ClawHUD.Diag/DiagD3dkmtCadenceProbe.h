@@ -46,7 +46,7 @@ private:
         D3DKMT_HANDLE adapterHandle, LUID adapterLuid, UINT32 vidPnSourceId,
         std::int64_t qpcFrequency, const VrrDisplayPath& expectedPath) noexcept;
     void SampleLoop() noexcept;
-    void CancelAndJoin() noexcept;
+    void StopAndJoin() noexcept;
     void SetFailure(DiagD3dkmtCaptureFailure failure,
         std::string_view detail = {},
         std::optional<std::int32_t> status = std::nullopt,
@@ -66,7 +66,6 @@ private:
     LUID adapterLuid_{};
     UINT32 vidPnSourceId_{};
     std::int64_t qpcFrequency_{};
-    HANDLE cancellationEvent_{};
     std::atomic_bool stopRequested_{ true };
     std::thread sampler_;
     mutable std::mutex mutex_;
@@ -74,8 +73,6 @@ private:
     std::string_view failureDetail_;
     DiagD3dkmtFailureStatusDomain failureStatusDomain_{
         DiagD3dkmtFailureStatusDomain::None };
-    bool noObjectProbeAttempted_{};
-    std::optional<std::int32_t> noObjectProbeStatus_;
     std::optional<std::int32_t> failureStatus_;
     std::vector<std::uint64_t> timestamps_;
     bool initialized_{};
