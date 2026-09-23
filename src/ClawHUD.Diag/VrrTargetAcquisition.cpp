@@ -155,6 +155,14 @@ bool VrrProcessGenerationIsAlive(const VrrProcessIdentity& identity) noexcept
     return process.Get() && CreationFileTime(process.Get()) == identity.creationFileTime;
 }
 
+bool VrrLaunchContextHasChanged(const VrrLaunchContext& context,
+    HWND foregroundWindow, DWORD foregroundProcessId) noexcept
+{
+    if (context.foregroundProcessId)
+        return foregroundProcessId != context.foregroundProcessId;
+    return foregroundWindow != context.foregroundWindow;
+}
+
 VrrTargetAcquisition::VrrTargetAcquisition(DWORD diagnosticProcessId) noexcept
     : diagnosticProcessId_(diagnosticProcessId)
 {
@@ -175,12 +183,18 @@ VrrTargetAcquireResult VrrTargetAcquisition::Acquire(VrrApi2FrameCapture& frameC
     };
     std::optional<RejectedCandidate> rejected;
     const auto end = std::chrono::steady_clock::now() + std::max(timeout, std::chrono::milliseconds::zero());
+    bool launchContextDeparted = !launchContext_.foregroundWindow &&
+        !launchContext_.foregroundProcessId;
 
     while (std::chrono::steady_clock::now() < end)
     {
         const HWND window = GetForegroundWindow();
         DWORD processId{};
-        if (!window || !GetWindowThreadProcessId(window, &processId) ||
+        const bool hasProcessId = window && GetWindowThreadProcessId(window, &processId);
+        if (!launchContextDeparted && VrrLaunchContextHasChanged(launchContext_,
+                window, hasProcessId ? processId : 0))
+            launchContextDeparted = true;
+        if (!launchContextDeparted || !window || !hasProcessId ||
             processId == diagnosticProcessId_ || !VrrWindowIsEligible(window))
         {
             std::this_thread::sleep_for(kForegroundPollInterval);

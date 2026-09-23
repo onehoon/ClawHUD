@@ -1,5 +1,7 @@
 #pragma once
 
+#include <windows.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -19,8 +21,14 @@ struct DiagIgclTargetMatch
     std::optional<std::size_t> outputIndex;
 };
 
-DiagIgclTargetMatch ResolveDiagIgclTargetId(std::uint32_t windowsTargetId,
-    std::span<const std::uint32_t> outputTargetIds,
+struct DiagIgclOutputIdentity
+{
+    LUID adapterLuid{};
+    std::uint32_t targetId{};
+};
+
+DiagIgclTargetMatch ResolveDiagIgclTarget(const LUID& windowsTargetAdapterLuid,
+    std::uint32_t windowsTargetId, std::span<const DiagIgclOutputIdentity> outputs,
     bool enumerationComplete = true) noexcept;
 
 struct DiagArcSyncCapability
@@ -44,6 +52,7 @@ struct DiagArcSyncProfile
 struct DiagIntelVrrState
 {
     DiagIgclTargetMappingStatus mappingStatus{ DiagIgclTargetMappingStatus::Unknown };
+    LUID windowsTargetAdapterLuid{};
     std::uint32_t windowsTargetId{};
     std::optional<DiagArcSyncCapability> capability;
     std::optional<DiagArcSyncProfile> profile;
@@ -57,7 +66,8 @@ public:
     ~DiagIntelVrrStateProbe();
 
     bool Initialize() noexcept;
-    DiagIntelVrrState Query(std::uint32_t windowsTargetId) noexcept;
+    DiagIntelVrrState Query(const LUID& windowsTargetAdapterLuid,
+        std::uint32_t windowsTargetId) noexcept;
     void Shutdown() noexcept;
 
 private:

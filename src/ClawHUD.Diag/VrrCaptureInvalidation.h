@@ -10,14 +10,19 @@ class VrrForegroundChangeTracker
 {
 public:
     void Reset(DWORD targetProcessId) noexcept;
-    void BeginMeasurementEpoch() noexcept;
-    void EndMeasurementEpoch() noexcept;
-    void ObserveForegroundProcess(DWORD processId) noexcept;
+    void BeginMeasurementEpoch(DWORD startTimeMs) noexcept;
+    void SetMeasurementEndBoundary(DWORD endTimeMs) noexcept;
+    void EndMeasurementEpoch(DWORD endTimeMs) noexcept;
+    void ObserveForegroundProcess(DWORD processId, DWORD eventTimeMs) noexcept;
     bool ForeignForegroundObserved() const noexcept;
 
 private:
     std::atomic<DWORD> targetProcessId_{};
+    std::atomic<DWORD> epochStartTimeMs_{};
+    std::atomic<DWORD> epochEndTimeMs_{};
     std::atomic_bool epochActive_{};
+    std::atomic_bool epochEnded_{};
+    std::atomic_bool epochEndKnown_{};
     std::atomic_bool foreignForegroundObserved_{};
 };
 
@@ -31,7 +36,9 @@ public:
     VrrForegroundEventHook& operator=(const VrrForegroundEventHook&) = delete;
 
     bool Start(DWORD targetProcessId) noexcept;
-    void BeginMeasurementEpoch() noexcept;
+    void BeginMeasurementEpoch(DWORD startTimeMs = GetTickCount()) noexcept;
+    void SetMeasurementEndBoundary(DWORD endTimeMs) noexcept;
+    void EndMeasurementEpoch(DWORD endTimeMs = GetTickCount()) noexcept;
     bool ForeignForegroundObserved() const noexcept;
     bool Running() const noexcept;
     void Stop() noexcept;

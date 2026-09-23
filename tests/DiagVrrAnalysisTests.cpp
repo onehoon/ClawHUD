@@ -78,6 +78,32 @@ bool HasReason(const VrrAnalysisResult& result, VrrAnalysisReason reason)
     return false;
 }
 
+void TestMeasurementEvidenceIsTrimmedToQpcWindow()
+{
+    std::vector<VrrFrameSample> frames(5);
+    frames[0].presentStartQpc = 99;
+    frames[1].presentStartQpc = 100;
+    frames[2].presentStartQpc = 199;
+    frames[3].presentStartQpc = 200;
+
+    DiagD3dkmtCadenceCapture d3dkmt;
+    d3dkmt.available = true;
+    d3dkmt.qpcFrequency = 100;
+    d3dkmt.timestamps = { 99, 100, 150, 199, 200 };
+
+    const auto evidence = TrimVrrMeasurementEvidence(frames, d3dkmt, 100, 200);
+    assert(evidence.frames.size() == 2);
+    assert(evidence.frames[0].presentStartQpc == 100);
+    assert(evidence.frames[1].presentStartQpc == 199);
+    assert(evidence.framesWithoutQpc == 1);
+    assert((evidence.d3dkmt.timestamps == std::vector<std::uint64_t>{ 100, 150, 199 }));
+
+    const auto invalidWindow = TrimVrrMeasurementEvidence(frames, d3dkmt, 200, 200);
+    assert(invalidWindow.frames.empty());
+    assert(invalidWindow.framesWithoutQpc == 0);
+    assert(invalidWindow.d3dkmt.timestamps.empty());
+}
+
 void TestCadence()
 {
     const auto fixed = AnalyzeDiagD3dkmtCadence(
@@ -319,6 +345,7 @@ void TestCombinedAnalysis()
 
 int main()
 {
+    TestMeasurementEvidenceIsTrimmedToQpcWindow();
     TestCadence();
     TestPresentationAnalysis();
     TestIgclClassification();

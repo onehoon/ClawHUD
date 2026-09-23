@@ -115,7 +115,20 @@ struct VrrAnalysisResult
     std::vector<VrrAnalysisReason> reasons;
 };
 
+struct VrrMeasurementEvidence
+{
+    std::vector<VrrFrameSample> frames;
+    DiagD3dkmtCadenceCapture d3dkmt;
+    std::size_t framesWithoutQpc{};
+};
+
 VrrIgclClass ClassifyDiagIgclState(const DiagIntelVrrState& state) noexcept;
+
+VrrMeasurementEvidence TrimVrrMeasurementEvidence(
+    std::span<const VrrFrameSample> frames,
+    const DiagD3dkmtCadenceCapture& d3dkmt,
+    std::uint64_t measurementStartQpc,
+    std::uint64_t measurementEndQpc);
 
 VrrPresentationAnalysis AnalyzeVrrPresentation(
     std::span<const VrrFrameSample> frames, std::uint32_t targetProcessId);

@@ -9,25 +9,36 @@
 
 int main()
 {
-    const std::array<std::uint32_t, 3> ids{ 17, 0, 8 };
-    const auto exact = ResolveDiagIgclTargetId(0, ids);
+    const LUID intel{ 17, 2 };
+    const LUID discrete{ 21, 3 };
+    const std::array<DiagIgclOutputIdentity, 3> outputs{{
+        { intel, 17 }, { discrete, 0 }, { intel, 8 } }};
+    const auto exact = ResolveDiagIgclTarget(intel, 8, outputs);
     assert(exact.status == DiagIgclTargetMappingStatus::Exact);
-    assert(exact.outputIndex == 1);
+    assert(exact.outputIndex == 2);
 
-    const auto missing = ResolveDiagIgclTargetId(4, ids);
-    assert(missing.status == DiagIgclTargetMappingStatus::Unknown);
-    assert(!missing.outputIndex);
+    // The numeric target ID can repeat on a different adapter. Its LUID must
+    // also match the Windows display path before the output is considered.
+    const auto wrongAdapter = ResolveDiagIgclTarget(intel, 0, outputs);
+    assert(wrongAdapter.status == DiagIgclTargetMappingStatus::Unknown);
+    assert(!wrongAdapter.outputIndex);
 
-    const std::array<std::uint32_t, 3> duplicateIds{ 17, 8, 17 };
-    const auto ambiguous = ResolveDiagIgclTargetId(17, duplicateIds);
+    const std::array<DiagIgclOutputIdentity, 3> duplicateOutputs{{
+        { intel, 17 }, { discrete, 17 }, { intel, 17 } }};
+    const auto ambiguous = ResolveDiagIgclTarget(intel, 17, duplicateOutputs);
     assert(ambiguous.status == DiagIgclTargetMappingStatus::Ambiguous);
     assert(!ambiguous.outputIndex);
 
-    const auto incomplete = ResolveDiagIgclTargetId(8, ids, false);
+    const auto missing = ResolveDiagIgclTarget(intel, 4, outputs);
+    assert(missing.status == DiagIgclTargetMappingStatus::Unknown);
+    assert(!missing.outputIndex);
+
+    const auto incomplete = ResolveDiagIgclTarget(intel, 8, outputs, false);
     assert(incomplete.status == DiagIgclTargetMappingStatus::Unknown);
     assert(!incomplete.outputIndex);
 
-    const auto incompleteDuplicate = ResolveDiagIgclTargetId(17, duplicateIds, false);
+    const auto incompleteDuplicate = ResolveDiagIgclTarget(intel, 17,
+        duplicateOutputs, false);
     assert(incompleteDuplicate.status == DiagIgclTargetMappingStatus::Ambiguous);
     assert(!incompleteDuplicate.outputIndex);
 }

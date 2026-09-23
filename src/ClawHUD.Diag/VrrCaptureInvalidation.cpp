@@ -7,25 +7,61 @@ std::atomic<VrrForegroundEventHook*> VrrForegroundEventHook::active_{};
 void VrrForegroundChangeTracker::Reset(DWORD targetProcessId) noexcept
 {
     epochActive_.store(false, std::memory_order_release);
+    epochEnded_.store(false, std::memory_order_release);
+    epochEndKnown_.store(false, std::memory_order_release);
     foreignForegroundObserved_.store(false, std::memory_order_release);
     targetProcessId_.store(targetProcessId, std::memory_order_release);
 }
 
-void VrrForegroundChangeTracker::BeginMeasurementEpoch() noexcept
+void VrrForegroundChangeTracker::BeginMeasurementEpoch(DWORD startTimeMs) noexcept
 {
+    foreignForegroundObserved_.store(false, std::memory_order_release);
+    epochStartTimeMs_.store(startTimeMs, std::memory_order_relaxed);
+    epochEndTimeMs_.store(0, std::memory_order_relaxed);
+    epochEnded_.store(false, std::memory_order_relaxed);
+    epochEndKnown_.store(false, std::memory_order_relaxed);
     epochActive_.store(true, std::memory_order_release);
 }
 
-void VrrForegroundChangeTracker::EndMeasurementEpoch() noexcept
+void VrrForegroundChangeTracker::SetMeasurementEndBoundary(DWORD endTimeMs) noexcept
 {
-    epochActive_.store(false, std::memory_order_release);
+    if (!epochActive_.load(std::memory_order_acquire) ||
+        epochEnded_.load(std::memory_order_acquire))
+        return;
+    epochEndTimeMs_.store(endTimeMs, std::memory_order_relaxed);
+    epochEndKnown_.store(true, std::memory_order_release);
 }
 
-void VrrForegroundChangeTracker::ObserveForegroundProcess(DWORD processId) noexcept
+void VrrForegroundChangeTracker::EndMeasurementEpoch(DWORD endTimeMs) noexcept
 {
-    if (processId != 0 && epochActive_.load(std::memory_order_acquire) &&
-        processId != targetProcessId_.load(std::memory_order_acquire))
-        foreignForegroundObserved_.store(true, std::memory_order_release);
+    if (!epochActive_.load(std::memory_order_acquire) ||
+        epochEnded_.load(std::memory_order_acquire))
+        return;
+    epochEndTimeMs_.store(endTimeMs, std::memory_order_relaxed);
+    epochEndKnown_.store(true, std::memory_order_release);
+    epochEnded_.store(true, std::memory_order_release);
+}
+
+void VrrForegroundChangeTracker::ObserveForegroundProcess(
+    DWORD processId, DWORD eventTimeMs) noexcept
+{
+    if (!processId || !epochActive_.load(std::memory_order_acquire) ||
+        processId == targetProcessId_.load(std::memory_order_acquire))
+        return;
+
+    // WinEvent event times are GetTickCount values. Unsigned subtraction keeps
+    // this comparison valid across the DWORD tick-count wrap for short epochs.
+    const auto startElapsed = static_cast<DWORD>(eventTimeMs -
+        epochStartTimeMs_.load(std::memory_order_relaxed));
+    if (startElapsed >= 0x80000000u) return;
+    if (epochEndKnown_.load(std::memory_order_acquire))
+    {
+        const auto endElapsed = static_cast<DWORD>(
+            epochEndTimeMs_.load(std::memory_order_relaxed) -
+            epochStartTimeMs_.load(std::memory_order_relaxed));
+        if (endElapsed >= 0x80000000u || startElapsed >= endElapsed) return;
+    }
+    foreignForegroundObserved_.store(true, std::memory_order_release);
 }
 
 bool VrrForegroundChangeTracker::ForeignForegroundObserved() const noexcept
@@ -79,9 +115,19 @@ bool VrrForegroundEventHook::Start(DWORD targetProcessId) noexcept
     return true;
 }
 
-void VrrForegroundEventHook::BeginMeasurementEpoch() noexcept
+void VrrForegroundEventHook::BeginMeasurementEpoch(DWORD startTimeMs) noexcept
 {
-    tracker_.BeginMeasurementEpoch();
+    tracker_.BeginMeasurementEpoch(startTimeMs);
+}
+
+void VrrForegroundEventHook::EndMeasurementEpoch(DWORD endTimeMs) noexcept
+{
+    tracker_.EndMeasurementEpoch(endTimeMs);
+}
+
+void VrrForegroundEventHook::SetMeasurementEndBoundary(DWORD endTimeMs) noexcept
+{
+    tracker_.SetMeasurementEndBoundary(endTimeMs);
 }
 
 bool VrrForegroundEventHook::ForeignForegroundObserved() const noexcept
@@ -96,7 +142,7 @@ bool VrrForegroundEventHook::Running() const noexcept
 
 void VrrForegroundEventHook::Stop() noexcept
 {
-    tracker_.EndMeasurementEpoch();
+    tracker_.EndMeasurementEpoch(GetTickCount());
     if (thread_.joinable())
     {
         if (shutdownEvent_ && !SetEvent(shutdownEvent_))
@@ -118,14 +164,14 @@ void VrrForegroundEventHook::Stop() noexcept
 }
 
 void CALLBACK VrrForegroundEventHook::WinEventProc(HWINEVENTHOOK, DWORD event,
-    HWND window, LONG, LONG, DWORD, DWORD)
+    HWND window, LONG, LONG, DWORD, DWORD eventTimeMs)
 {
     if (event != EVENT_SYSTEM_FOREGROUND || !window) return;
     DWORD processId{};
     if (!GetWindowThreadProcessId(window, &processId) || !processId) return;
     // The callback only performs a bounded PID lookup and publishes one bit.
     auto* self = active_.load(std::memory_order_acquire);
-    if (self) self->tracker_.ObserveForegroundProcess(processId);
+    if (self) self->tracker_.ObserveForegroundProcess(processId, eventTimeMs);
 }
 
 void VrrForegroundEventHook::ThreadMain(std::promise<bool> ready) noexcept
@@ -172,7 +218,17 @@ void VrrForegroundEventHook::ThreadMain(std::promise<bool> ready) noexcept
     {
         const auto wait = MsgWaitForMultipleObjects(1, &shutdownEvent_, FALSE,
             INFINITE, QS_ALLINPUT);
-        if (wait == WAIT_OBJECT_0) break;
+        if (wait == WAIT_OBJECT_0)
+        {
+            // Out-of-context WinEvent callbacks already queued before the
+            // epoch end must run before the owner thread unhooks and exits.
+            while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE))
+            {
+                TranslateMessage(&message);
+                DispatchMessageW(&message);
+            }
+            break;
+        }
         if (wait != WAIT_OBJECT_0 + 1) break;
 
         const auto received = GetMessageW(&message, nullptr, 0, 0);

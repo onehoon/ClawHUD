@@ -125,8 +125,12 @@ std::optional<VrrFrameMetricBinding> MakeBinding(
     const PM_INTROSPECTION_ROOT* root, const MetricSpec& spec)
 {
     const auto* metric = FindMetric(root, spec.metric);
-    if (!metric || (metric->type != PM_METRIC_TYPE_FRAME_EVENT &&
-        metric->type != PM_METRIC_TYPE_DYNAMIC_FRAME) || !metric->pTypeInfo)
+    const bool frameMetric = metric &&
+        (metric->type == PM_METRIC_TYPE_FRAME_EVENT ||
+            metric->type == PM_METRIC_TYPE_DYNAMIC_FRAME);
+    const bool staticProcessId = metric && spec.field == VrrFrameField::ProcessId &&
+        metric->type == PM_METRIC_TYPE_STATIC;
+    if (!metric || (!frameMetric && !staticProcessId) || !metric->pTypeInfo)
         return std::nullopt;
 
     const auto deviceId = FindAvailableIndependentDevice(root, metric);

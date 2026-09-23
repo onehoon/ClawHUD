@@ -97,6 +97,39 @@ VrrIgclClass ClassifyDiagIgclState(const DiagIntelVrrState& state) noexcept
     return VrrIgclClass::Enabled;
 }
 
+VrrMeasurementEvidence TrimVrrMeasurementEvidence(
+    std::span<const VrrFrameSample> frames,
+    const DiagD3dkmtCadenceCapture& d3dkmt,
+    std::uint64_t measurementStartQpc,
+    std::uint64_t measurementEndQpc)
+{
+    VrrMeasurementEvidence result;
+    result.d3dkmt = d3dkmt;
+    result.d3dkmt.timestamps.clear();
+    if (measurementEndQpc <= measurementStartQpc) return result;
+
+    result.frames.reserve(frames.size());
+    for (const auto& frame : frames)
+    {
+        if (!frame.presentStartQpc)
+        {
+            ++result.framesWithoutQpc;
+            continue;
+        }
+        if (*frame.presentStartQpc >= measurementStartQpc &&
+            *frame.presentStartQpc < measurementEndQpc)
+            result.frames.push_back(frame);
+    }
+
+    result.d3dkmt.timestamps.reserve(d3dkmt.timestamps.size());
+    for (const auto timestamp : d3dkmt.timestamps)
+    {
+        if (timestamp >= measurementStartQpc && timestamp < measurementEndQpc)
+            result.d3dkmt.timestamps.push_back(timestamp);
+    }
+    return result;
+}
+
 VrrPresentationAnalysis AnalyzeVrrPresentation(
     std::span<const VrrFrameSample> frames, std::uint32_t targetProcessId)
 {

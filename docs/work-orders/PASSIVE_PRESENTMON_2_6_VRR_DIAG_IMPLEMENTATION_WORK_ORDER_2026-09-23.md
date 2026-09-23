@@ -153,18 +153,21 @@ After VRR mode begins:
 
 1. Record the Diag PID.
 2. Record the current foreground HWND/PID as the launch context.
-3. Poll GetForegroundWindow at about 100 ms.
-4. Ignore the diagnostic itself and known blocked executables.
-5. Candidate window must be:
+3. Do not consider the launch-context process a candidate until a different
+   foreground PID has been observed at least once (use an HWND change only if
+   the launch-context PID could not be resolved).
+4. Poll GetForegroundWindow at about 100 ms.
+5. Ignore the diagnostic itself and known blocked executables.
+6. Candidate window must be:
    - valid top-level HWND;
    - visible;
    - ownerless;
    - not minimized.
-6. Open the process using PROCESS_QUERY_LIMITED_INFORMATION.
-7. Record PID + process creation FILETIME + image path + executable name.
-8. Resolve HMONITOR using MonitorFromWindow with MONITOR_DEFAULTTONULL.
-9. Verify the PID with PresentMon frame data.
-10. Lock only after real displayed-frame evidence is observed.
+7. Open the process using PROCESS_QUERY_LIMITED_INFORMATION.
+8. Record PID + process creation FILETIME + image path + executable name.
+9. Resolve HMONITOR using MonitorFromWindow with MONITOR_DEFAULTTONULL.
+10. Verify the PID with PresentMon frame data.
+11. Lock only after real displayed-frame evidence is observed.
 
 Recommended target-acquisition timeout: 60 seconds.
 
@@ -266,7 +269,11 @@ Do not use ctlGetVblankTimestamp.
 
 ## 12. Exact IGCL target mapping
 
-Use ctlGetDisplayProperties.
+Use ctlGetDeviceProperties and ctlGetDisplayProperties.
+
+Read the IGCL adapter LUID from `ctl_device_adapter_properties_t::pDeviceID`.
+Initialize its caller-owned buffer and `device_id_size` using the Windows `LUID`
+size before calling the API; reject a failed, null, or size-mismatched result.
 
 Intel's official sample identifies:
 
@@ -274,13 +281,17 @@ Intel's official sample identifies:
 
 as the Display Target ID.
 
-Correlate WindowsDisplayEncoderID with the active Windows display target ID resolved by DisplayPathProbe.
+Correlate both the IGCL adapter LUID and WindowsDisplayEncoderID with the active
+Windows target adapter LUID and target ID resolved by DisplayPathProbe. The
+identity is the pair `(target adapter LUID, target ID)`; a numeric target ID
+alone is not system-wide unique. Initialize the IGCL display-properties ABI
+version explicitly to 1.
 
 Do not select outputs by array order.
 
 Do not select outputs only because they report 48-120 Hz.
 
-If exactly one IGCL output matches the Windows target ID, use it.
+If exactly one IGCL output matches both values, use it.
 
 If no output or multiple outputs match, IGCL configuration is UNKNOWN or AMBIGUOUS. Continue collecting PresentMon and D3DKMT evidence.
 
@@ -389,6 +400,15 @@ Strongly preferred when available:
 
 Optional metric absence must not invalidate the entire capture.
 
+PresentMon 2.6 reports `PM_METRIC_PROCESS_ID` as `PM_METRIC_TYPE_STATIC`, with
+both `polledType` and `frameType` set to `PM_DATA_TYPE_UINT32`; allow this static
+metric for the frame query's optional PID check. Other static metrics remain
+excluded, as do dynamic-only metrics. `PM_METRIC_PRESENT_START_QPC` remains
+optional for collection, but rows without it cannot be assigned to the exact
+measurement window and must be excluded from classification; report an explicit
+reason so the run remains inconclusive when this prevents reliable time-window
+analysis.
+
 Do not request dynamic-only metrics through pmRegisterFrameQuery.
 
 In PresentMon 2.6 metadata, PM_METRIC_DISPLAYED_FRAME_TIME and PM_METRIC_PRESENTED_FRAME_TIME are dynamic metrics. Exclude them from the frame query.
@@ -475,16 +495,20 @@ After the 2-second settle:
 2. Re-check foreground target.
 3. Read display path.
 4. Read IGCL state.
-5. Flush PresentMon frames.
-6. Start D3DKMT.
-7. Start API2 frame capture.
-8. Measure for 15 seconds.
-9. Stop D3DKMT.
-10. Drain remaining PresentMon frames.
-11. Re-read IGCL and display path.
-12. Analyze.
-13. Write files.
-14. Play completion sound.
+5. Start PresentMon tracking and flush stale frames.
+6. Start D3DKMT after the flush.
+7. Begin the foreground event epoch and record the measurement-start QPC
+   back-to-back; WinEvent boundaries use millisecond event timestamps.
+8. Measure the half-open QPC interval `[start, start + 15 seconds)`.
+9. Record the measurement end boundary and stop D3DKMT.
+10. Drain remaining PresentMon frames, then stop tracking.
+11. Trim PresentMon and D3DKMT samples to the same QPC interval before analysis
+    and CSV output; samples at the end boundary are excluded. If capture is
+    invalidated early, use the actual end QPC and force an inconclusive result.
+12. Re-read IGCL and display path.
+13. Analyze.
+14. Write files.
+15. Play completion sound.
 
 Fifteen seconds gives enough frame samples and roughly fourteen complete 1-second cadence windows while remaining convenient.
 
@@ -515,6 +539,13 @@ On every completion or abort path, request hook-thread shutdown, unhook on the
 owning thread, finish its message loop, and join it before destroying callback
 state or returning to the menu. Events before the measurement epoch do not
 contaminate the run.
+
+Compare the callback's `dwmsEventTime` to the epoch's `GetTickCount` start/end
+values using wrap-safe arithmetic. Events are classified by when they occurred,
+not when the hook thread eventually dispatched them. On shutdown, drain queued
+messages before unhooking so an event that occurred inside the epoch but was
+delivered late still invalidates the run. The event interval is half-open, just
+like the QPC measurement interval.
 
 Any foreground transition observed after measurement begins whose non-zero PID differs from the locked target PID permanently marks the run contaminated, even if the user returns to the game before the next polling interval.
 
@@ -1366,12 +1397,16 @@ The implementation is complete when:
 - PID + creation FILETIME is stable.
 - HMONITOR resolves with no primary fallback.
 - Windows active display target and nominal refresh are recorded.
-- IGCL target mapping uses WindowsDisplayEncoderID and does not guess.
+- IGCL target mapping uses both the target adapter LUID and
+  WindowsDisplayEncoderID; a target ID alone never establishes an exact match.
 - ctlGetVblankTimestamp is not used.
 - VRR mode requires API 3.4.
 - Frame query is introspection-built.
+- `PM_METRIC_PROCESS_ID` is accepted as static metadata only for that field.
 - Dynamic-only metrics are excluded.
 - Stale frames are flushed before measurement.
+- Analysis and CSV evidence are clipped to the same half-open 15-second QPC
+  interval; untimed frames cannot silently affect classification.
 - D3DKMT binds only to the target monitor.
 - 1-second event-count windows drive cadence classification.
 - Independent Flip classification remains separate from physical-VRR inference.
