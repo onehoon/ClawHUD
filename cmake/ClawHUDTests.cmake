@@ -581,6 +581,45 @@
     add_test(NAME ClawHUD.DiagVrrApi2FrameCaptureTests
         COMMAND ClawHUD.DiagVrrApi2FrameCaptureTests)
 
+    add_executable(ClawHUD.DiagVrrTargetAcquisitionTests
+        tests/DiagVrrTargetAcquisitionTests.cpp
+        src/ClawHUD.Diag/VrrTargetAcquisition.cpp
+        src/ClawHUD.Diag/VrrApi2FrameCapture.cpp
+        src/ClawHUD.Diag/DiagPresentMonApi2Client.cpp)
+    target_compile_features(ClawHUD.DiagVrrTargetAcquisitionTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.DiagVrrTargetAcquisitionTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.DiagVrrTargetAcquisitionTests PRIVATE
+        src/ClawHUD.Diag "${CMAKE_BINARY_DIR}/generated")
+    target_link_libraries(ClawHUD.DiagVrrTargetAcquisitionTests PRIVATE kernel32 user32)
+    set_target_properties(ClawHUD.DiagVrrTargetAcquisitionTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.DiagVrrTargetAcquisitionTests
+        COMMAND ClawHUD.DiagVrrTargetAcquisitionTests)
+
+    add_executable(ClawHUD.DiagDisplayPathProbeTests
+        tests/DiagDisplayPathProbeTests.cpp
+        src/ClawHUD.Diag/DisplayPathProbe.cpp)
+    target_compile_features(ClawHUD.DiagDisplayPathProbeTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.DiagDisplayPathProbeTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.DiagDisplayPathProbeTests PRIVATE src/ClawHUD.Diag)
+    target_link_libraries(ClawHUD.DiagDisplayPathProbeTests PRIVATE user32)
+    set_target_properties(ClawHUD.DiagDisplayPathProbeTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.DiagDisplayPathProbeTests
+        COMMAND ClawHUD.DiagDisplayPathProbeTests)
+
+    add_executable(ClawHUD.DiagIntelVrrStateProbeTests
+        tests/DiagIntelVrrStateProbeTests.cpp
+        src/ClawHUD.Diag/DiagIntelVrrStateProbe.cpp)
+    target_compile_features(ClawHUD.DiagIntelVrrStateProbeTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.DiagIntelVrrStateProbeTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.DiagIntelVrrStateProbeTests PRIVATE src/ClawHUD.Diag)
+    target_link_libraries(ClawHUD.DiagIntelVrrStateProbeTests PRIVATE kernel32)
+    set_target_properties(ClawHUD.DiagIntelVrrStateProbeTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.DiagIntelVrrStateProbeTests
+        COMMAND ClawHUD.DiagIntelVrrStateProbeTests)
+
     add_executable(ClawHUD.DiagProcessMetadataTests
         tests/DiagProcessMetadataTests.cpp
         src/ClawHUD.Diag/DiagnosticSession.cpp
