@@ -29,9 +29,14 @@ struct InitArgs
     GUID uid{};
 };
 
+struct GenericVoidDatatypeAbi
+{
+    void* pData{};
+    std::uint32_t size{};
+};
+
 // Size/layout for the Windows display ID prefix and opaque remainder of the
-// IGCL display-properties ABI. The 192-byte size is used by the current
-// ControlLib display-properties structure; only the Windows ID is consumed.
+// IGCL display-properties ABI; only the Windows ID is consumed.
 struct DisplayPropertiesAbi
 {
     std::uint32_t size{};
@@ -40,7 +45,7 @@ struct DisplayPropertiesAbi
     union OsDisplayEncoder
     {
         std::uint32_t windowsDisplayEncoderId;
-        void* otherPlatformDisplayEncoderId;
+        GenericVoidDatatypeAbi otherPlatformDisplayEncoderId;
     } osDisplayEncoder{};
     std::array<std::uint8_t, 176> remainder{};
 };
@@ -68,8 +73,10 @@ struct ArcSyncProfileAbi
 };
 
 static_assert(sizeof(InitArgs) == 36);
+static_assert(sizeof(GenericVoidDatatypeAbi) == 16);
 static_assert(offsetof(DisplayPropertiesAbi, osDisplayEncoder) == 8);
-static_assert(sizeof(DisplayPropertiesAbi) == 192);
+static_assert(offsetof(DisplayPropertiesAbi, remainder) == 24);
+static_assert(sizeof(DisplayPropertiesAbi) == 200);
 static_assert(sizeof(ArcSyncCapabilityAbi) == 24);
 static_assert(sizeof(ArcSyncProfileAbi) == 28);
 
