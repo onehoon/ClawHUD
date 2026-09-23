@@ -3,6 +3,7 @@
 #include "DiagPresentMonApi2Client.h"
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <span>
 #include <vector>
@@ -73,22 +74,23 @@ std::optional<VrrFrameSample> DecodeVrrFrameSample(
 class VrrApi2FrameCapture
 {
 public:
+    explicit VrrApi2FrameCapture(
+        std::unique_ptr<DiagPresentMonApi2ClientApi> client = {});
     ~VrrApi2FrameCapture();
 
     bool Initialize();
-    bool FlushFrames(std::uint32_t processId) noexcept;
-    bool StartTracking(std::uint32_t processId, bool flushBeforeStart = true);
+    bool StartTracking(std::uint32_t processId);
     bool DrainFrames();
     void StopTracking() noexcept;
     void Shutdown() noexcept;
 
     bool Ready() const noexcept { return ready_; }
     std::uint32_t BlobSize() const noexcept { return blobSize_; }
-    const PM_VERSION& ApiVersion() const noexcept { return client_.ApiVersion(); }
+    const PM_VERSION& ApiVersion() const noexcept { return client_->ApiVersion(); }
     const std::vector<VrrFrameSample>& Samples() const noexcept { return samples_; }
 
 private:
-    DiagPresentMonApi2Client client_;
+    std::unique_ptr<DiagPresentMonApi2ClientApi> client_;
     VrrFrameQueryPlan plan_;
     PM_FRAME_QUERY_HANDLE query_{};
     std::uint32_t blobSize_{};

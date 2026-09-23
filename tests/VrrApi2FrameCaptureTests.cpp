@@ -4,6 +4,7 @@
 
 #include "VrrApi2FrameCapture.h"
 
+#include <array>
 #include <cassert>
 #include <cmath>
 #include <cstdlib>
@@ -11,6 +12,8 @@
 #include <cstring>
 #include <deque>
 #include <limits>
+#include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -94,6 +97,113 @@ void AddRequiredMetrics(IntrospectionFixture& fixture)
     fixture.AddMetric(PM_METRIC_PRESENT_MODE, PM_METRIC_TYPE_FRAME_EVENT,
         PM_DATA_TYPE_ENUM, PM_ENUM_PRESENT_MODE, devices);
 }
+
+class FakeFrameCaptureClient final : public DiagPresentMonApi2ClientApi
+{
+public:
+    FakeFrameCaptureClient()
+    {
+        fixture_.AddDevice(19, PM_DEVICE_TYPE_INDEPENDENT);
+        AddRequiredMetrics(fixture_);
+
+        version_.major = 3;
+        version_.minor = 4;
+        const double displayChangeMs = 16.67;
+        const std::uint64_t swapChainAddress = 0x1234;
+        const std::int32_t presentMode = PM_PRESENT_MODE_HARDWARE_INDEPENDENT_FLIP;
+        std::memcpy(frame_.data(), &displayChangeMs, sizeof(displayChangeMs));
+        std::memcpy(frame_.data() + 8, &swapChainAddress, sizeof(swapChainAddress));
+        std::memcpy(frame_.data() + 16, &presentMode, sizeof(presentMode));
+    }
+
+    bool Initialize() noexcept override { return true; }
+    void Shutdown() noexcept override {}
+    PM_STATUS OpenSession() noexcept override { return PM_STATUS_SUCCESS; }
+    PM_STATUS StartTrackingProcess(std::uint32_t) noexcept override
+    {
+        calls.push_back("start");
+        return PM_STATUS_SUCCESS;
+    }
+    PM_STATUS StopTrackingProcess(std::uint32_t) noexcept override
+    {
+        calls.push_back("stop");
+        return PM_STATUS_SUCCESS;
+    }
+    PM_STATUS GetIntrospectionRoot(const PM_INTROSPECTION_ROOT** root) noexcept override
+    {
+        *root = fixture_.Root();
+        return PM_STATUS_SUCCESS;
+    }
+    PM_STATUS FreeIntrospectionRoot(const PM_INTROSPECTION_ROOT*) noexcept override
+    {
+        return PM_STATUS_SUCCESS;
+    }
+    bool FrameQueryEndpointsAvailable() const noexcept override { return true; }
+    PM_STATUS SetEtwFlushPeriod(std::uint32_t) noexcept override { return PM_STATUS_SUCCESS; }
+    PM_STATUS FlushFrames(std::uint32_t) noexcept override
+    {
+        calls.push_back("flush");
+        return flushStatus;
+    }
+    PM_STATUS RegisterFrameQuery(PM_FRAME_QUERY_HANDLE* query,
+        PM_QUERY_ELEMENT* elements, std::uint64_t elementCount,
+        std::uint32_t* blobSize) noexcept override
+    {
+        *query = reinterpret_cast<PM_FRAME_QUERY_HANDLE>(static_cast<std::uintptr_t>(1));
+        for (std::uint64_t i = 0; i < elementCount; ++i)
+        {
+            switch (elements[i].metric)
+            {
+            case PM_METRIC_BETWEEN_DISPLAY_CHANGE:
+                elements[i].dataOffset = 0;
+                elements[i].dataSize = sizeof(double);
+                break;
+            case PM_METRIC_SWAP_CHAIN_ADDRESS:
+                elements[i].dataOffset = 8;
+                elements[i].dataSize = sizeof(std::uint64_t);
+                break;
+            case PM_METRIC_PRESENT_MODE:
+                elements[i].dataOffset = 16;
+                elements[i].dataSize = sizeof(std::int32_t);
+                break;
+            default:
+                return PM_STATUS_FAILURE;
+            }
+        }
+        *blobSize = static_cast<std::uint32_t>(frame_.size());
+        return PM_STATUS_SUCCESS;
+    }
+    PM_STATUS ConsumeFrames(PM_FRAME_QUERY_HANDLE, std::uint32_t,
+        std::uint8_t* blob, std::uint32_t* frameCount) noexcept override
+    {
+        calls.push_back("drain");
+        if (framePending_)
+        {
+            std::memcpy(blob, frame_.data(), frame_.size());
+            *frameCount = 1;
+            framePending_ = false;
+        }
+        else
+        {
+            *frameCount = 0;
+        }
+        return PM_STATUS_SUCCESS;
+    }
+    PM_STATUS FreeFrameQuery(PM_FRAME_QUERY_HANDLE) noexcept override
+    {
+        return PM_STATUS_SUCCESS;
+    }
+    const PM_VERSION& ApiVersion() const noexcept override { return version_; }
+
+    PM_STATUS flushStatus{ PM_STATUS_SUCCESS };
+    std::vector<std::string> calls;
+
+private:
+    IntrospectionFixture fixture_;
+    PM_VERSION version_{};
+    std::array<std::uint8_t, 20> frame_{};
+    bool framePending_{ true };
+};
 
 struct BuiltRecord
 {
@@ -371,6 +481,41 @@ void TestPidMismatchAndMissingOptionalField()
     assert(!sample->dropped);
     assert(!sample->presentRuntime);
 }
+
+void TestTrackingFlushAndDrainOrder()
+{
+    auto fake = std::make_unique<FakeFrameCaptureClient>();
+    auto* client = fake.get();
+    VrrApi2FrameCapture capture(std::move(fake));
+    assert(capture.Initialize());
+    client->calls.clear();
+
+    assert(capture.StartTracking(4321));
+    assert((client->calls == std::vector<std::string>{ "start", "flush" }));
+    assert(capture.DrainFrames());
+    assert((client->calls == std::vector<std::string>{ "start", "flush", "drain" }));
+    assert(capture.Samples().size() == 1);
+    assert(capture.Samples().front().processId == 4321);
+    capture.StopTracking();
+    assert(client->calls.back() == "stop");
+}
+
+void TestFlushFailureStopsTrackingBeforeFramesAreAccepted()
+{
+    auto fake = std::make_unique<FakeFrameCaptureClient>();
+    auto* client = fake.get();
+    client->flushStatus = PM_STATUS_FAILURE;
+    VrrApi2FrameCapture capture(std::move(fake));
+    assert(capture.Initialize());
+    client->calls.clear();
+
+    assert(!capture.StartTracking(4321));
+    assert((client->calls == std::vector<std::string>{ "start", "flush", "stop" }));
+    assert(!capture.DrainFrames());
+    assert(capture.Samples().empty());
+    capture.StopTracking();
+    assert((client->calls == std::vector<std::string>{ "start", "flush", "stop" }));
+}
 }
 
 int main()
@@ -381,4 +526,6 @@ int main()
     TestTypedFrameDecode();
     TestInvalidRequiredAndOptionalFields();
     TestPidMismatchAndMissingOptionalField();
+    TestTrackingFlushAndDrainOrder();
+    TestFlushFailureStopsTrackingBeforeFramesAreAccepted();
 }

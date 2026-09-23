@@ -209,12 +209,6 @@ void VrrDiagnosticCommand::RunImpl()
             AddReason(reasons, "igcl_unavailable");
     }
 
-    if (!frameCapture.FlushFrames(target.process.processId))
-    {
-        std::cout << "INCONCLUSIVE: pmFlushFrames failed; measurement was not started.\n";
-        return;
-    }
-
     VrrForegroundEventHook foregroundHook;
     if (!foregroundHook.Start(target.process.processId))
     {
@@ -235,11 +229,11 @@ void VrrDiagnosticCommand::RunImpl()
         AddReason(reasons, "d3dkmt_unavailable");
     }
 
-    if (!frameCapture.StartTracking(target.process.processId, false))
+    if (!frameCapture.StartTracking(target.process.processId))
     {
         foregroundHook.Stop();
         d3dkmtProbe.Stop();
-        std::cout << "INCONCLUSIVE: PresentMon tracking could not start.\n";
+        std::cout << "INCONCLUSIVE: PresentMon tracking/flush could not start.\n";
         return;
     }
 

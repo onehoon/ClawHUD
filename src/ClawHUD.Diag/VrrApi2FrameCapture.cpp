@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <memory>
 #include <utility>
 
 namespace
@@ -237,7 +238,7 @@ std::optional<std::uint64_t> ExpectedFieldSize(PM_DATA_TYPE type) noexcept
 class IntrospectionRootGuard
 {
 public:
-    IntrospectionRootGuard(DiagPresentMonApi2Client& client,
+    IntrospectionRootGuard(DiagPresentMonApi2ClientApi& client,
         const PM_INTROSPECTION_ROOT* root) noexcept : client_(client), root_(root) {}
     ~IntrospectionRootGuard()
     {
@@ -248,7 +249,7 @@ public:
     IntrospectionRootGuard& operator=(const IntrospectionRootGuard&) = delete;
 
 private:
-    DiagPresentMonApi2Client& client_;
+    DiagPresentMonApi2ClientApi& client_;
     const PM_INTROSPECTION_ROOT* root_{};
 };
 }
@@ -351,6 +352,13 @@ std::optional<VrrFrameSample> DecodeVrrFrameSample(
     return sample;
 }
 
+VrrApi2FrameCapture::VrrApi2FrameCapture(
+    std::unique_ptr<DiagPresentMonApi2ClientApi> client)
+    : client_(std::move(client))
+{
+    if (!client_) client_ = std::make_unique<DiagPresentMonApi2Client>();
+}
+
 VrrApi2FrameCapture::~VrrApi2FrameCapture() { Shutdown(); }
 
 bool VrrApi2FrameCapture::Initialize()
@@ -358,32 +366,32 @@ bool VrrApi2FrameCapture::Initialize()
     Shutdown();
     try
     {
-        if (!client_.Initialize()) return false;
+        if (!client_->Initialize()) return false;
         clientInitialized_ = true;
-        if (!VrrPresentMonApiVersionMatches(client_.ApiVersion()) ||
-            !client_.FrameQueryEndpointsAvailable() ||
-            client_.OpenSession() != PM_STATUS_SUCCESS)
+        if (!VrrPresentMonApiVersionMatches(client_->ApiVersion()) ||
+            !client_->FrameQueryEndpointsAvailable() ||
+            client_->OpenSession() != PM_STATUS_SUCCESS)
         {
             Shutdown();
             return false;
         }
-        if (client_.SetEtwFlushPeriod(kEtwFlushPeriodMs) != PM_STATUS_SUCCESS)
+        if (client_->SetEtwFlushPeriod(kEtwFlushPeriodMs) != PM_STATUS_SUCCESS)
         {
             Shutdown();
             return false;
         }
 
         const PM_INTROSPECTION_ROOT* root{};
-        if (client_.GetIntrospectionRoot(&root) != PM_STATUS_SUCCESS || !root)
+        if (client_->GetIntrospectionRoot(&root) != PM_STATUS_SUCCESS || !root)
         {
-            if (root) client_.FreeIntrospectionRoot(root);
+            if (root) client_->FreeIntrospectionRoot(root);
             Shutdown();
             return false;
         }
 
         std::optional<VrrFrameQueryPlan> plan;
         {
-            IntrospectionRootGuard rootGuard(client_, root);
+            IntrospectionRootGuard rootGuard(*client_, root);
             plan = BuildVrrFrameQueryPlan(root);
         }
         if (!plan)
@@ -399,12 +407,12 @@ bool VrrApi2FrameCapture::Initialize()
 
         PM_FRAME_QUERY_HANDLE query{};
         std::uint32_t blobSize{};
-        const auto status = client_.RegisterFrameQuery(&query, elements.data(),
+        const auto status = client_->RegisterFrameQuery(&query, elements.data(),
             elements.size(), &blobSize);
         if (status != PM_STATUS_SUCCESS || !query || blobSize == 0 ||
             blobSize > std::numeric_limits<std::size_t>::max() / kConsumeBatchCapacity)
         {
-            if (status == PM_STATUS_SUCCESS && query) client_.FreeFrameQuery(query);
+            if (status == PM_STATUS_SUCCESS && query) client_->FreeFrameQuery(query);
             Shutdown();
             return false;
         }
@@ -436,25 +444,19 @@ bool VrrApi2FrameCapture::Initialize()
     }
 }
 
-bool VrrApi2FrameCapture::FlushFrames(std::uint32_t processId) noexcept
-{
-    return ready_ && processId != 0 && trackedProcessId_ == 0 &&
-        client_.FlushFrames(processId) == PM_STATUS_SUCCESS;
-}
-
-bool VrrApi2FrameCapture::StartTracking(std::uint32_t processId, bool flushBeforeStart)
+bool VrrApi2FrameCapture::StartTracking(std::uint32_t processId)
 {
     if (!ready_ || processId == 0 || trackedProcessId_ != 0 ||
-        client_.StartTrackingProcess(processId) != PM_STATUS_SUCCESS)
+        client_->StartTrackingProcess(processId) != PM_STATUS_SUCCESS)
         return false;
 
     trackedProcessId_ = processId;
-    if (flushBeforeStart && client_.FlushFrames(processId) != PM_STATUS_SUCCESS)
+    samples_.clear();
+    if (client_->FlushFrames(processId) != PM_STATUS_SUCCESS)
     {
         StopTracking();
         return false;
     }
-    samples_.clear();
     return true;
 }
 
@@ -469,7 +471,7 @@ bool VrrApi2FrameCapture::DrainFrames()
     for (;;)
     {
         std::uint32_t frameCount = kConsumeBatchCapacity;
-        if (client_.ConsumeFrames(query_, trackedProcessId_, buffer.data(),
+        if (client_->ConsumeFrames(query_, trackedProcessId_, buffer.data(),
                 &frameCount) != PM_STATUS_SUCCESS || frameCount > kConsumeBatchCapacity)
             return false;
 
@@ -487,7 +489,7 @@ bool VrrApi2FrameCapture::DrainFrames()
 void VrrApi2FrameCapture::StopTracking() noexcept
 {
     if (!trackedProcessId_) return;
-    client_.StopTrackingProcess(trackedProcessId_);
+    client_->StopTrackingProcess(trackedProcessId_);
     trackedProcessId_ = 0;
 }
 
@@ -496,13 +498,13 @@ void VrrApi2FrameCapture::Shutdown() noexcept
     ready_ = false;
     if (query_)
     {
-        client_.FreeFrameQuery(query_);
+        client_->FreeFrameQuery(query_);
         query_ = nullptr;
     }
     StopTracking();
     blobSize_ = 0;
     plan_ = {};
     samples_.clear();
-    if (clientInitialized_) client_.Shutdown();
+    if (clientInitialized_) client_->Shutdown();
     clientInitialized_ = false;
 }
