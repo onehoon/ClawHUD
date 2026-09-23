@@ -25,6 +25,14 @@ public:
     PM_STATUS FreeDynamicQuery(PM_DYNAMIC_QUERY_HANDLE query) noexcept;
     PM_STATUS PollDynamicQuery(PM_DYNAMIC_QUERY_HANDLE query, std::uint32_t processId,
         std::uint8_t* blob, std::uint32_t* swapChainCount) noexcept;
+    bool FrameQueryEndpointsAvailable() const noexcept;
+    PM_STATUS SetEtwFlushPeriod(std::uint32_t periodMs) noexcept;
+    PM_STATUS FlushFrames(std::uint32_t processId) noexcept;
+    PM_STATUS RegisterFrameQuery(PM_FRAME_QUERY_HANDLE* query, PM_QUERY_ELEMENT* elements,
+        std::uint64_t elementCount, std::uint32_t* blobSize) noexcept;
+    PM_STATUS ConsumeFrames(PM_FRAME_QUERY_HANDLE query, std::uint32_t processId,
+        std::uint8_t* blob, std::uint32_t* frameCount) noexcept;
+    PM_STATUS FreeFrameQuery(PM_FRAME_QUERY_HANDLE query) noexcept;
     const PM_VERSION& ApiVersion() const noexcept { return version_; }
 
 private:

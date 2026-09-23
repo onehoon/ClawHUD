@@ -485,6 +485,26 @@ During the 15-second measurement install a diagnostic-local `SetWinEventHook` fo
 
     EVENT_SYSTEM_FOREGROUND
 
+The hook must be owned by a dedicated ClawHUD.Diag thread. Seed that thread's
+message queue before calling `SetWinEventHook`, register an out-of-context
+hook for all processes/threads on the current desktop, and keep a
+`GetMessage`/`DispatchMessage` loop running for the hook's lifetime. WinEvent
+callbacks are delivered on the registering thread and are not reliable unless
+that thread pumps messages.
+
+The measurement epoch begins only after the hook thread reports successful
+registration. If hook registration fails, stop any already-started capture
+sources and return `INCONCLUSIVE` with `foreground_event_unavailable`; do not
+fall back to polling as the only foreground-change detector. The callback must
+do only bounded PID lookup and atomically publish a foreign-PID transition; it
+must not perform file/console I/O, stop capture sources, join threads, or destroy
+the hook owner.
+
+On every completion or abort path, request hook-thread shutdown, unhook on the
+owning thread, finish its message loop, and join it before destroying callback
+state or returning to the menu. Events before the measurement epoch do not
+contaminate the run.
+
 Any foreground transition observed after measurement begins whose non-zero PID differs from the locked target PID permanently marks the run contaminated, even if the user returns to the game before the next polling interval.
 
 A different foreground HWND owned by the same locked PID is acceptable if the resolved target monitor remains unchanged.

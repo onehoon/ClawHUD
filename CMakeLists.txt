@@ -54,7 +54,8 @@ add_executable(ClawHUD.Diag
     src/ClawHUD.Diag/main.cpp
     src/ClawHUD.Diag/DiagnosticSession.cpp
     src/ClawHUD.Diag/Api2Evidence.cpp
-    src/ClawHUD.Diag/DiagPresentMonApi2Client.cpp)
+    src/ClawHUD.Diag/DiagPresentMonApi2Client.cpp
+    src/ClawHUD.Diag/VrrApi2FrameCapture.cpp)
 target_compile_features(ClawHUD.Diag PRIVATE cxx_std_20)
 target_compile_definitions(ClawHUD.Diag PRIVATE
     UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)

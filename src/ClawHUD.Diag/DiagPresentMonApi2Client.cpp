@@ -20,6 +20,11 @@ struct DiagPresentMonApi2Client::Endpoints
     PM_STATUS(__cdecl* registerDynamic)(PM_SESSION_HANDLE, PM_DYNAMIC_QUERY_HANDLE*, PM_QUERY_ELEMENT*, std::uint64_t, double, double){};
     PM_STATUS(__cdecl* freeDynamic)(PM_DYNAMIC_QUERY_HANDLE){};
     PM_STATUS(__cdecl* pollDynamic)(PM_DYNAMIC_QUERY_HANDLE, std::uint32_t, std::uint8_t*, std::uint32_t*){};
+    PM_STATUS(__cdecl* setFlush)(PM_SESSION_HANDLE, std::uint32_t){};
+    PM_STATUS(__cdecl* flushFrames)(PM_SESSION_HANDLE, std::uint32_t){};
+    PM_STATUS(__cdecl* registerFrame)(PM_SESSION_HANDLE, PM_FRAME_QUERY_HANDLE*, PM_QUERY_ELEMENT*, std::uint64_t, std::uint32_t*){};
+    PM_STATUS(__cdecl* consumeFrames)(PM_FRAME_QUERY_HANDLE, std::uint32_t, std::uint8_t*, std::uint32_t*){};
+    PM_STATUS(__cdecl* freeFrame)(PM_FRAME_QUERY_HANDLE){};
 
     bool Complete() const noexcept
     {
@@ -49,7 +54,12 @@ bool DiagPresentMonApi2Client::Initialize() noexcept
         Endpoint<decltype(Endpoints::freeRoot)>(loader_, "pmFreeIntrospectionRoot"),
         Endpoint<decltype(Endpoints::registerDynamic)>(loader_, "pmRegisterDynamicQuery"),
         Endpoint<decltype(Endpoints::freeDynamic)>(loader_, "pmFreeDynamicQuery"),
-        Endpoint<decltype(Endpoints::pollDynamic)>(loader_, "pmPollDynamicQuery") };
+        Endpoint<decltype(Endpoints::pollDynamic)>(loader_, "pmPollDynamicQuery"),
+        Endpoint<decltype(Endpoints::setFlush)>(loader_, "pmSetEtwFlushPeriod"),
+        Endpoint<decltype(Endpoints::flushFrames)>(loader_, "pmFlushFrames"),
+        Endpoint<decltype(Endpoints::registerFrame)>(loader_, "pmRegisterFrameQuery"),
+        Endpoint<decltype(Endpoints::consumeFrames)>(loader_, "pmConsumeFrames"),
+        Endpoint<decltype(Endpoints::freeFrame)>(loader_, "pmFreeFrameQuery") };
     if (!endpoints_->Complete() || endpoints_->getVersion(&version_) != PM_STATUS_SUCCESS)
     {
         Shutdown();
@@ -84,3 +94,20 @@ PM_STATUS DiagPresentMonApi2Client::FreeDynamicQuery(PM_DYNAMIC_QUERY_HANDLE que
 { return endpoints_ ? endpoints_->freeDynamic(query) : PM_STATUS_FAILURE; }
 PM_STATUS DiagPresentMonApi2Client::PollDynamicQuery(PM_DYNAMIC_QUERY_HANDLE query, std::uint32_t pid, std::uint8_t* blob, std::uint32_t* swaps) noexcept
 { return endpoints_ ? endpoints_->pollDynamic(query, pid, blob, swaps) : PM_STATUS_FAILURE; }
+bool DiagPresentMonApi2Client::FrameQueryEndpointsAvailable() const noexcept
+{
+    return endpoints_ && endpoints_->setFlush && endpoints_->flushFrames &&
+        endpoints_->registerFrame && endpoints_->consumeFrames && endpoints_->freeFrame;
+}
+PM_STATUS DiagPresentMonApi2Client::SetEtwFlushPeriod(std::uint32_t periodMs) noexcept
+{ return session_ && endpoints_ && endpoints_->setFlush ? endpoints_->setFlush(session_, periodMs) : PM_STATUS_SESSION_NOT_OPEN; }
+PM_STATUS DiagPresentMonApi2Client::FlushFrames(std::uint32_t pid) noexcept
+{ return session_ && endpoints_ && endpoints_->flushFrames ? endpoints_->flushFrames(session_, pid) : PM_STATUS_SESSION_NOT_OPEN; }
+PM_STATUS DiagPresentMonApi2Client::RegisterFrameQuery(PM_FRAME_QUERY_HANDLE* query,
+    PM_QUERY_ELEMENT* elements, std::uint64_t count, std::uint32_t* blobSize) noexcept
+{ return session_ && endpoints_ && endpoints_->registerFrame ? endpoints_->registerFrame(session_, query, elements, count, blobSize) : PM_STATUS_SESSION_NOT_OPEN; }
+PM_STATUS DiagPresentMonApi2Client::ConsumeFrames(PM_FRAME_QUERY_HANDLE query, std::uint32_t pid,
+    std::uint8_t* blob, std::uint32_t* count) noexcept
+{ return endpoints_ && endpoints_->consumeFrames ? endpoints_->consumeFrames(query, pid, blob, count) : PM_STATUS_FAILURE; }
+PM_STATUS DiagPresentMonApi2Client::FreeFrameQuery(PM_FRAME_QUERY_HANDLE query) noexcept
+{ return endpoints_ && endpoints_->freeFrame ? endpoints_->freeFrame(query) : PM_STATUS_FAILURE; }
