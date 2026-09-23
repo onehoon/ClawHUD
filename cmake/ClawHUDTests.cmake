@@ -620,6 +620,30 @@
     add_test(NAME ClawHUD.DiagIntelVrrStateProbeTests
         COMMAND ClawHUD.DiagIntelVrrStateProbeTests)
 
+    add_executable(ClawHUD.DiagVrrAnalysisTests
+        tests/DiagVrrAnalysisTests.cpp
+        src/ClawHUD.Diag/DiagD3dkmtCadenceAnalysis.cpp
+        src/ClawHUD.Diag/VrrAnalysis.cpp)
+    target_compile_features(ClawHUD.DiagVrrAnalysisTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.DiagVrrAnalysisTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.DiagVrrAnalysisTests PRIVATE src/ClawHUD.Diag)
+    set_target_properties(ClawHUD.DiagVrrAnalysisTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.DiagVrrAnalysisTests COMMAND ClawHUD.DiagVrrAnalysisTests)
+
+    add_executable(ClawHUD.DiagD3dkmtCadenceProbeTests
+        tests/DiagD3dkmtCadenceProbeTests.cpp
+        src/ClawHUD.Diag/DiagD3dkmtCadenceProbe.cpp)
+    target_compile_features(ClawHUD.DiagD3dkmtCadenceProbeTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.DiagD3dkmtCadenceProbeTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.DiagD3dkmtCadenceProbeTests PRIVATE src/ClawHUD.Diag)
+    target_link_libraries(ClawHUD.DiagD3dkmtCadenceProbeTests PRIVATE gdi32 user32)
+    set_target_properties(ClawHUD.DiagD3dkmtCadenceProbeTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.DiagD3dkmtCadenceProbeTests
+        COMMAND ClawHUD.DiagD3dkmtCadenceProbeTests)
+    set_tests_properties(ClawHUD.DiagD3dkmtCadenceProbeTests PROPERTIES TIMEOUT 20)
+
     add_executable(ClawHUD.DiagProcessMetadataTests
         tests/DiagProcessMetadataTests.cpp
         src/ClawHUD.Diag/DiagnosticSession.cpp
