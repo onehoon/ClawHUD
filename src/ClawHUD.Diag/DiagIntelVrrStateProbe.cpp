@@ -15,6 +15,7 @@ using InitFn = Result(__cdecl*)(void*, Handle*);
 using CloseFn = Result(__cdecl*)(Handle);
 using EnumDevicesFn = Result(__cdecl*)(Handle, std::uint32_t*, Handle*);
 using EnumOutputsFn = Result(__cdecl*)(Handle, std::uint32_t*, Handle*);
+using DevicePropertiesFn = Result(__cdecl*)(Handle, void*);
 using DisplayPropertiesFn = Result(__cdecl*)(Handle, void*);
 using ArcSyncInfoFn = Result(__cdecl*)(Handle, void*);
 using ArcSyncProfileFn = Result(__cdecl*)(Handle, void*);
@@ -33,6 +34,19 @@ struct GenericVoidDatatypeAbi
 {
     void* pData{};
     std::uint32_t size{};
+};
+
+// Full ctl_device_adapter_properties_t layout for the pinned IGCL ABI. The
+// opaque tail keeps Size accurate while only the documented device-ID prefix
+// is consumed here.
+struct DevicePropertiesAbi
+{
+    std::uint32_t size{};
+    std::uint8_t version{};
+    std::uint8_t prefixPadding[3]{};
+    void* pDeviceId{};
+    std::uint32_t deviceIdSize{};
+    std::array<std::uint8_t, 300> remainder{};
 };
 
 // Size/layout for the Windows display ID prefix and opaque remainder of the
@@ -74,6 +88,9 @@ struct ArcSyncProfileAbi
 
 static_assert(sizeof(InitArgs) == 36);
 static_assert(sizeof(GenericVoidDatatypeAbi) == 16);
+static_assert(offsetof(DevicePropertiesAbi, pDeviceId) == 8);
+static_assert(offsetof(DevicePropertiesAbi, deviceIdSize) == 16);
+static_assert(sizeof(DevicePropertiesAbi) == 320);
 static_assert(offsetof(DisplayPropertiesAbi, osDisplayEncoder) == 8);
 static_assert(offsetof(DisplayPropertiesAbi, remainder) == 24);
 static_assert(sizeof(DisplayPropertiesAbi) == 200);
@@ -115,18 +132,24 @@ struct DiagIntelVrrStateProbe::Endpoints
     CloseFn close{};
     EnumDevicesFn enumerateDevices{};
     EnumOutputsFn enumerateOutputs{};
+    DevicePropertiesFn getDeviceProperties{};
     DisplayPropertiesFn getDisplayProperties{};
     ArcSyncInfoFn getArcSyncInfo{};
     ArcSyncProfileFn getArcSyncProfile{};
 };
 
-DiagIgclTargetMatch ResolveDiagIgclTargetId(std::uint32_t windowsTargetId,
-    std::span<const std::uint32_t> outputTargetIds, bool enumerationComplete) noexcept
+DiagIgclTargetMatch ResolveDiagIgclTarget(const LUID& windowsTargetAdapterLuid,
+    std::uint32_t windowsTargetId, std::span<const DiagIgclOutputIdentity> outputs,
+    bool enumerationComplete) noexcept
 {
     std::optional<std::size_t> match;
-    for (std::size_t i = 0; i < outputTargetIds.size(); ++i)
+    for (std::size_t i = 0; i < outputs.size(); ++i)
     {
-        if (outputTargetIds[i] != windowsTargetId) continue;
+        const auto& adapterLuid = outputs[i].adapterLuid;
+        if (adapterLuid.LowPart != windowsTargetAdapterLuid.LowPart ||
+            adapterLuid.HighPart != windowsTargetAdapterLuid.HighPart ||
+            outputs[i].targetId != windowsTargetId)
+            continue;
         if (match) return { DiagIgclTargetMappingStatus::Ambiguous, std::nullopt };
         match = i;
     }
@@ -149,11 +172,13 @@ bool DiagIntelVrrStateProbe::Initialize() noexcept
         Resolve<CloseFn>(library, "ctlClose"),
         Resolve<EnumDevicesFn>(library, "ctlEnumerateDevices"),
         Resolve<EnumOutputsFn>(library, "ctlEnumerateDisplayOutputs"),
+        Resolve<DevicePropertiesFn>(library, "ctlGetDeviceProperties"),
         Resolve<DisplayPropertiesFn>(library, "ctlGetDisplayProperties"),
         Resolve<ArcSyncInfoFn>(library, "ctlGetIntelArcSyncInfoForMonitor"),
         Resolve<ArcSyncProfileFn>(library, "ctlGetIntelArcSyncProfile") };
     if (!endpoints_ || !endpoints_->init || !endpoints_->close ||
         !endpoints_->enumerateDevices || !endpoints_->enumerateOutputs ||
+        !endpoints_->getDeviceProperties ||
         !endpoints_->getDisplayProperties || !endpoints_->getArcSyncInfo ||
         !endpoints_->getArcSyncProfile)
     {
@@ -172,9 +197,11 @@ bool DiagIntelVrrStateProbe::Initialize() noexcept
     return true;
 }
 
-DiagIntelVrrState DiagIntelVrrStateProbe::Query(std::uint32_t windowsTargetId) noexcept
+DiagIntelVrrState DiagIntelVrrStateProbe::Query(
+    const LUID& windowsTargetAdapterLuid, std::uint32_t windowsTargetId) noexcept
 {
     DiagIntelVrrState state;
+    state.windowsTargetAdapterLuid = windowsTargetAdapterLuid;
     state.windowsTargetId = windowsTargetId;
     if (!apiHandle_ || !endpoints_) return state;
 
@@ -184,12 +211,26 @@ DiagIntelVrrState DiagIntelVrrStateProbe::Query(std::uint32_t windowsTargetId) n
         struct Output
         {
             Handle handle{};
-            std::uint32_t targetId{};
+            DiagIgclOutputIdentity identity;
         };
         std::vector<Output> outputs;
         bool complete = true;
         for (const auto adapter : adapters_)
         {
+            LUID adapterLuid{};
+            DevicePropertiesAbi deviceProperties{};
+            deviceProperties.size = sizeof(deviceProperties);
+            deviceProperties.version = 0;
+            deviceProperties.pDeviceId = &adapterLuid;
+            deviceProperties.deviceIdSize = sizeof(adapterLuid);
+            if (endpoints_->getDeviceProperties(adapter, &deviceProperties) != 0 ||
+                deviceProperties.pDeviceId != &adapterLuid ||
+                deviceProperties.deviceIdSize != sizeof(adapterLuid))
+            {
+                complete = false;
+                continue;
+            }
+
             std::vector<Handle> adapterOutputs;
             if (!Enumerate<Handle>(adapter, endpoints_->enumerateOutputs, adapterOutputs))
             {
@@ -200,19 +241,22 @@ DiagIntelVrrState DiagIntelVrrStateProbe::Query(std::uint32_t windowsTargetId) n
             {
                 DisplayPropertiesAbi properties{};
                 properties.size = sizeof(properties);
+                properties.version = 1;
                 if (endpoints_->getDisplayProperties(output, &properties) != 0)
                 {
                     complete = false;
                     continue;
                 }
-                outputs.push_back({ output, properties.osDisplayEncoder.windowsDisplayEncoderId });
+                outputs.push_back({ output, { adapterLuid,
+                    properties.osDisplayEncoder.windowsDisplayEncoderId } });
             }
         }
 
-        std::vector<std::uint32_t> targetIds;
-        targetIds.reserve(outputs.size());
-        for (const auto& output : outputs) targetIds.push_back(output.targetId);
-        const auto match = ResolveDiagIgclTargetId(windowsTargetId, targetIds, complete);
+        std::vector<DiagIgclOutputIdentity> identities;
+        identities.reserve(outputs.size());
+        for (const auto& output : outputs) identities.push_back(output.identity);
+        const auto match = ResolveDiagIgclTarget(windowsTargetAdapterLuid,
+            windowsTargetId, identities, complete);
         state.mappingStatus = match.status;
         if (match.status != DiagIgclTargetMappingStatus::Exact || !match.outputIndex)
             return state;

@@ -11,6 +11,15 @@
 
 int main()
 {
+    const VrrLaunchContext launchContext{
+        reinterpret_cast<HWND>(static_cast<std::uintptr_t>(0x1001)), 10 };
+    assert(!VrrLaunchContextHasChanged(launchContext,
+        launchContext.foregroundWindow, launchContext.foregroundProcessId));
+    assert(!VrrLaunchContextHasChanged(launchContext,
+        reinterpret_cast<HWND>(static_cast<std::uintptr_t>(0x1002)), 10));
+    assert(VrrLaunchContextHasChanged(launchContext,
+        launchContext.foregroundWindow, 11));
+
     const VrrProcessIdentity generationA{ 42, 1000, L"C:\\games\\game.exe", L"game.exe" };
     const VrrProcessIdentity sameGeneration{ 42, 1000, L"C:\\other\\renamed.exe", L"renamed.exe" };
     const VrrProcessIdentity generationB{ 42, 1001, L"C:\\games\\game.exe", L"game.exe" };

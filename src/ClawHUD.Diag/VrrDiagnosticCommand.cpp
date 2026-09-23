@@ -14,6 +14,7 @@
 #include <cmath>
 #include <exception>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <string>
 #include <thread>
@@ -47,6 +48,7 @@ bool SameDisplayPath(const VrrDisplayPath& left, const VrrDisplayPath& right) no
 bool SameIgclState(const DiagIntelVrrState& left, const DiagIntelVrrState& right) noexcept
 {
     if (left.mappingStatus != right.mappingStatus ||
+        !SameLuid(left.windowsTargetAdapterLuid, right.windowsTargetAdapterLuid) ||
         left.windowsTargetId != right.windowsTargetId ||
         left.capabilityResult != right.capabilityResult ||
         left.profileResult != right.profileResult ||
@@ -204,7 +206,8 @@ void VrrDiagnosticCommand::RunImpl()
     {
         igclReady = igclProbe.Initialize();
         if (igclReady)
-            initialIgcl = igclProbe.Query(initialPath->targetId);
+            initialIgcl = igclProbe.Query(initialPath->targetAdapterLuid,
+                initialPath->targetId);
         else
             AddReason(reasons, "igcl_unavailable");
     }
@@ -213,6 +216,13 @@ void VrrDiagnosticCommand::RunImpl()
     if (!foregroundHook.Start(target.process.processId))
     {
         std::cout << "INCONCLUSIVE: foreground_event_unavailable; measurement was not started.\n";
+        return;
+    }
+
+    if (!frameCapture.StartTracking(target.process.processId))
+    {
+        foregroundHook.Stop();
+        std::cout << "INCONCLUSIVE: PresentMon tracking/flush could not start.\n";
         return;
     }
 
@@ -229,21 +239,19 @@ void VrrDiagnosticCommand::RunImpl()
         AddReason(reasons, "d3dkmt_unavailable");
     }
 
-    if (!frameCapture.StartTracking(target.process.processId))
-    {
-        foregroundHook.Stop();
-        d3dkmtProbe.Stop();
-        std::cout << "INCONCLUSIVE: PresentMon tracking/flush could not start.\n";
-        return;
-    }
-
+    const DWORD foregroundEpochStartTimeMs = GetTickCount();
+    foregroundHook.BeginMeasurementEpoch(foregroundEpochStartTimeMs);
     LARGE_INTEGER qpcFrequency{};
     LARGE_INTEGER measurementStart{};
     const bool qpcReady = QueryPerformanceFrequency(&qpcFrequency) &&
         qpcFrequency.QuadPart > 0 && QueryPerformanceCounter(&measurementStart);
     if (!qpcReady) AddReason(reasons, "qpc_unavailable");
+    const DWORD measurementStartTimeMs = GetTickCount();
+    const auto measurementDurationMs = static_cast<DWORD>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(kCaptureDuration).count());
+    foregroundHook.SetMeasurementEndBoundary(
+        measurementStartTimeMs + measurementDurationMs);
 
-    foregroundHook.BeginMeasurementEpoch();
     const auto startedAt = std::chrono::steady_clock::now();
     const auto deadline = startedAt + kCaptureDuration;
     std::string invalidationReason;
@@ -318,22 +326,61 @@ void VrrDiagnosticCommand::RunImpl()
             lastCountdown = static_cast<int>(remaining);
             std::cout << "\rMeasurement remaining: " << lastCountdown << " s   " << std::flush;
         }
-        std::this_thread::sleep_for(kValidationInterval);
+        const auto sleepEnd = std::min(deadline,
+            std::chrono::steady_clock::now() + kValidationInterval);
+        std::this_thread::sleep_until(sleepEnd);
     }
     std::cout << '\n';
+
+    const auto loopEndedAt = std::chrono::steady_clock::now();
+    const bool completedFullDuration = invalidationReason.empty() &&
+        loopEndedAt >= deadline;
+    std::uint64_t measurementStartQpc = qpcReady
+        ? static_cast<std::uint64_t>(measurementStart.QuadPart) : 0;
+    std::uint64_t measurementEndQpc{};
+    DWORD foregroundEndTimeMs = GetTickCount();
+    if (completedFullDuration)
+    {
+        const auto frequency = static_cast<std::uint64_t>(qpcFrequency.QuadPart);
+        const auto durationSeconds = static_cast<std::uint64_t>(kCaptureDuration.count());
+        if (qpcReady && frequency <=
+                (std::numeric_limits<std::uint64_t>::max() - measurementStartQpc) /
+                    durationSeconds)
+            measurementEndQpc = measurementStartQpc + frequency * durationSeconds;
+        else if (qpcReady)
+            AddReason(reasons, "qpc_unavailable");
+        foregroundEndTimeMs = measurementStartTimeMs + measurementDurationMs;
+    }
+    else if (qpcReady)
+    {
+        LARGE_INTEGER measurementEnd{};
+        if (QueryPerformanceCounter(&measurementEnd) &&
+            measurementEnd.QuadPart > measurementStart.QuadPart)
+            measurementEndQpc = static_cast<std::uint64_t>(measurementEnd.QuadPart);
+        else
+        {
+            AddReason(reasons, "qpc_unavailable");
+            measurementEndQpc = measurementStartQpc;
+        }
+    }
+    foregroundHook.EndMeasurementEpoch(foregroundEndTimeMs);
     if (invalidationReason.empty() && foregroundHook.ForeignForegroundObserved())
         invalidationReason = "foreground_changed";
     if (invalidationReason.empty() && !foregroundHook.Running())
         invalidationReason = "foreground_event_unavailable";
     foregroundHook.Stop();
+    if (invalidationReason.empty() && foregroundHook.ForeignForegroundObserved())
+        invalidationReason = "foreground_changed";
 
     auto d3dkmtCapture = d3dkmtProbe.Stop();
     if (!frameCapture.DrainFrames() && invalidationReason.empty())
         invalidationReason = "presentmon_consume_failed";
     frameCapture.StopTracking();
 
-    const auto duration = std::chrono::duration<double>(
-        std::chrono::steady_clock::now() - startedAt).count();
+    const double duration = qpcReady && measurementEndQpc > measurementStartQpc
+        ? static_cast<double>(measurementEndQpc - measurementStartQpc) /
+            static_cast<double>(qpcFrequency.QuadPart)
+        : std::chrono::duration<double>(loopEndedAt - startedAt).count();
 
     bool processStable = true;
     const auto finalIdentity = QueryVrrProcessIdentity(target.process.processId);
@@ -367,14 +414,19 @@ void VrrDiagnosticCommand::RunImpl()
 
     if (igclReady && initialPath)
     {
-        const auto finalIgcl = igclProbe.Query(initialPath->targetId);
+        const auto finalIgcl = igclProbe.Query(initialPath->targetAdapterLuid,
+            initialPath->targetId);
         if (!SameIgclState(initialIgcl, finalIgcl))
             AddReason(reasons, "igcl_state_changed");
     }
 
     const auto nominalHz = initialPath ? initialPath->nominalRefreshHz : 0.0;
-    auto analysis = AnalyzeVrrSession(frameCapture.Samples(), target.process.processId,
-        d3dkmtCapture, nominalHz, initialIgcl, processStable, monitorStable,
+    auto evidence = TrimVrrMeasurementEvidence(frameCapture.Samples(), d3dkmtCapture,
+        measurementStartQpc, measurementEndQpc);
+    if (evidence.framesWithoutQpc)
+        AddReason(reasons, "presentmon_frame_qpc_unavailable");
+    auto analysis = AnalyzeVrrSession(evidence.frames, target.process.processId,
+        evidence.d3dkmt, nominalHz, initialIgcl, processStable, monitorStable,
         displayPathStable);
     if (!invalidationReason.empty())
         AddReason(reasons, invalidationReason);
@@ -394,12 +446,11 @@ void VrrDiagnosticCommand::RunImpl()
     report.presentMonMinor = frameCapture.ApiVersion().minor;
     report.displayPathAvailable = initialPath.has_value();
     report.qpcFrequency = qpcReady ? qpcFrequency.QuadPart : 0;
-    report.measurementStartQpc = qpcReady
-        ? static_cast<std::uint64_t>(measurementStart.QuadPart) : 0;
+    report.measurementStartQpc = measurementStartQpc;
     report.captureDurationSeconds = duration;
 
     const auto output = WriteVrrDiagnosticFiles(std::filesystem::current_path(),
-        report, frameCapture.Samples(), d3dkmtCapture);
+        report, evidence.frames, evidence.d3dkmt);
     std::cout << "VRR capture complete.\n"
               << "Result: " << OverallName(report.analysis.status) << " ("
               << ConfidenceName(report.analysis.confidence) << ")\n";

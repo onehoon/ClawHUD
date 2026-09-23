@@ -39,10 +39,12 @@ public:
 
     void AddMetric(PM_METRIC id, PM_METRIC_TYPE metricType, PM_DATA_TYPE frameType,
         PM_ENUM enumId = PM_ENUM_NULL_ENUM,
-        std::vector<PM_INTROSPECTION_DEVICE_METRIC_INFO> deviceInfo = {})
+        std::vector<PM_INTROSPECTION_DEVICE_METRIC_INFO> deviceInfo = {},
+        PM_DATA_TYPE polledType = PM_DATA_TYPE_VOID)
     {
         metrics_.emplace_back();
         auto& owned = metrics_.back();
+        owned.typeInfo.polledType = polledType;
         owned.typeInfo.frameType = frameType;
         owned.typeInfo.enumId = enumId;
         owned.deviceInfo = std::move(deviceInfo);
@@ -339,9 +341,9 @@ void TestOptionalMetricsAndDynamicOnlyExclusion()
     IntrospectionFixture fixture;
     fixture.AddDevice(19, PM_DEVICE_TYPE_INDEPENDENT);
     AddRequiredMetrics(fixture);
-    fixture.AddMetric(PM_METRIC_PROCESS_ID, PM_METRIC_TYPE_FRAME_EVENT,
+    fixture.AddMetric(PM_METRIC_PROCESS_ID, PM_METRIC_TYPE_STATIC,
         PM_DATA_TYPE_UINT32, PM_ENUM_NULL_ENUM,
-        { DeviceMetric(19, PM_METRIC_AVAILABILITY_AVAILABLE) });
+        { DeviceMetric(19, PM_METRIC_AVAILABILITY_AVAILABLE) }, PM_DATA_TYPE_UINT32);
     fixture.AddMetric(PM_METRIC_DROPPED_FRAMES, PM_METRIC_TYPE_FRAME_EVENT,
         PM_DATA_TYPE_BOOL, PM_ENUM_NULL_ENUM,
         { DeviceMetric(19, PM_METRIC_AVAILABILITY_NOT_SUPPORTED_BY_DEVICE) });
@@ -351,6 +353,9 @@ void TestOptionalMetricsAndDynamicOnlyExclusion()
     fixture.AddMetric(PM_METRIC_DISPLAYED_FRAME_TIME, PM_METRIC_TYPE_DYNAMIC,
         PM_DATA_TYPE_DOUBLE, PM_ENUM_NULL_ENUM,
         { DeviceMetric(19, PM_METRIC_AVAILABILITY_AVAILABLE) });
+    fixture.AddMetric(PM_METRIC_DISPLAYED_FPS, PM_METRIC_TYPE_STATIC,
+        PM_DATA_TYPE_DOUBLE, PM_ENUM_NULL_ENUM,
+        { DeviceMetric(19, PM_METRIC_AVAILABILITY_AVAILABLE) });
 
     const auto plan = BuildVrrFrameQueryPlan(fixture.Root());
     assert(plan);
@@ -358,17 +363,20 @@ void TestOptionalMetricsAndDynamicOnlyExclusion()
     bool sawDropped = false;
     bool sawBetweenPresents = false;
     bool sawDynamicOnly = false;
+    bool sawUnrelatedStatic = false;
     for (const auto& binding : plan->bindings)
     {
         sawProcessId |= binding.field == VrrFrameField::ProcessId;
         sawDropped |= binding.field == VrrFrameField::Dropped;
         sawBetweenPresents |= binding.field == VrrFrameField::BetweenPresents;
         sawDynamicOnly |= binding.element.metric == PM_METRIC_DISPLAYED_FRAME_TIME;
+        sawUnrelatedStatic |= binding.element.metric == PM_METRIC_DISPLAYED_FPS;
     }
     assert(sawProcessId);
     assert(!sawDropped);
     assert(sawBetweenPresents);
     assert(!sawDynamicOnly);
+    assert(!sawUnrelatedStatic);
 }
 
 void TestTypedFrameDecode()

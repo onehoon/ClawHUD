@@ -35,6 +35,9 @@ struct VrrLaunchContext
     DWORD foregroundProcessId{};
 };
 
+bool VrrLaunchContextHasChanged(const VrrLaunchContext& context,
+    HWND foregroundWindow, DWORD foregroundProcessId) noexcept;
+
 struct VrrLockedTarget
 {
     HWND window{};
