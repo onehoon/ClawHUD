@@ -39,15 +39,15 @@ int main()
         "ABI-compatible but below the runtime version floor is not ready");
 
     // Runtime version floor (Cleanup 3, work order 10.2). Separate from ABI.
-    ok &= Check(RuntimeVersionAtLeast({2,5,1}, {2,5,1}), "2.5.1 >= 2.5.1");
-    ok &= Check(RuntimeVersionAtLeast({2,5,2}, {2,5,1}), "2.5.2 >= 2.5.1");
-    ok &= Check(RuntimeVersionAtLeast({2,6,0}, {2,5,1}), "2.6.0 >= 2.5.1");
-    ok &= Check(RuntimeVersionAtLeast({3,0,0}, {2,5,1}), "3.0.0 >= 2.5.1");
-    ok &= Check(!RuntimeVersionAtLeast({2,5,0}, {2,5,1}), "2.5.0 < 2.5.1");
-    ok &= Check(!RuntimeVersionAtLeast({2,4,99}, {2,5,1}), "2.4.99 < 2.5.1");
+    ok &= Check(RuntimeVersionAtLeast({2,6,0}, {2,6,0}), "2.6.0 >= 2.6.0");
+    ok &= Check(RuntimeVersionAtLeast({2,6,1}, {2,6,0}), "2.6.1 >= 2.6.0");
+    ok &= Check(RuntimeVersionAtLeast({2,7,0}, {2,6,0}), "2.7.0 >= 2.6.0");
+    ok &= Check(RuntimeVersionAtLeast({3,0,0}, {2,6,0}), "3.0.0 >= 2.6.0");
+    ok &= Check(!RuntimeVersionAtLeast({2,5,1}, {2,6,0}), "2.5.1 < 2.6.0");
+    ok &= Check(!RuntimeVersionAtLeast({2,5,99}, {2,6,0}), "2.5.99 < 2.6.0");
     {
         const auto required = RequiredPresentMonRuntimeVersion();
-        ok &= Check(required.major == 2 && required.minor == 5 && required.patch == 1,
+        ok &= Check(required.major == 2 && required.minor == 6 && required.patch == 0,
             "required runtime version tracks the CMake PRESENTMON_VERSION pin");
     }
 

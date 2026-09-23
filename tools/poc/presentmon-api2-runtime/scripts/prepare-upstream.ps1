@@ -1,13 +1,13 @@
 [CmdletBinding()]
 param(
-    [string]$UpstreamRoot = 'D:\temp\PresentMon-v2.5.1-clawhud-poc',
+    [string]$UpstreamRoot = 'D:\temp\PresentMon-v2.6.0-clawhud-poc',
     [switch]$Force
 )
 
 $ErrorActionPreference = 'Stop'
 $repoUrl = 'https://github.com/GameTechDev/PresentMon.git'
-$tag = 'v2.5.1'
-$expectedCommit = '3e06c7dcb922e411bae38503b51ab501be61c37f'
+$tag = 'v2.6.0'
+$expectedCommit = 'e13fce6acdb55a808fd8318175a56863e532d95f'
 
 if (Test-Path -LiteralPath $UpstreamRoot) {
     if (-not $Force) {
