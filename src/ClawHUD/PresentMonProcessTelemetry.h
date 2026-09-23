@@ -11,11 +11,11 @@
 
 namespace clawhud
 {
-// Query semantics matching the official Intel PresentMon v2.5.1 UI. The 1000 ms
+// Query semantics matching the official Intel PresentMon v2.6.0 UI. The 1000 ms
 // window is the API2 statistical averaging window; it is not the HUD update
 // cadence (ClawHUD keeps publishing at 500 ms).
 inline constexpr double kPresentMonFpsWindowMs = 1000.0;
-inline constexpr double kPresentMonFpsOffsetMs = 80.0;
+inline constexpr double kPresentMonFpsOffsetMs = 150.0;
 inline constexpr std::uint32_t kPresentMonEtwFlushPeriodMs = 8;
 
 struct PresentMonProcessQueryPlan

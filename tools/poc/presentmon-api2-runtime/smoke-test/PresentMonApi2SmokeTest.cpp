@@ -22,6 +22,8 @@ using PmOpenSession = PM_STATUS(__cdecl*)(PM_SESSION_HANDLE*);
 using PmCloseSession = PM_STATUS(__cdecl*)(PM_SESSION_HANDLE);
 
 int main() {
+    constexpr std::uint16_t expectedApiMajor = 3;
+    constexpr std::uint16_t expectedApiMinor = 4;
     HMODULE loader = LoadLibraryW(L"PresentMonAPI2Loader.dll");
     if (!loader) {
         std::cerr << "LoadLibraryW(PresentMonAPI2Loader.dll) failed: " << GetLastError() << '\n';
@@ -41,6 +43,12 @@ int main() {
     const PM_STATUS versionStatus = getApiVersion(&version);
     std::cout << "pmGetApiVersion status=" << static_cast<int>(versionStatus)
               << " version=" << version.major << '.' << version.minor << '.' << version.patch << '\n';
+    const bool apiVersionMatches = version.major == expectedApiMajor &&
+        version.minor == expectedApiMinor;
+    if (!apiVersionMatches) {
+        std::cerr << "Expected PresentMon API " << expectedApiMajor << '.'
+                  << expectedApiMinor << '\n';
+    }
 
     PM_SESSION_HANDLE session = nullptr;
     const PM_STATUS openStatus = openSession(&session);
@@ -55,5 +63,6 @@ int main() {
     }
 
     FreeLibrary(loader);
-    return versionStatus == PM_STATUS_SUCCESS && openStatus == PM_STATUS_SUCCESS && closeStatus == PM_STATUS_SUCCESS ? 0 : 3;
+    return versionStatus == PM_STATUS_SUCCESS && apiVersionMatches &&
+        openStatus == PM_STATUS_SUCCESS && closeStatus == PM_STATUS_SUCCESS ? 0 : 3;
 }
