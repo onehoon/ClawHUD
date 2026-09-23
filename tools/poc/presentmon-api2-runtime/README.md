@@ -43,7 +43,7 @@ Build from a Developer PowerShell or a shell with the prerequisites available:
 
 The script builds only `ServiceMergeModule.wixproj` and `PresentMonAPI2Loader.vcxproj`, then wraps the official `PresentMonSharedService.msm`. It does not build `PMInstaller`, CEF, the PresentMon GUI, or the full PresentMon MSI. The wrapper `ProductVersion` is read from ClawHUD's single `PRESENTMON_VERSION` pin. Build outputs are written outside the Git working tree by default (`D:\temp\ClawHUD-presentmon-api2-runtime-build`).
 
-Use `-BuildRoot` and `-UpstreamRoot` to select different external output locations. The script refuses to use a source checkout whose resolved commit differs from the pinned commit.
+Use `-BuildRoot` and `-UpstreamRoot` to select different external output locations. The script refuses a source checkout whose resolved commit differs from the pin or whose tracked files have local modifications; untracked build, vcpkg, and generated files are allowed.
 
 ## Runtime validation
 
