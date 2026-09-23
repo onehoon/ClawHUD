@@ -479,25 +479,51 @@ Fifteen seconds gives enough frame samples and roughly fourteen complete 1-secon
 
 ## 22. Capture invalidation
 
-During capture:
+Capture foreground integrity is **edge-triggered**, not merely sampled.
 
-- target process must remain alive;
-- PID creation FILETIME must remain the same;
-- foreground PID must remain the target PID;
-- target monitor must remain the same;
-- active display path must remain the same.
+During the 15-second measurement install a diagnostic-local `SetWinEventHook` for:
 
-A different HWND owned by the same target PID is acceptable if the monitor is unchanged.
+    EVENT_SYSTEM_FOREGROUND
 
-If foreground moves to another PID, abort and return INCONCLUSIVE.
+Any foreground transition observed after measurement begins whose non-zero PID differs from the locked target PID permanently marks the run contaminated, even if the user returns to the game before the next polling interval.
+
+A different foreground HWND owned by the same locked PID is acceptable if the resolved target monitor remains unchanged.
+
+The approximately 100 ms `GetForegroundWindow()` poll remains as a liveness/backstop check for current state, process exit, monitor changes, and environments where a foreground event is missed. It is **not** the primary Alt+Tab detector.
+
+Therefore:
+
+- a transient Alt+Tab to Explorer that immediately returns to the game still invalidates the run when the WinEvent was observed;
+- a different-PID foreground event invalidates the run once and the capture must stop cleanly;
+- no attempt is made to "heal" the run after the game regains foreground;
+- events before the actual measurement start do not contaminate the run; target acquisition and the 2-second settle phase are allowed to contain the expected Explorer -> game transition.
+
+During capture also require:
+
+- target process remains alive;
+- PID creation FILETIME remains unchanged;
+- target monitor remains unchanged;
+- active Windows display path remains unchanged.
+
+If any invariant fails:
+
+    INCONCLUSIVE
+
+with an explicit reason such as:
+
+    foreground_changed
+    process_exited
+    process_generation_changed
+    monitor_changed
+    display_path_changed
 
 Do not auto-restart the test.
 
 ## 23. D3DKMT probe
 
-Add a diagnostic-local DiagD3dkmtCadenceProbe.
+Add a diagnostic-local `DiagD3dkmtCadenceProbe`.
 
-Use the validated approach from archive/diagnostics/legacy-vrr-presentmon/D3dkmtVblankProbe.* as reference, but do not compile archive source directly.
+Use the validated target-binding/statistics concepts from `archive/diagnostics/legacy-vrr-presentmon/D3dkmtVblankProbe.*` as reference, but do not compile archive source directly.
 
 Bind only to the target HMONITOR.
 
@@ -516,18 +542,75 @@ Where possible, cross-check D3DKMT adapter LUID against the Windows active displ
 
 If target mapping is inconsistent, mark D3DKMT unavailable rather than sampling another display.
 
-## 24. D3DKMT sampling
+### 23.1 Cancellation-safe wait API
 
-Use one blocking wait thread:
+The active implementation must use:
 
-    D3DKMTWaitForVerticalBlankEvent
+    D3DKMTWaitForVerticalBlankEvent2
+
+rather than the legacy single-object `D3DKMTWaitForVerticalBlankEvent`.
+
+Windows 11 is the supported ClawHUD platform, and `D3DKMTWaitForVerticalBlankEvent2` supports waiting for the VBlank condition **and** user-mode wait objects in one call.
+
+Create one dedicated manual-reset cancellation event before starting the sampler thread.
+
+Configure each wait with:
+
+    target adapter handle
+    target VidPnSourceId
+    NumObjects = 1
+    ObjectHandleArray[0] = cancellation event
+
+Interpret results as:
+
+    STATUS_WAIT_0
+      -> VBlank occurred
+      -> record QPC sample
+
+    STATUS_WAIT_1
+      -> cancellation event signaled
+      -> exit sampler loop normally
+
+    any other NTSTATUS
+      -> record wait failure
+      -> exit sampler loop
+
+If `D3DKMTWaitForVerticalBlankEvent2` is unavailable, mark D3DKMT evidence unavailable for this diagnostic.
+
+Do not fall back to an uninterruptible blocking wait.
+
+## 24. D3DKMT sampling and shutdown contract
+
+Use one blocking sampler thread with:
+
+    D3DKMTWaitForVerticalBlankEvent2
     QueryPerformanceCounter
 
 No 1 ms polling timer is needed.
 
-Stop on the first D3DKMT wait failure.
+`Stop()` / cancellation must follow this exact order:
 
-Always release the adapter handle.
+1. mark stop requested;
+2. `SetEvent(cancelEvent)`;
+3. join the sampler thread;
+4. only after the thread has returned, close the D3DKMT adapter handle;
+5. close the cancellation event;
+6. clear sampler state so another diagnostic run can start.
+
+Never use:
+
+    TerminateThread
+    forced thread suspension
+    adapter-handle close as the cancellation mechanism
+    detach-and-leak behavior
+
+A foreground change, process exit, monitor/display-path change, normal 15-second completion, or command teardown must all use the same cancellation path.
+
+A normal cancellation wake is not a D3DKMT failure and must not reduce confidence by itself.
+
+A real wait error terminates sampling and records D3DKMT as unavailable/failed supporting evidence; it must not hang shutdown.
+
+This cancellation contract is required so every invalidated run can cleanly return to the menu and a second VRR diagnostic can run in the same process.
 
 ## 25. D3DKMT analysis
 
@@ -553,6 +636,32 @@ For complete windows calculate:
 
 Use Windows nominal refresh as the reference.
 
+### 25.1 Exact near-nominal definition
+
+Define one shared tolerance:
+
+    nearNominalToleranceHz = max(1.5 Hz, nominalRefreshHz * 0.015)
+
+A complete 1-second cadence window is **near nominal** when:
+
+    abs(windowMeasuredHz - nominalRefreshHz) <= nearNominalToleranceHz
+
+Then:
+
+    nearNominalRatio =
+        nearNominalWindowCount / completeWindowCount
+
+Only complete windows participate in this ratio.
+
+Use the same `nearNominalToleranceHz` for the fixed-like median proximity check so the implementation and unit tests have one reproducible definition.
+
+Example for a 120.000 Hz mode:
+
+    tolerance = max(1.5, 1.8) = 1.8 Hz
+    near-nominal interval = 118.2 through 121.8 Hz
+
+Do not round the nominal rational refresh to an integer before applying this rule.
+
 ## 26. Initial cadence classifier
 
 Do not use a universal 119-Hz threshold.
@@ -563,7 +672,7 @@ FIXED_LIKE requires all:
 
     at least 10 complete windows
     near-nominal ratio >= 0.80
-    median cadence within max(1.5 Hz, nominal * 0.015) of nominal
+    abs(medianWindowHz - nominalRefreshHz) <= nearNominalToleranceHz
     window range width <= max(5 Hz, nominal * 0.05)
 
 VARIABLE_LIKE requires all:
@@ -1041,9 +1150,15 @@ D3DKMT tests:
     stable 120-like cadence
     stable lower cadence
     variable 90/110/100 windows
+    exact nearNominalToleranceHz boundary inclusion/exclusion
+    fractional nominal refresh handling
     insufficient windows
     invalid/non-monotonic timestamps
     window boundaries
+    STATUS_WAIT_0 records a sample
+    STATUS_WAIT_1 performs clean cancellation
+    real wait failure terminates without hanging
+    cancellation followed by a second successful sampler run
 
 Combined analysis tests:
 
@@ -1231,7 +1346,11 @@ The implementation is complete when:
 - Final status is LIKELY ACTIVE / LIKELY FIXED / OFF / INCONCLUSIVE.
 - Confidence is separately reported.
 - Near-nominal game cadence cannot produce a naive LIKELY FIXED verdict.
+- Any observed EVENT_SYSTEM_FOREGROUND transition to another PID during measurement invalidates the run, even if the game regains foreground before the next poll.
 - Foreground/process/display changes invalidate the run.
+- nearNominalRatio uses the exact documented nominal-relative tolerance.
+- D3DKMT sampling uses D3DKMTWaitForVerticalBlankEvent2 with a dedicated cancellation event.
+- D3DKMT cancellation joins cleanly without TerminateThread or adapter-close cancellation.
 - frames.csv, vblank.csv and report.txt are produced.
 - Completion sound works.
 - The diagnostic can be run repeatedly in one process.
