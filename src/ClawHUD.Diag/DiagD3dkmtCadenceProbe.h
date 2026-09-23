@@ -8,15 +8,26 @@
 #include <d3dkmthk.h>
 
 #include <atomic>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <thread>
 #include <vector>
 
+struct DiagD3dkmtCadenceProbeApi
+{
+    std::function<NTSTATUS(D3DKMT_WAITFORVERTICALBLANKEVENT2*)> waitForVerticalBlankEvent2;
+    std::function<BOOL(LARGE_INTEGER*)> queryPerformanceCounter;
+    std::function<NTSTATUS(D3DKMT_CLOSEADAPTER*)> closeAdapter;
+};
+
+struct DiagD3dkmtCadenceProbeTestAccess;
+
 class DiagD3dkmtCadenceProbe
 {
 public:
     DiagD3dkmtCadenceProbe() = default;
+    explicit DiagD3dkmtCadenceProbe(DiagD3dkmtCadenceProbeApi api);
     ~DiagD3dkmtCadenceProbe();
 
     DiagD3dkmtCadenceProbe(const DiagD3dkmtCadenceProbe&) = delete;
@@ -28,6 +39,11 @@ public:
     void Shutdown() noexcept;
 
 private:
+    friend struct DiagD3dkmtCadenceProbeTestAccess;
+
+    bool InitializeResolvedTarget(std::wstring_view monitorDeviceName,
+        D3DKMT_HANDLE adapterHandle, LUID adapterLuid, UINT32 vidPnSourceId,
+        std::int64_t qpcFrequency, const VrrDisplayPath& expectedPath) noexcept;
     void SampleLoop() noexcept;
     void CancelAndJoin() noexcept;
     void SetFailure(DiagD3dkmtCaptureFailure failure,
@@ -41,6 +57,7 @@ private:
     WaitForVerticalBlankEvent2 waitForVerticalBlankEvent2_{};
     OpenAdapterFromHdc openAdapterFromHdc_{};
     CloseAdapter closeAdapter_{};
+    DiagD3dkmtCadenceProbeApi api_;
     D3DKMT_HANDLE adapterHandle_{};
     LUID adapterLuid_{};
     UINT32 vidPnSourceId_{};

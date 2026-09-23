@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <utility>
 
 namespace
 {
@@ -18,6 +19,11 @@ bool SameLuid(const LUID& left, const LUID& right) noexcept
 DiagD3dkmtCadenceProbe::~DiagD3dkmtCadenceProbe()
 {
     Shutdown();
+}
+
+DiagD3dkmtCadenceProbe::DiagD3dkmtCadenceProbe(DiagD3dkmtCadenceProbeApi api)
+    : api_(std::move(api))
+{
 }
 
 bool DiagD3dkmtCadenceProbe::Initialize(
@@ -87,19 +93,58 @@ bool DiagD3dkmtCadenceProbe::Initialize(
         return false;
     }
 
-    adapterHandle_ = open.hAdapter;
-    adapterLuid_ = open.AdapterLuid;
-    vidPnSourceId_ = open.VidPnSourceId;
-    if (CompareStringOrdinal(monitorInfo.szDevice, -1,
-            expectedPath.monitorDeviceName.c_str(), -1, TRUE) != CSTR_EQUAL ||
-        !SameLuid(adapterLuid_, expectedPath.sourceAdapterLuid) ||
-        vidPnSourceId_ != expectedPath.sourceId)
+    if (!InitializeResolvedTarget(monitorInfo.szDevice, open.hAdapter,
+            open.AdapterLuid, open.VidPnSourceId, qpcFrequency_, expectedPath))
     {
-        SetFailure(DiagD3dkmtCaptureFailure::DisplayPathMismatch);
         Shutdown();
         return false;
     }
 
+    return true;
+}
+
+bool DiagD3dkmtCadenceProbe::InitializeResolvedTarget(
+    std::wstring_view monitorDeviceName, D3DKMT_HANDLE adapterHandle,
+    LUID adapterLuid, UINT32 vidPnSourceId, std::int64_t qpcFrequency,
+    const VrrDisplayPath& expectedPath) noexcept
+{
+    if (initialized_ || sampling_ || sampler_.joinable())
+    {
+        SetFailure(DiagD3dkmtCaptureFailure::InvalidTarget);
+        return false;
+    }
+    failure_ = DiagD3dkmtCaptureFailure::None;
+    failureStatus_.reset();
+    adapterHandle_ = adapterHandle;
+    adapterLuid_ = adapterLuid;
+    vidPnSourceId_ = vidPnSourceId;
+    qpcFrequency_ = qpcFrequency;
+    if (monitorDeviceName.empty() || expectedPath.monitorDeviceName.empty() ||
+        monitorDeviceName.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()) ||
+        expectedPath.monitorDeviceName.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()) ||
+        CompareStringOrdinal(monitorDeviceName.data(), static_cast<int>(monitorDeviceName.size()),
+            expectedPath.monitorDeviceName.data(),
+            static_cast<int>(expectedPath.monitorDeviceName.size()), TRUE) != CSTR_EQUAL ||
+        !SameLuid(adapterLuid, expectedPath.sourceAdapterLuid) ||
+        vidPnSourceId != expectedPath.sourceId)
+    {
+        SetFailure(DiagD3dkmtCaptureFailure::DisplayPathMismatch);
+        return false;
+    }
+    if (!adapterHandle || qpcFrequency <= 0)
+    {
+        SetFailure(qpcFrequency <= 0 ? DiagD3dkmtCaptureFailure::QpcUnavailable :
+            DiagD3dkmtCaptureFailure::AdapterOpenFailed);
+        return false;
+    }
+    if ((!api_.waitForVerticalBlankEvent2 && !waitForVerticalBlankEvent2_) ||
+        (!api_.closeAdapter && !closeAdapter_))
+    {
+        SetFailure(DiagD3dkmtCaptureFailure::ApiUnavailable);
+        return false;
+    }
+
+    timestamps_.clear();
     initialized_ = true;
     return true;
 }
@@ -157,7 +202,8 @@ void DiagD3dkmtCadenceProbe::SampleLoop() noexcept
         args.VidPnSourceId = vidPnSourceId_;
         args.NumObjects = 1;
         args.ObjectHandleArray[0] = cancellationEvent_;
-        const auto status = waitForVerticalBlankEvent2_(&args);
+        const auto status = api_.waitForVerticalBlankEvent2 ?
+            api_.waitForVerticalBlankEvent2(&args) : waitForVerticalBlankEvent2_(&args);
         if (status == kStatusCancelled) return;
         if (status != kStatusWaitForVblank)
         {
@@ -167,7 +213,9 @@ void DiagD3dkmtCadenceProbe::SampleLoop() noexcept
         }
 
         LARGE_INTEGER counter{};
-        if (!QueryPerformanceCounter(&counter))
+        const auto counterAvailable = api_.queryPerformanceCounter ?
+            api_.queryPerformanceCounter(&counter) : QueryPerformanceCounter(&counter);
+        if (!counterAvailable)
         {
             SetFailure(DiagD3dkmtCaptureFailure::QueryCounterFailed);
             return;
@@ -210,11 +258,11 @@ void DiagD3dkmtCadenceProbe::CancelAndJoin() noexcept
     if (sampler_.joinable()) sampler_.join();
     sampling_ = false;
 
-    if (adapterHandle_ && closeAdapter_)
+    if (adapterHandle_ && (api_.closeAdapter || closeAdapter_))
     {
         D3DKMT_CLOSEADAPTER close{};
         close.hAdapter = adapterHandle_;
-        const auto status = closeAdapter_(&close);
+        const auto status = api_.closeAdapter ? api_.closeAdapter(&close) : closeAdapter_(&close);
         if (status != 0)
             SetFailure(DiagD3dkmtCaptureFailure::AdapterCloseFailed,
                 static_cast<std::int32_t>(status));
