@@ -2,7 +2,7 @@ param([Parameter(Mandatory = $true)][string]$DiagnosticExe)
 
 $outputDirectory = Split-Path -Parent $DiagnosticExe
 $before = @(Get-ChildItem -LiteralPath $outputDirectory -Filter 'game-detect-*.jsonl' -ErrorAction SilentlyContinue)
-$diagnosticOutput = cmd.exe /d /c "(echo 1& echo 2& echo 4) | `"$DiagnosticExe`""
+$diagnosticOutput = cmd.exe /d /c "(echo 1& echo 1& echo 2& echo 4& echo 3) | `"$DiagnosticExe`""
 $created = @(Get-ChildItem -LiteralPath $outputDirectory -Filter 'game-detect-*.jsonl' | Where-Object { $_.FullName -notin $before.FullName }) | Select-Object -Last 1
 if (-not $created) { throw "Diagnostic did not create a JSONL file. Output: $($diagnosticOutput -join ' ')" }
 try {
