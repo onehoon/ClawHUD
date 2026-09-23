@@ -568,6 +568,19 @@
     set_target_properties(ClawHUD.DiagApi2EvidenceTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.DiagApi2EvidenceTests COMMAND ClawHUD.DiagApi2EvidenceTests)
 
+    add_executable(ClawHUD.DiagVrrApi2FrameCaptureTests
+        tests/VrrApi2FrameCaptureTests.cpp
+        src/ClawHUD.Diag/VrrApi2FrameCapture.cpp
+        src/ClawHUD.Diag/DiagPresentMonApi2Client.cpp)
+    target_compile_features(ClawHUD.DiagVrrApi2FrameCaptureTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.DiagVrrApi2FrameCaptureTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.DiagVrrApi2FrameCaptureTests PRIVATE src/ClawHUD.Diag)
+    target_link_libraries(ClawHUD.DiagVrrApi2FrameCaptureTests PRIVATE kernel32)
+    set_target_properties(ClawHUD.DiagVrrApi2FrameCaptureTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.DiagVrrApi2FrameCaptureTests
+        COMMAND ClawHUD.DiagVrrApi2FrameCaptureTests)
+
     add_executable(ClawHUD.DiagProcessMetadataTests
         tests/DiagProcessMetadataTests.cpp
         src/ClawHUD.Diag/DiagnosticSession.cpp

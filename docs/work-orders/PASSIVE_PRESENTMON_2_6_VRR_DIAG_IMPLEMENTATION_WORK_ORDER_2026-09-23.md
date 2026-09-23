@@ -184,6 +184,10 @@ Use the PresentMon frame query and require:
 
 to produce at least one finite value greater than zero for the PID.
 
+PresentMon 2.6 emits NaN for display metrics on dropped frames. Preserve those
+rows and their dropped-frame flag; only a finite positive
+`BETWEEN_DISPLAY_CHANGE` value counts as displayed-frame evidence.
+
 Also require a non-zero PM_METRIC_SWAP_CHAIN_ADDRESS when that metric is available.
 
 This follows the existing production meaning that BETWEEN_DISPLAY_CHANGE > 0 is displayed-frame evidence.
@@ -443,9 +447,16 @@ Use a typed row model containing at least:
 
 Optional values use optional types.
 
+`PM_METRIC_BETWEEN_DISPLAY_CHANGE` is required in the query plan, but its
+per-frame value is optional because PresentMon 2.6 marks dropped-frame display
+timing as NaN. Retain the row and dropped-frame flag when this value is absent.
+Only finite positive values count as displayed-frame evidence or feed the
+display-change timing/rate calculation.
+
 Decode through introspected dataOffset and dataSize.
 
-Reject invalid offset, invalid size, PID mismatch, and non-finite doubles without crashing.
+Reject invalid offset, invalid size, and PID mismatch without crashing.
+Represent non-finite optional doubles as absent without discarding the row.
 
 A bad optional field must not discard an otherwise useful frame.
 
@@ -484,6 +495,26 @@ Capture foreground integrity is **edge-triggered**, not merely sampled.
 During the 15-second measurement install a diagnostic-local `SetWinEventHook` for:
 
     EVENT_SYSTEM_FOREGROUND
+
+The hook must be owned by a dedicated ClawHUD.Diag thread. Seed that thread's
+message queue before calling `SetWinEventHook`, register an out-of-context
+hook for all processes/threads on the current desktop, and keep a
+`GetMessage`/`DispatchMessage` loop running for the hook's lifetime. WinEvent
+callbacks are delivered on the registering thread and are not reliable unless
+that thread pumps messages.
+
+The measurement epoch begins only after the hook thread reports successful
+registration. If hook registration fails, stop any already-started capture
+sources and return `INCONCLUSIVE` with `foreground_event_unavailable`; do not
+fall back to polling as the only foreground-change detector. The callback must
+do only bounded PID lookup and atomically publish a foreign-PID transition; it
+must not perform file/console I/O, stop capture sources, join threads, or destroy
+the hook owner.
+
+On every completion or abort path, request hook-thread shutdown, unhook on the
+owning thread, finish its message loop, and join it before destroying callback
+state or returning to the menu. Events before the measurement epoch do not
+contaminate the run.
 
 Any foreground transition observed after measurement begins whose non-zero PID differs from the locked target PID permanently marks the run contaminated, even if the user returns to the game before the next polling interval.
 
@@ -1133,6 +1164,7 @@ Frame decode tests:
     enum
     double
     non-finite double
+    dropped frame with NaN BetweenDisplayChange is retained
     bad offset
     bad size
     missing optional metric
