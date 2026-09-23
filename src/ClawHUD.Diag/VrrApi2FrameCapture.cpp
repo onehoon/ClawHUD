@@ -294,15 +294,16 @@ std::optional<VrrFrameSample> DecodeVrrFrameSample(
 
     const auto addressValue = ReadUnsigned(record, *address);
     const auto modeValue = ReadInteger(record, *presentMode);
+    if (FieldBytes(record, *displayChange, sizeof(double)).empty()) return std::nullopt;
     const auto displayChangeValue = ReadDouble(record, *displayChange);
-    if (!addressValue || *addressValue == 0 || !modeValue || !displayChangeValue)
+    if (!addressValue || *addressValue == 0 || !modeValue)
         return std::nullopt;
 
     VrrFrameSample sample;
     sample.processId = targetProcessId;
     sample.swapChainAddress = *addressValue;
     sample.presentMode = *modeValue;
-    sample.betweenDisplayChangeMs = *displayChangeValue;
+    sample.betweenDisplayChangeMs = displayChangeValue;
 
     if (const auto* binding = FindBinding(plan, VrrFrameField::ProcessId))
     {

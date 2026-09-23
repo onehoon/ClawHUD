@@ -277,7 +277,7 @@ void TestTypedFrameDecode()
     assert(sample->syncInterval == 1);
     assert(sample->presentFlags == 5);
     assert(sample->betweenPresentsMs == 16.67);
-    assert(sample->betweenDisplayChangeMs == 16.68);
+    assert(sample->betweenDisplayChangeMs && *sample->betweenDisplayChangeMs == 16.68);
     assert(sample->displayedTimeMs == 16.65);
     assert(sample->untilDisplayedMs == 0.7);
     assert(sample->displayLatencyMs == 2.1);
@@ -331,13 +331,22 @@ void TestInvalidRequiredAndOptionalFields()
     const auto& latency = Binding(nonFinite.plan, VrrFrameField::DisplayLatency);
     const double infinity = std::numeric_limits<double>::infinity();
     std::memcpy(nonFinite.bytes.data() + latency.element.dataOffset, &infinity, sizeof(infinity));
-    const auto finiteRequired = DecodeVrrFrameSample(nonFinite.bytes, 4321, nonFinite.plan);
-    assert(finiteRequired);
-    assert(!finiteRequired->displayLatencyMs);
+    const auto nonFiniteOptional = DecodeVrrFrameSample(nonFinite.bytes, 4321, nonFinite.plan);
+    assert(nonFiniteOptional);
+    assert(!nonFiniteOptional->displayLatencyMs);
 
     const auto& displayChange = Binding(nonFinite.plan, VrrFrameField::BetweenDisplayChange);
-    std::memcpy(nonFinite.bytes.data() + displayChange.element.dataOffset, &infinity, sizeof(infinity));
-    assert(!DecodeVrrFrameSample(nonFinite.bytes, 4321, nonFinite.plan));
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    std::memcpy(nonFinite.bytes.data() + displayChange.element.dataOffset, &nan, sizeof(nan));
+    const auto& droppedBinding = Binding(nonFinite.plan, VrrFrameField::Dropped);
+    const std::uint8_t dropped = 1;
+    std::memcpy(nonFinite.bytes.data() + droppedBinding.element.dataOffset,
+        &dropped, sizeof(dropped));
+    const auto droppedWithMissingDisplayTiming = DecodeVrrFrameSample(
+        nonFinite.bytes, 4321, nonFinite.plan);
+    assert(droppedWithMissingDisplayTiming);
+    assert(droppedWithMissingDisplayTiming->dropped == true);
+    assert(!droppedWithMissingDisplayTiming->betweenDisplayChangeMs);
 }
 
 void TestPidMismatchAndMissingOptionalField()

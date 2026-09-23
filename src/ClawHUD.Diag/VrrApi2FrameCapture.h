@@ -11,7 +11,7 @@ struct VrrFrameSample
 {
     std::uint32_t processId{};
     std::uint64_t swapChainAddress{};
-    double betweenDisplayChangeMs{};
+    std::optional<double> betweenDisplayChangeMs;
     std::int32_t presentMode{};
     std::optional<std::uint64_t> presentStartQpc;
     std::optional<std::int32_t> presentRuntime;
