@@ -436,14 +436,20 @@ bool VrrApi2FrameCapture::Initialize()
     }
 }
 
-bool VrrApi2FrameCapture::StartTracking(std::uint32_t processId)
+bool VrrApi2FrameCapture::FlushFrames(std::uint32_t processId) noexcept
+{
+    return ready_ && processId != 0 && trackedProcessId_ == 0 &&
+        client_.FlushFrames(processId) == PM_STATUS_SUCCESS;
+}
+
+bool VrrApi2FrameCapture::StartTracking(std::uint32_t processId, bool flushBeforeStart)
 {
     if (!ready_ || processId == 0 || trackedProcessId_ != 0 ||
         client_.StartTrackingProcess(processId) != PM_STATUS_SUCCESS)
         return false;
 
     trackedProcessId_ = processId;
-    if (client_.FlushFrames(processId) != PM_STATUS_SUCCESS)
+    if (flushBeforeStart && client_.FlushFrames(processId) != PM_STATUS_SUCCESS)
     {
         StopTracking();
         return false;

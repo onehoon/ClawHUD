@@ -76,13 +76,15 @@ public:
     ~VrrApi2FrameCapture();
 
     bool Initialize();
-    bool StartTracking(std::uint32_t processId);
+    bool FlushFrames(std::uint32_t processId) noexcept;
+    bool StartTracking(std::uint32_t processId, bool flushBeforeStart = true);
     bool DrainFrames();
     void StopTracking() noexcept;
     void Shutdown() noexcept;
 
     bool Ready() const noexcept { return ready_; }
     std::uint32_t BlobSize() const noexcept { return blobSize_; }
+    const PM_VERSION& ApiVersion() const noexcept { return client_.ApiVersion(); }
     const std::vector<VrrFrameSample>& Samples() const noexcept { return samples_; }
 
 private:

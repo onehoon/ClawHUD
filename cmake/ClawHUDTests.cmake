@@ -644,6 +644,21 @@
         COMMAND ClawHUD.DiagD3dkmtCadenceProbeTests)
     set_tests_properties(ClawHUD.DiagD3dkmtCadenceProbeTests PROPERTIES TIMEOUT 20)
 
+    add_executable(ClawHUD.DiagVrrDiagnosticOutputTests
+        tests/VrrDiagnosticOutputTests.cpp
+        src/ClawHUD.Diag/VrrCaptureInvalidation.cpp
+        src/ClawHUD.Diag/VrrReportWriter.cpp
+        src/ClawHUD.Diag/DiagD3dkmtCadenceAnalysis.cpp
+        src/ClawHUD.Diag/VrrAnalysis.cpp)
+    target_compile_features(ClawHUD.DiagVrrDiagnosticOutputTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.DiagVrrDiagnosticOutputTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.DiagVrrDiagnosticOutputTests PRIVATE src/ClawHUD.Diag)
+    target_link_libraries(ClawHUD.DiagVrrDiagnosticOutputTests PRIVATE user32)
+    set_target_properties(ClawHUD.DiagVrrDiagnosticOutputTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.DiagVrrDiagnosticOutputTests
+        COMMAND ClawHUD.DiagVrrDiagnosticOutputTests)
+
     add_executable(ClawHUD.DiagProcessMetadataTests
         tests/DiagProcessMetadataTests.cpp
         src/ClawHUD.Diag/DiagnosticSession.cpp

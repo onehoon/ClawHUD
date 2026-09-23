@@ -61,7 +61,10 @@ add_executable(ClawHUD.Diag
     src/ClawHUD.Diag/DiagIntelVrrStateProbe.cpp
     src/ClawHUD.Diag/DiagD3dkmtCadenceProbe.cpp
     src/ClawHUD.Diag/DiagD3dkmtCadenceAnalysis.cpp
-    src/ClawHUD.Diag/VrrAnalysis.cpp)
+    src/ClawHUD.Diag/VrrAnalysis.cpp
+    src/ClawHUD.Diag/VrrCaptureInvalidation.cpp
+    src/ClawHUD.Diag/VrrDiagnosticCommand.cpp
+    src/ClawHUD.Diag/VrrReportWriter.cpp)
 target_compile_features(ClawHUD.Diag PRIVATE cxx_std_20)
 target_compile_definitions(ClawHUD.Diag PRIVATE
     UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
