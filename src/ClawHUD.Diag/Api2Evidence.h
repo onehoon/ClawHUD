@@ -17,7 +17,7 @@
 // exact PM_STATUS instead of a diagnostic-owned label.
 std::string_view Api2StatusName(PM_STATUS status) noexcept;
 
-// Per-row blob stride PresentMon 2.5.1 uses: PadToAlignment(cursor, 16). The
+// Per-row blob stride PresentMon 2.6.0 uses: PadToAlignment(cursor, 16). The
 // unaligned max element end (24 for three 8-byte fields) misdecodes row 1+ and
 // under-allocates the caller buffer for multi-swap-chain polls.
 std::size_t Api2AlignedRowBytes(const std::vector<PM_QUERY_ELEMENT>& elements) noexcept;

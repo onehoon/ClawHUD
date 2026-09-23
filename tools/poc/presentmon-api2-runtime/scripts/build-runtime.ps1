@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$BuildRoot = 'D:\temp\ClawHUD-presentmon-api2-runtime-build',
-    [string]$UpstreamRoot = 'D:\temp\PresentMon-v2.5.1-clawhud-poc',
+    [string]$UpstreamRoot = 'D:\temp\PresentMon-v2.6.0-clawhud-poc',
     [string]$Configuration = 'Release',
     [string]$WixBin = ''
 )
@@ -19,6 +19,9 @@ Write-Output "PresentMonRuntimeVersion=$presentMonVersion"
 
 $prepare = Join-Path $PSScriptRoot 'prepare-upstream.ps1'
 $upstream = & $prepare -UpstreamRoot $UpstreamRoot
+if ($env:PMON_UCI_SDK_DIR) {
+    throw 'PMON_UCI_SDK_DIR must be unset for the ClawHUD runtime build.'
+}
 # The pinned upstream source contains UTF-8 text.  PresentMon's PresentData
 # project treats C4819 as an error, so suppress only that source-encoding
 # warning through the compiler environment without modifying the upstream
@@ -37,8 +40,12 @@ $wixCandidates = @(
 )
 $wixBin = $wixCandidates | Where-Object { $_ -and (Test-Path (Join-Path $_ 'candle.exe')) } | Select-Object -First 1
 if (-not $wixBin) { throw 'WiX 3.x candle.exe was not found. Install WiX Toolset 3.11+ before building this POC.' }
-$wixTargets = Join-Path $wixBin 'Wix.targets'
-if (-not (Test-Path -LiteralPath $wixTargets)) { throw "WiX targets were not found beside candle.exe: $wixTargets" }
+$programFilesX86 = [Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
+$wixTargets = @(
+    (Join-Path $wixBin 'Wix.targets'),
+    (Join-Path $programFilesX86 'MSBuild\Microsoft\WiX\v3.x\Wix.targets')
+) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+if (-not $wixTargets) { throw 'WiX v3 MSBuild targets were not found beside candle.exe or under the shared MSBuild extensions directory.' }
 $vcpkgRoot = Join-Path $upstream.Path 'build\vcpkg'
 if (-not (Test-Path -LiteralPath (Join-Path $vcpkgRoot 'vcpkg.exe'))) { throw "Pinned vcpkg tool was not found at $vcpkgRoot. Install the upstream manifest dependencies at the pinned baseline first." }
 $vcpkgInstalledDir = Join-Path $upstream.Path 'vcpkg_installed'
@@ -48,11 +55,13 @@ if (-not (Test-Path -LiteralPath $pocVcpkgProps)) { throw "POC vcpkg MSBuild com
 
 New-Item -ItemType Directory -Path $BuildRoot -Force | Out-Null
 $solutionDir = "$($upstream.Path)\"
+# The v2.6.0 manifest dependencies are installed before this script with the
+# same VS 2022 toolset. Do not trigger a nested manifest install per project.
 $common = @(
     '/m'
     ('/p:Configuration=' + $Configuration)
     '/p:Platform=x64'
-    '/p:PresentMonProductVersion=2.5.1'
+    ('/p:PresentMonProductVersion=' + $presentMonVersion)
     ('/p:WixToolPath=' + "$wixBin\")
     ('/p:WixInstallPath=' + "$wixBin\")
     ('/p:WixTasksPath=' + (Join-Path $wixBin 'WixTasks.dll'))
@@ -60,6 +69,8 @@ $common = @(
     ('/p:VcpkgRoot=' + "$vcpkgRoot\")
     ('/p:VcpkgInstalledDir=' + "$vcpkgInstalledDir\")
     '/p:VcpkgTriplet=x64-windows-static'
+    '/p:VcpkgEnableManifest=false'
+    '/p:VcpkgManifestInstall=false'
     '/p:DisableSpecificWarnings=4819'
     '/p:TreatWarningAsError=false'
     ('/p:CustomVcpkgProps=' + $pocVcpkgProps)
@@ -75,6 +86,12 @@ function Invoke-MSBuild([string]$project, [string[]]$extra = @()) {
 # These projects are the minimum upstream graph needed by the shared module.
 Invoke-MSBuild (Join-Path $upstream.Path 'IntelPresentMon\ServiceMergeModule\ServiceMergeModule.wixproj')
 Invoke-MSBuild (Join-Path $upstream.Path 'IntelPresentMon\PresentMonAPI2Loader\PresentMonAPI2Loader.vcxproj')
+
+$uciFragment = Join-Path $upstream.Path 'IntelPresentMon\PMInstallerLib\Generated\UciDist.wxs'
+if (-not (Test-Path -LiteralPath $uciFragment)) { throw "The generated UCI fragment was not found: $uciFragment" }
+if (Select-String -LiteralPath $uciFragment -Pattern '<File(?:\s|>)' -Quiet) {
+    throw 'The generated UCI fragment contains payload files; the ClawHUD build must not bundle UCI.'
+}
 
 $module = Get-ChildItem -LiteralPath $upstream.Path -Filter 'PresentMonSharedService.msm' -Recurse | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 $loader = Get-ChildItem -LiteralPath $upstream.Path -Filter 'PresentMonAPI2Loader.dll' -Recurse | Where-Object { $_.FullName -match "\\$Configuration\\" } | Select-Object -First 1

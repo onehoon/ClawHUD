@@ -1,13 +1,13 @@
 [CmdletBinding()]
 param(
-    [string]$UpstreamRoot = 'D:\temp\PresentMon-v2.5.1-clawhud-poc',
+    [string]$UpstreamRoot = 'D:\temp\PresentMon-v2.6.0-clawhud-poc',
     [switch]$Force
 )
 
 $ErrorActionPreference = 'Stop'
 $repoUrl = 'https://github.com/GameTechDev/PresentMon.git'
-$tag = 'v2.5.1'
-$expectedCommit = '3e06c7dcb922e411bae38503b51ab501be61c37f'
+$tag = 'v2.6.0'
+$expectedCommit = 'e13fce6acdb55a808fd8318175a56863e532d95f'
 
 if (Test-Path -LiteralPath $UpstreamRoot) {
     if (-not $Force) {
@@ -27,6 +27,15 @@ if (-not (Test-Path -LiteralPath $UpstreamRoot)) {
 $actualCommit = (git -C $UpstreamRoot rev-parse HEAD).Trim()
 if ($actualCommit -ne $expectedCommit) {
     throw "Pinned tag resolved to $actualCommit, expected $expectedCommit."
+}
+
+$trackedChanges = @(git -C $UpstreamRoot status --porcelain=v1 --untracked-files=no)
+if ($LASTEXITCODE -ne 0) {
+    throw "Failed to verify the pinned upstream worktree at $UpstreamRoot."
+}
+if ($trackedChanges.Count -ne 0) {
+    $trackedChangeList = $trackedChanges -join [Environment]::NewLine
+    throw "Pinned upstream checkout contains tracked modifications. Recreate it with -Force before building.`n$trackedChangeList"
 }
 
 [pscustomobject]@{

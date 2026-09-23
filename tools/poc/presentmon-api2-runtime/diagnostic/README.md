@@ -1,6 +1,6 @@
 # PresentMon API2 desktop diagnostic
 
-This is an isolated, non-production diagnostic client for the pinned PresentMon v2.5.1 runtime. It loads only `PresentMonAPI2Loader.dll`; `PresentMonAPI2.dll` must remain installed under `C:\Program Files\Intel\PresentMonSharedService` and must not be copied beside this executable.
+This is an isolated, non-production diagnostic client for the pinned PresentMon v2.6.0 runtime (API 3.4). It loads only the matching `PresentMonAPI2Loader.dll`; `PresentMonAPI2.dll` must remain installed under `C:\Program Files\Intel\PresentMonSharedService` and must not be copied beside this executable.
 
 Build the project with `PresentMonRoot` set to the pinned upstream checkout. Copy the built loader beside the diagnostic executable, then run as a normal user:
 
