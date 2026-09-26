@@ -1,10 +1,14 @@
 #include "DiagIntelVrrStateProbe.h"
+#include "DiagIntelVrrStateProbeAbi.h"
 
 #include <windows.h>
 
 #include <array>
 #include <cstddef>
+#include <limits>
 #include <new>
+#include <optional>
+#include <string_view>
 #include <vector>
 
 namespace
@@ -30,12 +34,6 @@ struct InitArgs
     GUID uid{};
 };
 
-struct GenericVoidDatatypeAbi
-{
-    void* pData{};
-    std::uint32_t size{};
-};
-
 // Full ctl_device_adapter_properties_t layout for the pinned IGCL ABI. The
 // opaque tail keeps Size accurate while only the documented device-ID prefix
 // is consumed here.
@@ -47,21 +45,6 @@ struct DevicePropertiesAbi
     void* pDeviceId{};
     std::uint32_t deviceIdSize{};
     std::array<std::uint8_t, 300> remainder{};
-};
-
-// Size/layout for the Windows display ID prefix and opaque remainder of the
-// IGCL display-properties ABI; only the Windows ID is consumed.
-struct DisplayPropertiesAbi
-{
-    std::uint32_t size{};
-    std::uint8_t version{};
-    std::uint8_t prefixPadding[3]{};
-    union OsDisplayEncoder
-    {
-        std::uint32_t windowsDisplayEncoderId;
-        GenericVoidDatatypeAbi otherPlatformDisplayEncoderId;
-    } osDisplayEncoder{};
-    std::array<std::uint8_t, 176> remainder{};
 };
 
 struct ArcSyncCapabilityAbi
@@ -87,13 +70,9 @@ struct ArcSyncProfileAbi
 };
 
 static_assert(sizeof(InitArgs) == 36);
-static_assert(sizeof(GenericVoidDatatypeAbi) == 16);
 static_assert(offsetof(DevicePropertiesAbi, pDeviceId) == 8);
 static_assert(offsetof(DevicePropertiesAbi, deviceIdSize) == 16);
 static_assert(sizeof(DevicePropertiesAbi) == 320);
-static_assert(offsetof(DisplayPropertiesAbi, osDisplayEncoder) == 8);
-static_assert(offsetof(DisplayPropertiesAbi, remainder) == 24);
-static_assert(sizeof(DisplayPropertiesAbi) == 200);
 static_assert(sizeof(ArcSyncCapabilityAbi) == 24);
 static_assert(sizeof(ArcSyncProfileAbi) == 28);
 
@@ -104,25 +83,64 @@ T Resolve(HMODULE module, const char* name) noexcept
 }
 
 template<class T>
-bool Enumerate(Handle parent, Result(__cdecl* function)(Handle, std::uint32_t*, T*),
+struct EnumerationOutcome
+{
+    bool success{};
+    std::optional<Result> result;
+    std::string_view detail;
+};
+
+template<class T>
+EnumerationOutcome<T> Enumerate(Handle parent, Result(__cdecl* function)(Handle, std::uint32_t*, T*),
     std::vector<T>& values)
 {
     std::uint32_t count{};
-    if (function(parent, &count, nullptr) != 0)
+    const auto countResult = function(parent, &count, nullptr);
+    if (countResult != 0)
     {
         values.clear();
-        return false;
+        return { false, countResult, "count query" };
     }
-    if (count == 0) { values.clear(); return true; }
+    if (count == 0) { values.clear(); return { true, std::nullopt, {} }; }
     values.resize(count);
     const auto capacity = count;
-    if (function(parent, &count, values.data()) != 0 || count > capacity)
+    const auto valuesResult = function(parent, &count, values.data());
+    if (valuesResult != 0)
     {
         values.clear();
-        return false;
+        return { false, valuesResult, "handle query" };
+    }
+    if (count > capacity)
+    {
+        values.clear();
+        return { false, std::nullopt, "returned count exceeds buffer capacity" };
     }
     values.resize(count);
-    return true;
+    return { true, std::nullopt, {} };
+}
+
+void AddFailure(DiagIntelVrrState& state, DiagIgclProbeFailureStage stage,
+    std::string_view detail, DiagIgclProbeResultDomain domain = DiagIgclProbeResultDomain::None,
+    std::optional<std::uint32_t> result = std::nullopt,
+    std::size_t adapterIndex = DiagIgclProbeFailure::NoIndex,
+    std::size_t outputIndex = DiagIgclProbeFailure::NoIndex) noexcept
+{
+    if (state.failureRecordCount < state.failures.size())
+    {
+        state.failures[state.failureRecordCount++] = {
+            stage, domain, result, detail, adapterIndex, outputIndex };
+    }
+    else if (state.suppressedFailureCount < std::numeric_limits<std::uint32_t>::max())
+    {
+        ++state.suppressedFailureCount;
+    }
+}
+
+std::uint32_t Count32(std::size_t count) noexcept
+{
+    return count > std::numeric_limits<std::uint32_t>::max()
+        ? std::numeric_limits<std::uint32_t>::max()
+        : static_cast<std::uint32_t>(count);
 }
 }
 
@@ -163,8 +181,15 @@ DiagIntelVrrStateProbe::~DiagIntelVrrStateProbe() { Shutdown(); }
 bool DiagIntelVrrStateProbe::Initialize() noexcept
 {
     Shutdown();
+    attempted_ = true;
+    initializationFailure_ = {};
     library_ = LoadLibraryExW(L"ControlLib.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
-    if (!library_) return false;
+    if (!library_)
+    {
+        initializationFailure_ = { DiagIgclProbeFailureStage::LoadLibrary,
+            DiagIgclProbeResultDomain::Win32, GetLastError(), "ControlLib.dll" };
+        return false;
+    }
 
     const auto library = static_cast<HMODULE>(library_);
     endpoints_ = new (std::nothrow) Endpoints{
@@ -176,12 +201,28 @@ bool DiagIntelVrrStateProbe::Initialize() noexcept
         Resolve<DisplayPropertiesFn>(library, "ctlGetDisplayProperties"),
         Resolve<ArcSyncInfoFn>(library, "ctlGetIntelArcSyncInfoForMonitor"),
         Resolve<ArcSyncProfileFn>(library, "ctlGetIntelArcSyncProfile") };
-    if (!endpoints_ || !endpoints_->init || !endpoints_->close ||
-        !endpoints_->enumerateDevices || !endpoints_->enumerateOutputs ||
-        !endpoints_->getDeviceProperties ||
-        !endpoints_->getDisplayProperties || !endpoints_->getArcSyncInfo ||
-        !endpoints_->getArcSyncProfile)
+    if (!endpoints_)
     {
+        initializationFailure_ = { DiagIgclProbeFailureStage::InternalError,
+            DiagIgclProbeResultDomain::None, std::nullopt,
+            "allocate IGCL API endpoint table" };
+        Shutdown();
+        return false;
+    }
+
+    std::string_view missingFunction;
+    if (!endpoints_->init) missingFunction = "ctlInit";
+    else if (!endpoints_->close) missingFunction = "ctlClose";
+    else if (!endpoints_->enumerateDevices) missingFunction = "ctlEnumerateDevices";
+    else if (!endpoints_->enumerateOutputs) missingFunction = "ctlEnumerateDisplayOutputs";
+    else if (!endpoints_->getDeviceProperties) missingFunction = "ctlGetDeviceProperties";
+    else if (!endpoints_->getDisplayProperties) missingFunction = "ctlGetDisplayProperties";
+    else if (!endpoints_->getArcSyncInfo) missingFunction = "ctlGetIntelArcSyncInfoForMonitor";
+    else if (!endpoints_->getArcSyncProfile) missingFunction = "ctlGetIntelArcSyncProfile";
+    if (!missingFunction.empty())
+    {
+        initializationFailure_ = { DiagIgclProbeFailureStage::ResolveFunction,
+            DiagIgclProbeResultDomain::None, std::nullopt, missingFunction };
         Shutdown();
         return false;
     }
@@ -189,8 +230,19 @@ bool DiagIntelVrrStateProbe::Initialize() noexcept
     InitArgs args{};
     args.size = sizeof(args);
     args.appVersion = 0x00010000;
-    if (endpoints_->init(&args, &apiHandle_) != 0 || !apiHandle_)
+    const auto initResult = endpoints_->init(&args, &apiHandle_);
+    if (initResult != 0)
     {
+        initializationFailure_ = { DiagIgclProbeFailureStage::Initialize,
+            DiagIgclProbeResultDomain::ControlLibrary, initResult, "ctlInit" };
+        Shutdown();
+        return false;
+    }
+    if (!apiHandle_)
+    {
+        initializationFailure_ = { DiagIgclProbeFailureStage::Initialize,
+            DiagIgclProbeResultDomain::None, std::nullopt,
+            "ctlInit returned success with a null API handle" };
         Shutdown();
         return false;
     }
@@ -203,11 +255,35 @@ DiagIntelVrrState DiagIntelVrrStateProbe::Query(
     DiagIntelVrrState state;
     state.windowsTargetAdapterLuid = windowsTargetAdapterLuid;
     state.windowsTargetId = windowsTargetId;
-    if (!apiHandle_ || !endpoints_) return state;
+    state.attempted = attempted_;
+    state.initialized = apiHandle_ && endpoints_;
+    if (!state.initialized)
+    {
+        if (initializationFailure_.stage != DiagIgclProbeFailureStage::None)
+            AddFailure(state, initializationFailure_.stage, initializationFailure_.detail,
+                initializationFailure_.resultDomain, initializationFailure_.result,
+                initializationFailure_.adapterIndex, initializationFailure_.outputIndex);
+        else if (attempted_)
+            AddFailure(state, DiagIgclProbeFailureStage::NotInitialized,
+                "IGCL API is not initialized");
+        return state;
+    }
 
     try
     {
-        if (!Enumerate<Handle>(apiHandle_, endpoints_->enumerateDevices, adapters_)) return state;
+        state.enumerationComplete = true;
+        adapters_.clear();
+        const auto deviceEnumeration = Enumerate<Handle>(apiHandle_,
+            endpoints_->enumerateDevices, adapters_);
+        if (!deviceEnumeration.success)
+        {
+            state.enumerationComplete = false;
+            AddFailure(state, DiagIgclProbeFailureStage::EnumerateDevices,
+                deviceEnumeration.detail, DiagIgclProbeResultDomain::ControlLibrary,
+                deviceEnumeration.result);
+            return state;
+        }
+        state.adapterCount = Count32(adapters_.size());
         struct Output
         {
             Handle handle{};
@@ -215,38 +291,64 @@ DiagIntelVrrState DiagIntelVrrStateProbe::Query(
         };
         std::vector<Output> outputs;
         bool complete = true;
-        for (const auto adapter : adapters_)
+        for (std::size_t adapterIndex = 0; adapterIndex < adapters_.size(); ++adapterIndex)
         {
+            const auto adapter = adapters_[adapterIndex];
             LUID adapterLuid{};
             DevicePropertiesAbi deviceProperties{};
             deviceProperties.size = sizeof(deviceProperties);
             deviceProperties.version = 0;
             deviceProperties.pDeviceId = &adapterLuid;
             deviceProperties.deviceIdSize = sizeof(adapterLuid);
-            if (endpoints_->getDeviceProperties(adapter, &deviceProperties) != 0 ||
-                deviceProperties.pDeviceId != &adapterLuid ||
+            const auto devicePropertiesResult = endpoints_->getDeviceProperties(
+                adapter, &deviceProperties);
+            if (devicePropertiesResult != 0)
+            {
+                complete = false;
+                AddFailure(state, DiagIgclProbeFailureStage::GetDeviceProperties,
+                    "ctlGetDeviceProperties", DiagIgclProbeResultDomain::ControlLibrary,
+                    devicePropertiesResult, adapterIndex);
+                continue;
+            }
+            if (deviceProperties.pDeviceId != &adapterLuid ||
                 deviceProperties.deviceIdSize != sizeof(adapterLuid))
             {
                 complete = false;
+                AddFailure(state, DiagIgclProbeFailureStage::GetDeviceProperties,
+                    "unexpected device ID pointer or size", DiagIgclProbeResultDomain::None,
+                    std::nullopt, adapterIndex);
                 continue;
             }
 
             std::vector<Handle> adapterOutputs;
-            if (!Enumerate<Handle>(adapter, endpoints_->enumerateOutputs, adapterOutputs))
+            const auto outputEnumeration = Enumerate<Handle>(
+                adapter, endpoints_->enumerateOutputs, adapterOutputs);
+            if (!outputEnumeration.success)
             {
                 complete = false;
+                AddFailure(state, DiagIgclProbeFailureStage::EnumerateDisplayOutputs,
+                    outputEnumeration.detail, DiagIgclProbeResultDomain::ControlLibrary,
+                    outputEnumeration.result, adapterIndex);
                 continue;
             }
-            for (const auto output : adapterOutputs)
+            const auto firstOutputIndex = static_cast<std::size_t>(state.displayOutputCount);
+            state.displayOutputCount = Count32(firstOutputIndex + adapterOutputs.size());
+            for (std::size_t outputIndex = 0; outputIndex < adapterOutputs.size(); ++outputIndex)
             {
-                DisplayPropertiesAbi properties{};
-                properties.size = sizeof(properties);
-                properties.version = 1;
-                if (endpoints_->getDisplayProperties(output, &properties) != 0)
+                const auto output = adapterOutputs[outputIndex];
+                diag_igcl_abi::DisplayProperties properties{};
+                diag_igcl_abi::InitializeDisplayProperties(properties);
+                const auto displayPropertiesResult = endpoints_->getDisplayProperties(
+                    output, &properties);
+                if (displayPropertiesResult != 0)
                 {
                     complete = false;
+                    AddFailure(state, DiagIgclProbeFailureStage::GetDisplayProperties,
+                        "ctlGetDisplayProperties", DiagIgclProbeResultDomain::ControlLibrary,
+                        displayPropertiesResult, adapterIndex, firstOutputIndex + outputIndex);
                     continue;
                 }
+                ++state.displayPropertiesSuccessCount;
                 outputs.push_back({ output, { adapterLuid,
                     properties.osDisplayEncoder.windowsDisplayEncoderId } });
             }
@@ -255,11 +357,27 @@ DiagIntelVrrState DiagIntelVrrStateProbe::Query(
         std::vector<DiagIgclOutputIdentity> identities;
         identities.reserve(outputs.size());
         for (const auto& output : outputs) identities.push_back(output.identity);
+        for (const auto& identity : identities)
+        {
+            if (identity.adapterLuid.LowPart == windowsTargetAdapterLuid.LowPart &&
+                identity.adapterLuid.HighPart == windowsTargetAdapterLuid.HighPart &&
+                identity.targetId == windowsTargetId)
+                ++state.targetMatchCount;
+        }
+        state.enumerationComplete = complete;
         const auto match = ResolveDiagIgclTarget(windowsTargetAdapterLuid,
             windowsTargetId, identities, complete);
         state.mappingStatus = match.status;
         if (match.status != DiagIgclTargetMappingStatus::Exact || !match.outputIndex)
+        {
+            if (match.status == DiagIgclTargetMappingStatus::Ambiguous)
+                AddFailure(state, DiagIgclProbeFailureStage::TargetMapping,
+                    "multiple exact adapter LUID and target ID matches");
+            else if (complete)
+                AddFailure(state, DiagIgclProbeFailureStage::TargetMapping,
+                    "no exact adapter LUID and target ID match");
             return state;
+        }
 
         const auto output = outputs[*match.outputIndex].handle;
         ArcSyncCapabilityAbi capability{};
@@ -270,6 +388,10 @@ DiagIntelVrrState DiagIntelVrrStateProbe::Query(
             state.capability = DiagArcSyncCapability{ capability.supported,
                 capability.minimumHz, capability.maximumHz,
                 capability.maxFrameTimeIncreaseUs, capability.maxFrameTimeDecreaseUs };
+        else
+            AddFailure(state, DiagIgclProbeFailureStage::GetArcSyncInfo,
+                "ctlGetIntelArcSyncInfoForMonitor",
+                DiagIgclProbeResultDomain::ControlLibrary, capabilityResult);
 
         ArcSyncProfileAbi profile{};
         profile.size = sizeof(profile);
@@ -279,6 +401,10 @@ DiagIntelVrrState DiagIntelVrrStateProbe::Query(
             state.profile = DiagArcSyncProfile{ profile.profile, profile.maximumHz,
                 profile.minimumHz, profile.maxFrameTimeIncreaseUs,
                 profile.maxFrameTimeDecreaseUs };
+        else
+            AddFailure(state, DiagIgclProbeFailureStage::GetArcSyncProfile,
+                "ctlGetIntelArcSyncProfile",
+                DiagIgclProbeResultDomain::ControlLibrary, profileResult);
         return state;
     }
     catch (...)
@@ -286,6 +412,9 @@ DiagIntelVrrState DiagIntelVrrStateProbe::Query(
         state.mappingStatus = DiagIgclTargetMappingStatus::Unknown;
         state.capability.reset();
         state.profile.reset();
+        state.enumerationComplete = false;
+        AddFailure(state, DiagIgclProbeFailureStage::InternalError,
+            "exception during IGCL query or output enumeration");
         return state;
     }
 }

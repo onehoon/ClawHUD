@@ -49,6 +49,15 @@ std::string Hex(std::uint64_t value)
     return text.str();
 }
 
+std::string Hex32(std::uint32_t value)
+{
+    std::ostringstream text;
+    text.imbue(std::locale::classic());
+    text << "0x" << std::uppercase << std::hex << std::setfill('0')
+         << std::setw(8) << value;
+    return text.str();
+}
+
 std::string Luid(const LUID& value)
 {
     std::ostringstream text;
@@ -114,6 +123,71 @@ const char* MappingName(DiagIgclTargetMappingStatus value) noexcept
     case DiagIgclTargetMappingStatus::Ambiguous: return "AMBIGUOUS";
     default: return "UNKNOWN";
     }
+}
+
+const char* IgclFailureStageName(DiagIgclProbeFailureStage value) noexcept
+{
+    switch (value)
+    {
+    case DiagIgclProbeFailureStage::NotInitialized: return "not_initialized";
+    case DiagIgclProbeFailureStage::LoadLibrary: return "load_library";
+    case DiagIgclProbeFailureStage::ResolveFunction: return "resolve_function";
+    case DiagIgclProbeFailureStage::Initialize: return "ctlInit";
+    case DiagIgclProbeFailureStage::EnumerateDevices: return "ctlEnumerateDevices";
+    case DiagIgclProbeFailureStage::GetDeviceProperties: return "ctlGetDeviceProperties";
+    case DiagIgclProbeFailureStage::EnumerateDisplayOutputs: return "ctlEnumerateDisplayOutputs";
+    case DiagIgclProbeFailureStage::GetDisplayProperties: return "ctlGetDisplayProperties";
+    case DiagIgclProbeFailureStage::TargetMapping: return "target_mapping";
+    case DiagIgclProbeFailureStage::GetArcSyncInfo: return "ctlGetIntelArcSyncInfoForMonitor";
+    case DiagIgclProbeFailureStage::GetArcSyncProfile: return "ctlGetIntelArcSyncProfile";
+    case DiagIgclProbeFailureStage::InternalError: return "internal_error";
+    default: return "none";
+    }
+}
+
+const char* IgclResultDomainName(DiagIgclProbeResultDomain value) noexcept
+{
+    switch (value)
+    {
+    case DiagIgclProbeResultDomain::Win32: return "Win32";
+    case DiagIgclProbeResultDomain::ControlLibrary: return "CTL_RESULT";
+    default: return "none";
+    }
+}
+
+const char* D3dkmtFailureName(DiagD3dkmtCaptureFailure value) noexcept
+{
+    switch (value)
+    {
+    case DiagD3dkmtCaptureFailure::ApiUnavailable: return "api_unavailable";
+    case DiagD3dkmtCaptureFailure::InvalidTarget: return "invalid_target";
+    case DiagD3dkmtCaptureFailure::DisplayPathMismatch: return "display_path_mismatch";
+    case DiagD3dkmtCaptureFailure::AdapterOpenFailed: return "adapter_open_failed";
+    case DiagD3dkmtCaptureFailure::AdapterCloseFailed: return "adapter_close_failed";
+    case DiagD3dkmtCaptureFailure::QpcUnavailable: return "qpc_unavailable";
+    case DiagD3dkmtCaptureFailure::SamplerStartFailed: return "sampler_start_failed";
+    case DiagD3dkmtCaptureFailure::WaitFailed: return "wait_failed";
+    case DiagD3dkmtCaptureFailure::QueryCounterFailed: return "query_counter_failed";
+    case DiagD3dkmtCaptureFailure::SampleStorageFailed: return "sample_storage_failed";
+    default: return "none";
+    }
+}
+
+const char* D3dkmtStatusDomainName(DiagD3dkmtFailureStatusDomain value) noexcept
+{
+    switch (value)
+    {
+    case DiagD3dkmtFailureStatusDomain::Win32: return "Win32";
+    case DiagD3dkmtFailureStatusDomain::NtStatus: return "NTSTATUS";
+    default: return "none";
+    }
+}
+
+std::string IgclFailureResult(const DiagIgclProbeFailure& failure)
+{
+    if (!failure.result) return "n/a";
+    return std::string(IgclResultDomainName(failure.resultDomain)) + " " +
+        Hex32(*failure.result);
 }
 
 const char* PresentationName(VrrPresentationClass value) noexcept
@@ -327,32 +401,89 @@ bool WriteReport(const std::filesystem::path& path,
     output << "  Display-change rate          "
            << OptionalDouble(presentation.displayChangeRateHz) << " Hz\n\n"
            << "Intel Arc Sync\n"
+           << "  Probe status                 "
+           << (data.igcl.initialized ? "INITIALIZED" :
+               (data.igcl.attempted ? "UNAVAILABLE" : "NOT RUN")) << '\n'
+           << "  Target adapter LUID          " << (data.displayPathAvailable
+                ? Luid(data.igcl.windowsTargetAdapterLuid) : "n/a") << '\n'
+           << "  Target ID                    " << (data.displayPathAvailable
+                ? std::to_string(data.igcl.windowsTargetId) : "n/a") << '\n'
            << "  Target mapping               " << MappingName(data.igcl.mappingStatus) << '\n'
+           << "  Adapter count                " << (data.igcl.initialized
+                ? std::to_string(data.igcl.adapterCount) : "n/a") << '\n'
+           << "  Display outputs enumerated   " << (data.igcl.initialized
+                ? std::to_string(data.igcl.displayOutputCount) : "n/a") << '\n'
+           << "  Display properties fetched   " << (data.igcl.initialized
+                ? std::to_string(data.igcl.displayPropertiesSuccessCount) : "n/a") << '\n'
+           << "  Exact target matches         " << (data.igcl.initialized
+                ? std::to_string(data.igcl.targetMatchCount) : "n/a") << '\n'
+           << "  Enumeration complete         " << (data.igcl.initialized
+                ? (data.igcl.enumerationComplete ? "YES" : "NO") : "n/a") << '\n'
            << "  Supported                    "
            << (capability ? (capability->supported ? "YES" : "NO") : "UNKNOWN") << '\n'
+           << "  Capability API result        " << (data.igcl.capabilityResult
+                ? Hex32(*data.igcl.capabilityResult) : "n/a") << '\n'
            << "  Profile                      "
            << (profile ? IgclProfileName(profile->profile) : "n/a") << '\n'
+           << "  Profile API result           " << (data.igcl.profileResult
+                ? Hex32(*data.igcl.profileResult) : "n/a") << '\n'
            << "  Capability range             "
            << Range(capability ? std::optional<double>(capability->minimumHz) : std::nullopt,
                 capability ? std::optional<double>(capability->maximumHz) : std::nullopt) << '\n'
            << "  Active range                 "
            << Range(profile ? std::optional<double>(profile->minimumHz) : std::nullopt,
                 profile ? std::optional<double>(profile->maximumHz) : std::nullopt) << '\n'
-           << "  Configuration                " << IgclName(data.analysis.igcl) << '\n\n'
-           << "D3DKMT\n"
-           << "  Adapter LUID                 " << (d3dkmt.available
-                ? Luid(LUID{ d3dkmt.adapterLuidLow, d3dkmt.adapterLuidHigh }) : "n/a") << '\n'
-           << "  VidPnSourceId                " << (d3dkmt.available
-                ? std::to_string(d3dkmt.vidPnSourceId) : "n/a") << '\n'
-           << "  Complete 1s windows          " << cadence.windows.size() << '\n'
+            << "  Configuration                " << IgclName(data.analysis.igcl) << '\n'
+            << "  Probe failures               " << data.igcl.failureRecordCount
+            << " (suppressed=" << data.igcl.suppressedFailureCount << ")\n";
+    if (data.igcl.failureRecordCount == 0)
+        output << "    none\n";
+    else
+    {
+        for (std::size_t i = 0; i < data.igcl.failureRecordCount; ++i)
+        {
+            const auto& failure = data.igcl.failures[i];
+            output << "    [" << i << "] " << IgclFailureStageName(failure.stage)
+                   << " result=" << IgclFailureResult(failure);
+            if (failure.adapterIndex != DiagIgclProbeFailure::NoIndex)
+                output << " adapter=" << failure.adapterIndex;
+            if (failure.outputIndex != DiagIgclProbeFailure::NoIndex)
+                output << " output=" << failure.outputIndex;
+            if (!failure.detail.empty()) output << " detail=" << failure.detail;
+            output << '\n';
+        }
+    }
+    output << '\n'
+            << "D3DKMT\n"
+            << "  Adapter LUID                 " << (d3dkmt.targetIdentified
+                 ? Luid(LUID{ d3dkmt.adapterLuidLow, d3dkmt.adapterLuidHigh }) : "n/a") << '\n'
+            << "  VidPnSourceId                " << (d3dkmt.targetIdentified
+                 ? std::to_string(d3dkmt.vidPnSourceId) : "n/a") << '\n'
+            << "  QPC frequency                " << (d3dkmt.qpcFrequency > 0
+                 ? std::to_string(d3dkmt.qpcFrequency) : "n/a") << '\n'
+            << "  Sampler mode                 " << (d3dkmt.attempted
+                ? "Event2 NumObjects=0" : "NOT RUN") << '\n'
+            << "  Samples                      " << d3dkmt.timestamps.size() << '\n'
+            << "  Complete 1s windows          " << cadence.windows.size() << '\n'
            << "  Window range                 " << Range(cadence.minimumHz, cadence.maximumHz) << '\n'
            << "  Near-nominal ratio           " << OptionalDouble(cadence.nearNominalRatio
                 ? std::optional<double>(*cadence.nearNominalRatio * 100.0) : std::nullopt, 1) << "%\n"
-           << "  Cadence                      " << CadenceName(cadence.classification) << '\n'
-           << "  Capture status               "
-           << (d3dkmt.available ? "AVAILABLE" : "UNAVAILABLE") << '\n\n'
-           << "Overall\n"
-           << "  VRR Status                   " << OverallName(data.analysis.status) << '\n'
+            << "  Cadence                      " << CadenceName(cadence.classification) << '\n'
+            << "  Capture status               "
+            << (d3dkmt.available ? "AVAILABLE" :
+                (d3dkmt.attempted ? "UNAVAILABLE" : "NOT RUN")) << '\n'
+            << "  Failure                      " << (d3dkmt.attempted
+                 ? D3dkmtFailureName(d3dkmt.failure) : "n/a") << '\n'
+            << "  Failure detail               " << (d3dkmt.failureDetail.empty()
+                 ? "n/a" : d3dkmt.failureDetail) << '\n'
+            << "  Failure status               ";
+    if (d3dkmt.failureStatus)
+        output << D3dkmtStatusDomainName(d3dkmt.failureStatusDomain) << ' '
+               << Hex32(static_cast<std::uint32_t>(*d3dkmt.failureStatus)) << '\n';
+    else
+        output << "n/a\n";
+    output << "\nOverall\n"
+            << "  VRR Status                   " << OverallName(data.analysis.status) << '\n'
            << "  Confidence                   " << ConfidenceName(data.analysis.confidence) << '\n'
            << "  Reasons                      " << ReasonList(data) << "\n\n"
            << "Note\n"
