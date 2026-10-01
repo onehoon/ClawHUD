@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
+#include <limits>
 #include <sstream>
 #include <utility>
 
@@ -44,6 +45,14 @@ std::wstring CpuValue(const HudTelemetrySnapshot& snapshot)
     std::wstring value;
     if (snapshot.cpuUsagePercent)
         value = Integer(*snapshot.cpuUsagePercent) + L"%";
+    if (snapshot.cpuClockMHz && std::isfinite(*snapshot.cpuClockMHz) &&
+        *snapshot.cpuClockMHz >= 0.0 &&
+        *snapshot.cpuClockMHz < static_cast<double>(std::numeric_limits<long>::max()))
+    {
+        if (!value.empty())
+            value += L" ";
+        value += Integer(*snapshot.cpuClockMHz) + L"MHz";
+    }
     if (snapshot.cpuTemperatureC)
     {
         if (!value.empty())

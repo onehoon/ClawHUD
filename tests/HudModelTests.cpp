@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <iostream>
+#include <limits>
 
 using namespace clawhud;
 
@@ -147,6 +148,31 @@ int main()
     HudTelemetrySnapshot temperaturesOnly{};
     temperaturesOnly.cpuTemperatureC = 48;
     ok &= Check(JoinHudRuns(FormatHud(temperaturesOnly)) == L"CPU 48\u00B0C", "CPU temperature formatting");
+
+    HudTelemetrySnapshot cpuFrequency{};
+    cpuFrequency.cpuUsagePercent = 42.0;
+    cpuFrequency.cpuClockMHz = 4200.4;
+    cpuFrequency.cpuTemperatureC = 67;
+    ok &= Check(JoinHudRuns(FormatHud(cpuFrequency)) == L"CPU 42% 4200MHz 67\u00B0C",
+        "CPU usage, frequency and temperature formatting order");
+    cpuFrequency.cpuClockMHz.reset();
+    ok &= Check(JoinHudRuns(FormatHud(cpuFrequency)) == L"CPU 42% 67\u00B0C",
+        "missing CPU frequency preserves usage and temperature");
+    cpuFrequency.cpuUsagePercent.reset();
+    cpuFrequency.cpuClockMHz = 4200.0;
+    ok &= Check(JoinHudRuns(FormatHud(cpuFrequency)) == L"CPU 4200MHz 67\u00B0C",
+        "CPU frequency formats when usage is missing");
+    cpuFrequency.cpuTemperatureC.reset();
+    ok &= Check(JoinHudRuns(FormatHud(cpuFrequency)) == L"CPU 4200MHz",
+        "CPU frequency-only formatting");
+    for (const double invalidClock : {std::numeric_limits<double>::quiet_NaN(),
+        std::numeric_limits<double>::infinity(), -1.0,
+        std::numeric_limits<double>::max()})
+    {
+        cpuFrequency.cpuClockMHz = invalidClock;
+        ok &= Check(FormatHud(cpuFrequency).empty(),
+            "invalid or unrenderable CPU frequency is omitted");
+    }
 
     HudTelemetrySnapshot usage{};
     usage.cpuUsagePercent = 33.0;
