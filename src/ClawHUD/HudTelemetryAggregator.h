@@ -5,6 +5,7 @@
 
 #include "HudModel.h"
 #include "MsiEcHudTelemetry.h"
+#include "PresentMonTelemetryTypes.h"
 
 namespace clawhud
 {
@@ -17,11 +18,16 @@ inline constexpr unsigned kSystemTelemetryMissingThreshold = 3;
 struct HudSystemTelemetryInput
 {
     std::optional<double> cpuUsagePercent;
+    std::optional<double> cpuClockMHz;
     std::optional<double> gpuUsagePercent;
     std::optional<double> gpuClockMHz;
     std::optional<std::uint64_t> gpuMemoryUsedBytes;
     std::optional<std::uint64_t> systemMemoryUsedBytes;
 };
+
+HudSystemTelemetryInput MakeHudSystemTelemetryInput(
+    const std::optional<PresentMonSystemSnapshot>& system,
+    std::optional<std::uint64_t> systemMemoryUsedBytes);
 
 // Retains the most recent usable EC and PresentMon system telemetry for the HUD.
 // A retained field is cleared only after the corresponding missing threshold of
@@ -43,7 +49,7 @@ public:
         ResetSystem();
     }
 
-    // Copies the nine fields this owns (EC cpu temp / tdp / fans and the four
+    // Copies the ten fields this owns (EC cpu temp / tdp / fans and the five
     // system metrics plus system memory) into `snapshot`.
     void FillSnapshot(HudTelemetrySnapshot& snapshot) const;
 
@@ -57,11 +63,13 @@ private:
     unsigned ecTdpMissing_{};
 
     std::optional<double> cpuUsagePercent_;
+    std::optional<double> cpuClockMHz_;
     std::optional<double> gpuUsagePercent_;
     std::optional<double> gpuClockMHz_;
     std::optional<std::uint64_t> gpuMemoryUsedBytes_;
     std::optional<std::uint64_t> systemMemoryUsedBytes_;
     unsigned cpuUsageMissing_{};
+    unsigned cpuClockMissing_{};
     unsigned gpuUsageMissing_{};
     unsigned gpuClockMissing_{};
     unsigned gpuMemoryMissing_{};

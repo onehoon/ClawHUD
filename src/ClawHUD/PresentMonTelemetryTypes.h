@@ -9,6 +9,7 @@ namespace clawhud
 struct PresentMonSystemSnapshot
 {
     std::optional<double> cpuUsagePercent;
+    std::optional<double> cpuClockMHz;
     std::optional<double> gpuUsagePercent;
     std::optional<double> gpuClockMHz;
     std::optional<std::uint64_t> gpuMemoryUsedBytes;

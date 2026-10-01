@@ -121,6 +121,7 @@ PresentMonSystemQueryPlan BuildPresentMonSystemQueryPlan(
         if (device) AddMetric(plan, *metadata, device->id, slot);
     };
     add(PM_METRIC_CPU_UTILIZATION, PM_DEVICE_TYPE_SYSTEM, PM_DEVICE_VENDOR_UNKNOWN, SystemMetricSlot::CpuUsage);
+    add(PM_METRIC_CPU_FREQUENCY, PM_DEVICE_TYPE_SYSTEM, PM_DEVICE_VENDOR_UNKNOWN, SystemMetricSlot::CpuFrequency);
     add(PM_METRIC_GPU_UTILIZATION, PM_DEVICE_TYPE_GRAPHICS_ADAPTER, PM_DEVICE_VENDOR_INTEL, SystemMetricSlot::GpuUsage);
     add(PM_METRIC_GPU_FREQUENCY, PM_DEVICE_TYPE_GRAPHICS_ADAPTER, PM_DEVICE_VENDOR_INTEL, SystemMetricSlot::GpuFrequency);
     add(PM_METRIC_GPU_MEM_USED, PM_DEVICE_TYPE_GRAPHICS_ADAPTER, PM_DEVICE_VENDOR_INTEL, SystemMetricSlot::GpuMemoryUsed);
@@ -139,9 +140,14 @@ std::optional<double> DecodePresentMonFrequencyMHz(const std::uint8_t* blob,
 {
     const auto value = Number(blob, element, type); if (!value || !Valid(*value)) return std::nullopt;
     double result = *value;
-    if (unit == PM_UNIT_HERTZ) result /= 1000000.0;
-    else if (unit == PM_UNIT_KILOHERTZ) result /= 1000.0;
-    else if (unit == PM_UNIT_GIGAHERTZ) result *= 1000.0;
+    switch (unit)
+    {
+    case PM_UNIT_HERTZ: result /= 1000000.0; break;
+    case PM_UNIT_KILOHERTZ: result /= 1000.0; break;
+    case PM_UNIT_MEGAHERTZ: break;
+    case PM_UNIT_GIGAHERTZ: result *= 1000.0; break;
+    default: return std::nullopt;
+    }
     return std::isfinite(result) && result >= 0.0 ? std::optional<double>(result) : std::nullopt;
 }
 std::optional<std::uint64_t> DecodePresentMonMemoryBytes(const std::uint8_t* blob,
@@ -167,6 +173,7 @@ std::optional<PresentMonSystemSnapshot> DecodePresentMonSystemSnapshot(
         switch (binding.slot)
         {
         case SystemMetricSlot::CpuUsage: snapshot.cpuUsagePercent = DecodePresentMonPercentage(blob, element, binding.type); break;
+        case SystemMetricSlot::CpuFrequency: snapshot.cpuClockMHz = DecodePresentMonFrequencyMHz(blob, element, binding.type, binding.unit); break;
         case SystemMetricSlot::GpuUsage: snapshot.gpuUsagePercent = DecodePresentMonPercentage(blob, element, binding.type); break;
         case SystemMetricSlot::GpuFrequency: snapshot.gpuClockMHz = DecodePresentMonFrequencyMHz(blob, element, binding.type, binding.unit); break;
         case SystemMetricSlot::GpuMemoryUsed: snapshot.gpuMemoryUsedBytes = DecodePresentMonMemoryBytes(blob, element, binding.type, binding.unit); break;
@@ -188,7 +195,8 @@ bool PresentMonSystemTelemetry::Initialize(PresentMonApi2Client& client,
     RuntimeLogger::Log(RuntimeLogLevel::Info,
         L"[PresentMonSystem] query-plan elements=" +
         std::to_wstring(plan.elements.size()) + L" cpu=" +
-        std::to_wstring(bound(SystemMetricSlot::CpuUsage)) + L" gpuUsage=" +
+        std::to_wstring(bound(SystemMetricSlot::CpuUsage)) + L" cpuClock=" +
+        std::to_wstring(bound(SystemMetricSlot::CpuFrequency)) + L" gpuUsage=" +
         std::to_wstring(bound(SystemMetricSlot::GpuUsage)) + L" gpuClock=" +
         std::to_wstring(bound(SystemMetricSlot::GpuFrequency)) + L" vram=" +
         std::to_wstring(bound(SystemMetricSlot::GpuMemoryUsed)));
@@ -262,7 +270,8 @@ std::optional<PresentMonSystemSnapshot> PresentMonSystemTelemetry::Read(PresentM
     {
         RuntimeLogger::Log(RuntimeLogLevel::Info,
             L"[PresentMonSystem] first-sample cpu=" +
-            OptionalDouble(snapshot->cpuUsagePercent) + L" gpu=" +
+            OptionalDouble(snapshot->cpuUsagePercent) + L" cpuClockMHz=" +
+            OptionalDouble(snapshot->cpuClockMHz) + L" gpu=" +
             OptionalDouble(snapshot->gpuUsagePercent) + L" clockMHz=" +
             OptionalDouble(snapshot->gpuClockMHz) + L" vramBytes=" +
             OptionalBytes(snapshot->gpuMemoryUsedBytes));

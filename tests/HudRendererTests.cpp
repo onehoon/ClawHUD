@@ -236,6 +236,8 @@ int main()
     };
     checkUnits(L"100FPS", {{3, 3}}, "FPS unit range");
     checkUnits(L"36% 67\u00B0C", {{2, 1}, {6, 2}}, "percentage and temperature unit ranges");
+    checkUnits(L"100% 4200MHz 67\u00B0C", {{3, 1}, {9, 3}, {15, 2}},
+        "CPU percentage, MHz and temperature unit ranges");
     checkUnits(L"10.1W", {{4, 1}}, "power unit range");
     checkUnits(L"87% VRAM 3.4GB", {{2, 1}, {12, 2}},
         "percentage and VRAM unit ranges");
@@ -297,6 +299,12 @@ int main()
             {L"1% 40\u00B0C", L"36% 67\u00B0C", L"100% 100\u00B0C"},
             "stable CPU slot");
         sameWidth(HudSegmentKind::Cpu, L"CPU",
+            {L"999MHz", L"4200MHz", L"9999MHz"}, "stable CPU clock slot");
+        sameWidth(HudSegmentKind::Cpu, L"CPU",
+            {L"1% 999MHz 40\u00B0C", L"42% 4200MHz 67\u00B0C",
+                L"100% 9999MHz 100\u00B0C"},
+            "stable CPU usage, clock and temperature slots");
+        sameWidth(HudSegmentKind::Cpu, L"CPU",
             {L"40\u00B0C", L"67\u00B0C", L"100\u00B0C"},
             "stable temperature-only CPU slot");
         sameWidth(HudSegmentKind::Gpu, L"GPU",
@@ -337,6 +345,11 @@ int main()
         float reservedWidth{};
         ok &= Check(SUCCEEDED(renderer.MeasureReservedHudWidth(stableOptions, reservedWidth)) &&
             reservedWidth > 0.0f, "measure reserved HUD envelope");
+        HudMeasureResult fullCpu{};
+        renderer.Measure({{HudSegmentKind::Cpu, L"CPU",
+            L"100% 9999MHz 100\u00B0C"}}, stableOptions, fullCpu);
+        ok &= Check(reservedWidth > fullCpu.contentWidth,
+            "reserved HUD envelope includes the expanded CPU frequency segment");
         HudMeasureResult withVram{};
         HudMeasureResult withoutVram{};
         renderer.Measure({{HudSegmentKind::Gpu, L"GPU", L"74%"},
