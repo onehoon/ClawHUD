@@ -60,6 +60,7 @@ struct HudTelemetrySnapshot
     std::optional<double> frameTimeMs;
 
     std::optional<double> cpuUsagePercent;
+    std::optional<double> cpuClockMHz;
     std::optional<int> cpuTemperatureC;
     std::optional<double> cpuPackagePowerW;
     std::optional<double> gpuUsagePercent;
