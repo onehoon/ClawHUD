@@ -157,14 +157,8 @@ void ProductionTelemetryController::SampleSystemEc()
     batteryEcOnDc_ = onBattery;
     aggregator_.IngestEc(freshEcTelemetry);
     const auto system = provider_.ReadSystem();
-    const std::optional<double> missingDouble;
-    const std::optional<std::uint64_t> missingBytes;
-    HudSystemTelemetryInput systemInput;
-    systemInput.cpuUsagePercent = system ? system->cpuUsagePercent : missingDouble;
-    systemInput.gpuUsagePercent = system ? system->gpuUsagePercent : missingDouble;
-    systemInput.gpuClockMHz = system ? system->gpuClockMHz : missingDouble;
-    systemInput.gpuMemoryUsedBytes = system ? system->gpuMemoryUsedBytes : missingBytes;
-    systemInput.systemMemoryUsedBytes = ReadSystemMemoryUsedBytes();
+    HudSystemTelemetryInput systemInput = MakeHudSystemTelemetryInput(
+        system, ReadSystemMemoryUsedBytes());
     aggregator_.IngestSystem(systemInput);
     if (requestRender_)
         requestRender_();

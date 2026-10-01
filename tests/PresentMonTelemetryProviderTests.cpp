@@ -493,34 +493,105 @@ void CheckSystemTelemetry(bool& ok)
         {1, PM_METRIC_AVAILABILITY_AVAILABLE, 1}, {2, PM_METRIC_AVAILABILITY_AVAILABLE, 1}};
     std::array<const void*, 2> metricDeviceEntries{&metricDevices[0], &metricDevices[1]};
     PM_INTROSPECTION_OBJARRAY metricDeviceArray{metricDeviceEntries.data(), metricDeviceEntries.size()};
+    PM_INTROSPECTION_DEVICE_METRIC_INFO cpuFrequencyDevice{2,
+        PM_METRIC_AVAILABILITY_AVAILABLE, 1};
+    std::array<const void*, 1> cpuFrequencyDeviceEntries{&cpuFrequencyDevice};
+    PM_INTROSPECTION_OBJARRAY cpuFrequencyDeviceArray{
+        cpuFrequencyDeviceEntries.data(), cpuFrequencyDeviceEntries.size()};
     PM_INTROSPECTION_METRIC metrics[] = {
         {PM_METRIC_CPU_UTILIZATION, PM_METRIC_TYPE_DYNAMIC_FRAME, PM_UNIT_PERCENT, PM_UNIT_PERCENT,
             &doubleType, &statArray, &metricDeviceArray},
+        {PM_METRIC_CPU_FREQUENCY, PM_METRIC_TYPE_DYNAMIC, PM_UNIT_HERTZ, PM_UNIT_MEGAHERTZ,
+            &doubleType, &statArray, &cpuFrequencyDeviceArray},
         {PM_METRIC_GPU_UTILIZATION, PM_METRIC_TYPE_DYNAMIC_FRAME, PM_UNIT_PERCENT, PM_UNIT_PERCENT,
             &doubleType, &statArray, &metricDeviceArray},
         {PM_METRIC_GPU_FREQUENCY, PM_METRIC_TYPE_DYNAMIC_FRAME, PM_UNIT_HERTZ, PM_UNIT_MEGAHERTZ,
             &doubleType, &statArray, &metricDeviceArray},
         {PM_METRIC_GPU_MEM_USED, PM_METRIC_TYPE_DYNAMIC_FRAME, PM_UNIT_BYTES, PM_UNIT_BYTES,
             &uint64Type, &statArray, &metricDeviceArray}};
-    std::array<const void*, 4> metricEntries{&metrics[0], &metrics[1], &metrics[2], &metrics[3]};
+    std::array<const void*, 5> metricEntries{
+        &metrics[0], &metrics[1], &metrics[2], &metrics[3], &metrics[4]};
     PM_INTROSPECTION_OBJARRAY metricArray{metricEntries.data(), metricEntries.size()};
     PM_INTROSPECTION_ROOT root{&metricArray, nullptr, &deviceArray, nullptr};
     const auto capabilities = BuildPresentMonTelemetryCapabilities(&root);
     const auto plan = BuildPresentMonSystemQueryPlan(capabilities);
-    ok &= Check(plan.elements.size() == 4 && plan.bindings.size() == 4,
+    ok &= Check(plan.elements.size() == 5 && plan.bindings.size() == 5,
         "system metrics share one query");
     ok &= Check(plan.bindings[0].slot == SystemMetricSlot::CpuUsage &&
-        plan.bindings[1].slot == SystemMetricSlot::GpuUsage &&
-        plan.bindings[2].slot == SystemMetricSlot::GpuFrequency &&
-        plan.bindings[3].slot == SystemMetricSlot::GpuMemoryUsed,
-        "all four intended system metric slots are planned");
-    ok &= Check(plan.elements[0].deviceId == 2 && plan.elements[1].deviceId == 1,
+        plan.bindings[1].slot == SystemMetricSlot::CpuFrequency &&
+        plan.bindings[2].slot == SystemMetricSlot::GpuUsage &&
+        plan.bindings[3].slot == SystemMetricSlot::GpuFrequency &&
+        plan.bindings[4].slot == SystemMetricSlot::GpuMemoryUsed,
+        "all five intended system metric slots are planned");
+    ok &= Check(plan.elements[0].deviceId == 2 && plan.elements[1].deviceId == 2 &&
+        plan.elements[2].deviceId == 1,
         "system and Intel device selection is capability driven");
     ok &= Check(std::all_of(plan.elements.begin(), plan.elements.end(),
         [](const auto& element) { return element.stat == PM_STAT_AVG; }),
         "system telemetry follows the official no-target AVG statistic preference");
-    ok &= Check(plan.bindings[3].type == PM_DATA_TYPE_DOUBLE,
+    ok &= Check(plan.bindings[1].type == PM_DATA_TYPE_DOUBLE &&
+        plan.bindings[1].unit == PM_UNIT_HERTZ &&
+        plan.bindings[3].type == PM_DATA_TYPE_DOUBLE &&
+        plan.bindings[3].unit == PM_UNIT_HERTZ,
         "AVG telemetry uses the official dynamic-query double output type");
+
+    auto unavailableCpuFrequency = capabilities;
+    const auto cpuFrequencyMetric = std::find_if(unavailableCpuFrequency.metrics.begin(),
+        unavailableCpuFrequency.metrics.end(), [](const auto& metric)
+        { return metric.id == PM_METRIC_CPU_FREQUENCY; });
+    if (cpuFrequencyMetric != unavailableCpuFrequency.metrics.end())
+        cpuFrequencyMetric->devices.front().availability = PM_METRIC_AVAILABILITY_UNAVAILABLE;
+    const auto planWithoutCpuFrequency = BuildPresentMonSystemQueryPlan(unavailableCpuFrequency);
+    ok &= Check(planWithoutCpuFrequency.bindings.size() == 4 &&
+        std::none_of(planWithoutCpuFrequency.bindings.begin(), planWithoutCpuFrequency.bindings.end(),
+            [](const auto& binding) { return binding.slot == SystemMetricSlot::CpuFrequency; }) &&
+        std::any_of(planWithoutCpuFrequency.bindings.begin(), planWithoutCpuFrequency.bindings.end(),
+            [](const auto& binding) { return binding.slot == SystemMetricSlot::CpuUsage; }) &&
+        std::any_of(planWithoutCpuFrequency.bindings.begin(), planWithoutCpuFrequency.bindings.end(),
+            [](const auto& binding) { return binding.slot == SystemMetricSlot::GpuFrequency; }),
+        "unsupported CPU frequency omits only that metric binding");
+
+    auto missingCpuFrequency = capabilities;
+    std::erase_if(missingCpuFrequency.metrics, [](const auto& metric)
+        { return metric.id == PM_METRIC_CPU_FREQUENCY; });
+    ok &= Check(BuildPresentMonSystemQueryPlan(missingCpuFrequency).bindings.size() == 4,
+        "absent CPU frequency capability leaves the other system metrics planned");
+
+    const auto decodeFrequency = [](double value, PM_UNIT unit)
+    {
+        std::array<std::uint8_t, sizeof(double)> frequencyBlob{};
+        std::memcpy(frequencyBlob.data(), &value, sizeof(value));
+        const PM_QUERY_ELEMENT frequencyElement{PM_METRIC_CPU_FREQUENCY,
+            PM_STAT_AVG, 2, 0, 0, sizeof(double)};
+        return DecodePresentMonFrequencyMHz(frequencyBlob.data(), frequencyElement,
+            PM_DATA_TYPE_DOUBLE, unit);
+    };
+    ok &= Check(decodeFrequency(4200000000.0, PM_UNIT_HERTZ) == 4200.0 &&
+        decodeFrequency(4200000.0, PM_UNIT_KILOHERTZ) == 4200.0 &&
+        decodeFrequency(4200.0, PM_UNIT_MEGAHERTZ) == 4200.0 &&
+        std::abs(decodeFrequency(4.2, PM_UNIT_GIGAHERTZ).value_or(-1.0) - 4200.0) < 0.01,
+        "CPU frequency converts introspected Hz, kHz, MHz and GHz units to MHz");
+    ok &= Check(!decodeFrequency(std::numeric_limits<double>::quiet_NaN(), PM_UNIT_HERTZ) &&
+        !decodeFrequency(std::numeric_limits<double>::infinity(), PM_UNIT_HERTZ) &&
+        !decodeFrequency(-1.0, PM_UNIT_HERTZ) &&
+        !decodeFrequency(4200.0, PM_UNIT_PERCENT),
+        "CPU frequency rejects non-finite, negative and unsupported-unit values");
+
+    std::array<std::uint8_t, sizeof(double)> cpuClockBlob{};
+    const double cpuClockHz = 4200000000.0;
+    std::memcpy(cpuClockBlob.data(), &cpuClockHz, sizeof(cpuClockHz));
+    const PM_QUERY_ELEMENT cpuClockElement{PM_METRIC_CPU_FREQUENCY,
+        PM_STAT_AVG, 2, 0, 0, sizeof(double)};
+    const auto cpuFrequencySnapshot = DecodePresentMonSystemSnapshot(PM_STATUS_SUCCESS, 1,
+        cpuClockBlob.data(), {cpuClockElement},
+        {{SystemMetricSlot::CpuFrequency, 0, PM_DATA_TYPE_DOUBLE, PM_UNIT_HERTZ}});
+    ok &= Check(cpuFrequencySnapshot && cpuFrequencySnapshot->cpuClockMHz == 4200.0,
+        "CPU frequency binding decodes into the system snapshot");
+    const auto gpuFrequencySnapshot = DecodePresentMonSystemSnapshot(PM_STATUS_SUCCESS, 1,
+        cpuClockBlob.data(), {cpuClockElement},
+        {{SystemMetricSlot::GpuFrequency, 0, PM_DATA_TYPE_DOUBLE, PM_UNIT_HERTZ}});
+    ok &= Check(gpuFrequencySnapshot && gpuFrequencySnapshot->gpuClockMHz == 4200.0,
+        "existing GPU frequency binding still converts hertz to MHz");
 
     std::array<std::uint8_t, 32> blob{};
     PM_QUERY_ELEMENT element{PM_METRIC_GPU_UTILIZATION, PM_STAT_NEWEST_POINT, 1, 0, 3, sizeof(double)};

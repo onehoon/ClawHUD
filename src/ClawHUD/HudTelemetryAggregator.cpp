@@ -4,6 +4,23 @@
 
 namespace clawhud
 {
+HudSystemTelemetryInput MakeHudSystemTelemetryInput(
+    const std::optional<PresentMonSystemSnapshot>& system,
+    std::optional<std::uint64_t> systemMemoryUsedBytes)
+{
+    HudSystemTelemetryInput input;
+    if (system)
+    {
+        input.cpuUsagePercent = system->cpuUsagePercent;
+        input.cpuClockMHz = system->cpuClockMHz;
+        input.gpuUsagePercent = system->gpuUsagePercent;
+        input.gpuClockMHz = system->gpuClockMHz;
+        input.gpuMemoryUsedBytes = system->gpuMemoryUsedBytes;
+    }
+    input.systemMemoryUsedBytes = systemMemoryUsedBytes;
+    return input;
+}
+
 void HudTelemetryAggregator::IngestEc(const MsiEcHudTelemetry& fresh) noexcept
 {
     UpdateRetainedTelemetryField(
@@ -21,6 +38,9 @@ void HudTelemetryAggregator::IngestSystem(const HudSystemTelemetryInput& input) 
 {
     UpdateRetainedTelemetryField(
         cpuUsagePercent_, input.cpuUsagePercent, cpuUsageMissing_,
+        kSystemTelemetryMissingThreshold);
+    UpdateRetainedTelemetryField(
+        cpuClockMHz_, input.cpuClockMHz, cpuClockMissing_,
         kSystemTelemetryMissingThreshold);
     UpdateRetainedTelemetryField(
         gpuUsagePercent_, input.gpuUsagePercent, gpuUsageMissing_,
@@ -48,11 +68,13 @@ void HudTelemetryAggregator::ResetEc() noexcept
 void HudTelemetryAggregator::ResetSystem() noexcept
 {
     cpuUsagePercent_.reset();
+    cpuClockMHz_.reset();
     gpuUsagePercent_.reset();
     gpuClockMHz_.reset();
     gpuMemoryUsedBytes_.reset();
     systemMemoryUsedBytes_.reset();
     cpuUsageMissing_ = 0;
+    cpuClockMissing_ = 0;
     gpuUsageMissing_ = 0;
     gpuClockMissing_ = 0;
     gpuMemoryMissing_ = 0;
@@ -67,6 +89,7 @@ void HudTelemetryAggregator::FillSnapshot(HudTelemetrySnapshot& snapshot) const
     snapshot.fan1Rpm = ec_.fan1Rpm;
     snapshot.fan2Rpm = ec_.fan2Rpm;
     snapshot.cpuUsagePercent = cpuUsagePercent_;
+    snapshot.cpuClockMHz = cpuClockMHz_;
     snapshot.systemMemoryUsedBytes = systemMemoryUsedBytes_;
     snapshot.gpuMemoryUsedBytes = gpuMemoryUsedBytes_;
     snapshot.gpuUsagePercent = gpuUsagePercent_;
