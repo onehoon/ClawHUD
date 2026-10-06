@@ -27,9 +27,10 @@ MsiEcHudTelemetry Ec(std::optional<int> cpuTemp, std::optional<int> fan1,
 HudSystemTelemetryInput Sys(std::optional<double> cpu, std::optional<double> gpu,
     std::optional<double> gpuClock, std::optional<std::uint64_t> gpuMem,
     std::optional<std::uint64_t> sysMem,
-    std::optional<double> cpuClock = std::nullopt)
+    std::optional<double> cpuClock = std::nullopt,
+    std::optional<double> gpuPower = std::nullopt)
 {
-    return HudSystemTelemetryInput{cpu, cpuClock, gpu, gpuClock, gpuMem, sysMem};
+    return HudSystemTelemetryInput{cpu, cpuClock, gpu, gpuClock, gpuMem, sysMem, gpuPower};
 }
 
 HudTelemetrySnapshot SnapshotOf(const HudTelemetryAggregator& agg)
@@ -80,19 +81,28 @@ void FreshEcValueResetsTheMissStreak(bool& ok)
 void SystemFieldRetentionMatchesThreshold(bool& ok)
 {
     HudTelemetryAggregator agg;
-    agg.IngestSystem(Sys(40.0, 55.0, 1800.0, 4000u, 9000u, 4200.0));
+    agg.IngestSystem(Sys(40.0, 55.0, 1800.0, 4000u, 9000u, 4200.0, 13.4));
     agg.IngestSystem(Sys(std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt));
     agg.IngestSystem(Sys(std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt));
     auto s = SnapshotOf(agg);
     ok &= Check(s.cpuUsagePercent == 40.0 && s.gpuUsagePercent == 55.0 &&
         s.cpuClockMHz == 4200.0 && s.gpuClockMHz == 1800.0 &&
         s.gpuMemoryUsedBytes == 4000u &&
-        s.systemMemoryUsedBytes == 9000u, "system fields retained through 2 misses");
+        s.systemMemoryUsedBytes == 9000u && s.gpuPowerW == 13.4,
+        "system fields including GPU power are retained through 2 misses");
     agg.IngestSystem(Sys(std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt));
     s = SnapshotOf(agg);
     ok &= Check(!s.cpuUsagePercent && !s.cpuClockMHz && !s.gpuUsagePercent && !s.gpuClockMHz &&
-        !s.gpuMemoryUsedBytes && !s.systemMemoryUsedBytes,
+        !s.gpuMemoryUsedBytes && !s.systemMemoryUsedBytes && !s.gpuPowerW,
         "system fields cleared on the 3rd consecutive miss");
+    agg.IngestSystem(Sys(std::nullopt, std::nullopt, std::nullopt,
+        std::nullopt, std::nullopt, std::nullopt, 17.3));
+    ok &= Check(SnapshotOf(agg).gpuPowerW == 17.3,
+        "GPU power resumes through the normal system ingestion path after recovery");
+    agg.IngestSystem(Sys(std::nullopt, std::nullopt, std::nullopt,
+        std::nullopt, std::nullopt));
+    ok &= Check(SnapshotOf(agg).gpuPowerW == 17.3,
+        "recovered GPU power is retained during the next missing poll");
 }
 
 void PresentMonMappingAndCpuClockRetentionAreIndependent(bool& ok)
@@ -103,11 +113,13 @@ void PresentMonMappingAndCpuClockRetentionAreIndependent(bool& ok)
     presentMon.gpuUsagePercent = 80.0;
     presentMon.gpuClockMHz = 1800.0;
     presentMon.gpuMemoryUsedBytes = 4000u;
+    presentMon.gpuPowerW = 13.4;
     auto input = MakeHudSystemTelemetryInput(presentMon, 9000u);
     ok &= Check(input.cpuUsagePercent == 42.0 && input.cpuClockMHz == 4200.0 &&
         input.gpuUsagePercent == 80.0 && input.gpuClockMHz == 1800.0 &&
-        input.gpuMemoryUsedBytes == 4000u && input.systemMemoryUsedBytes == 9000u,
-        "production system snapshot mapping preserves CPU clock and existing fields");
+        input.gpuMemoryUsedBytes == 4000u && input.systemMemoryUsedBytes == 9000u &&
+        input.gpuPowerW == 13.4,
+        "production system snapshot mapping includes GPU power and preserves existing fields");
 
     HudTelemetryAggregator agg;
     agg.IngestEc(Ec(67, std::nullopt, std::nullopt, std::nullopt));
@@ -161,18 +173,19 @@ void ResetScopes(bool& ok)
 {
     HudTelemetryAggregator agg;
     agg.IngestEc(Ec(64, 2400, 2600, 35));
-    agg.IngestSystem(Sys(40.0, 55.0, 1800.0, 4000u, 9000u));
+    agg.IngestSystem(Sys(40.0, 55.0, 1800.0, 4000u, 9000u, std::nullopt, 13.4));
 
     agg.ResetSystem();
     auto s = SnapshotOf(agg);
     ok &= Check(s.cpuTemperatureC == 64, "ResetSystem keeps EC");
-    ok &= Check(!s.cpuUsagePercent && !s.cpuClockMHz, "ResetSystem clears system");
+    ok &= Check(!s.cpuUsagePercent && !s.cpuClockMHz && !s.gpuPowerW,
+        "ResetSystem clears system telemetry including GPU power");
 
-    agg.IngestSystem(Sys(40.0, 55.0, 1800.0, 4000u, 9000u, 4200.0));
+    agg.IngestSystem(Sys(40.0, 55.0, 1800.0, 4000u, 9000u, 4200.0, 15.2));
     agg.ResetEc();
     s = SnapshotOf(agg);
     ok &= Check(!s.cpuTemperatureC, "ResetEc clears EC");
-    ok &= Check(s.cpuUsagePercent == 40.0 && s.cpuClockMHz == 4200.0,
+    ok &= Check(s.cpuUsagePercent == 40.0 && s.cpuClockMHz == 4200.0 && s.gpuPowerW == 15.2,
         "ResetEc keeps system");
 
     agg.IngestEc(Ec(64, 2400, 2600, 35));

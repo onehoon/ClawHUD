@@ -498,6 +498,11 @@ void CheckSystemTelemetry(bool& ok)
     std::array<const void*, 1> cpuFrequencyDeviceEntries{&cpuFrequencyDevice};
     PM_INTROSPECTION_OBJARRAY cpuFrequencyDeviceArray{
         cpuFrequencyDeviceEntries.data(), cpuFrequencyDeviceEntries.size()};
+    PM_INTROSPECTION_DEVICE_METRIC_INFO gpuPowerDevice{1,
+        PM_METRIC_AVAILABILITY_AVAILABLE, 1};
+    std::array<const void*, 1> gpuPowerDeviceEntries{&gpuPowerDevice};
+    PM_INTROSPECTION_OBJARRAY gpuPowerDeviceArray{
+        gpuPowerDeviceEntries.data(), gpuPowerDeviceEntries.size()};
     PM_INTROSPECTION_METRIC metrics[] = {
         {PM_METRIC_CPU_UTILIZATION, PM_METRIC_TYPE_DYNAMIC_FRAME, PM_UNIT_PERCENT, PM_UNIT_PERCENT,
             &doubleType, &statArray, &metricDeviceArray},
@@ -507,22 +512,25 @@ void CheckSystemTelemetry(bool& ok)
             &doubleType, &statArray, &metricDeviceArray},
         {PM_METRIC_GPU_FREQUENCY, PM_METRIC_TYPE_DYNAMIC_FRAME, PM_UNIT_HERTZ, PM_UNIT_MEGAHERTZ,
             &doubleType, &statArray, &metricDeviceArray},
+        {PM_METRIC_GPU_POWER, PM_METRIC_TYPE_DYNAMIC, PM_UNIT_MILLIWATTS, PM_UNIT_WATTS,
+            &doubleType, &statArray, &gpuPowerDeviceArray},
         {PM_METRIC_GPU_MEM_USED, PM_METRIC_TYPE_DYNAMIC_FRAME, PM_UNIT_BYTES, PM_UNIT_BYTES,
             &uint64Type, &statArray, &metricDeviceArray}};
-    std::array<const void*, 5> metricEntries{
-        &metrics[0], &metrics[1], &metrics[2], &metrics[3], &metrics[4]};
+    std::array<const void*, 6> metricEntries{
+        &metrics[0], &metrics[1], &metrics[2], &metrics[3], &metrics[4], &metrics[5]};
     PM_INTROSPECTION_OBJARRAY metricArray{metricEntries.data(), metricEntries.size()};
     PM_INTROSPECTION_ROOT root{&metricArray, nullptr, &deviceArray, nullptr};
     const auto capabilities = BuildPresentMonTelemetryCapabilities(&root);
     const auto plan = BuildPresentMonSystemQueryPlan(capabilities);
-    ok &= Check(plan.elements.size() == 5 && plan.bindings.size() == 5,
+    ok &= Check(plan.elements.size() == 6 && plan.bindings.size() == 6,
         "system metrics share one query");
     ok &= Check(plan.bindings[0].slot == SystemMetricSlot::CpuUsage &&
         plan.bindings[1].slot == SystemMetricSlot::CpuFrequency &&
         plan.bindings[2].slot == SystemMetricSlot::GpuUsage &&
         plan.bindings[3].slot == SystemMetricSlot::GpuFrequency &&
-        plan.bindings[4].slot == SystemMetricSlot::GpuMemoryUsed,
-        "all five intended system metric slots are planned");
+        plan.bindings[4].slot == SystemMetricSlot::GpuMemoryUsed &&
+        plan.bindings[5].slot == SystemMetricSlot::GpuPower,
+        "all six intended system metric slots are planned");
     ok &= Check(plan.elements[0].deviceId == 2 && plan.elements[1].deviceId == 2 &&
         plan.elements[2].deviceId == 1,
         "system and Intel device selection is capability driven");
@@ -534,6 +542,46 @@ void CheckSystemTelemetry(bool& ok)
         plan.bindings[3].type == PM_DATA_TYPE_DOUBLE &&
         plan.bindings[3].unit == PM_UNIT_HERTZ,
         "AVG telemetry uses the official dynamic-query double output type");
+    ok &= Check(plan.elements[5].metric == PM_METRIC_GPU_POWER &&
+        plan.elements[5].deviceId == 1 && plan.bindings[5].unit == PM_UNIT_MILLIWATTS,
+        "GPU power query uses the selected Intel graphics adapter and introspected units");
+
+    auto unavailableGpuPower = capabilities;
+    const auto gpuPowerMetric = std::find_if(unavailableGpuPower.metrics.begin(),
+        unavailableGpuPower.metrics.end(), [](const auto& metric)
+        { return metric.id == PM_METRIC_GPU_POWER; });
+    if (gpuPowerMetric != unavailableGpuPower.metrics.end())
+        gpuPowerMetric->devices.front().availability = PM_METRIC_AVAILABILITY_UNAVAILABLE;
+    const auto planWithoutGpuPower = BuildPresentMonSystemQueryPlan(unavailableGpuPower);
+    ok &= Check(planWithoutGpuPower.bindings.size() == 5 &&
+        std::none_of(planWithoutGpuPower.bindings.begin(), planWithoutGpuPower.bindings.end(),
+            [](const auto& binding) { return binding.slot == SystemMetricSlot::GpuPower; }) &&
+        std::any_of(planWithoutGpuPower.bindings.begin(), planWithoutGpuPower.bindings.end(),
+            [](const auto& binding) { return binding.slot == SystemMetricSlot::CpuUsage; }) &&
+        std::any_of(planWithoutGpuPower.bindings.begin(), planWithoutGpuPower.bindings.end(),
+            [](const auto& binding) { return binding.slot == SystemMetricSlot::CpuFrequency; }) &&
+        std::any_of(planWithoutGpuPower.bindings.begin(), planWithoutGpuPower.bindings.end(),
+            [](const auto& binding) { return binding.slot == SystemMetricSlot::GpuUsage; }) &&
+        std::any_of(planWithoutGpuPower.bindings.begin(), planWithoutGpuPower.bindings.end(),
+            [](const auto& binding) { return binding.slot == SystemMetricSlot::GpuFrequency; }) &&
+        std::any_of(planWithoutGpuPower.bindings.begin(), planWithoutGpuPower.bindings.end(),
+            [](const auto& binding) { return binding.slot == SystemMetricSlot::GpuMemoryUsed; }),
+        "unavailable GPU power leaves the other system metrics in the query");
+
+    auto missingGpuPower = capabilities;
+    std::erase_if(missingGpuPower.metrics, [](const auto& metric)
+        { return metric.id == PM_METRIC_GPU_POWER; });
+    ok &= Check(BuildPresentMonSystemQueryPlan(missingGpuPower).bindings.size() == 5,
+        "an unexported GPU power metric does not change the other query bindings");
+
+    auto unsupportedGpuPower = capabilities;
+    const auto unsupportedPower = std::find_if(unsupportedGpuPower.metrics.begin(),
+        unsupportedGpuPower.metrics.end(), [](const auto& metric)
+        { return metric.id == PM_METRIC_GPU_POWER; });
+    if (unsupportedPower != unsupportedGpuPower.metrics.end())
+        unsupportedPower->type = PM_METRIC_TYPE_STATIC;
+    ok &= Check(BuildPresentMonSystemQueryPlan(unsupportedGpuPower).bindings.size() == 5,
+        "unsupported GPU power metric type is omitted without affecting other metrics");
 
     auto unavailableCpuFrequency = capabilities;
     const auto cpuFrequencyMetric = std::find_if(unavailableCpuFrequency.metrics.begin(),
@@ -542,7 +590,7 @@ void CheckSystemTelemetry(bool& ok)
     if (cpuFrequencyMetric != unavailableCpuFrequency.metrics.end())
         cpuFrequencyMetric->devices.front().availability = PM_METRIC_AVAILABILITY_UNAVAILABLE;
     const auto planWithoutCpuFrequency = BuildPresentMonSystemQueryPlan(unavailableCpuFrequency);
-    ok &= Check(planWithoutCpuFrequency.bindings.size() == 4 &&
+    ok &= Check(planWithoutCpuFrequency.bindings.size() == 5 &&
         std::none_of(planWithoutCpuFrequency.bindings.begin(), planWithoutCpuFrequency.bindings.end(),
             [](const auto& binding) { return binding.slot == SystemMetricSlot::CpuFrequency; }) &&
         std::any_of(planWithoutCpuFrequency.bindings.begin(), planWithoutCpuFrequency.bindings.end(),
@@ -554,7 +602,7 @@ void CheckSystemTelemetry(bool& ok)
     auto missingCpuFrequency = capabilities;
     std::erase_if(missingCpuFrequency.metrics, [](const auto& metric)
         { return metric.id == PM_METRIC_CPU_FREQUENCY; });
-    ok &= Check(BuildPresentMonSystemQueryPlan(missingCpuFrequency).bindings.size() == 4,
+    ok &= Check(BuildPresentMonSystemQueryPlan(missingCpuFrequency).bindings.size() == 5,
         "absent CPU frequency capability leaves the other system metrics planned");
 
     const auto decodeFrequency = [](double value, PM_UNIT unit)
@@ -577,6 +625,27 @@ void CheckSystemTelemetry(bool& ok)
         !decodeFrequency(4200.0, PM_UNIT_PERCENT),
         "CPU frequency rejects non-finite, negative and unsupported-unit values");
 
+    const auto decodePower = [](double value, PM_UNIT unit,
+        std::uint32_t dataSize = sizeof(double))
+    {
+        std::array<std::uint8_t, sizeof(double)> powerBlob{};
+        std::memcpy(powerBlob.data(), &value, sizeof(value));
+        const PM_QUERY_ELEMENT powerElement{PM_METRIC_GPU_POWER,
+            PM_STAT_AVG, 1, 0, 0, dataSize};
+        return DecodePresentMonPowerWatts(powerBlob.data(), powerElement,
+            PM_DATA_TYPE_DOUBLE, unit);
+    };
+    ok &= Check(decodePower(13000.0, PM_UNIT_MILLIWATTS) == 13.0 &&
+        decodePower(13.0, PM_UNIT_WATTS) == 13.0 &&
+        decodePower(0.013, PM_UNIT_KILOWATTS) == 13.0,
+        "GPU power converts mW, W and kW to watts");
+    ok &= Check(!decodePower(13.0, PM_UNIT_PERCENT) &&
+        !decodePower(-1.0, PM_UNIT_WATTS) &&
+        !decodePower(std::numeric_limits<double>::quiet_NaN(), PM_UNIT_WATTS) &&
+        !decodePower(std::numeric_limits<double>::infinity(), PM_UNIT_WATTS) &&
+        !decodePower(13.0, PM_UNIT_WATTS, sizeof(float)),
+        "GPU power rejects unsupported units, invalid values and undersized data");
+
     std::array<std::uint8_t, sizeof(double)> cpuClockBlob{};
     const double cpuClockHz = 4200000000.0;
     std::memcpy(cpuClockBlob.data(), &cpuClockHz, sizeof(cpuClockHz));
@@ -592,6 +661,20 @@ void CheckSystemTelemetry(bool& ok)
         {{SystemMetricSlot::GpuFrequency, 0, PM_DATA_TYPE_DOUBLE, PM_UNIT_HERTZ}});
     ok &= Check(gpuFrequencySnapshot && gpuFrequencySnapshot->gpuClockMHz == 4200.0,
         "existing GPU frequency binding still converts hertz to MHz");
+    const double gpuPowerMilliwatts = 12600.0;
+    std::memcpy(cpuClockBlob.data(), &gpuPowerMilliwatts, sizeof(gpuPowerMilliwatts));
+    const PM_QUERY_ELEMENT gpuPowerElement{PM_METRIC_GPU_POWER,
+        PM_STAT_AVG, 1, 0, 0, sizeof(double)};
+    const auto gpuPowerSnapshot = DecodePresentMonSystemSnapshot(PM_STATUS_SUCCESS, 1,
+        cpuClockBlob.data(), {gpuPowerElement},
+        {{SystemMetricSlot::GpuPower, 0, PM_DATA_TYPE_DOUBLE, PM_UNIT_MILLIWATTS}});
+    ok &= Check(gpuPowerSnapshot && gpuPowerSnapshot->gpuPowerW == 12.6,
+        "GPU power binding decodes into the system snapshot without rounding");
+    const auto malformedPowerSnapshot = DecodePresentMonSystemSnapshot(PM_STATUS_SUCCESS, 1,
+        cpuClockBlob.data(), {gpuPowerElement},
+        {{SystemMetricSlot::GpuPower, 4, PM_DATA_TYPE_DOUBLE, PM_UNIT_MILLIWATTS}});
+    ok &= Check(malformedPowerSnapshot && !malformedPowerSnapshot->gpuPowerW,
+        "malformed GPU power binding remains unavailable instead of reading out of range");
 
     std::array<std::uint8_t, 32> blob{};
     PM_QUERY_ELEMENT element{PM_METRIC_GPU_UTILIZATION, PM_STAT_NEWEST_POINT, 1, 0, 3, sizeof(double)};

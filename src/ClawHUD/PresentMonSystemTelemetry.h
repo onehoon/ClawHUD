@@ -14,7 +14,7 @@ constexpr std::uint32_t kSystemTelemetryProcessId = 0;
 
 bool SupportsPresentMonDynamicQuery(PM_METRIC_TYPE type) noexcept;
 
-enum class SystemMetricSlot { CpuUsage, CpuFrequency, GpuUsage, GpuFrequency, GpuMemoryUsed };
+enum class SystemMetricSlot { CpuUsage, CpuFrequency, GpuUsage, GpuFrequency, GpuMemoryUsed, GpuPower };
 
 struct SystemMetricBinding
 {
@@ -35,6 +35,9 @@ PresentMonSystemQueryPlan BuildPresentMonSystemQueryPlan(
 std::optional<double> DecodePresentMonPercentage(
     const std::uint8_t* blob, const PM_QUERY_ELEMENT& element, PM_DATA_TYPE type);
 std::optional<double> DecodePresentMonFrequencyMHz(
+    const std::uint8_t* blob, const PM_QUERY_ELEMENT& element,
+    PM_DATA_TYPE type, PM_UNIT unit);
+std::optional<double> DecodePresentMonPowerWatts(
     const std::uint8_t* blob, const PM_QUERY_ELEMENT& element,
     PM_DATA_TYPE type, PM_UNIT unit);
 std::optional<std::uint64_t> DecodePresentMonMemoryBytes(

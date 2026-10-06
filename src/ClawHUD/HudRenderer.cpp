@@ -266,6 +266,7 @@ enum class HudMetricKind
     BatteryPercent,
     BatteryTime,
     TdpPower,
+    GpuPower,
     FrequencyMHz,
 };
 
@@ -285,6 +286,7 @@ const wchar_t* MetricExemplar(HudMetricKind kind) noexcept
     case HudMetricKind::Temperature: return L"100\u00B0C";
     case HudMetricKind::Vram: return L"99.9GB";
     case HudMetricKind::TdpPower: return L"35W";
+    case HudMetricKind::GpuPower: return L"99W";
     case HudMetricKind::FanRpm: return L"9999RPM";
     case HudMetricKind::BatteryTime: return L"9.9h";
     case HudMetricKind::FrequencyMHz: return L"9999MHz";
@@ -310,7 +312,9 @@ HudMetricKind MetricKindForToken(HudSegmentKind kind, std::size_t index,
     case HudSegmentKind::Cpu: return index == 0
         ? HudMetricKind::UsagePercent : HudMetricKind::Temperature;
     case HudSegmentKind::Gpu:
-        return text.ends_with(L"MHz") ? HudMetricKind::FrequencyMHz : HudMetricKind::UsagePercent;
+        if (text.ends_with(L"W")) return HudMetricKind::GpuPower;
+        if (text.ends_with(L"MHz")) return HudMetricKind::FrequencyMHz;
+        return HudMetricKind::UsagePercent;
     case HudSegmentKind::Ram:
     case HudSegmentKind::Vram: return HudMetricKind::Vram;
     case HudSegmentKind::Tdp: return HudMetricKind::TdpPower;

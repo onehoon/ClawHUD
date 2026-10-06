@@ -16,6 +16,7 @@ HudSystemTelemetryInput MakeHudSystemTelemetryInput(
         input.gpuUsagePercent = system->gpuUsagePercent;
         input.gpuClockMHz = system->gpuClockMHz;
         input.gpuMemoryUsedBytes = system->gpuMemoryUsedBytes;
+        input.gpuPowerW = system->gpuPowerW;
     }
     input.systemMemoryUsedBytes = systemMemoryUsedBytes;
     return input;
@@ -54,6 +55,8 @@ void HudTelemetryAggregator::IngestSystem(const HudSystemTelemetryInput& input) 
     UpdateRetainedTelemetryField(
         systemMemoryUsedBytes_, input.systemMemoryUsedBytes, systemMemoryMissing_,
         kSystemTelemetryMissingThreshold);
+    UpdateRetainedTelemetryField(
+        gpuPowerW_, input.gpuPowerW, gpuPowerMissing_, kSystemTelemetryMissingThreshold);
 }
 
 void HudTelemetryAggregator::ResetEc() noexcept
@@ -73,12 +76,14 @@ void HudTelemetryAggregator::ResetSystem() noexcept
     gpuClockMHz_.reset();
     gpuMemoryUsedBytes_.reset();
     systemMemoryUsedBytes_.reset();
+    gpuPowerW_.reset();
     cpuUsageMissing_ = 0;
     cpuClockMissing_ = 0;
     gpuUsageMissing_ = 0;
     gpuClockMissing_ = 0;
     gpuMemoryMissing_ = 0;
     systemMemoryMissing_ = 0;
+    gpuPowerMissing_ = 0;
 }
 
 void HudTelemetryAggregator::FillSnapshot(HudTelemetrySnapshot& snapshot) const
@@ -94,5 +99,6 @@ void HudTelemetryAggregator::FillSnapshot(HudTelemetrySnapshot& snapshot) const
     snapshot.gpuMemoryUsedBytes = gpuMemoryUsedBytes_;
     snapshot.gpuUsagePercent = gpuUsagePercent_;
     snapshot.gpuClockMHz = gpuClockMHz_;
+    snapshot.gpuPowerW = gpuPowerW_;
 }
 }

@@ -239,6 +239,8 @@ int main()
     checkUnits(L"100% 4200MHz 67\u00B0C", {{3, 1}, {9, 3}, {15, 2}},
         "CPU percentage, MHz and temperature unit ranges");
     checkUnits(L"10.1W", {{4, 1}}, "power unit range");
+    checkUnits(L"13W", {{2, 1}}, "GPU power unit range");
+    checkUnits(L"--W", {{2, 1}}, "unavailable GPU power unit range");
     checkUnits(L"87% VRAM 3.4GB", {{2, 1}, {12, 2}},
         "percentage and VRAM unit ranges");
     checkUnits(L"1000RPM", {{4, 3}}, "fan unit range");
@@ -313,6 +315,12 @@ int main()
         sameWidth(HudSegmentKind::Gpu, L"GPU",
             {L"450MHz", L"2300MHz", L"9999MHz"},
             "stable GPU clock slot");
+        sameWidth(HudSegmentKind::Gpu, L"GPU",
+            {L"1W", L"13W", L"99W", L"--W"},
+            "GPU power values and unavailable marker reserve the same 99W slot");
+        ok &= Check(width(HudSegmentKind::Gpu, L"GPU", L"999W") >
+            width(HudSegmentKind::Gpu, L"GPU", L"99W"),
+            "GPU power values wider than the exemplar expand naturally");
         sameWidth(HudSegmentKind::Vram, L"VRAM",
             {L"0.1GB", L"3.4GB", L"99.9GB"}, "stable VRAM slot");
         sameWidth(HudSegmentKind::Ram, L"RAM",
@@ -380,6 +388,8 @@ int main()
                 segoeWidth(HudSegmentKind::Gpu, L"GPU", L"99%")) &&
             Near(segoeWidth(HudSegmentKind::Tdp, L"TDP", L"7W"),
                 segoeWidth(HudSegmentKind::Tdp, L"TDP", L"35W")) &&
+            Near(segoeWidth(HudSegmentKind::Gpu, L"GPU", L"--W"),
+                segoeWidth(HudSegmentKind::Gpu, L"GPU", L"99W")) &&
             Near(segoeWidth(HudSegmentKind::Fan, L"FAN", L"999RPM"),
                 segoeWidth(HudSegmentKind::Fan, L"FAN", L"9999RPM")),
             "Segoe UI Variable segment widths stay reserved");
