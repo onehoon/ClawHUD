@@ -50,7 +50,7 @@ int main()
         "settings opacity runtime to percent round trip");
 
     const auto dc = FormatHud(MakeGameDcSample());
-    ok &= Check(JoinHudRuns(dc) == L"60FPS | CPU 36% 67\u00B0C | GPU 98% | TDP 18W | FAN 3540RPM | BAT 72% 2.5h", "game DC formatting");
+    ok &= Check(JoinHudRuns(dc) == L"60FPS | CPU 36% 67\u00B0C | GPU 98% --W | TDP 18W | FAN 3540RPM | BAT 72% 2.5h", "game DC formatting");
     auto fractionalTdp = MakeGameDcSample();
     fractionalTdp.cpuPackagePowerW = 35.3;
     const auto fractionalTdpText = JoinHudRuns(FormatHud(fractionalTdp));
@@ -63,9 +63,9 @@ int main()
     ok &= Check(dc.size() == 6, "game DC segment count");
 
     ok &= Check(JoinHudRuns(FormatHud(MakeGameAcSample())) ==
-        L"60FPS | CPU 36% 67\u00B0C | GPU 98% | TDP 18W | FAN 3540RPM | BAT 72%", "game AC formatting");
+        L"60FPS | CPU 36% 67\u00B0C | GPU 98% --W | TDP 18W | FAN 3540RPM | BAT 72%", "game AC formatting");
     ok &= Check(JoinHudRuns(FormatHud(MakeNoGameAlwaysSample())) ==
-        L"CPU 36% 67\u00B0C | GPU 98% | TDP 18W | FAN 3540RPM | BAT 72% 2.5h", "no-game formatting");
+        L"CPU 36% 67\u00B0C | GPU 98% --W | TDP 18W | FAN 3540RPM | BAT 72% 2.5h", "no-game formatting");
     HudTelemetrySnapshot globalTelemetry{};
     globalTelemetry.cpuUsagePercent = 13.0;
     globalTelemetry.gpuUsagePercent = 15.0;
@@ -76,8 +76,8 @@ int main()
     const auto beforeFps = JoinHudRuns(FormatHud(globalTelemetry));
     globalTelemetry.presentMonDisplayedFps = 60.0;
     const auto afterFps = JoinHudRuns(FormatHud(globalTelemetry));
-    ok &= Check(beforeFps == L"CPU 13% | GPU 15% | RAM 8.0GB | VRAM 2.4GB" &&
-        afterFps == L"60FPS | CPU 13% | GPU 15% | RAM 8.0GB | VRAM 2.4GB",
+    ok &= Check(beforeFps == L"CPU 13% | GPU 15% --W | RAM 8.0GB | VRAM 2.4GB" &&
+        afterFps == L"60FPS | CPU 13% | GPU 15% --W | RAM 8.0GB | VRAM 2.4GB",
         "global telemetry remains visible before and after FPS");
     globalTelemetry.presentMonDisplayedFps.reset();
     const auto afterGameExit = JoinHudRuns(FormatHud(globalTelemetry));
@@ -121,39 +121,39 @@ int main()
     missing.cpuUsagePercent = 0.0;
     missing.cpuTemperatureC = 0;
     missing.fan1Rpm = 3200;
-    ok &= Check(JoinHudRuns(FormatHud(missing)) == L"CPU 0% 0\u00B0C | FAN 3200RPM", "zero values stay explicit");
+    ok &= Check(JoinHudRuns(FormatHud(missing)) == L"CPU 0% 0\u00B0C | GPU --W | FAN 3200RPM", "zero values stay explicit");
     missing.fan1Rpm.reset();
     missing.fan2Rpm = 3600;
-    ok &= Check(JoinHudRuns(FormatHud(missing)) == L"CPU 0% 0\u00B0C | FAN 3600RPM", "single fan formatting");
+    ok &= Check(JoinHudRuns(FormatHud(missing)) == L"CPU 0% 0\u00B0C | GPU --W | FAN 3600RPM", "single fan formatting");
     missing.fan2Rpm.reset();
-    ok &= Check(JoinHudRuns(FormatHud(missing)) == L"CPU 0% 0\u00B0C", "missing fans omitted");
+    ok &= Check(JoinHudRuns(FormatHud(missing)) == L"CPU 0% 0\u00B0C | GPU --W", "missing fans omitted");
 
     HudTelemetrySnapshot temperaturesOnly{};
     temperaturesOnly.cpuTemperatureC = 48;
-    ok &= Check(JoinHudRuns(FormatHud(temperaturesOnly)) == L"CPU 48\u00B0C", "CPU temperature formatting");
+    ok &= Check(JoinHudRuns(FormatHud(temperaturesOnly)) == L"CPU 48\u00B0C | GPU --W", "CPU temperature formatting");
 
     HudTelemetrySnapshot cpuFrequency{};
     cpuFrequency.cpuUsagePercent = 42.0;
     cpuFrequency.cpuClockMHz = 4200.4;
     cpuFrequency.cpuTemperatureC = 67;
-    ok &= Check(JoinHudRuns(FormatHud(cpuFrequency)) == L"CPU 42% 4200MHz 67\u00B0C",
+    ok &= Check(JoinHudRuns(FormatHud(cpuFrequency)) == L"CPU 42% 4200MHz 67\u00B0C | GPU --W",
         "CPU usage, frequency and temperature formatting order");
     cpuFrequency.cpuClockMHz.reset();
-    ok &= Check(JoinHudRuns(FormatHud(cpuFrequency)) == L"CPU 42% 67\u00B0C",
+    ok &= Check(JoinHudRuns(FormatHud(cpuFrequency)) == L"CPU 42% 67\u00B0C | GPU --W",
         "missing CPU frequency preserves usage and temperature");
     cpuFrequency.cpuUsagePercent.reset();
     cpuFrequency.cpuClockMHz = 4200.0;
-    ok &= Check(JoinHudRuns(FormatHud(cpuFrequency)) == L"CPU 4200MHz 67\u00B0C",
+    ok &= Check(JoinHudRuns(FormatHud(cpuFrequency)) == L"CPU 4200MHz 67\u00B0C | GPU --W",
         "CPU frequency formats when usage is missing");
     cpuFrequency.cpuTemperatureC.reset();
-    ok &= Check(JoinHudRuns(FormatHud(cpuFrequency)) == L"CPU 4200MHz",
+    ok &= Check(JoinHudRuns(FormatHud(cpuFrequency)) == L"CPU 4200MHz | GPU --W",
         "CPU frequency-only formatting");
     for (const double invalidClock : {std::numeric_limits<double>::quiet_NaN(),
         std::numeric_limits<double>::infinity(), -1.0,
         std::numeric_limits<double>::max()})
     {
         cpuFrequency.cpuClockMHz = invalidClock;
-        ok &= Check(FormatHud(cpuFrequency).empty(),
+        ok &= Check(JoinHudRuns(FormatHud(cpuFrequency)) == L"GPU --W",
             "invalid or unrenderable CPU frequency is omitted");
     }
 
@@ -161,77 +161,87 @@ int main()
     usage.cpuUsagePercent = 33.0;
     usage.cpuTemperatureC = 33;
     usage.gpuUsagePercent = 44.0;
-    ok &= Check(JoinHudRuns(FormatHud(usage)) == L"CPU 33% 33\u00B0C | GPU 44%",
+    ok &= Check(JoinHudRuns(FormatHud(usage)) == L"CPU 33% 33\u00B0C | GPU 44% --W",
         "CPU usage and GPU usage formatting");
     usage.gpuClockMHz = 2300.0;
-    ok &= Check(JoinHudRuns(FormatHud(usage)) == L"CPU 33% 33\u00B0C | GPU 44% 2300MHz",
+    ok &= Check(JoinHudRuns(FormatHud(usage)) == L"CPU 33% 33\u00B0C | GPU 44% 2300MHz --W",
         "GPU usage and clock formatting");
+    usage.gpuPowerW = 12.4;
+    ok &= Check(JoinHudRuns(FormatHud(usage)) == L"CPU 33% 33\u00B0C | GPU 44% 2300MHz 12W",
+        "GPU power rounds 12.4 W to 12 W after usage and clock");
+    usage.gpuPowerW = 12.6;
+    ok &= Check(JoinHudRuns(FormatHud(usage)) == L"CPU 33% 33\u00B0C | GPU 44% 2300MHz 13W",
+        "GPU power rounds 12.6 W to 13 W");
     usage.gpuUsagePercent.reset();
-    ok &= Check(JoinHudRuns(FormatHud(usage)) == L"CPU 33% 33\u00B0C | GPU 2300MHz",
+    ok &= Check(JoinHudRuns(FormatHud(usage)) == L"CPU 33% 33\u00B0C | GPU 2300MHz 13W",
         "GPU clock-only formatting");
     usage.gpuClockMHz.reset();
-    ok &= Check(JoinHudRuns(FormatHud(usage)) == L"CPU 33% 33\u00B0C",
-        "GPU metrics omitted when unavailable");
-    ok &= Check(FormatHud(HudTelemetrySnapshot{}).empty(), "empty snapshot omitted");
+    usage.gpuPowerW.reset();
+    ok &= Check(JoinHudRuns(FormatHud(usage)) == L"CPU 33% 33\u00B0C | GPU --W",
+        "GPU power cell remains visible when power and other GPU metrics are unavailable");
+    ok &= Check(JoinHudRuns(FormatHud(HudTelemetrySnapshot{})) == L"GPU --W",
+        "empty telemetry snapshot still exposes the GPU power cell");
 
     // FPS presentation: a value shows an FPS segment, no value shows none.
     // There is no synthetic "0FPS" fallback.
     HudTelemetrySnapshot fpsAvailable{};
     fpsAvailable.presentMonDisplayedFps = 98.7;
     auto fpsAvailableRuns = FormatHud(fpsAvailable);
-    ok &= Check(fpsAvailableRuns.size() == 1 &&
+    ok &= Check(fpsAvailableRuns.size() == 2 &&
         fpsAvailableRuns[0].kind == HudSegmentKind::Graphics &&
-        fpsAvailableRuns[0].value == L"99FPS",
-        "available FPS renders a single Graphics segment");
+        fpsAvailableRuns[0].value == L"99FPS" &&
+        fpsAvailableRuns[1].kind == HudSegmentKind::Gpu &&
+        fpsAvailableRuns[1].value == L"--W",
+        "available FPS renders before the always-present GPU power cell");
 
     HudTelemetrySnapshot fpsUnavailable{};
     fpsUnavailable.presentMonDisplayedFps = std::nullopt;
     fpsUnavailable.cpuUsagePercent = 20.0;
     const auto fpsUnavailableText = JoinHudRuns(FormatHud(fpsUnavailable));
-    ok &= Check(fpsUnavailableText == L"CPU 20%" &&
+    ok &= Check(fpsUnavailableText == L"CPU 20% | GPU --W" &&
         fpsUnavailableText.find(L"FPS") == std::wstring::npos,
         "unavailable FPS omits the segment entirely (no 0FPS fallback)");
 
     HudTelemetrySnapshot displayed{};
     displayed.presentMonDisplayedFps = 120.0;
     auto displayedRuns = FormatHud(displayed);
-    ok &= Check(displayedRuns.size() == 1 && displayedRuns[0].label.empty() &&
-        displayedRuns[0].value == L"120FPS",
-        "PresentMon FPS uses unit-formatted value");
+    ok &= Check(displayedRuns.size() == 2 && displayedRuns[0].label.empty() &&
+        displayedRuns[0].value == L"120FPS" && displayedRuns[1].value == L"--W",
+        "PresentMon FPS uses unit-formatted value before GPU power");
 
     HudTelemetrySnapshot rendered{};
     rendered.renderFps = 120.0;
     auto renderedRuns = FormatHud(rendered);
-    ok &= Check(renderedRuns.size() == 1 && renderedRuns[0].label.empty() &&
-        renderedRuns[0].value == L"120FPS",
-        "render FPS renders a unit-formatted value");
+    ok &= Check(renderedRuns.size() == 2 && renderedRuns[0].label.empty() &&
+        renderedRuns[0].value == L"120FPS" && renderedRuns[1].value == L"--W",
+        "render FPS renders before GPU power");
 
     HudTelemetrySnapshot unavailableApi{};
     unavailableApi.presentMonDisplayedFps = 120.0;
     unavailableApi.cpuUsagePercent = 33.0;
     unavailableApi.gpuUsagePercent = 44.0;
     ok &= Check(JoinHudRuns(FormatHud(unavailableApi)) ==
-        L"120FPS | CPU 33% | GPU 44%",
+        L"120FPS | CPU 33% | GPU 44% --W",
         "missing graphics API preserves other telemetry");
 
     HudTelemetrySnapshot vram{};
     vram.gpuUsagePercent = 0.0;
-    ok &= Check(JoinHudRuns(FormatHud(vram)) == L"GPU 0%",
+    ok &= Check(JoinHudRuns(FormatHud(vram)) == L"GPU 0% --W",
         "zero GPU usage without VRAM formatting");
     vram.gpuUsagePercent = 87.0;
     vram.gpuMemoryUsedBytes = static_cast<std::uint64_t>(3.4 * 1024.0 * 1024.0 * 1024.0);
-    ok &= Check(JoinHudRuns(FormatHud(vram)) == L"GPU 87% | VRAM 3.4GB",
+    ok &= Check(JoinHudRuns(FormatHud(vram)) == L"GPU 87% --W | VRAM 3.4GB",
         "GPU usage and VRAM formatting");
     vram.gpuUsagePercent.reset();
-    ok &= Check(JoinHudRuns(FormatHud(vram)) == L"VRAM 3.4GB",
+    ok &= Check(JoinHudRuns(FormatHud(vram)) == L"GPU --W | VRAM 3.4GB",
         "VRAM-only formatting");
     vram.gpuMemoryUsedBytes.reset();
     vram.gpuUsagePercent = 87.0;
-    ok &= Check(JoinHudRuns(FormatHud(vram)) == L"GPU 87%",
+    ok &= Check(JoinHudRuns(FormatHud(vram)) == L"GPU 87% --W",
         "GPU without VRAM omits the slot");
     vram.gpuUsagePercent.reset();
     vram.gpuMemoryUsedBytes = static_cast<std::uint64_t>(3.4 * 1024.0 * 1024.0 * 1024.0);
-    ok &= Check(JoinHudRuns(FormatHud(vram)) == L"VRAM 3.4GB",
+    ok &= Check(JoinHudRuns(FormatHud(vram)) == L"GPU --W | VRAM 3.4GB",
         "VRAM without GPU usage remains visible");
 
     HudTelemetrySnapshot all{};
@@ -246,7 +256,7 @@ int main()
     all.batteryPercent = 80;
     const auto allRuns = FormatHud(all);
     ok &= Check(JoinHudRuns(allRuns) ==
-        L"999FPS | CPU 21% 42\u00B0C | GPU 24% | TDP 7W | RAM 15.2GB | VRAM 3.4GB | FAN 4050RPM | BAT 80%",
+        L"999FPS | CPU 21% 42\u00B0C | GPU 24% --W | TDP 7W | RAM 15.2GB | VRAM 3.4GB | FAN 4050RPM | BAT 80%",
         "RAM formatting and final HUD order");
     ok &= Check(allRuns.size() == 8 && allRuns[4].kind == HudSegmentKind::Ram &&
         allRuns[5].kind == HudSegmentKind::Vram, "RAM precedes VRAM");

@@ -13,6 +13,7 @@ struct PresentMonSystemSnapshot
     std::optional<double> gpuUsagePercent;
     std::optional<double> gpuClockMHz;
     std::optional<std::uint64_t> gpuMemoryUsedBytes;
+    std::optional<double> gpuPowerW;
 };
 struct PresentMonProcessSnapshot
 {
