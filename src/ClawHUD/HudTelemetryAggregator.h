@@ -23,6 +23,7 @@ struct HudSystemTelemetryInput
     std::optional<double> gpuClockMHz;
     std::optional<std::uint64_t> gpuMemoryUsedBytes;
     std::optional<std::uint64_t> systemMemoryUsedBytes;
+    std::optional<double> gpuPowerW;
 };
 
 HudSystemTelemetryInput MakeHudSystemTelemetryInput(
@@ -49,8 +50,7 @@ public:
         ResetSystem();
     }
 
-    // Copies the ten fields this owns (EC cpu temp / tdp / fans and the five
-    // system metrics plus system memory) into `snapshot`.
+    // Copies its EC fields and system metrics, including GPU power, into `snapshot`.
     void FillSnapshot(HudTelemetrySnapshot& snapshot) const;
 
     const MsiEcHudTelemetry& Ec() const noexcept { return ec_; }
@@ -68,11 +68,13 @@ private:
     std::optional<double> gpuClockMHz_;
     std::optional<std::uint64_t> gpuMemoryUsedBytes_;
     std::optional<std::uint64_t> systemMemoryUsedBytes_;
+    std::optional<double> gpuPowerW_;
     unsigned cpuUsageMissing_{};
     unsigned cpuClockMissing_{};
     unsigned gpuUsageMissing_{};
     unsigned gpuClockMissing_{};
     unsigned gpuMemoryMissing_{};
     unsigned systemMemoryMissing_{};
+    unsigned gpuPowerMissing_{};
 };
 }

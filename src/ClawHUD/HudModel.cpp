@@ -73,6 +73,14 @@ std::wstring GpuValue(const HudTelemetrySnapshot& snapshot)
             value += L" ";
         value += Integer(*snapshot.gpuClockMHz) + L"MHz";
     }
+    if (!value.empty())
+        value += L" ";
+    if (snapshot.gpuPowerW && std::isfinite(*snapshot.gpuPowerW) &&
+        *snapshot.gpuPowerW >= 0.0 &&
+        *snapshot.gpuPowerW < static_cast<double>(std::numeric_limits<long>::max()))
+        value += Integer(*snapshot.gpuPowerW) + L"W";
+    else
+        value += L"--W";
     return value;
 }
 }

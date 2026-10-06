@@ -125,6 +125,7 @@ PresentMonSystemQueryPlan BuildPresentMonSystemQueryPlan(
     add(PM_METRIC_GPU_UTILIZATION, PM_DEVICE_TYPE_GRAPHICS_ADAPTER, PM_DEVICE_VENDOR_INTEL, SystemMetricSlot::GpuUsage);
     add(PM_METRIC_GPU_FREQUENCY, PM_DEVICE_TYPE_GRAPHICS_ADAPTER, PM_DEVICE_VENDOR_INTEL, SystemMetricSlot::GpuFrequency);
     add(PM_METRIC_GPU_MEM_USED, PM_DEVICE_TYPE_GRAPHICS_ADAPTER, PM_DEVICE_VENDOR_INTEL, SystemMetricSlot::GpuMemoryUsed);
+    add(PM_METRIC_GPU_POWER, PM_DEVICE_TYPE_GRAPHICS_ADAPTER, PM_DEVICE_VENDOR_INTEL, SystemMetricSlot::GpuPower);
     return plan;
 }
 
@@ -150,6 +151,20 @@ std::optional<double> DecodePresentMonFrequencyMHz(const std::uint8_t* blob,
     }
     return std::isfinite(result) && result >= 0.0 ? std::optional<double>(result) : std::nullopt;
 }
+std::optional<double> DecodePresentMonPowerWatts(const std::uint8_t* blob,
+    const PM_QUERY_ELEMENT& element, PM_DATA_TYPE type, PM_UNIT unit)
+{
+    const auto value = Number(blob, element, type); if (!value || !Valid(*value)) return std::nullopt;
+    double result = *value;
+    switch (unit)
+    {
+    case PM_UNIT_MILLIWATTS: result /= 1000.0; break;
+    case PM_UNIT_WATTS: break;
+    case PM_UNIT_KILOWATTS: result *= 1000.0; break;
+    default: return std::nullopt;
+    }
+    return std::isfinite(result) && result >= 0.0 ? std::optional<double>(result) : std::nullopt;
+}
 std::optional<std::uint64_t> DecodePresentMonMemoryBytes(const std::uint8_t* blob,
     const PM_QUERY_ELEMENT& element, PM_DATA_TYPE type, PM_UNIT unit)
 {
@@ -169,6 +184,7 @@ std::optional<PresentMonSystemSnapshot> DecodePresentMonSystemSnapshot(
     PresentMonSystemSnapshot snapshot;
     for (const auto& binding : bindings)
     {
+        if (binding.elementIndex >= elements.size()) continue;
         const auto& element = elements[binding.elementIndex];
         switch (binding.slot)
         {
@@ -177,6 +193,7 @@ std::optional<PresentMonSystemSnapshot> DecodePresentMonSystemSnapshot(
         case SystemMetricSlot::GpuUsage: snapshot.gpuUsagePercent = DecodePresentMonPercentage(blob, element, binding.type); break;
         case SystemMetricSlot::GpuFrequency: snapshot.gpuClockMHz = DecodePresentMonFrequencyMHz(blob, element, binding.type, binding.unit); break;
         case SystemMetricSlot::GpuMemoryUsed: snapshot.gpuMemoryUsedBytes = DecodePresentMonMemoryBytes(blob, element, binding.type, binding.unit); break;
+        case SystemMetricSlot::GpuPower: snapshot.gpuPowerW = DecodePresentMonPowerWatts(blob, element, binding.type, binding.unit); break;
         }
     }
     return snapshot;
@@ -198,7 +215,8 @@ bool PresentMonSystemTelemetry::Initialize(PresentMonApi2Client& client,
         std::to_wstring(bound(SystemMetricSlot::CpuUsage)) + L" cpuClock=" +
         std::to_wstring(bound(SystemMetricSlot::CpuFrequency)) + L" gpuUsage=" +
         std::to_wstring(bound(SystemMetricSlot::GpuUsage)) + L" gpuClock=" +
-        std::to_wstring(bound(SystemMetricSlot::GpuFrequency)) + L" vram=" +
+        std::to_wstring(bound(SystemMetricSlot::GpuFrequency)) + L" gpuPower=" +
+        std::to_wstring(bound(SystemMetricSlot::GpuPower)) + L" vram=" +
         std::to_wstring(bound(SystemMetricSlot::GpuMemoryUsed)));
     if (plan.elements.empty())
     {
@@ -273,7 +291,8 @@ std::optional<PresentMonSystemSnapshot> PresentMonSystemTelemetry::Read(PresentM
             OptionalDouble(snapshot->cpuUsagePercent) + L" cpuClockMHz=" +
             OptionalDouble(snapshot->cpuClockMHz) + L" gpu=" +
             OptionalDouble(snapshot->gpuUsagePercent) + L" clockMHz=" +
-            OptionalDouble(snapshot->gpuClockMHz) + L" vramBytes=" +
+            OptionalDouble(snapshot->gpuClockMHz) + L" gpuPowerW=" +
+            OptionalDouble(snapshot->gpuPowerW) + L" vramBytes=" +
             OptionalBytes(snapshot->gpuMemoryUsedBytes));
         firstSampleLogged_ = true;
     }

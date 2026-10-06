@@ -74,6 +74,7 @@ struct HudTelemetrySnapshot
     std::optional<double> presentMonDisplayedFps;
     std::optional<std::uint64_t> gpuMemoryUsedBytes;
     std::optional<std::uint64_t> systemMemoryUsedBytes;
+    std::optional<double> gpuPowerW;
 };
 
 enum class HudSegmentKind
