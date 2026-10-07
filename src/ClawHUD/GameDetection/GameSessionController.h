@@ -111,6 +111,7 @@ public:
     // foreground-first evaluation is Eligible for a still-matching exact
     // process generation. Never derived from HUD/FPS/telemetry state.
     bool CurrentForegroundGameActive() const noexcept;
+    bool SteamAddonOverlayVisible() const noexcept;
     DWORD CurrentForegroundGameProcessId() const noexcept;
     DWORD VerifierProcessId() const noexcept;
     bool VerifierRunning() const noexcept;
@@ -125,6 +126,7 @@ private:
     void HandleGameRenderVerifierUpdate(const RendererVerificationRequest& request,
         GameRenderVerifierEventType type);
     void HandleSteamRunningAppIdChanged();
+    void DetectExistingSteamAddonOverlayWindow();
     void EvaluateCurrentForeground(const wchar_t* reason);
     void ApplyForegroundEvaluation(const ForegroundGameEvaluation& evaluation,
         const wchar_t* reason);
@@ -150,6 +152,7 @@ private:
     // (PID + creation time), or none. Kept as a full GameProcessInstance so
     // PID reuse cannot preserve an old generation's target authority.
     std::optional<GameProcessInstance> currentForegroundGameProcess_;
+    HWND steamAddonOverlayWindow_{};
     // Rate-limits direct detector re-evaluation for repeated same-window
     // EVENT_OBJECT_NAMECHANGE. Never gates ForegroundTracker::Reconcile().
     NameChangeReevalDebounce nameChangeDebounce_;

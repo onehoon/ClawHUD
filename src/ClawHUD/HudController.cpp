@@ -310,13 +310,14 @@ void HudController::HideForResumeFallback()
         presentation_->Hide();
 }
 
-HudVisibilityEffects HudController::ReconcileVisibility(bool foregroundGameActive)
+HudVisibilityEffects HudController::ReconcileVisibility(bool foregroundGameActive,
+    bool steamAddonOverlayVisible)
 {
     // Precondition (App-guaranteed): presentation_ != nullptr and neither
     // suspended nor resume-recovery-active (those route to HideForLifecycleGate).
     HudVisibilityEffects effects{};
     const bool resolvedShow = ResolveHudVisible(enabled_, options_.visibilityMode,
-        foregroundGameActive);
+        foregroundGameActive, steamAddonOverlayVisible);
     if (resolvedShow)
     {
         const bool wasVisible = presentation_->Visible();

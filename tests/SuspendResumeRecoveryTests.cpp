@@ -41,6 +41,8 @@ int main()
         "live InGameOnly target waits for temporary non-game foreground");
     ok &= Check(!ResumeRecoveryShouldWaitForForeground(true, true, true, false, 6),
         "foreground wait is bounded");
+    ok &= Check(!ResumeRecoveryShouldWaitForForeground(true, false, true, false, 1),
+        "visible Overlay satisfies InGameOnly visibility without waiting for a game");
     ok &= Check(ResumeRecoveryMayShowHud(false, false),
         "hidden HUD does not require a fresh frame");
     ok &= Check(!ResumeRecoveryMayShowHud(true, false),

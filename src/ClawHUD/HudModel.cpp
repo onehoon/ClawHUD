@@ -91,9 +91,10 @@ bool ShouldShowHud(HudVisibilityMode mode, bool foregroundGameActive) noexcept
 }
 
 bool ResolveHudVisible(bool hudEnabled, HudVisibilityMode mode,
-    bool foregroundActive) noexcept
+    bool foregroundActive, bool steamAddonOverlayVisible) noexcept
 {
-    return hudEnabled && ShouldShowHud(mode, foregroundActive);
+    return hudEnabled && (steamAddonOverlayVisible ||
+        ShouldShowHud(mode, foregroundActive));
 }
 
 bool ShouldSampleProductionTelemetry(bool resolvedShow, bool suspended) noexcept

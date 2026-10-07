@@ -94,7 +94,8 @@ public:
     void HideForLifecycleGate();   // suspend / resume-recovery active
     void HideForSuspend();         // logs "HUD suspended" / warn on failure
     void HideForResumeFallback();  // missed-suspend fallback: silent Hide if visible
-    HudVisibilityEffects ReconcileVisibility(bool foregroundGameActive);
+    HudVisibilityEffects ReconcileVisibility(bool foregroundGameActive,
+        bool steamAddonOverlayVisible);
 
 private:
     void Refresh();  // render current snapshot iff enabled + visible
