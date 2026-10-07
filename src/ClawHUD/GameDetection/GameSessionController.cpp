@@ -1,9 +1,11 @@
 #include "GameSessionController.h"
 
+#include "../ProductionTargetPolicy.h"
 #include "../RuntimeLogger.h"
 #include "../Win32Format.h"
 
 #include <string>
+#include <string_view>
 
 namespace clawhud
 {
@@ -17,6 +19,14 @@ constexpr UINT kSteamRunningAppIdChanged = WM_APP + 5;
 constexpr UINT kMicrosoftGameEvidence = WM_APP + 6;
 constexpr UINT kGameRenderVerifierUpdate = WM_APP + 7;
 constexpr UINT kProductionWindowEvent = WM_APP + 8;
+constexpr std::wstring_view kSteamAddonOverlayImage =
+    L"steaminputaddonforclaw.overlay.exe";
+
+struct SteamAddonOverlayWindowSearch
+{
+    HWND window{};
+    DWORD processId{};
+};
 
 struct MicrosoftGameEvidenceUpdate
 {
@@ -37,6 +47,31 @@ struct GameRenderVerifierUpdate
 void Log(const std::wstring& message)
 {
     RuntimeLogger::Log(RuntimeLogLevel::Info, message);
+}
+
+bool IsSteamAddonOverlayProcess(DWORD processId) noexcept
+{
+    const auto inspection = InspectProductionTargetProcessDetailed(processId);
+    return std::wstring_view(inspection.process.imageName) ==
+        kSteamAddonOverlayImage;
+}
+
+BOOL CALLBACK FindVisibleSteamAddonOverlayWindow(HWND window, LPARAM parameter)
+{
+    if (!window || !IsWindowVisible(window))
+        return TRUE;
+
+    DWORD processId{};
+    if (GetWindowThreadProcessId(window, &processId) == 0 || processId == 0 ||
+        !IsSteamAddonOverlayProcess(processId))
+        return TRUE;
+
+    auto* result = reinterpret_cast<SteamAddonOverlayWindowSearch*>(parameter);
+    if (!result)
+        return TRUE;
+    result->window = window;
+    result->processId = processId;
+    return FALSE;
 }
 
 void DrainQueue(HWND window, UINT id,
@@ -74,7 +109,8 @@ GameSessionRuntimeState GameSessionController::Runtime() const
 
 bool GameSessionController::StartWindowSource()
 {
-    return productionGameWindowSource_.Start(
+    steamAddonOverlayWindow_ = nullptr;
+    const bool started = productionGameWindowSource_.Start(
         [this](const ProductionWindowEvent& event)
         {
             auto* windowUpdate = new ProductionWindowEventUpdate{event};
@@ -82,6 +118,23 @@ bool GameSessionController::StartWindowSource()
                 reinterpret_cast<WPARAM>(windowUpdate), 0))
                 delete windowUpdate;
         });
+    if (!started)
+        return false;
+
+    DetectExistingSteamAddonOverlayWindow();
+    return true;
+}
+
+void GameSessionController::DetectExistingSteamAddonOverlayWindow()
+{
+    SteamAddonOverlayWindowSearch result{};
+    EnumWindows(&FindVisibleSteamAddonOverlayWindow,
+        reinterpret_cast<LPARAM>(&result));
+    steamAddonOverlayWindow_ = result.window;
+    if (result.window)
+        Log(L"[SteamAddonOverlay] startup-visible hwnd=" +
+            HwndText(result.window) + L" pid=" +
+            std::to_wstring(result.processId));
 }
 
 bool GameSessionController::StartSteamWatcher()
@@ -261,6 +314,12 @@ bool GameSessionController::CurrentForegroundGameActive() const noexcept
     return currentForegroundGameProcess_.has_value();
 }
 
+bool GameSessionController::SteamAddonOverlayVisible() const noexcept
+{
+    return steamAddonOverlayWindow_ != nullptr &&
+        IsWindowVisible(steamAddonOverlayWindow_);
+}
+
 DWORD GameSessionController::CurrentForegroundGameProcessId() const noexcept
 {
     return currentForegroundGameProcess_
@@ -283,6 +342,7 @@ bool GameSessionController::VerifierRunning() const noexcept
 void GameSessionController::StopSources()
 {
     productionGameWindowSource_.Stop();
+    steamAddonOverlayWindow_ = nullptr;
     foregroundTracker_.Stop();
     StopRenderVerification(L"app-shutdown", true);
     steamRunningAppIdSource_.Stop();
@@ -419,6 +479,39 @@ void GameSessionController::HandleProductionWindowEvent(
         ShouldReevaluateOnNameChange(nameChangeDebounce_, event,
             event.receivedTickMs))
         EvaluateCurrentForeground(L"window-event");
+
+    bool reconcileOverlayVisibility = false;
+    if (event.type == ProductionWindowEventType::Show)
+    {
+        if (event.window == steamAddonOverlayWindow_)
+        {
+            reconcileOverlayVisibility = true;
+        }
+        else if (IsWindowVisible(event.window) &&
+            IsSteamAddonOverlayProcess(event.processId))
+        {
+            steamAddonOverlayWindow_ = event.window;
+            Log(L"[SteamAddonOverlay] visible hwnd=" + HwndText(event.window) +
+                L" pid=" + std::to_wstring(event.processId));
+            reconcileOverlayVisibility = true;
+        }
+    }
+    else if (event.window == steamAddonOverlayWindow_ &&
+        event.type == ProductionWindowEventType::Hide)
+    {
+        Log(L"[SteamAddonOverlay] hidden hwnd=" + HwndText(event.window));
+        reconcileOverlayVisibility = true;
+    }
+    else if (event.window == steamAddonOverlayWindow_ &&
+        event.type == ProductionWindowEventType::Destroy)
+    {
+        steamAddonOverlayWindow_ = nullptr;
+        Log(L"[SteamAddonOverlay] destroyed hwnd=" + HwndText(event.window));
+        reconcileOverlayVisibility = true;
+    }
+
+    if (reconcileOverlayVisibility)
+        hooks_.reconcileHudVisibility();
 }
 
 void GameSessionController::HandleGameRenderVerifierUpdate(

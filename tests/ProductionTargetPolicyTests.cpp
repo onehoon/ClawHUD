@@ -36,6 +36,7 @@ int main()
         clawhud::IsRejectedProductionTargetImage(L"steamwebhelper.exe") &&
         clawhud::IsRejectedProductionTargetImage(L"steamservice.exe") &&
         clawhud::IsRejectedProductionTargetImage(L"gameoverlayui.exe") &&
+        clawhud::IsRejectedProductionTargetImage(L"steaminputaddonforclaw.overlay.exe") &&
         clawhud::IsRejectedProductionTargetImage(L"steamerrorreporter.exe") &&
         clawhud::IsRejectedProductionTargetImage(L"steamerrorreporter64.exe") &&
         clawhud::IsRejectedProductionTargetImage(L"steaminputaddonforclaw.ui.exe"),
@@ -86,6 +87,8 @@ int main()
             L"C:\\Windows\\explorer.exe") &&
         !clawhud::IsEligibleProductionTargetImage(L"SteamService.EXE") &&
         !clawhud::IsEligibleProductionTargetImage(L"PickerHost.exe") &&
+        !clawhud::IsEligibleProductionTargetImage(
+            L"C:\\Program Files\\SteamAddon\\SteamInputAddonforClaw.Overlay.EXE") &&
         !clawhud::IsEligibleProductionTargetImage(
             L"STEAMINPUTADDONFORCLAW.UI.EXE"),
         "rejected images stay rejected regardless of path or case");

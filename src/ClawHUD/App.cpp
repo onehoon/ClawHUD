@@ -391,10 +391,14 @@ void App::TryResumeRecovery()
     const bool rendererForegroundActive = gameSession_.CurrentForegroundGameActive();
     const bool hudEnabled = hudController_.Enabled();
     const auto visibilityMode = hudController_.VisibilityMode();
+    const bool steamAddonOverlayVisible =
+        gameSession_.SteamAddonOverlayVisible();
     const bool expectedVisible = clawhud::ResolveHudVisible(
-        hudEnabled, visibilityMode, rendererForegroundActive);
+        hudEnabled, visibilityMode, rendererForegroundActive,
+        steamAddonOverlayVisible);
     const bool visibilityUsesForeground =
-        visibilityMode == clawhud::HudVisibilityMode::InGameOnly;
+        visibilityMode == clawhud::HudVisibilityMode::InGameOnly &&
+        !steamAddonOverlayVisible;
     gameSession_.DiscardPendingRenderVerifierEvents();
     if (clawhud::ResumeRecoveryShouldWaitForForeground(
         hudEnabled, visibilityUsesForeground, processAlive,
@@ -643,7 +647,10 @@ void App::ReconcileHudVisibility()
     }
     gameSession_.RevalidateCurrentForegroundGame();
     const bool foregroundGameActive = gameSession_.CurrentForegroundGameActive();
-    const auto effects = hudController_.ReconcileVisibility(foregroundGameActive);
+    const bool steamAddonOverlayVisible =
+        gameSession_.SteamAddonOverlayVisible();
+    const auto effects = hudController_.ReconcileVisibility(
+        foregroundGameActive, steamAddonOverlayVisible);
     if (effects.startProductionSampling)
         StartProductionSampling();
     if (effects.stopProductionSampling)

@@ -87,14 +87,18 @@ int main()
     ok &= Check(!ShouldShowHud(HudVisibilityMode::InGameOnly, false), "in-game-only visibility");
     ok &= Check(ShouldShowHud(HudVisibilityMode::InGameOnly, true), "foreground game visibility");
 
-    ok &= Check(!ResolveHudVisible(false, HudVisibilityMode::Always, true),
+    ok &= Check(!ResolveHudVisible(false, HudVisibilityMode::Always, true, true),
         "HUD off resolves hidden regardless of mode or foreground");
-    ok &= Check(ResolveHudVisible(true, HudVisibilityMode::Always, false),
+    ok &= Check(ResolveHudVisible(true, HudVisibilityMode::Always, false, false),
         "Always mode shows with no foreground game");
-    ok &= Check(!ResolveHudVisible(true, HudVisibilityMode::InGameOnly, false),
+    ok &= Check(!ResolveHudVisible(true, HudVisibilityMode::InGameOnly, false, false),
         "InGameOnly hides with no foreground game");
-    ok &= Check(ResolveHudVisible(true, HudVisibilityMode::InGameOnly, true),
+    ok &= Check(ResolveHudVisible(true, HudVisibilityMode::InGameOnly, false, true),
+        "InGameOnly shows for visible SteamAddon Overlay without a game");
+    ok &= Check(ResolveHudVisible(true, HudVisibilityMode::InGameOnly, true, false),
         "InGameOnly shows with a foreground game");
+    ok &= Check(ResolveHudVisible(true, HudVisibilityMode::InGameOnly, true, true),
+        "Overlay visibility does not hide an active game HUD");
 
     ok &= Check(ShouldSampleProductionTelemetry(
         ShouldShowHud(HudVisibilityMode::Always, false), false),
