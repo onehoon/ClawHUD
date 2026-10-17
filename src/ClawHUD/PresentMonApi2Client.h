@@ -81,7 +81,8 @@ public:
     virtual PM_STATUS StopTrackingProcess(std::uint32_t processId);
     PM_STATUS GetIntrospectionRoot(const PM_INTROSPECTION_ROOT** root);
     PM_STATUS FreeIntrospectionRoot(const PM_INTROSPECTION_ROOT* root);
-    PM_STATUS SetTelemetryPollingPeriod(std::uint32_t reserved, std::uint32_t periodMs);
+    virtual PM_STATUS SetTelemetryPollingPeriod(std::uint32_t reserved,
+        std::uint32_t periodMs);
     PM_STATUS SetEtwFlushPeriod(std::uint32_t periodMs);
     virtual PM_STATUS FlushFrames(std::uint32_t processId);
 
