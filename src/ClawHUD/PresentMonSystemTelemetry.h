@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <vector>
 
 namespace clawhud
@@ -33,19 +34,21 @@ struct PresentMonSystemQueryPlan
 PresentMonSystemQueryPlan BuildPresentMonSystemQueryPlan(
     const PresentMonTelemetryCapabilities& capabilities);
 std::optional<double> DecodePresentMonPercentage(
-    const std::uint8_t* blob, const PM_QUERY_ELEMENT& element, PM_DATA_TYPE type);
+    std::span<const std::uint8_t> blob, const PM_QUERY_ELEMENT& element,
+    PM_DATA_TYPE type);
 std::optional<double> DecodePresentMonFrequencyMHz(
-    const std::uint8_t* blob, const PM_QUERY_ELEMENT& element,
+    std::span<const std::uint8_t> blob, const PM_QUERY_ELEMENT& element,
     PM_DATA_TYPE type, PM_UNIT unit);
 std::optional<double> DecodePresentMonPowerWatts(
-    const std::uint8_t* blob, const PM_QUERY_ELEMENT& element,
+    std::span<const std::uint8_t> blob, const PM_QUERY_ELEMENT& element,
     PM_DATA_TYPE type, PM_UNIT unit);
 std::optional<std::uint64_t> DecodePresentMonMemoryBytes(
-    const std::uint8_t* blob, const PM_QUERY_ELEMENT& element,
+    std::span<const std::uint8_t> blob, const PM_QUERY_ELEMENT& element,
     PM_DATA_TYPE type, PM_UNIT unit);
 bool HasPresentMonDynamicQueryResult(PM_STATUS status, std::uint32_t resultCount) noexcept;
 std::optional<PresentMonSystemSnapshot> DecodePresentMonSystemSnapshot(
-    PM_STATUS status, std::uint32_t resultCount, const std::uint8_t* blob,
+    PM_STATUS status, std::uint32_t resultCount,
+    std::span<const std::uint8_t> blob,
     const std::vector<PM_QUERY_ELEMENT>& elements,
     const std::vector<SystemMetricBinding>& bindings);
 

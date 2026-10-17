@@ -20,6 +20,7 @@ namespace
 {
 constexpr double kSystemTelemetryWindowSizeMs = 1000.0;
 constexpr double kSystemTelemetryMetricOffsetMs = 1064.0;
+constexpr std::uint64_t kMaxSystemQueryBlobBytes = 64 * 1024;
 
 const PresentMonMetricCapability* Metric(
     const PresentMonTelemetryCapabilities& capabilities, PM_METRIC id)
@@ -70,23 +71,36 @@ PM_DATA_TYPE OutputType(PM_STAT stat, PM_DATA_TYPE polledType)
         return PM_DATA_TYPE_DOUBLE;
     return polledType;
 }
+std::size_t DataTypeSize(PM_DATA_TYPE type) noexcept
+{
+    if (type == PM_DATA_TYPE_DOUBLE || type == PM_DATA_TYPE_UINT64)
+        return sizeof(std::uint64_t);
+    if (type == PM_DATA_TYPE_UINT32 || type == PM_DATA_TYPE_INT32)
+        return sizeof(std::uint32_t);
+    return 0;
+}
 bool SupportedType(PM_DATA_TYPE type)
-{ return type == PM_DATA_TYPE_DOUBLE || type == PM_DATA_TYPE_UINT64 || type == PM_DATA_TYPE_UINT32 || type == PM_DATA_TYPE_INT32; }
+{ return DataTypeSize(type) != 0; }
 std::wstring Status(PM_STATUS status)
 { return std::to_wstring(static_cast<int>(status)); }
 std::wstring OptionalDouble(const std::optional<double>& value)
 { return value ? std::to_wstring(*value) : L"n/a"; }
 std::wstring OptionalBytes(const std::optional<std::uint64_t>& value)
 { return value ? std::to_wstring(*value) : L"n/a"; }
-std::optional<double> Number(const std::uint8_t* blob, const PM_QUERY_ELEMENT& e, PM_DATA_TYPE type)
+std::optional<double> Number(std::span<const std::uint8_t> blob,
+    const PM_QUERY_ELEMENT& e, PM_DATA_TYPE type)
 {
-    if (!blob || !SupportedType(type)) return std::nullopt;
-    if ((type == PM_DATA_TYPE_DOUBLE || type == PM_DATA_TYPE_UINT64) && e.dataSize < 8) return std::nullopt;
-    if ((type == PM_DATA_TYPE_UINT32 || type == PM_DATA_TYPE_INT32) && e.dataSize < 4) return std::nullopt;
-    if (type == PM_DATA_TYPE_DOUBLE) { double v{}; std::memcpy(&v, blob + e.dataOffset, 8); return v; }
-    if (type == PM_DATA_TYPE_UINT64) { std::uint64_t v{}; std::memcpy(&v, blob + e.dataOffset, 8); return static_cast<double>(v); }
-    if (type == PM_DATA_TYPE_UINT32) { std::uint32_t v{}; std::memcpy(&v, blob + e.dataOffset, 4); return static_cast<double>(v); }
-    std::int32_t v{}; std::memcpy(&v, blob + e.dataOffset, 4); return static_cast<double>(v);
+    const std::size_t width = DataTypeSize(type);
+    if (width == 0) return std::nullopt;
+    if (e.dataSize < width || e.dataOffset > blob.size()) return std::nullopt;
+    const auto offset = static_cast<std::size_t>(e.dataOffset);
+    if (e.dataSize > blob.size() - offset) return std::nullopt;
+
+    const auto* data = blob.data() + offset;
+    if (type == PM_DATA_TYPE_DOUBLE) { double v{}; std::memcpy(&v, data, sizeof(v)); return v; }
+    if (type == PM_DATA_TYPE_UINT64) { std::uint64_t v{}; std::memcpy(&v, data, sizeof(v)); return static_cast<double>(v); }
+    if (type == PM_DATA_TYPE_UINT32) { std::uint32_t v{}; std::memcpy(&v, data, sizeof(v)); return static_cast<double>(v); }
+    std::int32_t v{}; std::memcpy(&v, data, sizeof(v)); return static_cast<double>(v);
 }
 bool Valid(double value) { return std::isfinite(value) && value >= 0.0; }
 double UnitScale(PM_UNIT unit)
@@ -129,14 +143,14 @@ PresentMonSystemQueryPlan BuildPresentMonSystemQueryPlan(
     return plan;
 }
 
-std::optional<double> DecodePresentMonPercentage(const std::uint8_t* blob,
+std::optional<double> DecodePresentMonPercentage(std::span<const std::uint8_t> blob,
     const PM_QUERY_ELEMENT& element, PM_DATA_TYPE type)
 {
     const auto value = Number(blob, element, type); if (!value || !Valid(*value)) return std::nullopt;
     if (*value > 100.0) return *value <= 100.5 ? std::optional<double>(100.0) : std::nullopt;
     return value;
 }
-std::optional<double> DecodePresentMonFrequencyMHz(const std::uint8_t* blob,
+std::optional<double> DecodePresentMonFrequencyMHz(std::span<const std::uint8_t> blob,
     const PM_QUERY_ELEMENT& element, PM_DATA_TYPE type, PM_UNIT unit)
 {
     const auto value = Number(blob, element, type); if (!value || !Valid(*value)) return std::nullopt;
@@ -151,7 +165,7 @@ std::optional<double> DecodePresentMonFrequencyMHz(const std::uint8_t* blob,
     }
     return std::isfinite(result) && result >= 0.0 ? std::optional<double>(result) : std::nullopt;
 }
-std::optional<double> DecodePresentMonPowerWatts(const std::uint8_t* blob,
+std::optional<double> DecodePresentMonPowerWatts(std::span<const std::uint8_t> blob,
     const PM_QUERY_ELEMENT& element, PM_DATA_TYPE type, PM_UNIT unit)
 {
     const auto value = Number(blob, element, type); if (!value || !Valid(*value)) return std::nullopt;
@@ -165,22 +179,24 @@ std::optional<double> DecodePresentMonPowerWatts(const std::uint8_t* blob,
     }
     return std::isfinite(result) && result >= 0.0 ? std::optional<double>(result) : std::nullopt;
 }
-std::optional<std::uint64_t> DecodePresentMonMemoryBytes(const std::uint8_t* blob,
+std::optional<std::uint64_t> DecodePresentMonMemoryBytes(std::span<const std::uint8_t> blob,
     const PM_QUERY_ELEMENT& element, PM_DATA_TYPE type, PM_UNIT unit)
 {
     const auto value = Number(blob, element, type); if (!value || !Valid(*value)) return std::nullopt;
     const double result = *value * UnitScale(unit);
-    if (!std::isfinite(result) || result > static_cast<double>(std::numeric_limits<std::uint64_t>::max())) return std::nullopt;
+    constexpr double kUint64ExclusiveUpperBound = 0x1.0p64;
+    if (!std::isfinite(result) || result >= kUint64ExclusiveUpperBound) return std::nullopt;
     return static_cast<std::uint64_t>(result);
 }
 bool HasPresentMonDynamicQueryResult(PM_STATUS status, std::uint32_t resultCount) noexcept
 { return status == PM_STATUS_SUCCESS && resultCount != 0; }
 std::optional<PresentMonSystemSnapshot> DecodePresentMonSystemSnapshot(
-    PM_STATUS status, std::uint32_t resultCount, const std::uint8_t* blob,
+    PM_STATUS status, std::uint32_t resultCount,
+    std::span<const std::uint8_t> blob,
     const std::vector<PM_QUERY_ELEMENT>& elements,
     const std::vector<SystemMetricBinding>& bindings)
 {
-    if (!HasPresentMonDynamicQueryResult(status, resultCount) || !blob) return std::nullopt;
+    if (!HasPresentMonDynamicQueryResult(status, resultCount) || blob.empty()) return std::nullopt;
     PresentMonSystemSnapshot snapshot;
     for (const auto& binding : bindings)
     {
@@ -251,8 +267,57 @@ bool PresentMonSystemTelemetry::Initialize(PresentMonApi2Client& client,
             Status(registerStatus));
         return false;
     }
-    std::uint64_t end{}; for (const auto& e : elements_) end = std::max(end, e.dataOffset + e.dataSize);
-    blob_.resize(static_cast<size_t>(std::max<std::uint64_t>(end, 4096)));
+    if (!query_)
+    {
+        RuntimeLogger::Log(RuntimeLogLevel::Warn,
+            L"[PresentMonSystem] initialized ready=0 stage=register-query reason=null-handle");
+        Shutdown(client);
+        return false;
+    }
+    std::uint64_t end{};
+    for (const auto& element : elements_)
+    {
+        if (element.dataOffset >
+            std::numeric_limits<std::uint64_t>::max() - element.dataSize)
+        {
+            RuntimeLogger::Log(RuntimeLogLevel::Warn,
+                L"[PresentMonSystem] initialized ready=0 stage=query-layout reason=overflow offset=" +
+                std::to_wstring(element.dataOffset) + L" size=" +
+                std::to_wstring(element.dataSize));
+            Shutdown(client);
+            return false;
+        }
+        end = std::max(end, element.dataOffset + element.dataSize);
+    }
+    for (std::size_t i = 0; i < elements_.size(); ++i)
+    {
+        const auto binding = std::find_if(bindings_.begin(), bindings_.end(),
+            [i](const auto& candidate) { return candidate.elementIndex == i; });
+        const auto requiredSize = binding == bindings_.end()
+            ? 0 : DataTypeSize(binding->type);
+        if (requiredSize == 0 || elements_[i].dataSize < requiredSize)
+        {
+            RuntimeLogger::Log(RuntimeLogLevel::Warn,
+                L"[PresentMonSystem] initialized ready=0 stage=query-layout reason=element-size index=" +
+                std::to_wstring(i) + L" size=" +
+                std::to_wstring(elements_[i].dataSize) + L" required=" +
+                std::to_wstring(requiredSize));
+            Shutdown(client);
+            return false;
+        }
+    }
+    const std::uint64_t required = std::max<std::uint64_t>(end, 4096);
+    if (required > kMaxSystemQueryBlobBytes ||
+        required > blob_.max_size() ||
+        required > std::numeric_limits<std::size_t>::max())
+    {
+        RuntimeLogger::Log(RuntimeLogLevel::Warn,
+            L"[PresentMonSystem] initialized ready=0 stage=query-layout reason=size bytes=" +
+            std::to_wstring(required));
+        Shutdown(client);
+        return false;
+    }
+    blob_.resize(static_cast<std::size_t>(required));
     RuntimeLogger::Log(RuntimeLogLevel::Info,
         L"[PresentMonSystem] initialized ready=1");
     return true;
@@ -283,7 +348,9 @@ std::optional<PresentMonSystemSnapshot> PresentMonSystemTelemetry::Read(PresentM
         lastPollResultCount_ = resultCount;
     }
     const auto snapshot = DecodePresentMonSystemSnapshot(
-        status, resultCount, blob_.data(), elements_, bindings_);
+        status, resultCount,
+        std::span<const std::uint8_t>(blob_.data(), blob_.size()),
+        elements_, bindings_);
     if (snapshot && !firstSampleLogged_)
     {
         RuntimeLogger::Log(RuntimeLogLevel::Info,
