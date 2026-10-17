@@ -8,6 +8,7 @@
 #include <iostream>
 #include <limits>
 #include <optional>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -81,6 +82,14 @@ public:
     std::optional<double> displayed{60.0};
     std::optional<double> presented{58.0};
     std::optional<std::uint64_t> swapChainAddress{0x1000};
+    std::optional<double> cpuUsage{42.0};
+    std::optional<double> cpuFrequencyHz{4200000000.0};
+    std::optional<double> gpuUsage{71.0};
+    std::optional<double> gpuFrequencyHz{1800000000.0};
+    std::optional<double> gpuMemoryUsedBytes{8589934592.0};
+    std::optional<double> gpuPowerMilliwatts{12500.0};
+    std::vector<std::pair<std::uint64_t, std::uint64_t>> registrationLayout;
+    bool nullQueryOnRegister{};
 
     std::vector<std::string> calls;
     std::vector<std::uint32_t> started;
@@ -109,6 +118,11 @@ public:
         return PM_STATUS_SUCCESS;
     }
 
+    PM_STATUS SetTelemetryPollingPeriod(std::uint32_t, std::uint32_t) override
+    {
+        return PM_STATUS_SUCCESS;
+    }
+
     PM_STATUS RegisterDynamicQuery(PM_DYNAMIC_QUERY_HANDLE* query,
         PM_QUERY_ELEMENT* elements, std::uint64_t elementCount,
         double windowMs, double offsetMs) override
@@ -121,12 +135,21 @@ public:
         elements_.clear();
         for (std::uint64_t i = 0; i < elementCount; ++i)
         {
-            elements[i].dataOffset = i * sizeof(std::uint64_t);
-            elements[i].dataSize = sizeof(std::uint64_t);
+            if (i < registrationLayout.size())
+            {
+                elements[i].dataOffset = registrationLayout[i].first;
+                elements[i].dataSize = registrationLayout[i].second;
+            }
+            else
+            {
+                elements[i].dataOffset = i * sizeof(std::uint64_t);
+                elements[i].dataSize = sizeof(std::uint64_t);
+            }
             lastRegisteredMetrics.push_back(elements[i].metric);
             elements_.push_back(elements[i]);
         }
-        *query = reinterpret_cast<PM_DYNAMIC_QUERY_HANDLE>(this);
+        *query = nullQueryOnRegister ? nullptr
+            : reinterpret_cast<PM_DYNAMIC_QUERY_HANDLE>(this);
         return PM_STATUS_SUCCESS;
     }
 
@@ -153,6 +176,18 @@ public:
             else if (element.metric == PM_METRIC_SWAP_CHAIN_ADDRESS && swapChainAddress)
                 std::memcpy(blob + element.dataOffset, &*swapChainAddress,
                     sizeof(std::uint64_t));
+            else if (element.metric == PM_METRIC_CPU_UTILIZATION && cpuUsage)
+                std::memcpy(blob + element.dataOffset, &*cpuUsage, sizeof(double));
+            else if (element.metric == PM_METRIC_CPU_FREQUENCY && cpuFrequencyHz)
+                std::memcpy(blob + element.dataOffset, &*cpuFrequencyHz, sizeof(double));
+            else if (element.metric == PM_METRIC_GPU_UTILIZATION && gpuUsage)
+                std::memcpy(blob + element.dataOffset, &*gpuUsage, sizeof(double));
+            else if (element.metric == PM_METRIC_GPU_FREQUENCY && gpuFrequencyHz)
+                std::memcpy(blob + element.dataOffset, &*gpuFrequencyHz, sizeof(double));
+            else if (element.metric == PM_METRIC_GPU_MEM_USED && gpuMemoryUsedBytes)
+                std::memcpy(blob + element.dataOffset, &*gpuMemoryUsedBytes, sizeof(double));
+            else if (element.metric == PM_METRIC_GPU_POWER && gpuPowerMilliwatts)
+                std::memcpy(blob + element.dataOffset, &*gpuPowerMilliwatts, sizeof(double));
         }
         *count = pollResultCount;
         return PM_STATUS_SUCCESS;
@@ -611,7 +646,7 @@ void CheckSystemTelemetry(bool& ok)
         std::memcpy(frequencyBlob.data(), &value, sizeof(value));
         const PM_QUERY_ELEMENT frequencyElement{PM_METRIC_CPU_FREQUENCY,
             PM_STAT_AVG, 2, 0, 0, sizeof(double)};
-        return DecodePresentMonFrequencyMHz(frequencyBlob.data(), frequencyElement,
+        return DecodePresentMonFrequencyMHz(std::span<const std::uint8_t>(frequencyBlob), frequencyElement,
             PM_DATA_TYPE_DOUBLE, unit);
     };
     ok &= Check(decodeFrequency(4200000000.0, PM_UNIT_HERTZ) == 4200.0 &&
@@ -632,7 +667,7 @@ void CheckSystemTelemetry(bool& ok)
         std::memcpy(powerBlob.data(), &value, sizeof(value));
         const PM_QUERY_ELEMENT powerElement{PM_METRIC_GPU_POWER,
             PM_STAT_AVG, 1, 0, 0, dataSize};
-        return DecodePresentMonPowerWatts(powerBlob.data(), powerElement,
+        return DecodePresentMonPowerWatts(std::span<const std::uint8_t>(powerBlob), powerElement,
             PM_DATA_TYPE_DOUBLE, unit);
     };
     ok &= Check(decodePower(13000.0, PM_UNIT_MILLIWATTS) == 13.0 &&
@@ -646,18 +681,75 @@ void CheckSystemTelemetry(bool& ok)
         !decodePower(13.0, PM_UNIT_WATTS, sizeof(float)),
         "GPU power rejects unsupported units, invalid values and undersized data");
 
+    const auto decodeMemory = [](double value, PM_UNIT unit)
+    {
+        std::array<std::uint8_t, sizeof(double)> memoryBlob{};
+        std::memcpy(memoryBlob.data(), &value, sizeof(value));
+        const PM_QUERY_ELEMENT memoryElement{PM_METRIC_GPU_MEM_USED,
+            PM_STAT_AVG, 1, 0, 0, sizeof(double)};
+        return DecodePresentMonMemoryBytes(std::span<const std::uint8_t>(memoryBlob),
+            memoryElement, PM_DATA_TYPE_DOUBLE, unit);
+    };
+    const double uint64ExclusiveUpperBound = 0x1.0p64;
+    const double largestDoubleBelowUint64Bound =
+        std::nextafter(uint64ExclusiveUpperBound, 0.0);
+    ok &= Check(decodeMemory(uint64ExclusiveUpperBound, PM_UNIT_BYTES) == std::nullopt &&
+        decodeMemory(std::numeric_limits<double>::infinity(), PM_UNIT_BYTES) == std::nullopt &&
+        decodeMemory(0x1.0p63, PM_UNIT_KILOBYTES) == std::nullopt &&
+        decodeMemory(largestDoubleBelowUint64Bound, PM_UNIT_BYTES) ==
+            static_cast<std::uint64_t>(largestDoubleBelowUint64Bound),
+        "memory conversion rejects 2^64, infinity and scaled overflow while accepting the prior representable value");
+    ok &= Check(decodeMemory(1234.0, PM_UNIT_BYTES) == 1234ULL &&
+        decodeMemory(2.0, PM_UNIT_KILOBYTES) == 2000ULL &&
+        decodeMemory(3.0, PM_UNIT_MEGABYTES) == 3000000ULL &&
+        decodeMemory(4.0, PM_UNIT_GIGABYTES) == 4000000000ULL,
+        "memory conversion preserves byte, kB, MB and GB scaling");
+
+    std::array<std::uint8_t, 8> boundedBlob{};
+    const double boundedValue = 73.0;
+    std::memcpy(boundedBlob.data(), &boundedValue, sizeof(boundedValue));
+    const auto decodeBoundedElement = [&](std::uint64_t offset, std::uint64_t size)
+    {
+        const PM_QUERY_ELEMENT element{PM_METRIC_GPU_MEM_USED,
+            PM_STAT_AVG, 1, 0, offset, size};
+        return DecodePresentMonMemoryBytes(std::span<const std::uint8_t>(boundedBlob),
+            element, PM_DATA_TYPE_DOUBLE, PM_UNIT_BYTES);
+    };
+    ok &= Check(!decodeBoundedElement(7, sizeof(double)),
+        "system decoder rejects a value that overruns the blob");
+    ok &= Check(!decodeBoundedElement(1, sizeof(double)),
+        "system decoder rejects a declared element span that exceeds the blob");
+    ok &= Check(!decodeBoundedElement(std::numeric_limits<std::uint64_t>::max() - 3,
+        sizeof(double)),
+        "system decoder rejects an offset near UINT64_MAX without pointer arithmetic");
+
+    std::array<std::uint8_t, 16> mixedBlob{};
+    const double validUsage = 67.0;
+    std::memcpy(mixedBlob.data(), &validUsage, sizeof(validUsage));
+    const std::vector<PM_QUERY_ELEMENT> mixedElements{
+        {PM_METRIC_CPU_UTILIZATION, PM_STAT_AVG, 2, 0, 0, sizeof(double)},
+        {PM_METRIC_GPU_FREQUENCY, PM_STAT_AVG, 1, 0,
+            std::numeric_limits<std::uint64_t>::max() - 3, sizeof(double)}};
+    const auto mixedSnapshot = DecodePresentMonSystemSnapshot(PM_STATUS_SUCCESS, 1,
+        std::span<const std::uint8_t>(mixedBlob), mixedElements,
+        {{SystemMetricSlot::CpuUsage, 0, PM_DATA_TYPE_DOUBLE, PM_UNIT_PERCENT},
+            {SystemMetricSlot::GpuFrequency, 1, PM_DATA_TYPE_DOUBLE, PM_UNIT_HERTZ}});
+    ok &= Check(mixedSnapshot && mixedSnapshot->cpuUsagePercent == validUsage &&
+        !mixedSnapshot->gpuClockMHz,
+        "one malformed system metric leaves other valid snapshot metrics available");
+
     std::array<std::uint8_t, sizeof(double)> cpuClockBlob{};
     const double cpuClockHz = 4200000000.0;
     std::memcpy(cpuClockBlob.data(), &cpuClockHz, sizeof(cpuClockHz));
     const PM_QUERY_ELEMENT cpuClockElement{PM_METRIC_CPU_FREQUENCY,
         PM_STAT_AVG, 2, 0, 0, sizeof(double)};
     const auto cpuFrequencySnapshot = DecodePresentMonSystemSnapshot(PM_STATUS_SUCCESS, 1,
-        cpuClockBlob.data(), {cpuClockElement},
+        std::span<const std::uint8_t>(cpuClockBlob), {cpuClockElement},
         {{SystemMetricSlot::CpuFrequency, 0, PM_DATA_TYPE_DOUBLE, PM_UNIT_HERTZ}});
     ok &= Check(cpuFrequencySnapshot && cpuFrequencySnapshot->cpuClockMHz == 4200.0,
         "CPU frequency binding decodes into the system snapshot");
     const auto gpuFrequencySnapshot = DecodePresentMonSystemSnapshot(PM_STATUS_SUCCESS, 1,
-        cpuClockBlob.data(), {cpuClockElement},
+        std::span<const std::uint8_t>(cpuClockBlob), {cpuClockElement},
         {{SystemMetricSlot::GpuFrequency, 0, PM_DATA_TYPE_DOUBLE, PM_UNIT_HERTZ}});
     ok &= Check(gpuFrequencySnapshot && gpuFrequencySnapshot->gpuClockMHz == 4200.0,
         "existing GPU frequency binding still converts hertz to MHz");
@@ -666,12 +758,12 @@ void CheckSystemTelemetry(bool& ok)
     const PM_QUERY_ELEMENT gpuPowerElement{PM_METRIC_GPU_POWER,
         PM_STAT_AVG, 1, 0, 0, sizeof(double)};
     const auto gpuPowerSnapshot = DecodePresentMonSystemSnapshot(PM_STATUS_SUCCESS, 1,
-        cpuClockBlob.data(), {gpuPowerElement},
+        std::span<const std::uint8_t>(cpuClockBlob), {gpuPowerElement},
         {{SystemMetricSlot::GpuPower, 0, PM_DATA_TYPE_DOUBLE, PM_UNIT_MILLIWATTS}});
     ok &= Check(gpuPowerSnapshot && gpuPowerSnapshot->gpuPowerW == 12.6,
         "GPU power binding decodes into the system snapshot without rounding");
     const auto malformedPowerSnapshot = DecodePresentMonSystemSnapshot(PM_STATUS_SUCCESS, 1,
-        cpuClockBlob.data(), {gpuPowerElement},
+        std::span<const std::uint8_t>(cpuClockBlob), {gpuPowerElement},
         {{SystemMetricSlot::GpuPower, 4, PM_DATA_TYPE_DOUBLE, PM_UNIT_MILLIWATTS}});
     ok &= Check(malformedPowerSnapshot && !malformedPowerSnapshot->gpuPowerW,
         "malformed GPU power binding remains unavailable instead of reading out of range");
@@ -683,11 +775,66 @@ void CheckSystemTelemetry(bool& ok)
     std::vector<PM_QUERY_ELEMENT> elements{element};
     std::vector<SystemMetricBinding> bindings{{SystemMetricSlot::GpuUsage, 0,
         PM_DATA_TYPE_DOUBLE, PM_UNIT_PERCENT}};
-    ok &= Check(DecodePresentMonSystemSnapshot(PM_STATUS_SUCCESS, 1, blob.data(), elements, bindings)
+    ok &= Check(DecodePresentMonSystemSnapshot(PM_STATUS_SUCCESS, 1,
+            std::span<const std::uint8_t>(blob), elements, bindings)
             ->gpuUsagePercent == 95.0,
         "current system result decodes");
-    ok &= Check(!DecodePresentMonSystemSnapshot(PM_STATUS_SUCCESS, 0, blob.data(), elements, bindings),
-        "empty successful system result does not decode stale buffer");
+    ok &= Check(!DecodePresentMonSystemSnapshot(PM_STATUS_SUCCESS, 0,
+            std::span<const std::uint8_t>(blob), elements, bindings) &&
+        !DecodePresentMonSystemSnapshot(PM_STATUS_FAILURE, 1,
+            std::span<const std::uint8_t>(blob), elements, bindings),
+        "empty successful result and failed poll do not decode stale buffer");
+
+    FakeClient normalClient;
+    PresentMonSystemTelemetry normalTelemetry;
+    const bool normalInitialized = normalTelemetry.Initialize(normalClient, capabilities);
+    ok &= Check(normalInitialized && normalTelemetry.Ready() &&
+        normalClient.elements_.size() == 6 && normalClient.freeCount == 0 &&
+        normalClient.lastWindowMs == 1000.0 && normalClient.lastOffsetMs == 1064.0,
+        "normal six-element registration retains its existing query timing and readiness");
+    const auto normalSnapshot = normalTelemetry.Read(normalClient);
+    ok &= Check(normalSnapshot && normalSnapshot->cpuUsagePercent == 42.0 &&
+        normalSnapshot->cpuClockMHz == 4200.0 && normalSnapshot->gpuUsagePercent == 71.0 &&
+        normalSnapshot->gpuClockMHz == 1800.0 &&
+        normalSnapshot->gpuMemoryUsedBytes == 8589934592ULL &&
+        normalSnapshot->gpuPowerW == 12.5,
+        "normal system query still decodes all six CPU/GPU metrics");
+    normalTelemetry.Shutdown(normalClient);
+
+    const auto rejectsLayout = [&](std::pair<std::uint64_t, std::uint64_t> firstElement,
+        const char* message)
+    {
+        FakeClient client;
+        client.registrationLayout.resize(plan.elements.size());
+        for (std::size_t i = 0; i < client.registrationLayout.size(); ++i)
+            client.registrationLayout[i] = {i * sizeof(std::uint64_t), sizeof(std::uint64_t)};
+        client.registrationLayout.front() = firstElement;
+        PresentMonProcessTelemetry processTelemetry;
+        processTelemetry.Initialize(client, Capabilities());
+        PresentMonSystemTelemetry telemetry;
+        const bool initialized = telemetry.Initialize(client, capabilities);
+        const bool rejected = !initialized && !telemetry.Ready() &&
+            !client.pollCount && client.freeCount == 1 && processTelemetry.Ready();
+        telemetry.Shutdown(client);
+        const bool idempotentCleanup = client.freeCount == 1;
+        processTelemetry.Shutdown(client);
+        return Check(rejected && idempotentCleanup, message);
+    };
+    ok &= rejectsLayout({std::numeric_limits<std::uint64_t>::max() - 3,
+            sizeof(double)},
+        "overflowing registration is rejected before poll, freed once, and leaves process telemetry ready");
+    ok &= rejectsLayout({64 * 1024, sizeof(double)},
+        "excessively large registration is rejected before allocation/poll and its query is freed");
+    ok &= rejectsLayout({4095, 1},
+        "registration with a declared size smaller than its decoded value is rejected before polling");
+
+    FakeClient nullHandleClient;
+    nullHandleClient.nullQueryOnRegister = true;
+    PresentMonSystemTelemetry nullHandleTelemetry;
+    ok &= Check(!nullHandleTelemetry.Initialize(nullHandleClient, capabilities) &&
+        !nullHandleTelemetry.Ready() && nullHandleClient.pollCount == 0 &&
+        nullHandleClient.freeCount == 0,
+        "successful registration with a null query handle is rejected without polling");
 }
 }
 
