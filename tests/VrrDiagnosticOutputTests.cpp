@@ -127,6 +127,7 @@ void TestReportWriterCreatesCompleteRunFiles()
     assert(std::filesystem::exists(first->report));
     assert(std::filesystem::exists(first->framesCsv));
     assert(std::filesystem::exists(first->vblankCsv));
+    assert(std::filesystem::exists(first->timelineCsv));
 
     const auto summary = ReadText(first->report);
     assert(summary.find("VRR Status                   INCONCLUSIVE") != std::string::npos);
@@ -150,6 +151,12 @@ void TestReportWriterCreatesCompleteRunFiles()
     assert(vblankCsv.find("1,1200,200.000") != std::string::npos);
     assert(vblankCsv.find("950") == std::string::npos);
     assert(vblankCsv.find("3000") == std::string::npos);
+
+    const auto timelineCsv = ReadText(first->timelineCsv);
+    assert(timelineCsv.starts_with(
+        "StartMs,EndMs,PresentCount,PresentRateHz,VblankCount,VblankCadenceHz\n"));
+    assert(timelineCsv.find("0.000,500.000,1,2.00,2,4.00\n") != std::string::npos);
+    assert(timelineCsv.find("500.000,1000.000,0,0.00,0,0.00\n") != std::string::npos);
 
     auto failedReport = report;
     failedReport.igcl.attempted = true;
@@ -179,6 +186,8 @@ void TestReportWriterCreatesCompleteRunFiles()
     failedCapture.failureStatus = static_cast<std::int32_t>(0xC000000Du);
     const auto failureFiles = WriteVrrDiagnosticFiles(root, failedReport, {}, failedCapture);
     assert(failureFiles);
+    const auto failureTimeline = ReadText(failureFiles->timelineCsv);
+    assert(failureTimeline.find("0.000,500.000,0,0.00,,") != std::string::npos);
     const auto failureSummary = ReadText(failureFiles->report);
     assert(failureSummary.find("Probe status                 INITIALIZED") != std::string::npos);
     assert(failureSummary.find("CTL_RESULT 0x4800000F") != std::string::npos);
