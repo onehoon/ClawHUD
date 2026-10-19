@@ -32,6 +32,7 @@ struct VrrDiagnosticOutputFiles
     std::filesystem::path report;
     std::filesystem::path framesCsv;
     std::filesystem::path vblankCsv;
+    std::filesystem::path timelineCsv;
 };
 
 std::optional<VrrDiagnosticOutputFiles> WriteVrrDiagnosticFiles(
