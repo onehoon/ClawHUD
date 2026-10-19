@@ -17,7 +17,7 @@
 
 struct DiagD3dkmtCadenceProbeApi
 {
-    std::function<NTSTATUS(D3DKMT_WAITFORVERTICALBLANKEVENT2*)> waitForVerticalBlankEvent2;
+    std::function<NTSTATUS(D3DKMT_WAITFORVERTICALBLANKEVENT*)> waitForVerticalBlankEvent;
     std::function<BOOL(LARGE_INTEGER*)> queryPerformanceCounter;
     std::function<NTSTATUS(D3DKMT_CLOSEADAPTER*)> closeAdapter;
 };
@@ -53,12 +53,12 @@ private:
         DiagD3dkmtFailureStatusDomain statusDomain =
             DiagD3dkmtFailureStatusDomain::None) noexcept;
 
-    using WaitForVerticalBlankEvent2 = PFND3DKMT_WAITFORVERTICALBLANKEVENT2;
+    using WaitForVerticalBlankEvent = PFND3DKMT_WAITFORVERTICALBLANKEVENT;
     using OpenAdapterFromHdc = PFND3DKMT_OPENADAPTERFROMHDC;
     using CloseAdapter = PFND3DKMT_CLOSEADAPTER;
 
     HMODULE gdi32_{};
-    WaitForVerticalBlankEvent2 waitForVerticalBlankEvent2_{};
+    WaitForVerticalBlankEvent waitForVerticalBlankEvent_{};
     OpenAdapterFromHdc openAdapterFromHdc_{};
     CloseAdapter closeAdapter_{};
     DiagD3dkmtCadenceProbeApi api_;
