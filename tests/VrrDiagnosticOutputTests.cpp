@@ -135,7 +135,7 @@ void TestReportWriterCreatesCompleteRunFiles()
     assert(summary.find("2570") == std::string::npos);
     assert(summary.find("Configuration                UNKNOWN\n  Probe failures") != std::string::npos);
     assert(summary.find("    none\n\nD3DKMT\n") != std::string::npos);
-    assert(summary.find("Sampler mode                 Event2 NumObjects=0") != std::string::npos);
+    assert(summary.find("Sampler mode                 D3DKMTWaitForVerticalBlankEvent") != std::string::npos);
     assert(summary.find("Capture status               AVAILABLE\n  Failure") != std::string::npos);
     assert(summary.find("Failure status               n/a\n\nOverall\n") != std::string::npos);
 
@@ -174,7 +174,7 @@ void TestReportWriterCreatesCompleteRunFiles()
     failedCapture.vidPnSourceId = 3;
     failedCapture.qpcFrequency = 1000;
     failedCapture.failure = DiagD3dkmtCaptureFailure::WaitFailed;
-    failedCapture.failureDetail = "D3DKMTWaitForVerticalBlankEvent2";
+    failedCapture.failureDetail = "D3DKMTWaitForVerticalBlankEvent";
     failedCapture.failureStatusDomain = DiagD3dkmtFailureStatusDomain::NtStatus;
     failedCapture.failureStatus = static_cast<std::int32_t>(0xC000000Du);
     const auto failureFiles = WriteVrrDiagnosticFiles(root, failedReport, {}, failedCapture);
@@ -185,7 +185,7 @@ void TestReportWriterCreatesCompleteRunFiles()
     assert(failureSummary.find("ctlGetDisplayProperties") != std::string::npos);
     assert(failureSummary.find("Failure                      wait_failed") != std::string::npos);
     assert(failureSummary.find("NTSTATUS 0xC000000D") != std::string::npos);
-    assert(failureSummary.find("Sampler mode                 Event2 NumObjects=0")
+    assert(failureSummary.find("Sampler mode                 D3DKMTWaitForVerticalBlankEvent")
         != std::string::npos);
     assert(failureSummary.find("0x00000007:0000002A") != std::string::npos);
     assert(failureSummary.find("2570") == std::string::npos);
