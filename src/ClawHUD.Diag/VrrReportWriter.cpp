@@ -462,7 +462,7 @@ bool WriteReport(const std::filesystem::path& path,
             << "  QPC frequency                " << (d3dkmt.qpcFrequency > 0
                  ? std::to_string(d3dkmt.qpcFrequency) : "n/a") << '\n'
             << "  Sampler mode                 " << (d3dkmt.attempted
-                ? "Event2 NumObjects=0" : "NOT RUN") << '\n'
+                ? "D3DKMTWaitForVerticalBlankEvent" : "NOT RUN") << '\n'
             << "  Samples                      " << d3dkmt.timestamps.size() << '\n'
             << "  Complete 1s windows          " << cadence.windows.size() << '\n'
            << "  Window range                 " << Range(cadence.minimumHz, cadence.maximumHz) << '\n'
@@ -540,6 +540,73 @@ bool WriteVblankCsv(const std::filesystem::path& path,
     output.flush();
     return static_cast<bool>(output);
 }
+
+// A 500 ms common-QPC timeline, for comparison only. Present counts are not
+// physical refresh counts or necessarily final generated/displayed FPS.
+bool WriteTimelineCsv(const std::filesystem::path& path,
+    const VrrDiagnosticReportData& report, std::span<const VrrFrameSample> frames,
+    const DiagD3dkmtCadenceCapture& d3dkmt)
+{
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    if (!output) return false;
+    output.imbue(std::locale::classic());
+    output << "StartMs,EndMs,PresentCount,PresentRateHz,VblankCount,VblankCadenceHz\n";
+
+    constexpr double bucketMs = 500.0;
+    const double totalMs = report.captureDurationSeconds * 1000.0;
+    if (report.qpcFrequency <= 0 || !std::isfinite(totalMs) || totalMs <= 0.0)
+        return static_cast<bool>(output);
+    // Diagnostic measurement is 15 seconds; guard corrupted metadata.
+    if (totalMs > 60'000.0) return false;
+    const auto bucketCount = static_cast<std::size_t>(std::ceil(totalMs / bucketMs));
+    std::vector<std::size_t> presentCounts(bucketCount, 0);
+    std::vector<std::size_t> vblankCounts(bucketCount, 0);
+
+    const auto bucketForQpc = [&](std::uint64_t qpc) -> std::optional<std::size_t>
+    {
+        if (qpc < report.measurementStartQpc) return std::nullopt;
+        const double elapsedMs = 1000.0 *
+            static_cast<double>(qpc - report.measurementStartQpc) /
+            static_cast<double>(report.qpcFrequency);
+        if (elapsedMs < 0.0 || elapsedMs >= totalMs) return std::nullopt;
+        const auto index = static_cast<std::size_t>(elapsedMs / bucketMs);
+        return index < bucketCount ? std::optional<std::size_t>(index) : std::nullopt;
+    };
+
+    for (const auto& frame : frames)
+    {
+        if (frame.processId != report.target.process.processId ||
+            !frame.presentStartQpc ||
+            (report.analysis.presentation.dominantSwapchain &&
+             frame.swapChainAddress != *report.analysis.presentation.dominantSwapchain))
+            continue;
+        if (const auto index = bucketForQpc(*frame.presentStartQpc))
+            ++presentCounts[*index];
+    }
+
+    if (d3dkmt.available)
+        for (const auto qpc : d3dkmt.timestamps)
+            if (const auto index = bucketForQpc(qpc))
+                ++vblankCounts[*index];
+
+    for (std::size_t i = 0; i < bucketCount; ++i)
+    {
+        const double startMs = i * bucketMs;
+        const double endMs = std::min(totalMs, startMs + bucketMs);
+        const double seconds = (endMs - startMs) / 1000.0;
+        output << FormatDouble(startMs, 3) << ',' << FormatDouble(endMs, 3) << ','
+               << presentCounts[i] << ','
+               << FormatDouble(presentCounts[i] / seconds, 2) << ',';
+        if (d3dkmt.available)
+            output << vblankCounts[i] << ','
+                   << FormatDouble(vblankCounts[i] / seconds, 2);
+        else
+            output << ',';
+        output << '\n';
+    }
+    output.flush();
+    return static_cast<bool>(output);
+}
 }
 
 std::optional<VrrDiagnosticOutputFiles> WriteVrrDiagnosticFiles(
@@ -592,9 +659,11 @@ std::optional<VrrDiagnosticOutputFiles> WriteVrrDiagnosticFiles(
     files.report = directory / L"report.txt";
     files.framesCsv = directory / L"frames.csv";
     files.vblankCsv = directory / L"vblank.csv";
+    files.timelineCsv = directory / L"timeline.csv";
     if (!WriteReport(files.report, report, d3dkmt) ||
         !WriteFramesCsv(files.framesCsv, report, frames) ||
-        !WriteVblankCsv(files.vblankCsv, report, d3dkmt))
+        !WriteVblankCsv(files.vblankCsv, report, d3dkmt) ||
+        !WriteTimelineCsv(files.timelineCsv, report, frames, d3dkmt))
     {
         std::error_code cleanupError;
         std::filesystem::remove_all(directory, cleanupError);

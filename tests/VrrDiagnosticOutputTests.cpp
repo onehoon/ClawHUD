@@ -127,6 +127,7 @@ void TestReportWriterCreatesCompleteRunFiles()
     assert(std::filesystem::exists(first->report));
     assert(std::filesystem::exists(first->framesCsv));
     assert(std::filesystem::exists(first->vblankCsv));
+    assert(std::filesystem::exists(first->timelineCsv));
 
     const auto summary = ReadText(first->report);
     assert(summary.find("VRR Status                   INCONCLUSIVE") != std::string::npos);
@@ -135,7 +136,7 @@ void TestReportWriterCreatesCompleteRunFiles()
     assert(summary.find("2570") == std::string::npos);
     assert(summary.find("Configuration                UNKNOWN\n  Probe failures") != std::string::npos);
     assert(summary.find("    none\n\nD3DKMT\n") != std::string::npos);
-    assert(summary.find("Sampler mode                 Event2 NumObjects=0") != std::string::npos);
+    assert(summary.find("Sampler mode                 D3DKMTWaitForVerticalBlankEvent") != std::string::npos);
     assert(summary.find("Capture status               AVAILABLE\n  Failure") != std::string::npos);
     assert(summary.find("Failure status               n/a\n\nOverall\n") != std::string::npos);
 
@@ -150,6 +151,12 @@ void TestReportWriterCreatesCompleteRunFiles()
     assert(vblankCsv.find("1,1200,200.000") != std::string::npos);
     assert(vblankCsv.find("950") == std::string::npos);
     assert(vblankCsv.find("3000") == std::string::npos);
+
+    const auto timelineCsv = ReadText(first->timelineCsv);
+    assert(timelineCsv.starts_with(
+        "StartMs,EndMs,PresentCount,PresentRateHz,VblankCount,VblankCadenceHz\n"));
+    assert(timelineCsv.find("0.000,500.000,1,2.00,2,4.00\n") != std::string::npos);
+    assert(timelineCsv.find("500.000,1000.000,0,0.00,0,0.00\n") != std::string::npos);
 
     auto failedReport = report;
     failedReport.igcl.attempted = true;
@@ -174,18 +181,20 @@ void TestReportWriterCreatesCompleteRunFiles()
     failedCapture.vidPnSourceId = 3;
     failedCapture.qpcFrequency = 1000;
     failedCapture.failure = DiagD3dkmtCaptureFailure::WaitFailed;
-    failedCapture.failureDetail = "D3DKMTWaitForVerticalBlankEvent2";
+    failedCapture.failureDetail = "D3DKMTWaitForVerticalBlankEvent";
     failedCapture.failureStatusDomain = DiagD3dkmtFailureStatusDomain::NtStatus;
     failedCapture.failureStatus = static_cast<std::int32_t>(0xC000000Du);
     const auto failureFiles = WriteVrrDiagnosticFiles(root, failedReport, {}, failedCapture);
     assert(failureFiles);
+    const auto failureTimeline = ReadText(failureFiles->timelineCsv);
+    assert(failureTimeline.find("0.000,500.000,0,0.00,,") != std::string::npos);
     const auto failureSummary = ReadText(failureFiles->report);
     assert(failureSummary.find("Probe status                 INITIALIZED") != std::string::npos);
     assert(failureSummary.find("CTL_RESULT 0x4800000F") != std::string::npos);
     assert(failureSummary.find("ctlGetDisplayProperties") != std::string::npos);
     assert(failureSummary.find("Failure                      wait_failed") != std::string::npos);
     assert(failureSummary.find("NTSTATUS 0xC000000D") != std::string::npos);
-    assert(failureSummary.find("Sampler mode                 Event2 NumObjects=0")
+    assert(failureSummary.find("Sampler mode                 D3DKMTWaitForVerticalBlankEvent")
         != std::string::npos);
     assert(failureSummary.find("0x00000007:0000002A") != std::string::npos);
     assert(failureSummary.find("2570") == std::string::npos);

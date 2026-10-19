@@ -74,11 +74,10 @@ void TestWaitForVblankRecordsSampleAndStopsAfterNextReturn()
     std::atomic<int> recordedSamples{};
     std::atomic<int> adapterCloses{};
     DiagD3dkmtCadenceProbeApi api;
-    api.waitForVerticalBlankEvent2 = [&](D3DKMT_WAITFORVERTICALBLANKEVENT2* args)
+    api.waitForVerticalBlankEvent = [&](D3DKMT_WAITFORVERTICALBLANKEVENT* args)
     {
         assert(args->hAdapter == 17);
         assert(args->VidPnSourceId == 3);
-        assert(args->NumObjects == 0);
         const auto call = waitCalls.fetch_add(1);
         if (call < 2) return kStatusWaitForVblank;
         if (call == 2)
@@ -143,10 +142,9 @@ void TestWaitFailuresTerminateAndAreReported()
 
         std::atomic<int> adapterCloses{};
         DiagD3dkmtCadenceProbeApi api;
-        api.waitForVerticalBlankEvent2 = [&](D3DKMT_WAITFORVERTICALBLANKEVENT2* args)
+        api.waitForVerticalBlankEvent = [&](D3DKMT_WAITFORVERTICALBLANKEVENT* args)
         {
-            assert(args->NumObjects == 0);
-            SetEvent(failureReturned);
+                SetEvent(failureReturned);
             return expectedStatus;
         };
         api.queryPerformanceCounter = [](LARGE_INTEGER*)
@@ -168,7 +166,7 @@ void TestWaitFailuresTerminateAndAreReported()
 
         assert(!capture.available);
         assert(capture.failure == DiagD3dkmtCaptureFailure::WaitFailed);
-        assert(capture.failureDetail == "D3DKMTWaitForVerticalBlankEvent2");
+        assert(capture.failureDetail == "D3DKMTWaitForVerticalBlankEvent");
         assert(capture.failureStatusDomain == DiagD3dkmtFailureStatusDomain::NtStatus);
         assert(capture.failureStatus == static_cast<std::int32_t>(expectedStatus));
         assert(capture.timestamps.empty());
@@ -181,7 +179,7 @@ void TestDisplayPathMismatchPreservesAdapterIdentity()
 {
     std::atomic<int> adapterCloses{};
     DiagD3dkmtCadenceProbeApi api;
-    api.waitForVerticalBlankEvent2 = [](D3DKMT_WAITFORVERTICALBLANKEVENT2*)
+    api.waitForVerticalBlankEvent = [](D3DKMT_WAITFORVERTICALBLANKEVENT*)
     {
         assert(false);
         return kStatusInvalidParameter;
@@ -229,9 +227,8 @@ void TestCooperativeStopAllowsASecondSamplerRun()
     std::atomic<int> waitCallsInRun{};
     std::atomic<std::uint64_t> nextQpc{ 1000 };
     DiagD3dkmtCadenceProbeApi api;
-    api.waitForVerticalBlankEvent2 = [&](D3DKMT_WAITFORVERTICALBLANKEVENT2* args)
+    api.waitForVerticalBlankEvent = [&](D3DKMT_WAITFORVERTICALBLANKEVENT* args)
     {
-        assert(args->NumObjects == 0);
         const auto run = runIndex.load();
         const auto call = waitCallsInRun.fetch_add(1);
         if (call == 0) return kStatusWaitForVblank;

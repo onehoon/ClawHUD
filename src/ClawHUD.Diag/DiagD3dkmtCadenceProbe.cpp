@@ -65,16 +65,16 @@ bool DiagD3dkmtCadenceProbe::Initialize(
         return false;
     }
 
-    waitForVerticalBlankEvent2_ = reinterpret_cast<WaitForVerticalBlankEvent2>(
-        GetProcAddress(gdi32_, "D3DKMTWaitForVerticalBlankEvent2"));
+    waitForVerticalBlankEvent_ = reinterpret_cast<WaitForVerticalBlankEvent>(
+        GetProcAddress(gdi32_, "D3DKMTWaitForVerticalBlankEvent"));
     openAdapterFromHdc_ = reinterpret_cast<OpenAdapterFromHdc>(
         GetProcAddress(gdi32_, "D3DKMTOpenAdapterFromHdc"));
     closeAdapter_ = reinterpret_cast<CloseAdapter>(
         GetProcAddress(gdi32_, "D3DKMTCloseAdapter"));
-    if (!waitForVerticalBlankEvent2_)
+    if (!waitForVerticalBlankEvent_)
     {
         SetFailure(DiagD3dkmtCaptureFailure::ApiUnavailable,
-            "missing gdi32.dll export D3DKMTWaitForVerticalBlankEvent2");
+            "missing gdi32.dll export D3DKMTWaitForVerticalBlankEvent");
         Shutdown();
         return false;
     }
@@ -199,7 +199,7 @@ bool DiagD3dkmtCadenceProbe::InitializeResolvedTarget(
             qpcFrequency <= 0 ? "non-positive QPC frequency" : "adapter handle is null");
         return false;
     }
-    if ((!api_.waitForVerticalBlankEvent2 && !waitForVerticalBlankEvent2_) ||
+    if ((!api_.waitForVerticalBlankEvent && !waitForVerticalBlankEvent_) ||
         (!api_.closeAdapter && !closeAdapter_))
     {
         SetFailure(DiagD3dkmtCaptureFailure::ApiUnavailable,
@@ -256,16 +256,15 @@ void DiagD3dkmtCadenceProbe::SampleLoop() noexcept
     {
         if (stopRequested_.load(std::memory_order_acquire)) return;
 
-        D3DKMT_WAITFORVERTICALBLANKEVENT2 args{};
+        D3DKMT_WAITFORVERTICALBLANKEVENT args{};
         args.hAdapter = adapterHandle_;
         args.VidPnSourceId = vidPnSourceId_;
-        args.NumObjects = 0;
-        const auto status = api_.waitForVerticalBlankEvent2 ?
-            api_.waitForVerticalBlankEvent2(&args) : waitForVerticalBlankEvent2_(&args);
+        const auto status = api_.waitForVerticalBlankEvent ?
+            api_.waitForVerticalBlankEvent(&args) : waitForVerticalBlankEvent_(&args);
         if (status != kStatusWaitForVblank)
         {
             SetFailure(DiagD3dkmtCaptureFailure::WaitFailed,
-                "D3DKMTWaitForVerticalBlankEvent2", static_cast<std::int32_t>(status),
+                "D3DKMTWaitForVerticalBlankEvent", static_cast<std::int32_t>(status),
                 DiagD3dkmtFailureStatusDomain::NtStatus);
             return;
         }
@@ -368,7 +367,7 @@ void DiagD3dkmtCadenceProbe::Shutdown() noexcept
 {
     StopAndJoin();
     initialized_ = false;
-    waitForVerticalBlankEvent2_ = nullptr;
+    waitForVerticalBlankEvent_ = nullptr;
     openAdapterFromHdc_ = nullptr;
     closeAdapter_ = nullptr;
     if (gdi32_)
