@@ -462,7 +462,7 @@ bool WriteReport(const std::filesystem::path& path,
             << "  QPC frequency                " << (d3dkmt.qpcFrequency > 0
                  ? std::to_string(d3dkmt.qpcFrequency) : "n/a") << '\n'
             << "  Sampler mode                 " << (d3dkmt.attempted
-                ? "Event2 NumObjects=0" : "NOT RUN") << '\n'
+                ? "D3DKMTWaitForVerticalBlankEvent" : "NOT RUN") << '\n'
             << "  Samples                      " << d3dkmt.timestamps.size() << '\n'
             << "  Complete 1s windows          " << cadence.windows.size() << '\n'
            << "  Window range                 " << Range(cadence.minimumHz, cadence.maximumHz) << '\n'
