@@ -249,6 +249,7 @@ int App::Run()
             }))
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
             L"Control pipe server did not start; continuing without external Control IPC");
+    hudSettingsStore_.CreateFreshDefaultsIfMissing();
     return ProcessMessages();
 }
 

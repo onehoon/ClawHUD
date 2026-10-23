@@ -220,7 +220,8 @@ void GameSessionController::StopRenderVerification(const wchar_t* reason,
     if (gameRenderVerifier_.ProcessId())
     {
         Log(L"[GameDetection] verifier.stop pid=" +
-            std::to_wstring(gameRenderVerifier_.ProcessId()) + L" reason=" + reason);
+            std::to_wstring(gameRenderVerifier_.ProcessId()) + L" reason=" + reason +
+            L" requestId=" + std::to_wstring(request ? request->requestId : 0));
         gameRenderVerifier_.Stop();
     }
     activeRendererRequest_.reset();
@@ -362,6 +363,9 @@ void GameSessionController::ApplyForegroundEvaluation(
     if (activeRendererRequest_)
         StopRenderVerification(L"foreground-handoff", false);
     activeRendererRequest_ = request;
+    RuntimeLogger::Log(RuntimeLogLevel::Debug, L"[GameDetection] verifier.begin pid=" +
+        std::to_wstring(request->process.processId) + L" requestId=" +
+        std::to_wstring(request->requestId) + L" source=" + (reason ? reason : L"unknown"));
     const bool started = gameRenderVerifier_.Start(request->process.processId,
         request->requestId, [this, request = *request](const GameRenderVerifierEvent& event)
         {
