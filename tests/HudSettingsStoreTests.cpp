@@ -113,18 +113,15 @@ void ExistingSettingsAreNotMigrated(bool& ok)
     HudSettingsStore store(ini.path());
     ini.writeRaw(L"HUD", L"Enabled", L"0");
     const auto before = ReadBytes(ini.path());
-    ok &= Check(store.CreateFreshDefaultsIfMissing(),
-        "existing settings file is accepted without a write");
-    ok &= Check(ReadBytes(ini.path()) == before,
-        "existing file without Developer key is byte-for-byte unchanged");
+    ok &= Check(store.CreateFreshDefaultsIfMissing() && ReadBytes(ini.path()) == before,
+        "existing file without Developer key is accepted unchanged");
     ok &= Check(!store.Load().debugLoggingEnabled,
         "existing file without Developer key keeps the false fallback");
     ini.writeRaw(L"Developer", L"DebugLoggingEnabled", L"true");
     const auto enabledBefore = ReadBytes(ini.path());
     ok &= Check(store.CreateFreshDefaultsIfMissing() &&
-        ReadBytes(ini.path()) == enabledBefore &&
-        store.Load().debugLoggingEnabled,
-        "fresh defaults never rewrite an existing enabled developer key");
+        ReadBytes(ini.path()) == enabledBefore && store.Load().debugLoggingEnabled,
+        "fresh defaults preserve an existing enabled developer key");
     const auto blocker = std::filesystem::path(ini.path()).parent_path() / L"blocker";
     { std::ofstream file(blocker); file << "x"; }
     HudSettingsStore failedStore((blocker / L"settings.ini").wstring());
