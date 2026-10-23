@@ -36,6 +36,59 @@ void HudSettingsStore::EnsureParentDirectory() const
         CreateDirectoryW(path_.substr(0, separator).c_str(), nullptr);
 }
 
+bool HudSettingsStore::CreateFreshDefaultsIfMissing() const
+{
+    if (path_.empty())
+        return false;
+    const auto warn = []
+    {
+        RuntimeLogger::Log(RuntimeLogLevel::Warn,
+            L"Settings fresh defaults creation failed");
+        return false;
+    };
+
+    const DWORD attributes = GetFileAttributesW(path_.c_str());
+    if (attributes != INVALID_FILE_ATTRIBUTES)
+    {
+        if ((attributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+            return warn();
+        return true;
+    }
+    const DWORD attributesError = GetLastError();
+    if (attributesError != ERROR_FILE_NOT_FOUND &&
+        attributesError != ERROR_PATH_NOT_FOUND)
+        return warn();
+
+    EnsureParentDirectory();
+    const HANDLE file = CreateFileW(path_.c_str(), GENERIC_WRITE, 0, nullptr,
+        CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE)
+    {
+        const DWORD createError = GetLastError();
+        if (createError == ERROR_FILE_EXISTS || createError == ERROR_ALREADY_EXISTS)
+            return true;
+        return warn();
+    }
+
+    constexpr char defaults[] =
+        "[Developer]\r\nDebugLoggingEnabled=false\r\n";
+    DWORD written{};
+    const BOOL writeSucceeded = WriteFile(file, defaults,
+        static_cast<DWORD>(sizeof(defaults) - 1), &written, nullptr) &&
+        written == sizeof(defaults) - 1;
+    const BOOL closeSucceeded = CloseHandle(file);
+    if (!writeSucceeded || !closeSucceeded)
+    {
+        DeleteFileW(path_.c_str());
+        WritePrivateProfileStringW(nullptr, nullptr, nullptr, path_.c_str());
+        return warn();
+    }
+
+    // The settings reader may have cached the previously absent file.
+    WritePrivateProfileStringW(nullptr, nullptr, nullptr, path_.c_str());
+    return true;
+}
+
 std::wstring HudSettingsStore::ReadString(const wchar_t* key, const wchar_t* fallback) const
 {
     wchar_t value[64]{};

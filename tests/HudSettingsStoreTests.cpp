@@ -3,7 +3,9 @@
 #include <windows.h>
 
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <iterator>
 #include <string>
 
 using namespace clawhud;
@@ -57,6 +59,8 @@ void AvailabilityReflectsPath(bool& ok)
 void LoadDefaultsWhenUnavailable(bool& ok)
 {
     const auto s = HudSettingsStore(L"").Load();
+    ok &= Check(!HudSettingsStore(L"").CreateFreshDefaultsIfMissing() &&
+        !s.debugLoggingEnabled, "an unavailable path keeps the false fallback");
     ok &= Check(s.hudEnabled, "default hudEnabled is true");
     ok &= Check(!s.debugLoggingEnabled, "default debugLoggingEnabled is false");
     ok &= Check(s.startWithWindows, "default startWithWindows is true");
@@ -77,6 +81,50 @@ void LoadDefaultsWhenFileMissing(bool& ok)
     ok &= Check(s.alignment == HudAlignment::Center &&
         s.visibilityMode == HudVisibilityMode::Always,
         "missing enum keys fall back to their defaults");
+}
+
+std::string ReadBytes(const std::filesystem::path& path)
+{
+    std::ifstream input(path, std::ios::binary);
+    return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+}
+
+void FreshDefaultsCreateOnlyWhenFileIsMissing(bool& ok)
+{
+    TempIni ini;
+    HudSettingsStore store(ini.path());
+    ok &= Check(!std::filesystem::exists(ini.path()),
+        "fresh settings path starts without a file");
+    ok &= Check(store.CreateFreshDefaultsIfMissing(),
+        "fresh defaults creation succeeds");
+    const std::string expected = "[Developer]\r\nDebugLoggingEnabled=false\r\n";
+    const auto created = ReadBytes(ini.path());
+    ok &= Check(created == expected,
+        "fresh settings file contains exactly the disabled developer key");
+    ok &= Check(!store.Load().debugLoggingEnabled,
+        "fresh developer logging default loads as false");
+    ok &= Check(store.CreateFreshDefaultsIfMissing() && ReadBytes(ini.path()) == created,
+        "a second defaults call leaves the new file unchanged");
+}
+
+void ExistingSettingsAreNotMigrated(bool& ok)
+{
+    TempIni ini;
+    HudSettingsStore store(ini.path());
+    ini.writeRaw(L"HUD", L"Enabled", L"0");
+    const auto before = ReadBytes(ini.path());
+    ok &= Check(store.CreateFreshDefaultsIfMissing(),
+        "existing settings file is accepted without a write");
+    ok &= Check(ReadBytes(ini.path()) == before,
+        "existing file without Developer key is byte-for-byte unchanged");
+    ok &= Check(!store.Load().debugLoggingEnabled,
+        "existing file without Developer key keeps the false fallback");
+    const auto blocker = std::filesystem::path(ini.path()).parent_path() / L"blocker";
+    { std::ofstream file(blocker); file << "x"; }
+    HudSettingsStore failedStore((blocker / L"settings.ini").wstring());
+    ok &= Check(!failedStore.CreateFreshDefaultsIfMissing() &&
+        !failedStore.Load().debugLoggingEnabled,
+        "a failed fresh-default write keeps false and does not block startup");
 }
 
 void SaveThenLoadRoundTrips(bool& ok)
@@ -118,6 +166,9 @@ void SaveDoesNotTouchEnabledOrDebugLogging(bool& ok)
     const auto in = store.Load();
     ok &= Check(!in.hudEnabled, "Save() leaves HUD/Enabled untouched");
     ok &= Check(in.debugLoggingEnabled, "Save() leaves Developer/DebugLoggingEnabled untouched");
+    store.SaveEnabled(false);
+    ok &= Check(store.Load().debugLoggingEnabled,
+        "SaveEnabled() leaves the manually enabled developer flag untouched");
 }
 
 void DebugLoggingEnabledAcceptsTrueFalseText(bool& ok)
@@ -197,6 +248,8 @@ int main()
     AvailabilityReflectsPath(ok);
     LoadDefaultsWhenUnavailable(ok);
     LoadDefaultsWhenFileMissing(ok);
+    FreshDefaultsCreateOnlyWhenFileIsMissing(ok);
+    ExistingSettingsAreNotMigrated(ok);
     SaveThenLoadRoundTrips(ok);
     SaveDoesNotTouchEnabledOrDebugLogging(ok);
     DebugLoggingEnabledAcceptsTrueFalseText(ok);

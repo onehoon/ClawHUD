@@ -54,6 +54,7 @@ public:
     int flushCount{};
     std::uint32_t lastFlushPid{};
     PM_STATUS flushStatus{PM_STATUS_SUCCESS};
+    PM_STATUS consumeStatus{PM_STATUS_SUCCESS};
     // Frames the next ConsumeFrames returns (BETWEEN_DISPLAY_CHANGE value each).
     std::vector<double> pending;
 
@@ -86,6 +87,8 @@ public:
     PM_STATUS ConsumeFrames(PM_FRAME_QUERY_HANDLE, std::uint32_t,
         std::uint8_t* blob, std::uint32_t* frameCount) override
     {
+        if (consumeStatus != PM_STATUS_SUCCESS)
+            return consumeStatus;
         const std::uint32_t n = std::min<std::uint32_t>(
             *frameCount, static_cast<std::uint32_t>(pending.size()));
         for (std::uint32_t i = 0; i < n; ++i)
@@ -156,6 +159,17 @@ void ArmedAttemptLifecycle(bool& ok)
         "BeginVerification arms PID 100 and flushes stale frames");
     ok &= Check(frame.PollDisplayedFrame(client, 100) == false,
         "an armed attempt with no frames reports 'not yet'");
+
+    client.consumeStatus = PM_STATUS_FAILURE;
+    ok &= Check(!frame.PollDisplayedFrame(client, 100),
+        "a ConsumeFrames status failure remains a transient nullopt");
+    client.consumeStatus = PM_STATUS_SUCCESS;
+    client.pending = {std::numeric_limits<double>::quiet_NaN()};
+    ok &= Check(frame.PollDisplayedFrame(client, 100) == false,
+        "a non-finite interval remains non-admitting");
+    client.pending = {0.0, -1.0};
+    ok &= Check(frame.PollDisplayedFrame(client, 100) == false,
+        "zero and negative intervals remain non-admitting");
 
     client.pending = {0.0, 12.5};
     const auto seen = frame.PollDisplayedFrame(client, 100);

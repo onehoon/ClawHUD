@@ -1,7 +1,9 @@
 #include "PresentMonDebugFrameTelemetry.h"
 
+#include <chrono>
 #include <cmath>
 #include <cstring>
+#include <utility>
 
 namespace clawhud
 {
@@ -9,6 +11,7 @@ namespace
 {
 constexpr std::uint32_t kIndependentDeviceId = 0;
 constexpr std::uint32_t kDebugFrameConsumeBatch = 64;
+constexpr auto kDiagnosticInterval = std::chrono::seconds(5);
 
 const PresentMonMetricCapability* FindMetric(
     const PresentMonTelemetryCapabilities& capabilities, PM_METRIC metric)
@@ -191,7 +194,46 @@ void PresentMonDebugFrameTelemetry::Shutdown(PresentMonApi2Client& client) noexc
     queryElements_.clear();
     blobSize_ = 0;
     targetProcessId_ = 0;
+    ResetPollDiagnostics();
+    pendingDiagnostics_.clear();
     ready_ = false;
+}
+
+void PresentMonDebugFrameTelemetry::ResetPollDiagnostics()
+{
+    diagnostics_ = {};
+    diagnostics_.startedAt = diagnostics_.lastDiagnosticAt =
+        std::chrono::steady_clock::now();
+}
+
+void PresentMonDebugFrameTelemetry::QueuePollSummary(
+    PM_STATUS status, std::uint32_t count)
+{
+    const auto now = std::chrono::steady_clock::now();
+    if (diagnostics_.firstOutcomeLogged &&
+        now - diagnostics_.lastDiagnosticAt < kDiagnosticInterval)
+        return;
+    const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        now - diagnostics_.startedAt).count();
+    const wchar_t* result = status != PM_STATUS_SUCCESS ? L"status-error" :
+        count == 0 ? L"no-records" : L"records";
+    pendingDiagnostics_.push_back(L"[PresentMonDebugFrame] poll pid=" +
+        std::to_wstring(targetProcessId_) + L" elapsedMs=" +
+        std::to_wstring(elapsedMs) + L" polls=" +
+        std::to_wstring(diagnostics_.polls) + L" records=" +
+        std::to_wstring(diagnostics_.records) + L" emptyPolls=" +
+        std::to_wstring(diagnostics_.emptyPolls) + L" statusFailures=" +
+        std::to_wstring(diagnostics_.statusFailures) + L" lastStatus=" +
+        std::to_wstring(static_cast<int>(diagnostics_.lastStatus)) + L" result=" + result);
+    diagnostics_.firstOutcomeLogged = true;
+    diagnostics_.lastDiagnosticAt = now;
+}
+
+std::vector<std::wstring> PresentMonDebugFrameTelemetry::TakePendingDiagnostics()
+{
+    auto diagnostics = std::move(pendingDiagnostics_);
+    pendingDiagnostics_.clear();
+    return diagnostics;
 }
 
 std::optional<PresentMonDebugFrame> PresentMonDebugFrameTelemetry::ReadLatest(
@@ -202,13 +244,29 @@ std::optional<PresentMonDebugFrame> PresentMonDebugFrameTelemetry::ReadLatest(
     if (processId != targetProcessId_)
     {
         targetProcessId_ = processId;
-        client.FlushFrames(processId);
+        ResetPollDiagnostics();
+        const PM_STATUS flushStatus = client.FlushFrames(processId);
+        pendingDiagnostics_.push_back(L"[PresentMonDebugFrame] retarget pid=" +
+            std::to_wstring(processId) + L" flushStatus=" +
+            std::to_wstring(static_cast<int>(flushStatus)));
     }
     std::vector<std::uint8_t> blob(
         static_cast<std::size_t>(blobSize_) * kDebugFrameConsumeBatch);
     std::uint32_t count = kDebugFrameConsumeBatch;
-    if (client.ConsumeFrames(query_, processId, blob.data(), &count) !=
-        PM_STATUS_SUCCESS || count == 0)
+    const PM_STATUS status = client.ConsumeFrames(
+        query_, processId, blob.data(), &count);
+    ++diagnostics_.polls;
+    diagnostics_.lastStatus = status;
+    if (status != PM_STATUS_SUCCESS)
+        ++diagnostics_.statusFailures;
+    else
+    {
+        diagnostics_.records += count;
+        if (count == 0)
+            ++diagnostics_.emptyPolls;
+    }
+    QueuePollSummary(status, count);
+    if (status != PM_STATUS_SUCCESS || count == 0)
         return std::nullopt;
     return FoldPresentMonDebugFrames(plan_, blob, count, blobSize_);
 }
