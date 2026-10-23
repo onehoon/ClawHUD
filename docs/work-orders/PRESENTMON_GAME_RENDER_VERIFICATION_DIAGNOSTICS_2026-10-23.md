@@ -4,7 +4,7 @@
 > **Date:** 2026-10-23  
 > **Target branch:** integration/steamaddon ONLY  
 > **Reviewed baseline:** integration/steamaddon@fb714115d35431b97315918a73bbf3c61381fe33  
-> **Deliverable:** ONE narrowly scoped diagnostic implementation PR targeting integration/steamaddon, **fewer than 500 changed LOC** (prefer roughly 200–350 LOC including tests). Do not implement a speculative fix.  
+> **Deliverable:** ONE narrowly scoped PR targeting integration/steamaddon: DEBUG-only verification diagnostics **plus one tiny fresh-install settings-file default**, **fewer than 500 changed LOC** (prefer roughly 250–400 LOC including tests). Do not implement a speculative game-detection fix.  
 > **After validation:** squash-merge the implementation PR into integration/steamaddon following normal PR review. The user will separately decide whether to cherry-pick the resulting production-code commit to main. Do **not** merge main into integration/steamaddon or modify main in this work order.  
 > **Document status:** Implementation instructions only; no production source is changed by this work order.
 
@@ -77,7 +77,7 @@ Confirmed observability gaps:
 
 The recent October 17 PR #266 changed system dynamic-query safety checks, not PresentMonFrameTelemetry, GameRenderVerifier, or the shared provider behavior. Both main and integration have matching Git blobs for these key files as of the reviewed baseline. Do not revert system-query bounds changes without new evidence.
 
-## 3. Scope — instrumentation first, no behavior fix
+## 3. Scope — instrumentation plus fresh-install default, no game-detection behavior fix
 
 Implement a small coherent set of **DEBUG-only, bounded, per-attempt diagnostic records** using the existing RuntimeLogger. Keep existing INFO/WARN behavior and existing user-visible behavior unchanged.
 
@@ -172,6 +172,30 @@ Do not modify:
 
 No release-mode log flood: debug records must disappear when [Developer] DebugLoggingEnabled=false, apart from unchanged existing INFO/ERROR lines.
 
+### 3.6 Add the developer flag ONLY when a genuinely new settings.ini is created
+
+**Additional explicit request (2026-10-23):** On a fresh installation, the per-user `%LOCALAPPDATA%\ClawHUD\settings.ini` should already contain a visible developer switch. The user should only have to change `false` to `true` to gather diagnostic logs; they should not need to type the section and key manually.
+
+Required newly created file content:
+
+```ini
+[Developer]
+DebugLoggingEnabled=false
+```
+
+**Strict creation-only behavior:**
+
+- A **brand-new settings file** (file absent) is the sole creation trigger. On the first successful primary app startup after installation, write the section/key with exact spelling and value `false`. No UI control, prompt, automatic enabling, installer elevation, or change to logging semantics.
+- If `settings.ini` **already exists**, never insert the section or missing key, never rewrite an existing `true`/`1` value, and never modify the existing file's other settings. **No migration, no backfill** for older installations. Existing missing-key reads continue to default to false silently.
+- Do **not** add the developer key to `HudSettingsStore::Save()`, `SaveEnabled()`, or `SaveIntelVrrRangeFixEnabled()`. Those existing setters must keep their current narrow write scopes, and future normal settings saves must not reset a manually enabled flag.
+- The existing `HudSettingsStore::Load()` already reads `ReadBool(L"Developer", L"DebugLoggingEnabled", false)` with support for `true`/`false` and `1`/`0`; preserve that exact reader and its startup-only semantics.
+- Locate this creation behavior in the existing **per-user settings owner** (`HudSettingsStore`; e.g. a small `CreateFreshDefaultsIfMissing()` method), called once from the **primary app startup after single-instance acquisition**, not from VeloPack's install/update/uninstall hooks. VeloPack hooks are inappropriate for creating a per-user file because install/update lifecycle is not the authoritative normal app runtime. Both standalone and SteamAddon-managed fresh launches should get the same default.
+- Do not create the file from a losing second instance, an update-only exit, or uninstall cleanup. Keep the check/write narrowly scoped; do not add an install-state registry marker or a migration framework merely to distinguish old installations.
+- Prefer the existing `EnsureParentDirectory()` and Win32 INI writing style. Check for the absent file *before* writing. On a failure to create/write, preserve current fallback behavior (`false`) and log a bounded warning/error; failure to create the developer convenience key must **not** prevent ClawHUD startup.
+- Do not add other default keys or a blanket persisted settings snapshot to this request. The user asked for this developer flag only.
+
+**Source review:** `src/ClawHUD/HudSettingsStore.cpp:56-85` reads the false fallback; `Save():88-114` writes only HUD/general settings; `App.cpp:57-77` loads settings before app run; `App::Run()` acquires single-instance ownership; `App.cpp:687-715` owns settings load/save; `tests/HudSettingsStoreTests.cpp:107-132` already verifies `Save()` does not overwrite the developer key and all three accepted true/false formats. No existing new-install file creator was observed in these code paths.
+
 ## 4. Small implementation illustration (adapt to local code)
 
 Illustrative **only**, inside the existing ConsumeFrames call path. The critical point is to retain the original return behavior:
@@ -209,15 +233,17 @@ Extend **existing tests** instead of creating a test framework:
    - any testable bounded summary function/counter distinguishes those cases without changing results.
 2. tests/PresentMonTelemetryProviderTests.cpp: preserve PID lease / ref-count invariants and unready-provider behavior; extend only if new stage-logging support adds genuinely testable pure logic.
 3. tests/GameRenderVerifierTests.cpp / PresentActivitySourceTests.cpp: preserve start/stop semantics and existing output. Add focused assertions only if a minimal new formatter/helper merits them.
-4. No production test should depend on specific timestamps or orderings between unrelated debug and verifier threads.
+4. tests/HudSettingsStoreTests.cpp: a fresh temp path without settings.ini creates exactly [Developer] DebugLoggingEnabled=false; a second call is a no-op; an existing file with DebugLoggingEnabled=true is untouched; an existing file lacking [Developer] remains untouched (no migration/backfill); normal Save()/SaveEnabled() still preserve the manually enabled true value; failed/unavailable target path retains false fallback without blocking startup.
+5. No production test should depend on specific timestamps or orderings between unrelated debug and verifier threads.
 
 Required checks (on a Windows/MSVC build environment):
 
 - Build ClawHUD Managed/integration target in Release and Debug as supported.
-- Run ClawHUD.PresentMonFrameTelemetryTests, ClawHUD.PresentMonTelemetryProviderTests, ClawHUD.GameRenderVerifierTests, ClawHUD.PresentActivitySourceTests (confirm actual CTest names from the branch's CMake).
+- Run ClawHUD.PresentMonFrameTelemetryTests, ClawHUD.PresentMonTelemetryProviderTests, ClawHUD.GameRenderVerifierTests, ClawHUD.PresentActivitySourceTests, and ClawHUD.HudSettingsStoreTests (confirm actual CTest names from the branch's CMake).
 - Run the full integration-branch CTest suite, including existing HUD presentation-contract regression tests.
 - git diff --check, and verify PR changed LOC remains <500.
 - Verify ordinary DebugLoggingEnabled=false produces no new per-frame or repeating diagnostics.
+- Smoke-test a genuinely fresh per-user settings path: the first accepted app launch creates [Developer] DebugLoggingEnabled=false; editing to true takes effect after restart; an existing settings.ini without the key receives no migration/backfill on restart.
 
 ## 6. Hardware reproduction and evidence collection
 
@@ -251,9 +277,10 @@ Note: HudPresentStats read-failed / independentFlip=0 are **not** valid proxies 
 
 ## 7. Completion criteria / review gates
 
-- One compact PR against **integration/steamaddon only**, below 500 changed LOC.
+- One compact PR against **integration/steamaddon only**, below 500 changed LOC, covering diagnostic logs plus the fresh-file developer-default creation only.
 - Logs distinguish **not armed**, **API status error**, **no records**, **invalid/nonpositive intervals**, and **first positive displayed frame**, with PID/attempt correlation.
 - Logging is DEBUG gated and bounded; no 100ms log spam, no raw frame dump, no private full executable paths.
+- Only absent settings.ini files are created with [Developer] DebugLoggingEnabled=false; existing files (including those without that key) are untouched and existing enabled values are preserved.
 - Existing user-visible game detection/HUD/FPS behavior and verifier return semantics are bit-for-bit logically unchanged.
 - Existing tests pass, and new fake-client assertions exercise the diagnostic distinctions where practicable.
 - Production HUD VRR safety invariants are preserved; no changes to the presentation path.
@@ -262,4 +289,4 @@ Note: HudPresentStats read-failed / independentFlip=0 are **not** valid proxies 
 
 ## 8. Handoff
 
-Implementation branch should be cut **from integration/steamaddon**, with PR base integration/steamaddon. Keep the resulting production-source change cherry-pickable to main; no integration-specific code paths unless essential for build wiring. The user will authorize and perform any subsequent main cherry-pick separately.
+Implementation branch should be cut **from integration/steamaddon**, with PR base integration/steamaddon. Keep the resulting production-source change cherry-pickable to main; no integration-specific code paths unless essential for build wiring. The user will authorize and perform any subsequent main cherry-pick separately. The fresh-install settings default is included in the same focused implementation PR and is also portable to main without installing any migration machinery.
