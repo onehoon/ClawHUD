@@ -69,6 +69,15 @@ bool IsAffectedPanel(const PanelIdentity& identity)
         && containsInsensitive(identity.panelName, "PN8007QB1-2");
 }
 
+bool IsLg27gs65fPanel(const PanelIdentity& identity)
+{
+    if (!identity.active || _stricmp(identity.manufacturer.c_str(), "GSM") != 0 ||
+        _stricmp(identity.productCode.c_str(), "5C8C") != 0)
+        return false;
+    return _stricmp(identity.panelName.c_str(), "LG ULTRAGEAR") == 0 ||
+        _stricmp(identity.panelName.c_str(), "LG 27GS65F") == 0;
+}
+
 std::vector<PanelIdentity> EnumeratePanelIdentities()
 {
     std::vector<PanelIdentity> results;

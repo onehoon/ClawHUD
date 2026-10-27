@@ -24,6 +24,11 @@ std::map<std::wstring, std::wstring> Read(const std::wstring& path)
 }
 }
 void IntelVrrResultStore::SetDataDirectoryOverrideForTests(const std::wstring& directory) { dataDirectoryOverride = directory; }
+void IntelVrrResultStore::Clear()
+{
+    const auto path = Path();
+    if (!path.empty()) DeleteFileW(path.c_str());
+}
 void IntelVrrResultStore::Save(const IntelVrrRunResult& result)
 {
     try { const auto path = Path(); if (path.empty()) return; const auto temp = path + L".tmp"; std::wofstream out(temp, std::ios::trunc); if (!out) return;
