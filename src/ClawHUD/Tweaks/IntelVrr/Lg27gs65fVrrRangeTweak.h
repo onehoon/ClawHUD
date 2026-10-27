@@ -30,6 +30,8 @@ struct Lg27gs65fVrrFixOutcome
 {
     IntelVrrRunResult result;
     std::vector<std::string> log;
+    // True only after the exact active LG Windows target has been verified.
+    bool targetVerified{};
 };
 
 // Manual Settings toggle controls startup execution; this never changes the HUD.
