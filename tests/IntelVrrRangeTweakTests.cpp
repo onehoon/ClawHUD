@@ -68,15 +68,19 @@ int main()
     using LgDecision = Lg27gs65fProfileDecision;
     ok &= Check(EvaluateLg27gs65fProductionProfile(lgState(1, 90, 180)) ==
         LgDecision::ApplyExcellent, "LG recommended 90-180 needs EXCELLENT");
+    ok &= Check(EvaluateLg27gs65fProductionProfile(lgState(4, 90, 180)) ==
+        LgDecision::ApplyExcellent, "LG compatible 90-180 needs EXCELLENT");
     ok &= Check(EvaluateLg27gs65fProductionProfile(lgState(2, 48, 180)) ==
         LgDecision::AlreadyCorrect, "LG full EXCELLENT is idempotent");
     ok &= Check(EvaluateLg27gs65fProductionProfile(lgState(1, 48, 180)) ==
         LgDecision::AlreadyCorrect, "LG full RECOMMENDED is preserved");
-    for (const auto profile : { 3u, 5u, 7u })
+    for (const auto profile : { 3u, 5u, 6u, 7u })
         ok &= Check(EvaluateLg27gs65fProductionProfile(lgState(profile, 90, 180)) ==
             LgDecision::SkipUserProfile, "LG custom/off/nonrecommended profile is preserved");
     ok &= Check(EvaluateLg27gs65fProductionProfile(lgState(1, 60, 180)) ==
         LgDecision::SkipUserProfile, "unexpected LG active range is not overridden");
+    ok &= Check(EvaluateLg27gs65fProductionProfile(lgState(4, 60, 180)) ==
+        LgDecision::SkipUserProfile, "unexpected compatible range is preserved");
     auto lgUnsafe = lgState(1, 90, 180);
     lgUnsafe.mappingStatus = DiagIgclTargetMappingStatus::Ambiguous;
     ok &= Check(EvaluateLg27gs65fProductionProfile(lgUnsafe) ==
