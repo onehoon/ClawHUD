@@ -18,6 +18,7 @@ namespace
 constexpr float kToleranceHz = 0.25f;
 constexpr std::uint32_t kRecommended = 1;
 constexpr std::uint32_t kExcellent = 2;
+constexpr std::uint32_t kCompatible = 4;
 
 bool Near(float value, float expected) noexcept
 {
@@ -179,10 +180,10 @@ Lg27gs65fProfileDecision EvaluateLg27gs65fProductionProfile(
     if (Near(profile.minimumHz, 48.0f) && Near(profile.maximumHz, 180.0f) &&
         (profile.profile == kExcellent || profile.profile == kRecommended))
         return Lg27gs65fProfileDecision::AlreadyCorrect;
-    if (profile.profile == kRecommended && Near(profile.minimumHz, 90.0f) &&
-        Near(profile.maximumHz, 180.0f))
+    if ((profile.profile == kRecommended || profile.profile == kCompatible) &&
+        Near(profile.minimumHz, 90.0f) && Near(profile.maximumHz, 180.0f))
         return Lg27gs65fProfileDecision::ApplyExcellent;
-    // Never override CUSTOM, OFF, an unexpected range, or any other user profile.
+    // Preserve other user-selected profiles and unexpected active ranges.
     return Lg27gs65fProfileDecision::SkipUserProfile;
 }
 
@@ -260,15 +261,21 @@ Lg27gs65fVrrFixOutcome RunLg27gs65fProductionVrrFix()
             Near(after.profile->maximumHz, 180.0f))
             return finish(IntelVrrRunStatus::Applied, "LG 27GS65F VRR range restored to 48-180 Hz.");
 
-        // Revert only if the same monitor still maps exactly and IGCL reports EXCELLENT.
+        // Restore the original RECOMMENDED or COMPATIBLE profile on a verified target.
         if (Verified(after, kExcellent) && MatchesCurrentTarget(*target.value))
         {
-            const auto rollback = probe.SetProfileForExactTarget(after, kRecommended);
+            const auto originalProfile = before.profile->profile;
+            const auto rollback = probe.SetProfileForExactTarget(after, originalProfile);
             if (rollback.succeeded && MatchesCurrentTarget(*target.value))
             {
                 const auto reverted = probe.Query(target.value->adapterLuid, target.value->targetId);
-                log.push_back(Verified(reverted, kRecommended)
-                    ? "LG rollback RECOMMENDED verified" : "LG rollback could not be verified");
+                const bool restored = Verified(reverted, originalProfile) &&
+                    Near(reverted.profile->minimumHz, before.profile->minimumHz) &&
+                    Near(reverted.profile->maximumHz, before.profile->maximumHz);
+                log.push_back(restored
+                    ? (originalProfile == kCompatible ? "LG rollback COMPATIBLE verified"
+                        : "LG rollback RECOMMENDED verified")
+                    : "LG rollback could not be verified");
             }
             else log.push_back("LG rollback failed or target changed");
         }

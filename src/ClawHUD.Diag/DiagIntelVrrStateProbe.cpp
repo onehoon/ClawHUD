@@ -435,6 +435,7 @@ DiagIgclProfileSetResult DiagIntelVrrStateProbe::SetProfileForExactTarget(
 {
     constexpr std::uint32_t recommended = 1;
     constexpr std::uint32_t excellent = 2;
+    constexpr std::uint32_t compatible = 4;
     constexpr float capabilityMinimumHz = 48.0f;
     constexpr float capabilityMaximumHz = 180.0f;
     constexpr float toleranceHz = 0.25f;
@@ -448,7 +449,8 @@ DiagIgclProfileSetResult DiagIntelVrrStateProbe::SetProfileForExactTarget(
     exactOutput_ = nullptr;
     if (!apiHandle_ || !endpoints_ || !endpoints_->setArcSyncProfile || !output)
         return reject("IGCL profile setter is unavailable");
-    if ((requestedProfile != excellent && requestedProfile != recommended) ||
+    if ((requestedProfile != excellent && requestedProfile != recommended &&
+         requestedProfile != compatible) ||
         !expected.enumerationComplete ||
         expected.mappingStatus != DiagIgclTargetMappingStatus::Exact ||
         expected.windowsTargetAdapterLuid.LowPart != exactOutputAdapterLuid_.LowPart ||
@@ -465,9 +467,15 @@ DiagIgclProfileSetResult DiagIntelVrrStateProbe::SetProfileForExactTarget(
         !std::isfinite(expected.profile->maximumHz))
         return reject("expected state is not an exact supported LG profile target");
 
-    const auto expectedCurrentProfile = requestedProfile == excellent
-        ? recommended : excellent;
-    if (expected.profile->profile != expectedCurrentProfile)
+    const bool canApplyExcellent = requestedProfile == excellent &&
+        (expected.profile->profile == recommended ||
+         (expected.profile->profile == compatible &&
+          std::abs(expected.profile->minimumHz - 90.0f) <= toleranceHz &&
+          std::abs(expected.profile->maximumHz - 180.0f) <= toleranceHz));
+    const bool canRestoreOriginal =
+        (requestedProfile == recommended || requestedProfile == compatible) &&
+        expected.profile->profile == excellent;
+    if (!canApplyExcellent && !canRestoreOriginal)
         return reject("current profile is not eligible for the requested change");
 
     try
