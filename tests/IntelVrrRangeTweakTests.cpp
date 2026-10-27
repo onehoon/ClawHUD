@@ -1,4 +1,6 @@
 #include "Tweaks/IntelVrr/IntelVrrRangeTweak.h"
+#include "Tweaks/IntelVrr/Lg27gs65fVrrRangeTweak.h"
+#include "Tweaks/IntelVrr/Probe/IntelDisplayPathProbe.h"
 #include "Tweaks/IntelVrr/IntelVrrResultStore.h"
 #include <iostream>
 #include <memory>
@@ -35,6 +37,94 @@ int main()
     wrong = Affected(); wrong.productCode = "0000"; ok &= Check(!IsAffectedPanel(wrong), "wrong product does not match");
     wrong = Affected(); wrong.panelName = "other"; ok &= Check(!IsAffectedPanel(wrong), "wrong name does not match");
 
+    const auto lg = PanelIdentity{ "GSM", "5C8C", "LG ULTRAGEAR", true, "DISPLAY\\GSM5C8C\\UID4165" };
+    ok &= Check(IsLg27gs65fPanel(lg), "LG 27GS65F identity matches");
+    ok &= Check(IsLg27gs65fWindowsIdentity(
+        LR"(\\?\DISPLAY#GSM5C8C#test-instance#{guid})", L"LG ULTRAGEAR"),
+        "LG Windows display-path identity matches");
+    ok &= Check(!IsLg27gs65fWindowsIdentity(
+        LR"(\\?\DISPLAY#GSM0000#test-instance#{guid})", L"LG ULTRAGEAR"),
+        "other LG monitor path must not match");
+    ok &= Check(!IsLg27gs65fWindowsIdentity(
+        LR"(\\?\DISPLAY#GSM5C8C#test-instance#{guid})", L"Generic PnP Monitor"),
+        "unexpected display friendly name must not match");
+    auto lgBad = lg; lgBad.active = false;
+    ok &= Check(!IsLg27gs65fPanel(lgBad), "inactive LG is ignored");
+    lgBad = lg; lgBad.productCode = "0000";
+    ok &= Check(!IsLg27gs65fPanel(lgBad), "other LG model does not match");
+    lgBad = lg; lgBad.manufacturer = "DEL";
+    ok &= Check(!IsLg27gs65fPanel(lgBad), "non-LG manufacturer does not match");
+    ok &= Check(!IsAffectedPanel(lg), "LG must not match Claw's internal-panel detector");
+
+    auto lgState = [](std::uint32_t profile, float minimum, float maximum) {
+        IntelVrrTargetState s;
+        s.initialized = s.enumerationComplete = true;
+        s.mappingStatus = IntelVrrTargetMappingStatus::Exact;
+        s.targetMatchCount = s.displayOutputCount = s.displayPropertiesSuccessCount = 1;
+        s.capabilityResult = s.profileResult = 0;
+        s.capability = IntelVrrArcSyncCapability{ true, 48.0f, 180.0f, 0, 0 };
+        s.profile = IntelVrrArcSyncProfile{ profile, maximum, minimum, 0, 0 };
+        return s;
+    };
+    using LgDecision = Lg27gs65fProfileDecision;
+    ok &= Check(EvaluateLg27gs65fProductionProfile(lgState(1, 90, 180)) ==
+        LgDecision::ApplyExcellent, "LG recommended 90-180 needs EXCELLENT");
+
+    LUID targetAdapter{};
+    targetAdapter.LowPart = 0x1234;
+    targetAdapter.HighPart = 1;
+    std::vector<IntelVrrOutputIdentity> targetOutputs{
+        { targetAdapter, 7 }, { LUID{ 0x5678, 0 }, 7 } };
+    const auto exactTarget = ResolveIntelVrrTarget(targetAdapter, 7, targetOutputs);
+    ok &= Check(exactTarget.status == IntelVrrTargetMappingStatus::Exact &&
+        exactTarget.outputIndex == 0, "adapter LUID and target ID resolve one exact IGCL output");
+    ok &= Check(ResolveIntelVrrTarget(targetAdapter, 8, targetOutputs).status ==
+        IntelVrrTargetMappingStatus::Unknown, "missing IGCL target is not selected");
+    ok &= Check(ResolveIntelVrrTarget(targetAdapter, 7, targetOutputs, false).status ==
+        IntelVrrTargetMappingStatus::Unknown, "incomplete IGCL enumeration is not trusted");
+    targetOutputs.push_back({ targetAdapter, 7 });
+    ok &= Check(ResolveIntelVrrTarget(targetAdapter, 7, targetOutputs).status ==
+        IntelVrrTargetMappingStatus::Ambiguous, "duplicate exact IGCL target is rejected");
+
+    RECT monitorRect{ 0, 0, 1920, 1080 };
+    const std::vector<IntelVrrActiveDisplayPath> activePaths{
+        { L"\\\\.\\DISPLAY1", {}, 0, targetAdapter, 7, 60, 1 } };
+    const auto displayPath = ResolveIntelVrrDisplayPath(
+        L"\\\\.\\display1", monitorRect, activePaths);
+    ok &= Check(displayPath.status == IntelDisplayPathProbeStatus::Matched &&
+        displayPath.path && displayPath.path->targetId == 7,
+        "Windows monitor source resolves its active target case-insensitively");
+    ok &= Check(ResolveIntelVrrDisplayPath(L"\\\\.\\DISPLAY2", monitorRect,
+        activePaths).status == IntelDisplayPathProbeStatus::NotFound,
+        "unmatched Windows monitor source is rejected");
+    auto ambiguousPaths = activePaths;
+    ambiguousPaths.push_back(activePaths.front());
+    ok &= Check(ResolveIntelVrrDisplayPath(L"\\\\.\\DISPLAY1", monitorRect,
+        ambiguousPaths).status == IntelDisplayPathProbeStatus::Ambiguous,
+        "ambiguous Windows monitor source is rejected");
+
+    ok &= Check(EvaluateLg27gs65fProductionProfile(lgState(2, 48, 180)) ==
+        LgDecision::AlreadyCorrect, "LG full EXCELLENT is idempotent");
+    ok &= Check(EvaluateLg27gs65fProductionProfile(lgState(1, 48, 180)) ==
+        LgDecision::AlreadyCorrect, "LG full RECOMMENDED is preserved");
+    for (const auto profile : { 3u, 5u, 7u })
+        ok &= Check(EvaluateLg27gs65fProductionProfile(lgState(profile, 90, 180)) ==
+            LgDecision::SkipUserProfile, "LG custom/off/nonrecommended profile is preserved");
+    ok &= Check(EvaluateLg27gs65fProductionProfile(lgState(1, 60, 180)) ==
+        LgDecision::SkipUserProfile, "unexpected LG active range is not overridden");
+    auto lgUnsafe = lgState(1, 90, 180);
+    lgUnsafe.mappingStatus = IntelVrrTargetMappingStatus::Ambiguous;
+    ok &= Check(EvaluateLg27gs65fProductionProfile(lgUnsafe) ==
+        LgDecision::Unavailable, "ambiguous IGCL output prevents write");
+    lgUnsafe = lgState(1, 90, 180);
+    lgUnsafe.capability->maximumHz = 165;
+    ok &= Check(EvaluateLg27gs65fProductionProfile(lgUnsafe) ==
+        LgDecision::Unsupported, "wrong LG capability prevents write");
+    lgUnsafe = lgState(1, 90, 180);
+    lgUnsafe.profileResult = 0x40000007;
+    ok &= Check(EvaluateLg27gs65fProductionProfile(lgUnsafe) ==
+        LgDecision::Unavailable, "IGCL error prevents write");
+
     auto run = [](IntelArcSyncProfile profile, float min, float max, bool setSuccess = true) {
         auto fake = std::make_shared<FakeClient>(); fake->profile = { profile, min, max, 0, 0 }; fake->setSuccess = setSuccess; auto* raw = fake.get();
         IntelVrrRangeTweak tweak([fake] { return std::unique_ptr<IIntelArcSyncClient>(new FakeClient(*fake)); }, [] { return std::vector<PanelIdentity>{ Affected() }; });
@@ -51,7 +141,16 @@ int main()
     }
     {
         auto fake = std::make_shared<FakeClient>(); IntelVrrRangeTweak tweak([fake] { return std::unique_ptr<IIntelArcSyncClient>(new FakeClient(*fake)); }, [] { return std::vector<PanelIdentity>{}; });
-        auto result = tweak.Run(true); ok &= Check(result.status == IntelVrrRunStatus::UnsupportedPanel && *fake->setCalls == 0, "unsupported panel performs no mutation");
+        IntelVrrRunResult stale;
+        stale.status = IntelVrrRunStatus::Applied;
+        stale.panelName = "LG ULTRAGEAR";
+        IntelVrrResultStore::Save(stale);
+        ok &= Check(IntelVrrResultStore::Load().has_value(), "fixture saved an old result");
+        auto result = tweak.Run(true);
+        ok &= Check(result.status == IntelVrrRunStatus::UnsupportedPanel && *fake->setCalls == 0,
+            "unsupported panel performs no mutation");
+        ok &= Check(!IntelVrrResultStore::Load().has_value(),
+            "unsupported hardware clears stale results and exposes nothing via IPC");
     }
     {
         auto fake = std::make_shared<FakeClient>(); fake->initialize = false; IntelVrrRangeTweak tweak([fake] { return std::unique_ptr<IIntelArcSyncClient>(new FakeClient(*fake)); }, [] { return std::vector<PanelIdentity>{ Affected() }; });

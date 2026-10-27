@@ -122,6 +122,9 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/Tweaks/IntelVrr/AffectedPanelDetector.cpp
     src/ClawHUD/Tweaks/IntelVrr/IntelArcSyncClient.cpp
     src/ClawHUD/Tweaks/IntelVrr/IntelVrrRangeTweak.cpp
+    src/ClawHUD/Tweaks/IntelVrr/Lg27gs65fVrrRangeTweak.cpp
+    src/ClawHUD/Tweaks/IntelVrr/Probe/IntelDisplayPathProbe.cpp
+    src/ClawHUD/Tweaks/IntelVrr/Probe/IntelVrrTargetStateProbe.cpp
     src/ClawHUD/Tweaks/IntelVrr/IntelVrrRunResult.cpp
     src/ClawHUD/Tweaks/IntelVrr/IntelVrrResultStore.cpp
     src/ClawHUD/HudModel.cpp

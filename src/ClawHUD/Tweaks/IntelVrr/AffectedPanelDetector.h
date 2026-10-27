@@ -15,6 +15,7 @@ struct PanelIdentity
 };
 
 bool IsAffectedPanel(const PanelIdentity& identity);
+bool IsLg27gs65fPanel(const PanelIdentity& identity);
 std::vector<PanelIdentity> EnumeratePanelIdentities();
 std::string DecodeWmiUShortString(const std::vector<unsigned short>& values);
 }
