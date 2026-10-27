@@ -9,6 +9,7 @@
 #include <optional>
 #include <sstream>
 #include <string_view>
+#include <utility>
 
 namespace clawhud
 {
@@ -38,9 +39,11 @@ bool ContainsInsensitive(std::wstring_view value, std::wstring_view token) noexc
     return false;
 }
 
+} // namespace
+
 // Observed hardware identity: \\?\DISPLAY#GSM5C8C#... / LG ULTRAGEAR.
 // Product code, manufacturer and friendly name must all agree.
-bool IsLgDeviceIdentity(std::wstring_view path, std::wstring_view friendly) noexcept
+bool IsLg27gs65fWindowsIdentity(std::wstring_view path, std::wstring_view friendly) noexcept
 {
     const auto first = path.find(L'#');
     if (first == std::wstring_view::npos || !ContainsInsensitive(path.substr(0, first), L"DISPLAY"))
@@ -53,6 +56,8 @@ bool IsLgDeviceIdentity(std::wstring_view path, std::wstring_view friendly) noex
         ContainsInsensitive(friendly, L"LG ULTRAGEAR");
 }
 
+namespace
+{
 struct Monitors
 {
     HMONITOR monitor{};
@@ -110,7 +115,7 @@ TargetLookup FindExactLgTarget()
 
     const std::wstring_view devicePath = display.monitorDevicePath;
     const std::wstring_view friendly = display.monitorFriendlyDeviceName;
-    if (!IsLgDeviceIdentity(devicePath, friendly))
+    if (!IsLg27gs65fWindowsIdentity(devicePath, friendly))
         return { IntelVrrRunStatus::UnsupportedPanel, "target is not LG 27GS65F", {} };
 
     return { IntelVrrRunStatus::AlreadyCorrect, {},
