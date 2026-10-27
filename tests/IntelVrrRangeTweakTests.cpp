@@ -106,7 +106,16 @@ int main()
     }
     {
         auto fake = std::make_shared<FakeClient>(); IntelVrrRangeTweak tweak([fake] { return std::unique_ptr<IIntelArcSyncClient>(new FakeClient(*fake)); }, [] { return std::vector<PanelIdentity>{}; });
-        auto result = tweak.Run(true); ok &= Check(result.status == IntelVrrRunStatus::UnsupportedPanel && *fake->setCalls == 0, "unsupported panel performs no mutation");
+        IntelVrrRunResult stale;
+        stale.status = IntelVrrRunStatus::Applied;
+        stale.panelName = "LG ULTRAGEAR";
+        IntelVrrResultStore::Save(stale);
+        ok &= Check(IntelVrrResultStore::Load().has_value(), "fixture saved an old result");
+        auto result = tweak.Run(true);
+        ok &= Check(result.status == IntelVrrRunStatus::UnsupportedPanel && *fake->setCalls == 0,
+            "unsupported panel performs no mutation");
+        ok &= Check(!IntelVrrResultStore::Load().has_value(),
+            "unsupported hardware clears stale results and exposes nothing via IPC");
     }
     {
         auto fake = std::make_shared<FakeClient>(); fake->initialize = false; IntelVrrRangeTweak tweak([fake] { return std::unique_ptr<IIntelArcSyncClient>(new FakeClient(*fake)); }, [] { return std::vector<PanelIdentity>{ Affected() }; });
