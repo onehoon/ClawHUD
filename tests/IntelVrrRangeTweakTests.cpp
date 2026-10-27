@@ -38,6 +38,15 @@ int main()
 
     const auto lg = PanelIdentity{ "GSM", "5C8C", "LG ULTRAGEAR", true, "DISPLAY\\GSM5C8C\\UID4165" };
     ok &= Check(IsLg27gs65fPanel(lg), "LG 27GS65F identity matches");
+    ok &= Check(IsLg27gs65fWindowsIdentity(
+        LR"(\\?\DISPLAY#GSM5C8C#test-instance#{guid})", L"LG ULTRAGEAR"),
+        "LG Windows display-path identity matches");
+    ok &= Check(!IsLg27gs65fWindowsIdentity(
+        LR"(\\?\DISPLAY#GSM0000#test-instance#{guid})", L"LG ULTRAGEAR"),
+        "other LG monitor path must not match");
+    ok &= Check(!IsLg27gs65fWindowsIdentity(
+        LR"(\\?\DISPLAY#GSM5C8C#test-instance#{guid})", L"Generic PnP Monitor"),
+        "unexpected display friendly name must not match");
     auto lgBad = lg; lgBad.active = false;
     ok &= Check(!IsLg27gs65fPanel(lgBad), "inactive LG is ignored");
     lgBad = lg; lgBad.productCode = "0000";
