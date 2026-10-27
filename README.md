@@ -34,7 +34,7 @@ ClawHUD checks the baseboard ID at startup. Unsupported devices are rejected ins
 - Left / Center / Right alignment
 - Full-width or content-width HUD background
 - HUD opacity adjustment
-- Intel VRR Range Fix for affected MSI Claw displays
+- Intel VRR Range Fix for affected MSI Claw internal panels and LG 27GS65F external monitors
 - Silent application update checks at startup
 
 ClawHUD runs from the system tray. Open **Settings** from the tray icon to configure the HUD.
@@ -102,7 +102,11 @@ Settings are persisted between launches.
 
 **Intel VRR Range Fix** is available directly on the main Settings page.
 
-This tweak restores the native VRR range on affected MSI Claw displays and is applied at application startup when enabled.
+This tweak restores the native VRR range on affected MSI Claw internal displays and on the **LG 27GS65F** external monitor when connected to the Intel GPU. It runs on application startup when enabled.
+
+The LG-specific path requires a **single active display**, an exact `GSM5C8C` LG monitor identity, and an exact Windows display target ↔ Intel IGCL adapter/output match. It changes only the observed `RECOMMENDED / 90–180 Hz` state to `EXCELLENT / 48–180 Hz`, and checks the result by reading IGCL again. If `48–180 Hz` is already active, no write is performed. Other profiles, including `CUSTOM` and `OFF`, are preserved. **When the LG 27GS65F is not detected, no LG fix is applied and no 'not applied' result is surfaced:** a stale LG status is cleared instead. The existing MSI Claw internal-panel handling is unaffected. The automatic tweak does **not** modify Windows refresh modes, display EDIDs, or the game's presentation path.
+
+The LG profile change was verified on real LG 27GS65F hardware and remained after reboot; persistence after future driver or monitor changes is not guaranteed. The diagnostic's separate game VRR findings are not changed by this tweak.
 
 The tweak is enabled by default in the current development build.
 
