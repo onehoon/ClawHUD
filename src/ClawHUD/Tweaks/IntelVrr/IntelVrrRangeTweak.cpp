@@ -30,13 +30,22 @@ IntelVrrRunResult IntelVrrRangeTweak::Run(bool enabled)
         {
             auto external = RunLg27gs65fProductionVrrFix();
             for (const auto& line : external.log) log_.push_back(line);
+            if (!external.targetVerified)
+            {
+                // WMI can retain stale active monitor entries after disconnect.
+                // No exact active LG target: no user-visible result or notification.
+                IntelVrrResultStore::Clear();
+                return external.result;
+            }
             external.result.panelName = lg->panelName;
             external.result.timestampUtc = result.timestampUtc;
             return finish(std::move(external.result));
         }
         result.status = IntelVrrRunStatus::UnsupportedPanel;
-        result.message = "No supported MSI Claw internal or LG 27GS65F display is active.";
-        return finish(result);
+        // Unsupported hardware is not a failed fix and must not surface in UI.
+        // Clear a previous run's result as well (e.g. LG was later disconnected).
+        IntelVrrResultStore::Clear();
+        return result;
     }
     result.panelName = panel->panelName;
     auto client = clientFactory_(); if (!client) { result.status = IntelVrrRunStatus::Unavailable; result.message = "Intel Graphics Control Library is not available."; return finish(result); }
