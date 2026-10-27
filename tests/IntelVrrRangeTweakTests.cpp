@@ -1,5 +1,6 @@
 #include "Tweaks/IntelVrr/IntelVrrRangeTweak.h"
 #include "Tweaks/IntelVrr/Lg27gs65fVrrRangeTweak.h"
+#include "Tweaks/IntelVrr/Probe/IntelDisplayPathProbe.h"
 #include "Tweaks/IntelVrr/IntelVrrResultStore.h"
 #include <iostream>
 #include <memory>
@@ -56,18 +57,52 @@ int main()
     ok &= Check(!IsAffectedPanel(lg), "LG must not match Claw's internal-panel detector");
 
     auto lgState = [](std::uint32_t profile, float minimum, float maximum) {
-        DiagIntelVrrState s;
+        IntelVrrTargetState s;
         s.initialized = s.enumerationComplete = true;
-        s.mappingStatus = DiagIgclTargetMappingStatus::Exact;
+        s.mappingStatus = IntelVrrTargetMappingStatus::Exact;
         s.targetMatchCount = s.displayOutputCount = s.displayPropertiesSuccessCount = 1;
         s.capabilityResult = s.profileResult = 0;
-        s.capability = DiagArcSyncCapability{ true, 48.0f, 180.0f, 0, 0 };
-        s.profile = DiagArcSyncProfile{ profile, maximum, minimum, 0, 0 };
+        s.capability = IntelVrrArcSyncCapability{ true, 48.0f, 180.0f, 0, 0 };
+        s.profile = IntelVrrArcSyncProfile{ profile, maximum, minimum, 0, 0 };
         return s;
     };
     using LgDecision = Lg27gs65fProfileDecision;
     ok &= Check(EvaluateLg27gs65fProductionProfile(lgState(1, 90, 180)) ==
         LgDecision::ApplyExcellent, "LG recommended 90-180 needs EXCELLENT");
+
+    LUID targetAdapter{};
+    targetAdapter.LowPart = 0x1234;
+    targetAdapter.HighPart = 1;
+    std::vector<IntelVrrOutputIdentity> targetOutputs{
+        { targetAdapter, 7 }, { LUID{ 0x5678, 0 }, 7 } };
+    const auto exactTarget = ResolveIntelVrrTarget(targetAdapter, 7, targetOutputs);
+    ok &= Check(exactTarget.status == IntelVrrTargetMappingStatus::Exact &&
+        exactTarget.outputIndex == 0, "adapter LUID and target ID resolve one exact IGCL output");
+    ok &= Check(ResolveIntelVrrTarget(targetAdapter, 8, targetOutputs).status ==
+        IntelVrrTargetMappingStatus::Unknown, "missing IGCL target is not selected");
+    ok &= Check(ResolveIntelVrrTarget(targetAdapter, 7, targetOutputs, false).status ==
+        IntelVrrTargetMappingStatus::Unknown, "incomplete IGCL enumeration is not trusted");
+    targetOutputs.push_back({ targetAdapter, 7 });
+    ok &= Check(ResolveIntelVrrTarget(targetAdapter, 7, targetOutputs).status ==
+        IntelVrrTargetMappingStatus::Ambiguous, "duplicate exact IGCL target is rejected");
+
+    RECT monitorRect{ 0, 0, 1920, 1080 };
+    const std::vector<IntelVrrActiveDisplayPath> activePaths{
+        { L"\\\\.\\DISPLAY1", {}, 0, targetAdapter, 7, 60, 1 } };
+    const auto displayPath = ResolveIntelVrrDisplayPath(
+        L"\\\\.\\display1", monitorRect, activePaths);
+    ok &= Check(displayPath.status == IntelDisplayPathProbeStatus::Matched &&
+        displayPath.path && displayPath.path->targetId == 7,
+        "Windows monitor source resolves its active target case-insensitively");
+    ok &= Check(ResolveIntelVrrDisplayPath(L"\\\\.\\DISPLAY2", monitorRect,
+        activePaths).status == IntelDisplayPathProbeStatus::NotFound,
+        "unmatched Windows monitor source is rejected");
+    auto ambiguousPaths = activePaths;
+    ambiguousPaths.push_back(activePaths.front());
+    ok &= Check(ResolveIntelVrrDisplayPath(L"\\\\.\\DISPLAY1", monitorRect,
+        ambiguousPaths).status == IntelDisplayPathProbeStatus::Ambiguous,
+        "ambiguous Windows monitor source is rejected");
+
     ok &= Check(EvaluateLg27gs65fProductionProfile(lgState(2, 48, 180)) ==
         LgDecision::AlreadyCorrect, "LG full EXCELLENT is idempotent");
     ok &= Check(EvaluateLg27gs65fProductionProfile(lgState(1, 48, 180)) ==
@@ -78,7 +113,7 @@ int main()
     ok &= Check(EvaluateLg27gs65fProductionProfile(lgState(1, 60, 180)) ==
         LgDecision::SkipUserProfile, "unexpected LG active range is not overridden");
     auto lgUnsafe = lgState(1, 90, 180);
-    lgUnsafe.mappingStatus = DiagIgclTargetMappingStatus::Ambiguous;
+    lgUnsafe.mappingStatus = IntelVrrTargetMappingStatus::Ambiguous;
     ok &= Check(EvaluateLg27gs65fProductionProfile(lgUnsafe) ==
         LgDecision::Unavailable, "ambiguous IGCL output prevents write");
     lgUnsafe = lgState(1, 90, 180);

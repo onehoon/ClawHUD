@@ -1,6 +1,6 @@
 #include "Lg27gs65fVrrRangeTweak.h"
 
-#include "DisplayPathProbe.h"
+#include "Probe/IntelDisplayPathProbe.h"
 
 #include <windows.h>
 
@@ -98,8 +98,8 @@ TargetLookup FindExactLgTarget()
         return { IntelVrrRunStatus::AmbiguousDisplay,
             "LG external fix requires one active desktop monitor", {} };
 
-    const auto path = DisplayPathProbe{}.Probe(monitors.monitor);
-    if (path.status != DisplayPathProbeStatus::Matched || !path.path)
+    const auto path = IntelDisplayPathProbe{}.Probe(monitors.monitor);
+    if (path.status != IntelDisplayPathProbeStatus::Matched || !path.path)
         return { IntelVrrRunStatus::Unavailable, "Windows display path is unavailable", {} };
     if (path.path->activePathCount != 1)
         return { IntelVrrRunStatus::AmbiguousDisplay,
@@ -146,10 +146,10 @@ std::string Range(float minimum, float maximum)
     return text.str();
 }
 
-bool Verified(const DiagIntelVrrState& state, std::uint32_t profile)
+bool Verified(const IntelVrrTargetState& state, std::uint32_t profile)
 {
     return state.initialized && state.enumerationComplete &&
-        state.mappingStatus == DiagIgclTargetMappingStatus::Exact &&
+        state.mappingStatus == IntelVrrTargetMappingStatus::Exact &&
         state.targetMatchCount == 1 && state.capabilityResult == 0 &&
         state.profileResult == 0 && state.capability && state.profile &&
         state.capability->supported &&
@@ -160,10 +160,10 @@ bool Verified(const DiagIntelVrrState& state, std::uint32_t profile)
 }
 
 Lg27gs65fProfileDecision EvaluateLg27gs65fProductionProfile(
-    const DiagIntelVrrState& state) noexcept
+    const IntelVrrTargetState& state) noexcept
 {
     if (!state.initialized || !state.enumerationComplete ||
-        state.mappingStatus != DiagIgclTargetMappingStatus::Exact ||
+        state.mappingStatus != IntelVrrTargetMappingStatus::Exact ||
         state.targetMatchCount != 1 || state.displayOutputCount == 0 ||
         state.displayPropertiesSuccessCount != state.displayOutputCount ||
         !state.capability || !state.profile || state.capabilityResult != 0 ||
@@ -205,7 +205,7 @@ Lg27gs65fVrrFixOutcome RunLg27gs65fProductionVrrFix()
         outcome.targetVerified = true;
         log.push_back("LG 27GS65F Windows target validated via GSM5C8C identity and single active display.");
 
-        DiagIntelVrrStateProbe probe;
+        IntelVrrTargetStateProbe probe;
         if (!probe.Initialize())
             return finish(IntelVrrRunStatus::Unavailable, "IGCL initialization failed.");
 

@@ -203,14 +203,14 @@
         src/ClawHUD/Tweaks/IntelVrr/AffectedPanelDetector.cpp
         src/ClawHUD/Tweaks/IntelVrr/IntelVrrRangeTweak.cpp
         src/ClawHUD/Tweaks/IntelVrr/Lg27gs65fVrrRangeTweak.cpp
-        src/ClawHUD.Diag/DisplayPathProbe.cpp
-        src/ClawHUD.Diag/DiagIntelVrrStateProbe.cpp
+        src/ClawHUD/Tweaks/IntelVrr/Probe/IntelDisplayPathProbe.cpp
+        src/ClawHUD/Tweaks/IntelVrr/Probe/IntelVrrTargetStateProbe.cpp
         src/ClawHUD/Tweaks/IntelVrr/IntelArcSyncClient.cpp
         src/ClawHUD/Tweaks/IntelVrr/IntelVrrResultStore.cpp
         src/ClawHUD/Tweaks/IntelVrr/IntelVrrRunResult.cpp)
     target_compile_features(ClawHUD.IntelVrrRangeTweakTests PRIVATE cxx_std_20)
     target_compile_definitions(ClawHUD.IntelVrrRangeTweakTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-    target_include_directories(ClawHUD.IntelVrrRangeTweakTests PRIVATE src/ClawHUD src/ClawHUD.Diag)
+    target_include_directories(ClawHUD.IntelVrrRangeTweakTests PRIVATE src/ClawHUD)
     target_link_libraries(ClawHUD.IntelVrrRangeTweakTests PRIVATE wbemuuid ole32 oleaut32 shell32 user32 gdi32)
     set_target_properties(ClawHUD.IntelVrrRangeTweakTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.IntelVrrRangeTweakTests COMMAND ClawHUD.IntelVrrRangeTweakTests)
