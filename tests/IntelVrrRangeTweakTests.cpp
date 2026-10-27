@@ -1,4 +1,5 @@
 #include "Tweaks/IntelVrr/IntelVrrRangeTweak.h"
+#include "Tweaks/IntelVrr/Lg27gs65fVrrRangeTweak.h"
 #include "Tweaks/IntelVrr/IntelVrrResultStore.h"
 #include <iostream>
 #include <memory>
@@ -34,6 +35,51 @@ int main()
     auto wrong = Affected(); wrong.manufacturer = "ABC"; ok &= Check(!IsAffectedPanel(wrong), "wrong manufacturer does not match");
     wrong = Affected(); wrong.productCode = "0000"; ok &= Check(!IsAffectedPanel(wrong), "wrong product does not match");
     wrong = Affected(); wrong.panelName = "other"; ok &= Check(!IsAffectedPanel(wrong), "wrong name does not match");
+
+    const auto lg = PanelIdentity{ "GSM", "5C8C", "LG ULTRAGEAR", true, "DISPLAY\\GSM5C8C\\UID4165" };
+    ok &= Check(IsLg27gs65fPanel(lg), "LG 27GS65F identity matches");
+    auto lgBad = lg; lgBad.active = false;
+    ok &= Check(!IsLg27gs65fPanel(lgBad), "inactive LG is ignored");
+    lgBad = lg; lgBad.productCode = "0000";
+    ok &= Check(!IsLg27gs65fPanel(lgBad), "other LG model does not match");
+    lgBad = lg; lgBad.manufacturer = "DEL";
+    ok &= Check(!IsLg27gs65fPanel(lgBad), "non-LG manufacturer does not match");
+    ok &= Check(!IsAffectedPanel(lg), "LG must not match Claw's internal-panel detector");
+
+    auto lgState = [](std::uint32_t profile, float minimum, float maximum) {
+        DiagIntelVrrState s;
+        s.initialized = s.enumerationComplete = true;
+        s.mappingStatus = DiagIgclTargetMappingStatus::Exact;
+        s.targetMatchCount = s.displayOutputCount = s.displayPropertiesSuccessCount = 1;
+        s.capabilityResult = s.profileResult = 0;
+        s.capability = DiagArcSyncCapability{ true, 48.0f, 180.0f, 0, 0 };
+        s.profile = DiagArcSyncProfile{ profile, maximum, minimum, 0, 0 };
+        return s;
+    };
+    using LgDecision = Lg27gs65fProfileDecision;
+    ok &= Check(EvaluateLg27gs65fProductionProfile(lgState(1, 90, 180)) ==
+        LgDecision::ApplyExcellent, "LG recommended 90-180 needs EXCELLENT");
+    ok &= Check(EvaluateLg27gs65fProductionProfile(lgState(2, 48, 180)) ==
+        LgDecision::AlreadyCorrect, "LG full EXCELLENT is idempotent");
+    ok &= Check(EvaluateLg27gs65fProductionProfile(lgState(1, 48, 180)) ==
+        LgDecision::AlreadyCorrect, "LG full RECOMMENDED is preserved");
+    for (const auto profile : { 3u, 5u, 7u })
+        ok &= Check(EvaluateLg27gs65fProductionProfile(lgState(profile, 90, 180)) ==
+            LgDecision::SkipUserProfile, "LG custom/off/nonrecommended profile is preserved");
+    ok &= Check(EvaluateLg27gs65fProductionProfile(lgState(1, 60, 180)) ==
+        LgDecision::SkipUserProfile, "unexpected LG active range is not overridden");
+    auto lgUnsafe = lgState(1, 90, 180);
+    lgUnsafe.mappingStatus = DiagIgclTargetMappingStatus::Ambiguous;
+    ok &= Check(EvaluateLg27gs65fProductionProfile(lgUnsafe) ==
+        LgDecision::Unavailable, "ambiguous IGCL output prevents write");
+    lgUnsafe = lgState(1, 90, 180);
+    lgUnsafe.capability->maximumHz = 165;
+    ok &= Check(EvaluateLg27gs65fProductionProfile(lgUnsafe) ==
+        LgDecision::Unsupported, "wrong LG capability prevents write");
+    lgUnsafe = lgState(1, 90, 180);
+    lgUnsafe.profileResult = 0x40000007;
+    ok &= Check(EvaluateLg27gs65fProductionProfile(lgUnsafe) ==
+        LgDecision::Unavailable, "IGCL error prevents write");
 
     auto run = [](IntelArcSyncProfile profile, float min, float max, bool setSuccess = true) {
         auto fake = std::make_shared<FakeClient>(); fake->profile = { profile, min, max, 0, 0 }; fake->setSuccess = setSuccess; auto* raw = fake.get();
