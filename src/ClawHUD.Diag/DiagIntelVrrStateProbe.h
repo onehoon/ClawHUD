@@ -110,6 +110,14 @@ struct DiagIntelVrrState
     std::uint32_t suppressedFailureCount{};
 };
 
+struct DiagIgclProfileSetResult
+{
+    bool attempted{};
+    bool succeeded{};
+    std::optional<std::uint32_t> apiResult;
+    std::string_view detail;
+};
+
 class DiagIntelVrrStateProbe
 {
 public:
@@ -118,6 +126,9 @@ public:
     bool Initialize() noexcept;
     DiagIntelVrrState Query(const LUID& windowsTargetAdapterLuid,
         std::uint32_t windowsTargetId) noexcept;
+    DiagIgclProfileSetResult SetProfileForExactTarget(
+        const DiagIntelVrrState& expectedCurrentState,
+        std::uint32_t requestedProfile) noexcept;
     void Shutdown() noexcept;
 
 private:
@@ -126,6 +137,10 @@ private:
     void* library_{};
     void* apiHandle_{};
     std::vector<void*> adapters_;
+    // Single-use output handle from the immediately preceding exact Query.
+    void* exactOutput_{};
+    LUID exactOutputAdapterLuid_{};
+    std::uint32_t exactOutputTargetId_{};
     bool attempted_{};
     DiagIgclProbeFailure initializationFailure_;
 };

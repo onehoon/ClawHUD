@@ -33,6 +33,7 @@ int main()
     assert(exact.path->targetId == 9);
     assert(exact.path->refreshRateNumerator == 60000);
     assert(exact.path->refreshRateDenominator == 1001);
+    assert(exact.path->activePathCount == active.size());
     assert(std::abs(exact.path->nominalRefreshHz - (60000.0 / 1001.0)) < 1e-9);
     assert(!exact.path->usedModeRefreshFallback);
     assert(exact.path->monitorRect.right == monitor.right);

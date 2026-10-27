@@ -4,6 +4,7 @@
 #include <windows.h>
 
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <limits>
 #include <new>
@@ -154,6 +155,7 @@ struct DiagIntelVrrStateProbe::Endpoints
     DisplayPropertiesFn getDisplayProperties{};
     ArcSyncInfoFn getArcSyncInfo{};
     ArcSyncProfileFn getArcSyncProfile{};
+    ArcSyncProfileFn setArcSyncProfile{};
 };
 
 DiagIgclTargetMatch ResolveDiagIgclTarget(const LUID& windowsTargetAdapterLuid,
@@ -200,7 +202,8 @@ bool DiagIntelVrrStateProbe::Initialize() noexcept
         Resolve<DevicePropertiesFn>(library, "ctlGetDeviceProperties"),
         Resolve<DisplayPropertiesFn>(library, "ctlGetDisplayProperties"),
         Resolve<ArcSyncInfoFn>(library, "ctlGetIntelArcSyncInfoForMonitor"),
-        Resolve<ArcSyncProfileFn>(library, "ctlGetIntelArcSyncProfile") };
+        Resolve<ArcSyncProfileFn>(library, "ctlGetIntelArcSyncProfile"),
+        Resolve<ArcSyncProfileFn>(library, "ctlSetIntelArcSyncProfile") };
     if (!endpoints_)
     {
         initializationFailure_ = { DiagIgclProbeFailureStage::InternalError,
@@ -252,6 +255,7 @@ bool DiagIntelVrrStateProbe::Initialize() noexcept
 DiagIntelVrrState DiagIntelVrrStateProbe::Query(
     const LUID& windowsTargetAdapterLuid, std::uint32_t windowsTargetId) noexcept
 {
+    exactOutput_ = nullptr;
     DiagIntelVrrState state;
     state.windowsTargetAdapterLuid = windowsTargetAdapterLuid;
     state.windowsTargetId = windowsTargetId;
@@ -405,10 +409,17 @@ DiagIntelVrrState DiagIntelVrrStateProbe::Query(
             AddFailure(state, DiagIgclProbeFailureStage::GetArcSyncProfile,
                 "ctlGetIntelArcSyncProfile",
                 DiagIgclProbeResultDomain::ControlLibrary, profileResult);
+        if (capabilityResult == 0 && profileResult == 0)
+        {
+            exactOutput_ = output;
+            exactOutputAdapterLuid_ = windowsTargetAdapterLuid;
+            exactOutputTargetId_ = windowsTargetId;
+        }
         return state;
     }
     catch (...)
     {
+        exactOutput_ = nullptr;
         state.mappingStatus = DiagIgclTargetMappingStatus::Unknown;
         state.capability.reset();
         state.profile.reset();
@@ -419,12 +430,93 @@ DiagIntelVrrState DiagIntelVrrStateProbe::Query(
     }
 }
 
+DiagIgclProfileSetResult DiagIntelVrrStateProbe::SetProfileForExactTarget(
+    const DiagIntelVrrState& expected, std::uint32_t requestedProfile) noexcept
+{
+    constexpr std::uint32_t recommended = 1;
+    constexpr std::uint32_t excellent = 2;
+    constexpr float capabilityMinimumHz = 48.0f;
+    constexpr float capabilityMaximumHz = 180.0f;
+    constexpr float toleranceHz = 0.25f;
+    const auto reject = [](std::string_view detail,
+        std::optional<std::uint32_t> result = std::nullopt)
+    {
+        return DiagIgclProfileSetResult{ false, false, result, detail };
+    };
+
+    const auto output = exactOutput_;
+    exactOutput_ = nullptr;
+    if (!apiHandle_ || !endpoints_ || !endpoints_->setArcSyncProfile || !output)
+        return reject("IGCL profile setter is unavailable");
+    if ((requestedProfile != excellent && requestedProfile != recommended) ||
+        !expected.enumerationComplete ||
+        expected.mappingStatus != DiagIgclTargetMappingStatus::Exact ||
+        expected.windowsTargetAdapterLuid.LowPart != exactOutputAdapterLuid_.LowPart ||
+        expected.windowsTargetAdapterLuid.HighPart != exactOutputAdapterLuid_.HighPart ||
+        expected.windowsTargetId != exactOutputTargetId_ ||
+        expected.targetMatchCount != 1 || !expected.capability || !expected.profile ||
+        expected.capabilityResult != 0 || expected.profileResult != 0 ||
+        !expected.capability->supported ||
+        !std::isfinite(expected.capability->minimumHz) ||
+        !std::isfinite(expected.capability->maximumHz) ||
+        std::abs(expected.capability->minimumHz - capabilityMinimumHz) > toleranceHz ||
+        std::abs(expected.capability->maximumHz - capabilityMaximumHz) > toleranceHz ||
+        !std::isfinite(expected.profile->minimumHz) ||
+        !std::isfinite(expected.profile->maximumHz))
+        return reject("expected state is not an exact supported LG profile target");
+
+    const auto expectedCurrentProfile = requestedProfile == excellent
+        ? recommended : excellent;
+    if (expected.profile->profile != expectedCurrentProfile)
+        return reject("current profile is not eligible for the requested change");
+
+    try
+    {
+        ArcSyncCapabilityAbi capability{};
+        capability.size = sizeof(capability);
+        const auto capabilityResult = endpoints_->getArcSyncInfo(output, &capability);
+        if (capabilityResult != 0)
+            return reject("ctlGetIntelArcSyncInfoForMonitor failed", capabilityResult);
+        ArcSyncProfileAbi current{};
+        current.size = sizeof(current);
+        const auto profileResult = endpoints_->getArcSyncProfile(output, &current);
+        if (profileResult != 0)
+            return reject("ctlGetIntelArcSyncProfile failed", profileResult);
+        if (!capability.supported ||
+            !std::isfinite(capability.minimumHz) ||
+            !std::isfinite(capability.maximumHz) ||
+            !std::isfinite(current.minimumHz) ||
+            !std::isfinite(current.maximumHz) ||
+            std::abs(capability.minimumHz - expected.capability->minimumHz) > 0.01f ||
+            std::abs(capability.maximumHz - expected.capability->maximumHz) > 0.01f ||
+            current.profile != expected.profile->profile ||
+            std::abs(current.minimumHz - expected.profile->minimumHz) > 0.01f ||
+            std::abs(current.maximumHz - expected.profile->maximumHz) > 0.01f)
+            return reject("IGCL state changed after confirmation; no profile was written");
+
+        ArcSyncProfileAbi requested{};
+        requested.size = sizeof(requested);
+        requested.version = 0;
+        requested.profile = requestedProfile;
+        const auto setResult = endpoints_->setArcSyncProfile(output, &requested);
+        return { true, setResult == 0, setResult,
+            setResult == 0 ? std::string_view{} : std::string_view("ctlSetIntelArcSyncProfile") };
+    }
+    catch (...)
+    {
+        return reject("exception while applying the exact-target IGCL profile");
+    }
+}
+
 void DiagIntelVrrStateProbe::Shutdown() noexcept
 {
     if (apiHandle_ && endpoints_ && endpoints_->close)
         endpoints_->close(apiHandle_);
     apiHandle_ = nullptr;
     adapters_.clear();
+    exactOutput_ = nullptr;
+    exactOutputAdapterLuid_ = {};
+    exactOutputTargetId_ = 0;
     delete endpoints_;
     endpoints_ = nullptr;
     if (library_) FreeLibrary(static_cast<HMODULE>(library_));
