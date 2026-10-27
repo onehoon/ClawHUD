@@ -202,6 +202,7 @@ Lg27gs65fVrrFixOutcome RunLg27gs65fProductionVrrFix()
         const auto target = FindExactLgTarget();
         if (!target.value)
             return finish(target.failure, target.detail);
+        outcome.targetVerified = true;
         log.push_back("LG 27GS65F Windows target validated via GSM5C8C identity and single active display.");
 
         DiagIntelVrrStateProbe probe;
