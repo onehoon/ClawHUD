@@ -8,6 +8,7 @@
 
 #include <cassert>
 #include <array>
+#include <utility>
 
 namespace
 {
@@ -112,6 +113,20 @@ int main()
         Lg27gs65fVrrDecision::ConfirmationRequired);
     assert(Decide(Lg27gs65fVrrAction::RestoreRecommended, excellent) ==
         Lg27gs65fVrrDecision::Write);
+    for (const auto range : { std::pair{ 90.0f, 180.0f }, std::pair{ 60.0f, 180.0f } })
+    {
+        const auto failedApply = ProfileState(2, range.first, range.second);
+        assert(Decide(Lg27gs65fVrrAction::RestoreRecommended,
+            failedApply, false) == Lg27gs65fVrrDecision::ConfirmationRequired);
+        assert(Decide(Lg27gs65fVrrAction::RestoreRecommended,
+            failedApply) == Lg27gs65fVrrDecision::Write);
+    }
+    assert(Decide(Lg27gs65fVrrAction::RestoreRecommended,
+        ProfileState(2, 0.0f, 180.0f)) == Lg27gs65fVrrDecision::Skip);
+    assert(Decide(Lg27gs65fVrrAction::RestoreRecommended,
+        ProfileState(2, 60.0f, 181.0f)) == Lg27gs65fVrrDecision::Skip);
+    assert(Decide(Lg27gs65fVrrAction::RestoreRecommended,
+        ProfileState(2, 100.0f, 90.0f)) == Lg27gs65fVrrDecision::Skip);
     assert(VerifyLg27gs65fAction(Lg27gs65fVrrAction::ApplyExcellent,
         true, true, excellent));
     assert(!VerifyLg27gs65fAction(Lg27gs65fVrrAction::ApplyExcellent,
@@ -126,6 +141,14 @@ int main()
         Lg27gs65fVrrDecision::AlreadyAtTarget);
     assert(VerifyLg27gs65fAction(Lg27gs65fVrrAction::RestoreRecommended,
         true, true, restored));
+    assert(!VerifyLg27gs65fAction(Lg27gs65fVrrAction::RestoreRecommended,
+        true, true, excellent));
+    assert(!VerifyLg27gs65fAction(Lg27gs65fVrrAction::RestoreRecommended,
+        false, true, restored));
+    assert(!VerifyLg27gs65fAction(Lg27gs65fVrrAction::RestoreRecommended,
+        true, false, restored));
+    assert(!VerifyLg27gs65fAction(Lg27gs65fVrrAction::RestoreRecommended,
+        true, true, DiagIntelVrrState{}));
     for (const auto profile : { 3u, 5u, 7u, 99u })
         assert(Decide(Lg27gs65fVrrAction::ApplyExcellent,
             ProfileState(profile, 90.0f, 180.0f)) == Lg27gs65fVrrDecision::Skip);

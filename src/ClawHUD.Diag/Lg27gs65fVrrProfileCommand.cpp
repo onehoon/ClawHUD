@@ -325,20 +325,26 @@ void RunAction(DiagIntelVrrStateProbe& probe, const LgTarget& original,
             return;
         }
         const auto rollback = probe.SetProfileForExactTarget(readback, kRecommended);
-        std::cout << "Rollback: " << (rollback.succeeded ? "SUCCESS" :
-            rollback.attempted ? "FAILED" : "SKIPPED") << '\n';
         PrintSetResult(rollback);
-        if (rollback.succeeded)
+        if (!rollback.succeeded)
         {
-            const auto restored = probe.Query(readbackTarget->adapterLuid,
-                readbackTarget->targetId);
-            std::cout << "Rollback readback: ";
-            if (restored.profile)
-                std::cout << ProfileName(restored.profile->profile) << " / "
-                          << restored.profile->minimumHz << "-"
-                          << restored.profile->maximumHz << " Hz\n";
-            else std::cout << "unavailable\n";
+            std::cout << "Rollback: " << (rollback.attempted ? "FAILED" : "SKIPPED") << '\n';
+            return;
         }
+
+        error.clear();
+        const auto restoredTarget = FindSingleActiveTarget(error);
+        if (!restoredTarget || !SameTarget(*readbackTarget, *restoredTarget))
+        {
+            std::cout << "Rollback: VERIFICATION FAILED (target changed)\n";
+            return;
+        }
+        const auto restored = probe.Query(restoredTarget->adapterLuid,
+            restoredTarget->targetId);
+        const bool rollbackVerified = VerifyLg27gs65fAction(
+            Lg27gs65fVrrAction::RestoreRecommended, true, true, restored);
+        std::cout << "Rollback: " << (rollbackVerified ? "SUCCESS" : "VERIFICATION FAILED") << '\n';
+        PrintState(restored);
     }
 }
 }
@@ -386,11 +392,15 @@ Lg27gs65fVrrDecision EvaluateLg27gs65fAction(Lg27gs65fVrrAction action,
         profile.profile == kRecommended)
         return Lg27gs65fVrrDecision::AlreadyAtTarget;
 
+    const bool validActiveRange = std::isfinite(profile.minimumHz) &&
+        std::isfinite(profile.maximumHz) && profile.minimumHz > 0.0f &&
+        profile.maximumHz >= profile.minimumHz &&
+        profile.minimumHz >= state.capability->minimumHz - kToleranceHz &&
+        profile.maximumHz <= state.capability->maximumHz + kToleranceHz;
     const bool eligible = action == Lg27gs65fVrrAction::ApplyExcellent
         ? profile.profile == kRecommended && Near(profile.minimumHz, 90.0f) &&
             Near(profile.maximumHz, 180.0f)
-        : profile.profile == kExcellent && Near(profile.minimumHz, 48.0f) &&
-            Near(profile.maximumHz, 180.0f);
+        : profile.profile == kExcellent && validActiveRange;
     if (!eligible) return Lg27gs65fVrrDecision::Skip;
     return confirmed ? Lg27gs65fVrrDecision::Write :
         Lg27gs65fVrrDecision::ConfirmationRequired;
