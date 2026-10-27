@@ -1,6 +1,7 @@
 #include <windows.h>
 
 #include "DiagnosticSession.h"
+#include "Lg27gs65fVrrProfileCommand.h"
 #include "VrrDiagnosticCommand.h"
 
 #include <iostream>
@@ -38,7 +39,8 @@ int main()
     for (;;)
     {
         std::cout << "\nClawHUD Diagnostic\n\n"
-                  << "1. Game Detection Diagnostic\n2. VRR Diagnostic\n3. Exit\n\nSelect: ";
+                  << "1. Game Detection Diagnostic\n2. VRR Diagnostic\n"
+                  << "3. LG 27GS65F VRR Profile Test\n4. Exit\n\nSelect: ";
         int command{};
         if (!(std::cin >> command)) break;
         if (command == 1)
@@ -47,7 +49,8 @@ int main()
             session.Stop();
         }
         else if (command == 2) vrrDiagnostic.Run();
-        else if (command == 3) break;
+        else if (command == 3) RunLg27gs65fVrrProfileCommand();
+        else if (command == 4) break;
         else std::cout << "Unknown command.\n";
     }
     session.Stop();

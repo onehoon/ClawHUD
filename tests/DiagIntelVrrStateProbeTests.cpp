@@ -4,9 +4,35 @@
 
 #include "DiagIntelVrrStateProbe.h"
 #include "DiagIntelVrrStateProbeAbi.h"
+#include "Lg27gs65fVrrProfileCommand.h"
 
 #include <cassert>
 #include <array>
+
+namespace
+{
+DiagIntelVrrState ProfileState(std::uint32_t profile, float minimum, float maximum)
+{
+    DiagIntelVrrState state;
+    state.initialized = state.enumerationComplete = true;
+    state.mappingStatus = DiagIgclTargetMappingStatus::Exact;
+    state.targetMatchCount = state.displayOutputCount =
+        state.displayPropertiesSuccessCount = 1;
+    state.capability = DiagArcSyncCapability{ true, 48.0f, 180.0f, 0, 0 };
+    state.profile = DiagArcSyncProfile{ profile, maximum, minimum, 0, 0 };
+    state.capabilityResult = state.profileResult = 0;
+    return state;
+}
+
+Lg27gs65fVrrDecision Decide(Lg27gs65fVrrAction action,
+    const DiagIntelVrrState& state, bool confirmed = true,
+    bool identity = true, std::uint32_t paths = 1,
+    std::uint32_t monitors = 1)
+{
+    return EvaluateLg27gs65fAction(action, identity, paths, monitors,
+        confirmed, state);
+}
+}
 
 int main()
 {
@@ -49,4 +75,97 @@ int main()
         duplicateOutputs, false);
     assert(incompleteDuplicate.status == DiagIgclTargetMappingStatus::Ambiguous);
     assert(!incompleteDuplicate.outputIndex);
+
+    assert(IsLg27gs65fIdentity(L"GSM", L"LG 27GS65F"));
+    assert(IsLg27gs65fIdentity(L"gsm", L"LG ULTRAGEAR"));
+    assert(!IsLg27gs65fIdentity(L"DEL", L"LG 27GS65F"));
+    assert(!IsLg27gs65fIdentity(L"GSM", L"Generic PnP Monitor"));
+    assert(!IsLg27gs65fIdentity(L"", L"LG ULTRAGEAR"));
+    assert(IsLg27gs65fConfirmationAccepted("y"));
+    assert(IsLg27gs65fConfirmationAccepted("Y"));
+    assert(!IsLg27gs65fConfirmationAccepted(""));
+    assert(!IsLg27gs65fConfirmationAccepted("n"));
+    assert(!IsLg27gs65fConfirmationAccepted("yes"));
+    assert(ParseLg27gs65fMenuSelection("1") == 1);
+    assert(ParseLg27gs65fMenuSelection("2") == 2);
+    assert(ParseLg27gs65fMenuSelection("3") == 3);
+    assert(ParseLg27gs65fMenuSelection("") == 0);
+    assert(ParseLg27gs65fMenuSelection("1x") == 0);
+    assert(ParseLg27gs65fMenuSelection("4") == 0);
+
+    const auto recommended = ProfileState(1, 90.0f, 180.0f);
+    assert(Decide(Lg27gs65fVrrAction::ApplyExcellent, recommended, false) ==
+        Lg27gs65fVrrDecision::ConfirmationRequired);
+    assert(Decide(Lg27gs65fVrrAction::ApplyExcellent, recommended) ==
+        Lg27gs65fVrrDecision::Write);
+    assert(Decide(Lg27gs65fVrrAction::ApplyExcellent, recommended, true, false) ==
+        Lg27gs65fVrrDecision::Skip);
+    assert(Decide(Lg27gs65fVrrAction::ApplyExcellent, recommended, true, true, 2) ==
+        Lg27gs65fVrrDecision::Skip);
+    assert(Decide(Lg27gs65fVrrAction::ApplyExcellent, recommended, true, true, 1, 2) ==
+        Lg27gs65fVrrDecision::Skip);
+
+    const auto excellent = ProfileState(2, 48.0f, 180.0f);
+    assert(Decide(Lg27gs65fVrrAction::ApplyExcellent, excellent) ==
+        Lg27gs65fVrrDecision::AlreadyAtTarget);
+    assert(Decide(Lg27gs65fVrrAction::RestoreRecommended, excellent, false) ==
+        Lg27gs65fVrrDecision::ConfirmationRequired);
+    assert(Decide(Lg27gs65fVrrAction::RestoreRecommended, excellent) ==
+        Lg27gs65fVrrDecision::Write);
+    assert(VerifyLg27gs65fAction(Lg27gs65fVrrAction::ApplyExcellent,
+        true, true, excellent));
+    assert(!VerifyLg27gs65fAction(Lg27gs65fVrrAction::ApplyExcellent,
+        false, true, excellent));
+    assert(!VerifyLg27gs65fAction(Lg27gs65fVrrAction::ApplyExcellent,
+        true, false, excellent));
+    assert(!VerifyLg27gs65fAction(Lg27gs65fVrrAction::ApplyExcellent,
+        true, true, recommended));
+
+    const auto restored = ProfileState(1, 90.0f, 180.0f);
+    assert(Decide(Lg27gs65fVrrAction::RestoreRecommended, restored) ==
+        Lg27gs65fVrrDecision::AlreadyAtTarget);
+    assert(VerifyLg27gs65fAction(Lg27gs65fVrrAction::RestoreRecommended,
+        true, true, restored));
+    for (const auto profile : { 3u, 5u, 7u, 99u })
+        assert(Decide(Lg27gs65fVrrAction::ApplyExcellent,
+            ProfileState(profile, 90.0f, 180.0f)) == Lg27gs65fVrrDecision::Skip);
+    assert(Decide(Lg27gs65fVrrAction::ApplyExcellent,
+        ProfileState(1, 89.0f, 180.0f)) == Lg27gs65fVrrDecision::Skip);
+
+    auto unsafe = recommended;
+    unsafe.capability->supported = false;
+    assert(Decide(Lg27gs65fVrrAction::ApplyExcellent, unsafe) ==
+        Lg27gs65fVrrDecision::Skip);
+    unsafe = recommended;
+    unsafe.capability->maximumHz = 165.0f;
+    assert(Decide(Lg27gs65fVrrAction::ApplyExcellent, unsafe) ==
+        Lg27gs65fVrrDecision::Skip);
+    unsafe = recommended;
+    unsafe.capabilityResult = 0x40000006;
+    unsafe.capability.reset();
+    assert(Decide(Lg27gs65fVrrAction::ApplyExcellent, unsafe) ==
+        Lg27gs65fVrrDecision::Skip);
+    unsafe = recommended;
+    unsafe.mappingStatus = DiagIgclTargetMappingStatus::Unknown;
+    assert(Decide(Lg27gs65fVrrAction::ApplyExcellent, unsafe) ==
+        Lg27gs65fVrrDecision::Skip);
+    unsafe.mappingStatus = DiagIgclTargetMappingStatus::Ambiguous;
+    assert(Decide(Lg27gs65fVrrAction::ApplyExcellent, unsafe) ==
+        Lg27gs65fVrrDecision::Skip);
+    unsafe = recommended;
+    unsafe.targetMatchCount = 2;
+    assert(Decide(Lg27gs65fVrrAction::ApplyExcellent, unsafe) ==
+        Lg27gs65fVrrDecision::Skip);
+    unsafe.enumerationComplete = false;
+    assert(Decide(Lg27gs65fVrrAction::ApplyExcellent, unsafe) ==
+        Lg27gs65fVrrDecision::Skip);
+    unsafe = recommended;
+    unsafe.displayPropertiesSuccessCount = 0;
+    assert(Decide(Lg27gs65fVrrAction::ApplyExcellent, unsafe) ==
+        Lg27gs65fVrrDecision::Skip);
+    unsafe = recommended;
+    unsafe.profileResult = 0x40000006;
+    unsafe.profile.reset();
+    assert(Decide(Lg27gs65fVrrAction::ApplyExcellent, unsafe) ==
+        Lg27gs65fVrrDecision::Skip);
 }

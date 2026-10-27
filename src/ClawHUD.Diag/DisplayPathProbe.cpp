@@ -61,6 +61,7 @@ DisplayPathProbeResult ResolveVrrDisplayPath(std::wstring_view monitorDeviceName
     result.targetId = matched.targetId;
     result.refreshRateNumerator = matched.refreshRateNumerator;
     result.refreshRateDenominator = matched.refreshRateDenominator;
+    result.activePathCount = static_cast<std::uint32_t>(activePaths.size());
 
     if (matched.refreshRateNumerator && matched.refreshRateDenominator)
         result.nominalRefreshHz = static_cast<double>(matched.refreshRateNumerator) /

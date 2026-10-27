@@ -59,6 +59,7 @@ add_executable(ClawHUD.Diag
     src/ClawHUD.Diag/VrrTargetAcquisition.cpp
     src/ClawHUD.Diag/DisplayPathProbe.cpp
     src/ClawHUD.Diag/DiagIntelVrrStateProbe.cpp
+    src/ClawHUD.Diag/Lg27gs65fVrrProfileCommand.cpp
     src/ClawHUD.Diag/DiagD3dkmtCadenceProbe.cpp
     src/ClawHUD.Diag/DiagD3dkmtCadenceAnalysis.cpp
     src/ClawHUD.Diag/VrrAnalysis.cpp

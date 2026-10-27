@@ -610,12 +610,14 @@
 
     add_executable(ClawHUD.DiagIntelVrrStateProbeTests
         tests/DiagIntelVrrStateProbeTests.cpp
-        src/ClawHUD.Diag/DiagIntelVrrStateProbe.cpp)
+        src/ClawHUD.Diag/DiagIntelVrrStateProbe.cpp
+        src/ClawHUD.Diag/Lg27gs65fVrrProfileCommand.cpp
+        src/ClawHUD.Diag/DisplayPathProbe.cpp)
     target_compile_features(ClawHUD.DiagIntelVrrStateProbeTests PRIVATE cxx_std_20)
     target_compile_definitions(ClawHUD.DiagIntelVrrStateProbeTests PRIVATE
         UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
     target_include_directories(ClawHUD.DiagIntelVrrStateProbeTests PRIVATE src/ClawHUD.Diag)
-    target_link_libraries(ClawHUD.DiagIntelVrrStateProbeTests PRIVATE kernel32)
+    target_link_libraries(ClawHUD.DiagIntelVrrStateProbeTests PRIVATE kernel32 user32)
     set_target_properties(ClawHUD.DiagIntelVrrStateProbeTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.DiagIntelVrrStateProbeTests
         COMMAND ClawHUD.DiagIntelVrrStateProbeTests)

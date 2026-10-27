@@ -29,6 +29,7 @@ struct VrrDisplayPath
     UINT32 targetId{};
     UINT32 refreshRateNumerator{};
     UINT32 refreshRateDenominator{};
+    std::uint32_t activePathCount{};
     double nominalRefreshHz{};
     bool usedModeRefreshFallback{};
 };
