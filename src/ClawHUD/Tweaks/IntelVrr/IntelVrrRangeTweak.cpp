@@ -1,5 +1,6 @@
 #include "IntelVrrRangeTweak.h"
 #include "IntelVrrResultStore.h"
+#include "Lg27gs65fVrrRangeTweak.h"
 #include <cmath>
 #include <sstream>
 #include <iomanip>
@@ -21,7 +22,23 @@ IntelVrrRunResult IntelVrrRangeTweak::Run(bool enabled)
     if (!enabled) { result.status = IntelVrrRunStatus::Disabled; result.message = "Disabled by user."; log_.push_back("Toggle is disabled. No action taken."); return finish(result); }
     std::vector<PanelIdentity> panels; try { panels = panelProvider_(); } catch (...) { result.status = IntelVrrRunStatus::Unavailable; result.message = "Could not determine the panel identity."; return finish(result); }
     log_.push_back("WMI monitor count=" + std::to_string(panels.size())); for (std::size_t i = 0; i < panels.size(); ++i) { const auto& p = panels[i]; log_.push_back("Monitor[" + std::to_string(i) + "]: Active=" + std::to_string(p.active) + ", ManufacturerName=" + p.manufacturer + ", ProductCodeID=" + p.productCode + ", UserFriendlyName=" + p.panelName + ", Match=" + std::to_string(IsAffectedPanel(p))); }
-    auto panel = std::find_if(panels.begin(), panels.end(), IsAffectedPanel); if (panel == panels.end()) { result.status = IntelVrrRunStatus::UnsupportedPanel; result.message = "This panel is not the affected MSI Claw 8 display."; return finish(result); } result.panelName = panel->panelName;
+    auto panel = std::find_if(panels.begin(), panels.end(), IsAffectedPanel);
+    if (panel == panels.end())
+    {
+        const auto lg = std::find_if(panels.begin(), panels.end(), IsLg27gs65fPanel);
+        if (lg != panels.end())
+        {
+            auto external = RunLg27gs65fProductionVrrFix();
+            for (const auto& line : external.log) log_.push_back(line);
+            external.result.panelName = lg->panelName;
+            external.result.timestampUtc = result.timestampUtc;
+            return finish(std::move(external.result));
+        }
+        result.status = IntelVrrRunStatus::UnsupportedPanel;
+        result.message = "No supported MSI Claw internal or LG 27GS65F display is active.";
+        return finish(result);
+    }
+    result.panelName = panel->panelName;
     auto client = clientFactory_(); if (!client) { result.status = IntelVrrRunStatus::Unavailable; result.message = "Intel Graphics Control Library is not available."; return finish(result); }
     auto flush = [&] { for (; loggedCallCount_ < client->CallLog().size(); ++loggedCallCount_) log_.push_back(client->CallLog()[loggedCallCount_].ToString()); };
     if (!client->Initialize()) { flush(); result.status = IntelVrrRunStatus::Unavailable; result.message = "Intel Graphics Control Library is not available."; return finish(result); }
