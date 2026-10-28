@@ -49,10 +49,10 @@ bool IsLg27gs65fWindowsIdentity(std::wstring_view path, std::wstring_view friend
 }
 
 Lg27gs65fProfileDecision EvaluateLg27gs65fProductionProfile(
-    const IntelVrrTargetState& state) noexcept
+    const DiagIntelVrrState& state) noexcept
 {
     if (!state.initialized || !state.enumerationComplete ||
-        state.mappingStatus != IntelVrrTargetMappingStatus::Exact ||
+        state.mappingStatus != DiagIgclTargetMappingStatus::Exact ||
         state.targetMatchCount != 1 || state.displayOutputCount == 0 ||
         state.displayPropertiesSuccessCount != state.displayOutputCount ||
         !state.capability || !state.profile || state.capabilityResult != 0 ||

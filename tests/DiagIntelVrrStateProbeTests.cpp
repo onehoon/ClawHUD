@@ -191,4 +191,29 @@ int main()
     unsafe.profile.reset();
     assert(Decide(Lg27gs65fVrrAction::ApplyExcellent, unsafe) ==
         Lg27gs65fVrrDecision::Skip);
+
+    auto clawNarrow = ProfileState(1, 48.0f, 60.0f);
+    clawNarrow.capability->maximumHz = 120.0f;
+    assert(IsIntelVrrProfileChangeAllowed(clawNarrow,
+        IntelVrrPanelClass::ClawInternal, 2));
+    auto clawFullRange = ProfileState(1, 48.0f, 120.0f);
+    clawFullRange.capability->maximumHz = 120.0f;
+    assert(!IsIntelVrrProfileChangeAllowed(clawFullRange,
+        IntelVrrPanelClass::ClawInternal, 2));
+    auto clawCustom = ProfileState(7, 48.0f, 60.0f);
+    clawCustom.capability->maximumHz = 120.0f;
+    assert(!IsIntelVrrProfileChangeAllowed(clawCustom,
+        IntelVrrPanelClass::ClawInternal, 2));
+    assert(!IsIntelVrrProfileChangeAllowed(clawNarrow,
+        IntelVrrPanelClass::ClawInternal, 4));
+    assert(IsIntelVrrProfileChangeAllowed(recommended,
+        IntelVrrPanelClass::Lg27gs65f, 2));
+    assert(IsIntelVrrProfileChangeAllowed(excellent,
+        IntelVrrPanelClass::Lg27gs65f, 1));
+    assert(!IsIntelVrrProfileChangeAllowed(excellent,
+        IntelVrrPanelClass::Lg27gs65f, 2));
+    auto wrongClawCapability = clawNarrow;
+    wrongClawCapability.capability->maximumHz = 180.0f;
+    assert(!IsIntelVrrProfileChangeAllowed(wrongClawCapability,
+        IntelVrrPanelClass::ClawInternal, 2));
 }

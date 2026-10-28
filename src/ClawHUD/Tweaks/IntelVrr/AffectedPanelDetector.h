@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Probe/IntelDisplayPathProbe.h"
+#include "DisplayPathProbe.h"
 
 #include <optional>
 #include <cstddef>
@@ -10,6 +10,9 @@
 
 namespace clawhud
 {
+using IntelVrrWindowsTarget = VrrWindowsTarget;
+using IntelVrrWindowsTargets = VrrWindowsTargets;
+
 struct PanelIdentity
 {
     std::string manufacturer;

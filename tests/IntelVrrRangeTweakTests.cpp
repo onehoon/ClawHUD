@@ -175,23 +175,23 @@ int main()
         PanelTargetMappingStatus::NotActive, "unavailable target is never writable");
 
     const LUID exactAdapter{ 101, 1 };
-    const std::vector<IntelVrrOutputIdentity> igclOutputs{
+    const std::vector<DiagIgclOutputIdentity> igclOutputs{
         { exactAdapter, 11 }, { LUID{ 999, 9 }, 11 } };
-    ok &= Check(ResolveIntelVrrTarget(exactAdapter, 11, igclOutputs).status ==
+    ok &= Check(ResolveDiagIgclTarget(exactAdapter, 11, igclOutputs).status ==
         IntelVrrTargetMappingStatus::Exact,
         "IGCL target matching requires the exact adapter LUID and target ID");
-    ok &= Check(ResolveIntelVrrTarget(exactAdapter, 12, igclOutputs).status ==
+    ok &= Check(ResolveDiagIgclTarget(exactAdapter, 12, igclOutputs).status ==
         IntelVrrTargetMappingStatus::Unknown,
         "same LUID with a different target ID does not map");
-    ok &= Check(ResolveIntelVrrTarget(LUID{ 555, 5 }, 11, igclOutputs).status ==
+    ok &= Check(ResolveDiagIgclTarget(LUID{ 555, 5 }, 11, igclOutputs).status ==
         IntelVrrTargetMappingStatus::Unknown,
         "same target ID on a different adapter does not map");
     auto duplicateOutputs = igclOutputs;
     duplicateOutputs.push_back({ exactAdapter, 11 });
-    ok &= Check(ResolveIntelVrrTarget(exactAdapter, 11, duplicateOutputs).status ==
+    ok &= Check(ResolveDiagIgclTarget(exactAdapter, 11, duplicateOutputs).status ==
         IntelVrrTargetMappingStatus::Ambiguous,
         "duplicate exact IGCL identity is ambiguous");
-    ok &= Check(ResolveIntelVrrTarget(exactAdapter, 11, igclOutputs, false).status ==
+    ok &= Check(ResolveDiagIgclTarget(exactAdapter, 11, igclOutputs, false).status ==
         IntelVrrTargetMappingStatus::Unknown,
         "incomplete IGCL enumeration cannot confirm an exact target");
 

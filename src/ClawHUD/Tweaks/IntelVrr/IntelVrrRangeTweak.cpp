@@ -48,6 +48,59 @@ std::string ApiCode(const std::optional<std::uint32_t>& value)
     return text.str();
 }
 
+const char* ProbeFailureStageName(DiagIgclProbeFailureStage stage) noexcept
+{
+    switch (stage)
+    {
+    case DiagIgclProbeFailureStage::NotInitialized: return "NotInitialized";
+    case DiagIgclProbeFailureStage::LoadLibrary: return "LoadLibrary";
+    case DiagIgclProbeFailureStage::ResolveFunction: return "ResolveFunction";
+    case DiagIgclProbeFailureStage::Initialize: return "Initialize";
+    case DiagIgclProbeFailureStage::EnumerateDevices: return "EnumerateDevices";
+    case DiagIgclProbeFailureStage::GetDeviceProperties: return "GetDeviceProperties";
+    case DiagIgclProbeFailureStage::EnumerateDisplayOutputs: return "EnumerateDisplayOutputs";
+    case DiagIgclProbeFailureStage::GetDisplayProperties: return "GetDisplayProperties";
+    case DiagIgclProbeFailureStage::TargetMapping: return "TargetMapping";
+    case DiagIgclProbeFailureStage::GetArcSyncInfo: return "GetArcSyncInfo";
+    case DiagIgclProbeFailureStage::GetArcSyncProfile: return "GetArcSyncProfile";
+    case DiagIgclProbeFailureStage::InternalError: return "InternalError";
+    default: return "None";
+    }
+}
+
+const char* ProbeFailureDomainName(DiagIgclProbeResultDomain domain) noexcept
+{
+    switch (domain)
+    {
+    case DiagIgclProbeResultDomain::Win32: return "Win32";
+    case DiagIgclProbeResultDomain::ControlLibrary: return "ControlLibrary";
+    default: return "None";
+    }
+}
+
+void AppendProbeFailures(std::vector<std::string>& log, const std::string& panel,
+    const IntelVrrTargetState& state)
+{
+    for (std::size_t index = 0;
+        index < state.failureRecordCount && index < state.failures.size(); ++index)
+    {
+        const auto& failure = state.failures[index];
+        std::string line = "Panel=" + panel + " probeFailure=" +
+            std::to_string(index) + " stage=" + ProbeFailureStageName(failure.stage) +
+            " domain=" + ProbeFailureDomainName(failure.resultDomain) +
+            " result=" + ApiCode(failure.result) +
+            " detail=" + std::string(failure.detail);
+        if (failure.adapterIndex != DiagIgclProbeFailure::NoIndex)
+            line += " adapterIndex=" + std::to_string(failure.adapterIndex);
+        if (failure.outputIndex != DiagIgclProbeFailure::NoIndex)
+            line += " outputIndex=" + std::to_string(failure.outputIndex);
+        log.push_back(std::move(line));
+    }
+    if (state.suppressedFailureCount != 0)
+        log.push_back("Panel=" + panel + " suppressedProbeFailures=" +
+            std::to_string(state.suppressedFailureCount));
+}
+
 std::string NowUtc()
 {
     SYSTEMTIME time{};
@@ -237,7 +290,7 @@ IntelVrrRangeTweak::IntelVrrRangeTweak(ProbeFactory probeFactory,
       windowsTargetProvider_(std::move(windowsTargetProvider))
 {
     if (!windowsTargetProvider_)
-        windowsTargetProvider_ = [] { return EnumerateIntelVrrWindowsTargets(); };
+        windowsTargetProvider_ = [] { return EnumerateVrrWindowsTargets(); };
 }
 
 IntelVrrRunResult IntelVrrRangeTweak::Run(bool enabled)
@@ -428,11 +481,11 @@ IntelVrrRunResult IntelVrrRangeTweak::Run(bool enabled)
             std::to_string(before.targetMatchCount) + " mapping=" +
             (before.mappingStatus == IntelVrrTargetMappingStatus::Exact ? "Exact" :
                 before.mappingStatus == IntelVrrTargetMappingStatus::Ambiguous ? "Ambiguous" : "Unknown") +
-            " discoveryFailureStage=" +
-            IntelVrrDiscoveryFailureStageName(before.discoveryFailureStage) +
-            " discoveryFailureResult=" + ApiCode(before.discoveryFailureResult) +
+            " failureRecords=" + std::to_string(before.failureRecordCount) +
+            " suppressedFailures=" + std::to_string(before.suppressedFailureCount) +
             " capabilityResult=" + ApiCode(before.capabilityResult) +
             " profileResult=" + ApiCode(before.profileResult));
+        AppendProbeFailures(log_, label, before);
 
         log_.push_back("Panel=" + label + " capabilitySupported=" +
             (before.capability ? (before.capability->supported ? "1" : "0") : "unknown") +

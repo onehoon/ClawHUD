@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Probe/IntelVrrTargetStateProbe.h"
+#include "DiagIntelVrrStateProbe.h"
 
 #include <string_view>
 
@@ -21,5 +21,5 @@ bool IsLg27gs65fWindowsIdentity(std::wstring_view monitorDevicePath,
 
 // Pure eligibility decision, shared with Windows-free policy tests.
 Lg27gs65fProfileDecision EvaluateLg27gs65fProductionProfile(
-    const IntelVrrTargetState& state) noexcept;
+    const DiagIntelVrrState& state) noexcept;
 }

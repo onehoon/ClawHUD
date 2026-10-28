@@ -430,15 +430,66 @@ DiagIntelVrrState DiagIntelVrrStateProbe::Query(
     }
 }
 
-DiagIgclProfileSetResult DiagIntelVrrStateProbe::SetProfileForExactTarget(
-    const DiagIntelVrrState& expected, std::uint32_t requestedProfile) noexcept
+bool IsIntelVrrProfileChangeAllowed(const DiagIntelVrrState& state,
+    IntelVrrPanelClass panelClass, std::uint32_t requestedProfile) noexcept
 {
     constexpr std::uint32_t recommended = 1;
     constexpr std::uint32_t excellent = 2;
+    constexpr std::uint32_t good = 3;
     constexpr std::uint32_t compatible = 4;
-    constexpr float capabilityMinimumHz = 48.0f;
-    constexpr float capabilityMaximumHz = 180.0f;
+    constexpr std::uint32_t vesa = 6;
     constexpr float toleranceHz = 0.25f;
+    const float expectedMaximum = panelClass == IntelVrrPanelClass::ClawInternal
+        ? 120.0f : 180.0f;
+    const auto isNear = [=](float value, float expected)
+    {
+        return std::isfinite(value) && std::abs(value - expected) <= toleranceHz;
+    };
+
+    if (!state.initialized || !state.enumerationComplete ||
+        state.mappingStatus != DiagIgclTargetMappingStatus::Exact ||
+        state.targetMatchCount != 1 || state.displayOutputCount == 0 ||
+        state.displayPropertiesSuccessCount != state.displayOutputCount ||
+        !state.capability || !state.profile || state.capabilityResult != 0 ||
+        state.profileResult != 0 || !state.capability->supported ||
+        !isNear(state.capability->minimumHz, 48.0f) ||
+        !isNear(state.capability->maximumHz, expectedMaximum) ||
+        !std::isfinite(state.profile->minimumHz) ||
+        !std::isfinite(state.profile->maximumHz))
+        return false;
+
+    if (panelClass == IntelVrrPanelClass::Lg27gs65f)
+    {
+        if (requestedProfile == excellent)
+            return (state.profile->profile == recommended ||
+                state.profile->profile == compatible) &&
+                isNear(state.profile->minimumHz, 90.0f) &&
+                isNear(state.profile->maximumHz, 180.0f);
+        return (requestedProfile == recommended || requestedProfile == compatible) &&
+            state.profile->profile == excellent;
+    }
+
+    if (requestedProfile != excellent)
+        return false;
+    const bool knownProfile = state.profile->profile == recommended ||
+        state.profile->profile == excellent || state.profile->profile == good ||
+        state.profile->profile == compatible || state.profile->profile == vesa;
+    const bool fullRange = isNear(state.profile->minimumHz, 48.0f) &&
+        isNear(state.profile->maximumHz, 120.0f);
+    return knownProfile && !fullRange;
+}
+
+DiagIgclProfileSetResult DiagIntelVrrStateProbe::SetProfileForExactTarget(
+    const DiagIntelVrrState& expected, std::uint32_t requestedProfile) noexcept
+{
+    return SetProfileForExactTarget(expected, IntelVrrPanelClass::Lg27gs65f,
+        requestedProfile);
+}
+
+DiagIgclProfileSetResult DiagIntelVrrStateProbe::SetProfileForExactTarget(
+    const DiagIntelVrrState& expected, IntelVrrPanelClass panelClass,
+    std::uint32_t requestedProfile) noexcept
+{
     const auto reject = [](std::string_view detail,
         std::optional<std::uint32_t> result = std::nullopt)
     {
@@ -449,34 +500,12 @@ DiagIgclProfileSetResult DiagIntelVrrStateProbe::SetProfileForExactTarget(
     exactOutput_ = nullptr;
     if (!apiHandle_ || !endpoints_ || !endpoints_->setArcSyncProfile || !output)
         return reject("IGCL profile setter is unavailable");
-    if ((requestedProfile != excellent && requestedProfile != recommended &&
-         requestedProfile != compatible) ||
-        !expected.enumerationComplete ||
-        expected.mappingStatus != DiagIgclTargetMappingStatus::Exact ||
+    if (expected.mappingStatus != DiagIgclTargetMappingStatus::Exact ||
         expected.windowsTargetAdapterLuid.LowPart != exactOutputAdapterLuid_.LowPart ||
         expected.windowsTargetAdapterLuid.HighPart != exactOutputAdapterLuid_.HighPart ||
         expected.windowsTargetId != exactOutputTargetId_ ||
-        expected.targetMatchCount != 1 || !expected.capability || !expected.profile ||
-        expected.capabilityResult != 0 || expected.profileResult != 0 ||
-        !expected.capability->supported ||
-        !std::isfinite(expected.capability->minimumHz) ||
-        !std::isfinite(expected.capability->maximumHz) ||
-        std::abs(expected.capability->minimumHz - capabilityMinimumHz) > toleranceHz ||
-        std::abs(expected.capability->maximumHz - capabilityMaximumHz) > toleranceHz ||
-        !std::isfinite(expected.profile->minimumHz) ||
-        !std::isfinite(expected.profile->maximumHz))
-        return reject("expected state is not an exact supported LG profile target");
-
-    const bool canApplyExcellent = requestedProfile == excellent &&
-        (expected.profile->profile == recommended ||
-         (expected.profile->profile == compatible &&
-          std::abs(expected.profile->minimumHz - 90.0f) <= toleranceHz &&
-          std::abs(expected.profile->maximumHz - 180.0f) <= toleranceHz));
-    const bool canRestoreOriginal =
-        (requestedProfile == recommended || requestedProfile == compatible) &&
-        expected.profile->profile == excellent;
-    if (!canApplyExcellent && !canRestoreOriginal)
-        return reject("current profile is not eligible for the requested change");
+        !IsIntelVrrProfileChangeAllowed(expected, panelClass, requestedProfile))
+        return reject("expected state does not match the exact supported panel policy");
 
     try
     {
