@@ -1,11 +1,14 @@
 #include "TweakStartupCoordinator.h"
-#include "IntelVrr\AffectedPanelDetector.h"
-#include "IntelVrr\IntelArcSyncClient.h"
-#include "IntelVrr\IntelVrrRangeTweak.h"
+
+#include "IntelVrr/AffectedPanelDetector.h"
+#include "IntelVrr/IntelVrrRangeTweak.h"
+#include "IntelVrr/Probe/IntelVrrTargetStateProbe.h"
 #include "RuntimeLogger.h"
 #include "WindowsDrr/WindowsDrrDisable.h"
+
 #include <algorithm>
 #include <chrono>
+#include <memory>
 #include <string>
 
 namespace clawhud
@@ -29,14 +32,20 @@ void LogDrrResult(const DrrDisableResult& result)
 }
 
 TweakStartupCoordinator::~TweakStartupCoordinator() { Stop(); }
+
 void TweakStartupCoordinator::Start(bool enabled)
 {
-    Stop(); stopping_ = false; worker_ = std::thread(&TweakStartupCoordinator::Run, this, enabled);
+    Stop();
+    stopping_ = false;
+    worker_ = std::thread(&TweakStartupCoordinator::Run, this, enabled);
 }
+
 void TweakStartupCoordinator::Stop()
 {
-    stopping_ = true; if (worker_.joinable()) worker_.join();
+    stopping_ = true;
+    if (worker_.joinable()) worker_.join();
 }
+
 void TweakStartupCoordinator::Run(bool enabled)
 {
     try
@@ -56,15 +65,19 @@ void TweakStartupCoordinator::Run(bool enabled)
             },
             [&](int)
             {
-                IntelVrrRangeTweak tweak([] { return std::make_unique<IntelArcSyncClient>(); }, [] { return EnumeratePanelIdentities(); });
+                IntelVrrRangeTweak tweak(
+                    [] { return std::make_unique<IntelVrrTargetStateProbe>(); },
+                    [] { return EnumeratePanelIdentities(); });
                 return tweak.Run(enabled);
             },
             [&](std::chrono::seconds delay)
             {
                 for (auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(delay);
-                    remaining.count() > 0 && !stopping_; remaining -= std::chrono::milliseconds(100))
+                    remaining.count() > 0 && !stopping_;
+                    remaining -= std::chrono::milliseconds(100))
                 {
-                    std::this_thread::sleep_for(std::min(remaining, std::chrono::milliseconds(100)));
+                    std::this_thread::sleep_for(
+                        std::min(remaining, std::chrono::milliseconds(100)));
                 }
                 return !stopping_;
             });

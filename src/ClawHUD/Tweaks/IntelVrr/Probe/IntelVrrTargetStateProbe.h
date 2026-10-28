@@ -52,6 +52,19 @@ struct IntelVrrArcSyncProfile
     std::uint32_t maxFrameTimeDecreaseUs{};
 };
 
+enum class IntelVrrDiscoveryFailureStage
+{
+    None,
+    EnumerateDevices,
+    DeviceProperties,
+    EnumerateOutputs,
+    DisplayProperties,
+    UnexpectedException,
+};
+
+const char* IntelVrrDiscoveryFailureStageName(
+    IntelVrrDiscoveryFailureStage stage) noexcept;
+
 struct IntelVrrTargetState
 {
     IntelVrrTargetMappingStatus mappingStatus{ IntelVrrTargetMappingStatus::Unknown };
@@ -67,7 +80,19 @@ struct IntelVrrTargetState
     std::uint32_t displayOutputCount{};
     std::uint32_t displayPropertiesSuccessCount{};
     std::uint32_t targetMatchCount{};
+    IntelVrrDiscoveryFailureStage discoveryFailureStage{
+        IntelVrrDiscoveryFailureStage::None };
+    std::optional<std::uint32_t> discoveryFailureResult;
 };
+
+enum class IntelVrrPanelClass
+{
+    ClawInternal,
+    Lg27gs65f,
+};
+
+bool IsIntelVrrProfileChangeAllowed(const IntelVrrTargetState& state,
+    IntelVrrPanelClass panelClass, std::uint32_t requestedProfile) noexcept;
 
 struct IntelVrrProfileSetResult
 {
@@ -77,18 +102,31 @@ struct IntelVrrProfileSetResult
     std::string_view detail;
 };
 
-class IntelVrrTargetStateProbe
+class IIntelVrrTargetStateProbe
+{
+public:
+    virtual ~IIntelVrrTargetStateProbe() = default;
+    virtual bool Initialize() noexcept = 0;
+    virtual IntelVrrTargetState Query(const LUID& windowsTargetAdapterLuid,
+        std::uint32_t windowsTargetId) noexcept = 0;
+    virtual IntelVrrProfileSetResult SetProfileForExactTarget(
+        const IntelVrrTargetState& expectedCurrentState,
+        IntelVrrPanelClass panelClass, std::uint32_t requestedProfile) noexcept = 0;
+    virtual void Shutdown() noexcept = 0;
+};
+
+class IntelVrrTargetStateProbe final : public IIntelVrrTargetStateProbe
 {
 public:
     ~IntelVrrTargetStateProbe();
 
-    bool Initialize() noexcept;
+    bool Initialize() noexcept override;
     IntelVrrTargetState Query(const LUID& windowsTargetAdapterLuid,
-        std::uint32_t windowsTargetId) noexcept;
+        std::uint32_t windowsTargetId) noexcept override;
     IntelVrrProfileSetResult SetProfileForExactTarget(
         const IntelVrrTargetState& expectedCurrentState,
-        std::uint32_t requestedProfile) noexcept;
-    void Shutdown() noexcept;
+        IntelVrrPanelClass panelClass, std::uint32_t requestedProfile) noexcept override;
+    void Shutdown() noexcept override;
 
 private:
     struct Endpoints;
