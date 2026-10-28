@@ -12,20 +12,36 @@ class TweakStartupCoordinator
 {
 public:
     using DrrAttemptFn = std::function<void()>;
+    using RefreshRateAttemptFn = std::function<void()>;
     using AttemptFn = std::function<IntelVrrRunResult(int attemptNumber)>;
     using WaitFn = std::function<bool(std::chrono::seconds)>;
     ~TweakStartupCoordinator();
     void Start(bool enabled);
     void Stop();
     static int RunStartupSequence(bool enabled, const DrrAttemptFn& disableDrr,
+        const RefreshRateAttemptFn& maximizeRefreshRate,
         const AttemptFn& runIntelVrr, const WaitFn& wait)
     {
-        if (enabled && disableDrr)
+        if (enabled)
         {
-            try { disableDrr(); }
-            catch (...) { }
+            if (disableDrr)
+            {
+                try { disableDrr(); }
+                catch (...) { }
+            }
+            if (maximizeRefreshRate)
+            {
+                try { maximizeRefreshRate(); }
+                catch (...) { }
+            }
         }
         return RunRetrySequence(runIntelVrr, wait);
+    }
+
+    static int RunStartupSequence(bool enabled, const DrrAttemptFn& disableDrr,
+        const AttemptFn& runIntelVrr, const WaitFn& wait)
+    {
+        return RunStartupSequence(enabled, disableDrr, {}, runIntelVrr, wait);
     }
 
     static int RunRetrySequence(const AttemptFn& attempt, const WaitFn& wait)
