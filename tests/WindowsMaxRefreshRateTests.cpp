@@ -58,6 +58,7 @@ WindowsActiveDisplayPath Path(UINT32 sourceId = 1, UINT32 targetId = 1,
     path.monitorName = L"Test Monitor";
     path.sourceNameValid = true;
     path.attachedToDesktop = true;
+    path.targetAvailable = true;
     path.advancedColorKnown = true;
     return path;
 }
@@ -85,6 +86,9 @@ public:
             return readStatus;
         if (driftTopologyAtRead > 0 && pathReads == driftTopologyAtRead && !paths.empty())
             ++paths.front().targetId;
+        if (driftTargetAvailabilityAtRead > 0 &&
+            pathReads == driftTargetAvailabilityAtRead && !paths.empty())
+            paths.front().targetAvailable = !paths.front().targetAvailable;
         output = paths;
         return ERROR_SUCCESS;
     }
@@ -208,6 +212,7 @@ public:
     int pathReads{};
     int commitCalls{};
     int driftTopologyAtRead{};
+    int driftTargetAvailabilityAtRead{};
     bool currentModeUnavailable{};
     bool endlessModes{};
     bool driftResolutionOnApply{};
@@ -232,6 +237,36 @@ int main()
     const auto runId = VrrDiagnosticLogger::BeginRun(true, "test", "1");
 
     bool ok = true;
+    {
+        DISPLAYCONFIG_PATH_INFO nativePath{};
+        nativePath.flags = DISPLAYCONFIG_PATH_ACTIVE;
+        nativePath.targetInfo.modeInfoIdx = 3;
+        DISPLAYCONFIG_MODE_INFO nativeModes[4]{};
+        nativeModes[0].infoType = DISPLAYCONFIG_MODE_INFO_TYPE_TARGET;
+        nativeModes[0].targetMode.targetVideoSignalInfo.vSyncFreq =
+            DISPLAYCONFIG_RATIONAL{ 120000, 1000 };
+        nativeModes[3].infoType = DISPLAYCONFIG_MODE_INFO_TYPE_TARGET;
+        nativeModes[3].targetMode.targetVideoSignalInfo.vSyncFreq =
+            DISPLAYCONFIG_RATIONAL{ 165000, 1000 };
+        DISPLAYCONFIG_RATIONAL selected{};
+        const bool selectedNonVirtual = detail::TryGetTargetPhysicalRefresh(
+            nativePath, nativeModes, 4, selected);
+        ok &= Check(selectedNonVirtual && selected.Numerator == 165000 &&
+            selected.Denominator == 1000,
+            "non-virtual path reads the full-width modeInfoIdx instead of union high bits");
+
+        nativePath.flags |= DISPLAYCONFIG_PATH_SUPPORT_VIRTUAL_MODE;
+        nativePath.targetInfo.targetModeInfoIdx = 2;
+        nativeModes[2].infoType = DISPLAYCONFIG_MODE_INFO_TYPE_TARGET;
+        nativeModes[2].targetMode.targetVideoSignalInfo.vSyncFreq =
+            DISPLAYCONFIG_RATIONAL{ 144000, 1000 };
+        const bool selectedVirtual = detail::TryGetTargetPhysicalRefresh(
+            nativePath, nativeModes, 4, selected);
+        ok &= Check(selectedVirtual && selected.Numerator == 144000 &&
+            selected.Denominator == 1000,
+            "virtual path reads targetModeInfoIdx from the virtual-mode union");
+    }
+
     {
         FakeRefreshApi api;
         const auto result = MaximizeFixedRefreshRateForActiveDisplays(api, true);
@@ -383,6 +418,25 @@ int main()
 
     {
         FakeRefreshApi api;
+        api.paths[0].targetAvailable = false;
+        const auto result = MaximizeFixedRefreshRateForActiveDisplays(api);
+        ok &= Check(result.status == WindowsMaxRefreshStatus::SkippedUnsafeTopology &&
+            result.targets[0].status == WindowsMaxRefreshStatus::SkippedUnsafeTopology &&
+            result.skippedCount == 1 && api.calls.empty(),
+            "active path with an unavailable target is skipped without test or apply calls");
+    }
+
+    {
+        FakeRefreshApi api;
+        api.driftTargetAvailabilityAtRead = 2;
+        const auto result = MaximizeFixedRefreshRateForActiveDisplays(api);
+        ok &= Check(result.status == WindowsMaxRefreshStatus::SkippedUnsafeTopology &&
+            CountCalls(api, CDS_UPDATEREGISTRY) == 0,
+            "target availability drift before apply fails topology verification closed");
+    }
+
+    {
+        FakeRefreshApi api;
         api.paths[0].remoteSession = true;
         const auto result = MaximizeFixedRefreshRateForActiveDisplays(api);
         ok &= Check(result.status == WindowsMaxRefreshStatus::SkippedUnsafeTopology &&
@@ -509,7 +563,8 @@ int main()
     ok &= Check(log.find("[" + runId + "] [RefreshRate]") != std::string::npos &&
         log.find("modeBefore=1920x1080 60Hz") != std::string::npos &&
         log.find("compatibleCandidates=") != std::string::npos &&
-        log.find("rollbackVerified=") != std::string::npos,
+        log.find("rollbackVerified=") != std::string::npos &&
+        log.find("reason=TargetUnavailable") != std::string::npos,
         "stage diagnostics share the VRR run ID and include candidates and rollback");
     ok &= Check(!std::filesystem::exists(std::filesystem::path(logDirectory) / L"clawhud.log"),
         "refresh-rate details are not copied to the general runtime log");

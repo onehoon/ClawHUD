@@ -12,6 +12,29 @@
 
 namespace clawhud
 {
+bool detail::TryGetTargetPhysicalRefresh(const DISPLAYCONFIG_PATH_INFO& path,
+    const DISPLAYCONFIG_MODE_INFO* modes, UINT32 modeCount,
+    DISPLAYCONFIG_RATIONAL& physicalRefresh) noexcept
+{
+    if (!modes)
+        return false;
+
+    const bool virtualMode =
+        (path.flags & DISPLAYCONFIG_PATH_SUPPORT_VIRTUAL_MODE) != 0;
+    const UINT32 targetModeIndex = virtualMode
+        ? path.targetInfo.targetModeInfoIdx
+        : path.targetInfo.modeInfoIdx;
+    const UINT32 invalidIndex = virtualMode
+        ? DISPLAYCONFIG_PATH_TARGET_MODE_IDX_INVALID
+        : DISPLAYCONFIG_PATH_MODE_IDX_INVALID;
+    if (targetModeIndex == invalidIndex || targetModeIndex >= modeCount ||
+        modes[targetModeIndex].infoType != DISPLAYCONFIG_MODE_INFO_TYPE_TARGET)
+        return false;
+
+    physicalRefresh = modes[targetModeIndex].targetMode.targetVideoSignalInfo.vSyncFreq;
+    return true;
+}
+
 namespace
 {
 constexpr UINT32 kReadFlags = QDC_ONLY_ACTIVE_PATHS |
@@ -97,6 +120,7 @@ public:
                 output.outputTechnology = path.targetInfo.outputTechnology;
                 output.flags = path.flags;
                 output.virtualRefresh = path.targetInfo.refreshRate;
+                output.targetAvailable = path.targetInfo.targetAvailable != FALSE;
                 output.remoteSession = remoteSession;
 
                 DISPLAYCONFIG_SOURCE_DEVICE_NAME source{};
@@ -122,13 +146,8 @@ public:
                     output.monitorName = target.monitorFriendlyDeviceName;
                 }
 
-                if (path.targetInfo.targetModeInfoIdx < modeCount &&
-                    modes[path.targetInfo.targetModeInfoIdx].infoType ==
-                        DISPLAYCONFIG_MODE_INFO_TYPE_TARGET)
-                {
-                    output.physicalRefresh = modes[path.targetInfo.targetModeInfoIdx]
-                        .targetMode.targetVideoSignalInfo.vSyncFreq;
-                }
+                (void)detail::TryGetTargetPhysicalRefresh(path, modes.data(), modeCount,
+                    output.physicalRefresh);
 
                 if (output.sourceNameValid)
                 {
@@ -264,6 +283,8 @@ bool SameCurrentMode(const DEVMODEW& left, const DEVMODEW& right) noexcept
 
 std::wstring SkipReason(const WindowsActiveDisplayPath& path)
 {
+    if (!path.targetAvailable)
+        return L"TargetUnavailable";
     if (!path.sourceNameValid || path.gdiDeviceName.empty())
         return L"MissingGdiSourceName";
     if (path.monitorDevicePath.empty())
@@ -347,7 +368,8 @@ bool SameTopology(const std::vector<WindowsActiveDisplayPath>& before,
             current->outputTechnology != original.outputTechnology ||
             current->gdiDeviceName != original.gdiDeviceName ||
             current->monitorDevicePath != original.monitorDevicePath ||
-            current->attachedToDesktop != original.attachedToDesktop)
+            current->attachedToDesktop != original.attachedToDesktop ||
+            current->targetAvailable != original.targetAvailable)
             return false;
     }
     return true;

@@ -7,6 +7,13 @@
 
 namespace clawhud
 {
+namespace detail
+{
+bool TryGetTargetPhysicalRefresh(const DISPLAYCONFIG_PATH_INFO& path,
+    const DISPLAYCONFIG_MODE_INFO* modes, UINT32 modeCount,
+    DISPLAYCONFIG_RATIONAL& physicalRefresh) noexcept;
+}
+
 struct WindowsActiveDisplayPath
 {
     LUID sourceAdapter{};
@@ -22,6 +29,7 @@ struct WindowsActiveDisplayPath
     std::wstring monitorName;
     bool sourceNameValid{};
     bool attachedToDesktop{};
+    bool targetAvailable{};
     bool mirroringDriver{};
     bool remoteSession{};
     bool advancedColorKnown{};
