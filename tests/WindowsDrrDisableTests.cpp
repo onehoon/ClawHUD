@@ -1,9 +1,11 @@
 #include "Tweaks/WindowsDrr/WindowsDrrDisable.h"
-#include "RuntimeLogger.h"
+#include "Tweaks/VrrDiagnosticLogger.h"
 
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <iterator>
 #include <string>
 #include <utility>
 #include <vector>
@@ -206,7 +208,8 @@ int main()
     wchar_t tempPath[MAX_PATH]{};
     GetTempPathW(MAX_PATH, tempPath);
     const std::wstring logDirectory = std::wstring(tempPath) + L"ClawHUD-WindowsDrrDisableTests";
-    RuntimeLogger::SetDirectoryForTests(logDirectory);
+    VrrDiagnosticLogger::SetDirectoryForTests(logDirectory);
+    VrrDiagnosticLogger::BeginRun(true, "test", "1");
 
     bool ok = true;
     {
@@ -343,7 +346,18 @@ int main()
             "verification query errors are not reported as success");
     }
 
-    RuntimeLogger::ResetForTests();
+    std::ifstream logFile(std::filesystem::path(logDirectory) / L"tweaks-vrr.log",
+        std::ios::binary);
+    const std::string log((std::istreambuf_iterator<char>(logFile)),
+        std::istreambuf_iterator<char>());
+    ok &= Check(log.find("Windows DRR before activePathCount=") != std::string::npos &&
+        log.find("SetDisplayConfig validate") != std::string::npos &&
+        log.find("SetDisplayConfig apply") != std::string::npos &&
+        log.find("Windows DRR after activePathCount=") != std::string::npos,
+        "DRR before, validate, apply and verification detail is routed to the VRR log");
+    ok &= Check(!std::filesystem::exists(std::filesystem::path(logDirectory) / L"clawhud.log"),
+        "DRR diagnostics are not duplicated into clawhud.log");
+    VrrDiagnosticLogger::ResetForTests();
     std::error_code cleanupError;
     std::filesystem::remove_all(logDirectory, cleanupError);
     return ok ? 0 : 1;
