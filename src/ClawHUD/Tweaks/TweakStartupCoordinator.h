@@ -11,11 +11,23 @@ namespace clawhud
 class TweakStartupCoordinator
 {
 public:
+    using DrrAttemptFn = std::function<void()>;
     using AttemptFn = std::function<IntelVrrRunResult(int attemptNumber)>;
     using WaitFn = std::function<bool(std::chrono::seconds)>;
     ~TweakStartupCoordinator();
     void Start(bool enabled);
     void Stop();
+    static int RunStartupSequence(bool enabled, const DrrAttemptFn& disableDrr,
+        const AttemptFn& runIntelVrr, const WaitFn& wait)
+    {
+        if (enabled && disableDrr)
+        {
+            try { disableDrr(); }
+            catch (...) { }
+        }
+        return RunRetrySequence(runIntelVrr, wait);
+    }
+
     static int RunRetrySequence(const AttemptFn& attempt, const WaitFn& wait)
     {
         const std::chrono::seconds delays[] = { std::chrono::seconds{ 2 }, std::chrono::seconds{ 5 }, std::chrono::seconds{ 15 } };

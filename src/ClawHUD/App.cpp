@@ -254,6 +254,8 @@ int App::Run()
 
 void App::SetIntelVrrRangeFixEnabled(bool enabled)
 {
+    // The startup coordinator reads this persisted policy on the next app start;
+    // changing the toggle does not apply or restore display configuration immediately.
     intelVrrRangeFixEnabled_ = enabled;
     hudSettingsStore_.SaveIntelVrrRangeFixEnabled(enabled);
 }
