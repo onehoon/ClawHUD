@@ -17,6 +17,12 @@ enum class DiagIgclTargetMappingStatus
     Ambiguous,
 };
 
+enum class IntelVrrPanelClass
+{
+    ClawInternal,
+    Lg27gs65f,
+};
+
 struct DiagIgclTargetMatch
 {
     DiagIgclTargetMappingStatus status{ DiagIgclTargetMappingStatus::Unknown };
@@ -118,6 +124,9 @@ struct DiagIgclProfileSetResult
     std::string_view detail;
 };
 
+bool IsIntelVrrProfileChangeAllowed(const DiagIntelVrrState& state,
+    IntelVrrPanelClass panelClass, std::uint32_t requestedProfile) noexcept;
+
 class DiagIntelVrrStateProbe
 {
 public:
@@ -129,6 +138,9 @@ public:
     DiagIgclProfileSetResult SetProfileForExactTarget(
         const DiagIntelVrrState& expectedCurrentState,
         std::uint32_t requestedProfile) noexcept;
+    DiagIgclProfileSetResult SetProfileForExactTarget(
+        const DiagIntelVrrState& expectedCurrentState,
+        IntelVrrPanelClass panelClass, std::uint32_t requestedProfile) noexcept;
     void Shutdown() noexcept;
 
 private:

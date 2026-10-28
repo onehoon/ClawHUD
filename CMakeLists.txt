@@ -130,9 +130,9 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/WindowsMemoryTelemetry.cpp
     src/ClawHUD/SupportedHardware.cpp
     src/ClawHUD/Tweaks/TweakStartupCoordinator.cpp
+    src/ClawHUD/Tweaks/VrrDiagnosticLogger.cpp
     src/ClawHUD/Tweaks/WindowsDrr/WindowsDrrDisable.cpp
     src/ClawHUD/Tweaks/IntelVrr/AffectedPanelDetector.cpp
-    src/ClawHUD/Tweaks/IntelVrr/IntelArcSyncClient.cpp
     src/ClawHUD/Tweaks/IntelVrr/IntelVrrRangeTweak.cpp
     src/ClawHUD/Tweaks/IntelVrr/Lg27gs65fVrrRangeTweak.cpp
     src/ClawHUD.Diag/DisplayPathProbe.cpp

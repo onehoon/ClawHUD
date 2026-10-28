@@ -76,6 +76,79 @@ DisplayPathProbeResult ResolveVrrDisplayPath(std::wstring_view monitorDeviceName
     return { DisplayPathProbeStatus::Matched, std::move(result) };
 }
 
+VrrWindowsTargets EnumerateVrrWindowsTargets() noexcept
+{
+    try
+    {
+        constexpr UINT32 flags = QDC_ONLY_ACTIVE_PATHS;
+        for (int attempt = 0; attempt < 2; ++attempt)
+        {
+            UINT32 pathCount{};
+            UINT32 modeCount{};
+            const LONG sizeResult = GetDisplayConfigBufferSizes(flags, &pathCount, &modeCount);
+            if (sizeResult != ERROR_SUCCESS)
+                return { {}, false, sizeResult };
+            if (pathCount == 0)
+                return { {}, true, ERROR_SUCCESS };
+
+            std::vector<DISPLAYCONFIG_PATH_INFO> paths(pathCount);
+            std::vector<DISPLAYCONFIG_MODE_INFO> modes(modeCount);
+            const LONG queryResult = QueryDisplayConfig(flags, &pathCount,
+                paths.data(), &modeCount, modes.data(), nullptr);
+            if (queryResult == ERROR_INSUFFICIENT_BUFFER)
+                continue;
+            if (queryResult != ERROR_SUCCESS || pathCount > paths.size() ||
+                modeCount > modes.size())
+                return { {}, false, queryResult == ERROR_SUCCESS
+                    ? ERROR_INVALID_DATA : queryResult };
+
+            VrrWindowsTargets result;
+            result.enumerationComplete = true;
+            result.targets.reserve(pathCount);
+            for (UINT32 index = 0; index < pathCount; ++index)
+            {
+                const auto& path = paths[index];
+                if ((path.flags & DISPLAYCONFIG_PATH_ACTIVE) == 0)
+                    continue;
+
+                DISPLAYCONFIG_SOURCE_DEVICE_NAME source{};
+                source.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
+                source.header.size = sizeof(source);
+                source.header.adapterId = path.sourceInfo.adapterId;
+                source.header.id = path.sourceInfo.id;
+
+                DISPLAYCONFIG_TARGET_DEVICE_NAME target{};
+                target.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME;
+                target.header.size = sizeof(target);
+                target.header.adapterId = path.targetInfo.adapterId;
+                target.header.id = path.targetInfo.id;
+
+                const LONG sourceResult = DisplayConfigGetDeviceInfo(&source.header);
+                const LONG targetResult = DisplayConfigGetDeviceInfo(&target.header);
+                if (sourceResult != ERROR_SUCCESS || targetResult != ERROR_SUCCESS ||
+                    source.viewGdiDeviceName[0] == L'\0' ||
+                    target.monitorDevicePath[0] == L'\0')
+                {
+                    result.enumerationComplete = false;
+                    result.error = sourceResult != ERROR_SUCCESS ? sourceResult :
+                        targetResult != ERROR_SUCCESS ? targetResult : ERROR_NOT_FOUND;
+                }
+
+                result.targets.push_back({ source.viewGdiDeviceName,
+                    target.monitorDevicePath, target.monitorFriendlyDeviceName,
+                    path.targetInfo.adapterId, path.targetInfo.id,
+                    path.sourceInfo.id, path.targetInfo.targetAvailable != FALSE });
+            }
+            return result;
+        }
+        return { {}, false, ERROR_INSUFFICIENT_BUFFER };
+    }
+    catch (...)
+    {
+        return { {}, false, ERROR_GEN_FAILURE };
+    }
+}
+
 DisplayPathProbeResult DisplayPathProbe::Probe(HMONITOR monitor) const noexcept
 {
     try
