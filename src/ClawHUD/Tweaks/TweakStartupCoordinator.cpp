@@ -5,6 +5,7 @@
 #include "DiagIntelVrrStateProbe.h"
 #include "VrrDiagnosticLogger.h"
 #include "WindowsDrr/WindowsDrrDisable.h"
+#include "WindowsDrr/WindowsMaxRefreshRate.h"
 #include "Version.h"
 
 #include <algorithm>
@@ -55,6 +56,22 @@ const char* DrrStatusText(DrrDisableStatus status) noexcept
     default: return "Unknown";
     }
 }
+
+const char* RefreshStatusText(WindowsMaxRefreshStatus status) noexcept
+{
+    switch (status)
+    {
+    case WindowsMaxRefreshStatus::Applied: return "Applied";
+    case WindowsMaxRefreshStatus::AlreadyMax: return "AlreadyMax";
+    case WindowsMaxRefreshStatus::NoCompatibleMode: return "NoCompatibleMode";
+    case WindowsMaxRefreshStatus::SkippedUnsafeTopology: return "SkippedUnsafeTopology";
+    case WindowsMaxRefreshStatus::ValidateFailed: return "ValidateFailed";
+    case WindowsMaxRefreshStatus::ApplyFailed: return "ApplyFailed";
+    case WindowsMaxRefreshStatus::VerifyFailed: return "VerifyFailed";
+    case WindowsMaxRefreshStatus::Partial: return "Partial";
+    default: return "Unavailable";
+    }
+}
 }
 
 TweakStartupCoordinator::~TweakStartupCoordinator() { Stop(); }
@@ -97,6 +114,9 @@ void TweakStartupCoordinator::Run(bool enabled)
     if (initialPanelEnumerationFailed)
         VrrDiagnosticLogger::Write("IGCL", "initial WMI discovery failed");
     std::string drrResult = enabled ? "Unavailable" : "Disabled";
+    std::string refreshResult = enabled ? "Unavailable" : "Disabled";
+    std::string drrFinalInvariant = enabled ? "NotApplicable" : "Disabled";
+    bool drrStageSucceeded{};
     std::string intelSummary = "targets=0 applied=0 alreadyCorrect=0 skipped=0 unavailable=0 failed=0";
     IntelVrrRunResult lastIntelResult{};
     int attempts{};
@@ -110,6 +130,8 @@ void TweakStartupCoordinator::Run(bool enabled)
                 {
                     const auto result = DisableWindowsDrrForActivePaths();
                     drrResult = DrrStatusText(result.status);
+                    drrStageSucceeded = result.status == DrrDisableStatus::Applied ||
+                        result.status == DrrDisableStatus::AlreadyOff;
                     VrrDiagnosticLogger::Write("DRR", "startup result=" + drrResult +
                         " activePathCount=" + std::to_string(result.activePathCount) +
                         " changedPathCount=" + std::to_string(result.changedPathCount) +
@@ -119,6 +141,33 @@ void TweakStartupCoordinator::Run(bool enabled)
                 {
                     drrResult = "Unavailable";
                     VrrDiagnosticLogger::Write("DRR",
+                        "startup attempt threw; continuing Intel VRR stage");
+                }
+            },
+            [&]
+            {
+                try
+                {
+                    const auto result = MaximizeFixedRefreshRateForActiveDisplays(
+                        drrStageSucceeded);
+                    refreshResult = RefreshStatusText(result.status);
+                    drrFinalInvariant = result.finalDrrInvariantFailed ? "Failed" :
+                        result.finalDrrInvariantChecked ? "Verified" :
+                        drrStageSucceeded ? "NotVerified" : "NotApplicable";
+                    VrrDiagnosticLogger::Write("RefreshRate",
+                        std::string("startup result=") + refreshResult +
+                        " activePathCount=" + std::to_string(result.activePathCount) +
+                        " eligibleDisplayCount=" + std::to_string(result.eligibleDisplayCount) +
+                        " appliedCount=" + std::to_string(result.appliedCount) +
+                        " alreadyMaxCount=" + std::to_string(result.alreadyMaxCount) +
+                        " skippedCount=" + std::to_string(result.skippedCount) +
+                        " failedCount=" + std::to_string(result.failedCount) +
+                        " win32=" + std::to_string(result.win32Error));
+                }
+                catch (...)
+                {
+                    refreshResult = "Unavailable";
+                    VrrDiagnosticLogger::Write("RefreshRate",
                         "startup attempt threw; continuing Intel VRR stage");
                 }
             },
@@ -152,13 +201,15 @@ void TweakStartupCoordinator::Run(bool enabled)
                 }
                 return !stopping_;
             });
-        VrrDiagnosticLogger::EndRun("DRR=" + drrResult + " Intel=" +
+        VrrDiagnosticLogger::EndRun("DRR=" + drrResult + " Refresh=" + refreshResult +
+            " DRRInvariant=" + drrFinalInvariant + " Intel=" +
             IntelVrrRunStatusName(lastIntelResult.status) + " attempts=" +
             std::to_string(attempts) + " " + intelSummary);
     }
     catch (...)
     {
-        VrrDiagnosticLogger::EndRun("DRR=" + drrResult +
+        VrrDiagnosticLogger::EndRun("DRR=" + drrResult + " Refresh=" + refreshResult +
+            " DRRInvariant=" + drrFinalInvariant +
             " Intel=Unavailable attempts=" + std::to_string(attempts) +
             " " + intelSummary + " failure=unexpected-exception");
     }

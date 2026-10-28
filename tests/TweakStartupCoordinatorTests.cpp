@@ -22,6 +22,20 @@ int main()
         delays != std::vector<std::chrono::seconds>{ 2s, 5s, 15s })
     { std::cerr << "FAILED: DRR runs once outside Intel retry sequence\n"; ok = false; }
 
+    int refreshCalls = 0;
+    int refreshRetryIntelCalls = 0;
+    int refreshRetryDrrCalls = 0;
+    const int refreshRetryAttempts = TweakStartupCoordinator::RunStartupSequence(true,
+        [&] { ++refreshRetryDrrCalls; },
+        [&] { ++refreshCalls; },
+        [&](int) { ++refreshRetryIntelCalls; return IntelVrrRunResult{
+            refreshRetryIntelCalls == 4 ? IntelVrrRunStatus::Applied :
+                IntelVrrRunStatus::Unavailable }; },
+        [](auto) { return true; });
+    if (refreshRetryAttempts != 4 || refreshRetryDrrCalls != 1 || refreshCalls != 1 ||
+        refreshRetryIntelCalls != 4)
+    { std::cerr << "FAILED: refresh stage runs once outside Intel retries\n"; ok = false; }
+
     int drrOnUnsupportedCalls = 0; int unsupportedIntelCalls = 0;
     const int unsupportedAttempts = TweakStartupCoordinator::RunStartupSequence(true,
         [&] { ++drrOnUnsupportedCalls; },
@@ -45,5 +59,25 @@ int main()
         [](auto) { return true; });
     if (afterDrrFailure != 1 || afterDrrFailureCalls != 1)
     { std::cerr << "FAILED: DRR failure does not skip Intel VRR stage\n"; ok = false; }
+
+    std::vector<int> stageOrder;
+    int fixedRateCalls = 0;
+    int independentIntelCalls = 0;
+    const int independentStages = TweakStartupCoordinator::RunStartupSequence(true,
+        [&] { stageOrder.push_back(1); throw std::runtime_error("DRR query failed"); },
+        [&] { ++fixedRateCalls; stageOrder.push_back(2); throw std::runtime_error("refresh apply failed"); },
+        [&](int) { ++independentIntelCalls; stageOrder.push_back(3); return IntelVrrRunResult{ IntelVrrRunStatus::AlreadyCorrect }; },
+        [](auto) { return true; });
+    if (independentStages != 1 || fixedRateCalls != 1 || independentIntelCalls != 1 ||
+        stageOrder != std::vector<int>{ 1, 2, 3 })
+    { std::cerr << "FAILED: fixed refresh runs after DRR failure and before Intel\n"; ok = false; }
+
+    int disabledRefreshCalls = 0;
+    TweakStartupCoordinator::RunStartupSequence(false,
+        [&] { ++disabledDrrCalls; }, [&] { ++disabledRefreshCalls; },
+        [](int) { return IntelVrrRunResult{ IntelVrrRunStatus::Disabled }; },
+        [](auto) { return true; });
+    if (disabledDrrCalls != 0 || disabledRefreshCalls != 0)
+    { std::cerr << "FAILED: disabled VRR Fix performs no Windows display writes\n"; ok = false; }
     return ok ? 0 : 1;
 }
