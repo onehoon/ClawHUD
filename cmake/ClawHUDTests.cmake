@@ -232,6 +232,18 @@
     set_target_properties(ClawHUD.WindowsDrrDisableTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.WindowsDrrDisableTests COMMAND ClawHUD.WindowsDrrDisableTests)
 
+    add_executable(ClawHUD.WindowsMaxRefreshRateTests
+        tests/WindowsMaxRefreshRateTests.cpp
+        src/ClawHUD/Tweaks/WindowsDrr/WindowsMaxRefreshRate.cpp
+        src/ClawHUD/Tweaks/VrrDiagnosticLogger.cpp)
+    target_compile_features(ClawHUD.WindowsMaxRefreshRateTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.WindowsMaxRefreshRateTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX CLAWHUD_VRR_DIAGNOSTIC_LOGGER_TESTS)
+    target_include_directories(ClawHUD.WindowsMaxRefreshRateTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.WindowsMaxRefreshRateTests PRIVATE user32 shell32 ole32)
+    set_target_properties(ClawHUD.WindowsMaxRefreshRateTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.WindowsMaxRefreshRateTests COMMAND ClawHUD.WindowsMaxRefreshRateTests)
+
     add_executable(ClawHUD.VrrDiagnosticLoggerTests
         tests/VrrDiagnosticLoggerTests.cpp
         src/ClawHUD/Tweaks/VrrDiagnosticLogger.cpp)
