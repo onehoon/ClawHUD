@@ -119,13 +119,13 @@
                 </StackPanel>
             </Border>
 
-            <!-- Card 4: Intel VRR Range Fix -->
+            <!-- Card 4: VRR Fix; the persisted setting is applied at next startup. -->
             <Border Style="{StaticResource SettingsCard}">
                 <DockPanel IsEnabled="{Binding AreDiscreteSettingsControlsEnabled}">
                     <ToggleButton DockPanel.Dock="Right" Style="{StaticResource SettingToggleSwitch}"
                                   IsChecked="{Binding IntelVrrRangeFixEnabled, Mode=OneWay}"
                                   Click="OnIntelVrrRangeFixClick" />
-                    <TextBlock Style="{StaticResource SettingLabel}" Margin="0" Text="Intel VRR Range Fix" />
+                    <TextBlock Style="{StaticResource SettingLabel}" Margin="0" Text="VRR Fix" />
                 </DockPanel>
             </Border>
 
