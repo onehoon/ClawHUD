@@ -1,4 +1,5 @@
 #include "AffectedPanelDetector.h"
+#include "Lg27gs65fVrrRangeTweak.h"
 
 #include <windows.h>
 #include <wbemidl.h>
@@ -11,6 +12,27 @@ namespace clawhud
 {
 namespace
 {
+bool EqualsInsensitive(const std::string& left, const char* right)
+{
+    return _stricmp(left.c_str(), right) == 0;
+}
+
+bool EqualsInsensitive(std::wstring_view left, std::wstring_view right)
+{
+    return left.size() == right.size() &&
+        CompareStringOrdinal(left.data(), static_cast<int>(left.size()),
+            right.data(), static_cast<int>(right.size()), TRUE) == CSTR_EQUAL;
+}
+
+std::wstring WidenAscii(const std::string& value)
+{
+    std::wstring result;
+    result.reserve(value.size());
+    for (const auto character : value)
+        result.push_back(static_cast<unsigned char>(character));
+    return result;
+}
+
 std::string Narrow(const wchar_t* value)
 {
     if (!value) return {};
@@ -58,24 +80,105 @@ std::string DecodeWmiUShortString(const std::vector<unsigned short>& values)
 
 bool IsAffectedPanel(const PanelIdentity& identity)
 {
-    auto containsInsensitive = [](const std::string& value, const char* needle) {
-        if (std::strlen(needle) > value.size()) return false;
-        for (std::size_t i = 0; i + std::strlen(needle) <= value.size(); ++i)
-            if (_strnicmp(value.c_str() + i, needle, std::strlen(needle)) == 0) return true;
-        return false;
-    };
-    return identity.active && _stricmp(identity.manufacturer.c_str(), "CSW") == 0
-        && _stricmp(identity.productCode.c_str(), "0801") == 0
-        && containsInsensitive(identity.panelName, "PN8007QB1-2");
+    const auto kind = ClassifySupportedPanel(identity);
+    return kind == SupportedPanelKind::ClawInternal;
 }
 
 bool IsLg27gs65fPanel(const PanelIdentity& identity)
 {
-    if (!identity.active || _stricmp(identity.manufacturer.c_str(), "GSM") != 0 ||
-        _stricmp(identity.productCode.c_str(), "5C8C") != 0)
-        return false;
-    return _stricmp(identity.panelName.c_str(), "LG ULTRAGEAR") == 0 ||
-        _stricmp(identity.panelName.c_str(), "LG 27GS65F") == 0;
+    const auto kind = ClassifySupportedPanel(identity);
+    return kind == SupportedPanelKind::Lg27gs65f;
+}
+
+std::optional<SupportedPanelKind> ClassifySupportedPanel(const PanelIdentity& identity)
+{
+    if (EqualsInsensitive(identity.manufacturer, "CSW") &&
+        EqualsInsensitive(identity.productCode, "0801") &&
+        EqualsInsensitive(identity.panelName, "PN8007QB1-2"))
+        return SupportedPanelKind::ClawInternal;
+    if (EqualsInsensitive(identity.manufacturer, "GSM") &&
+        EqualsInsensitive(identity.productCode, "5C8C") &&
+        (EqualsInsensitive(identity.panelName, "LG ULTRAGEAR") ||
+            EqualsInsensitive(identity.panelName, "LG 27GS65F")))
+        return SupportedPanelKind::Lg27gs65f;
+    return std::nullopt;
+}
+
+std::wstring NormalizeMonitorInstancePath(std::wstring_view value)
+{
+    std::wstring normalized(value);
+    while (!normalized.empty() && (normalized.front() == L' ' || normalized.front() == L'\t'))
+        normalized.erase(normalized.begin());
+    while (!normalized.empty() && (normalized.back() == L' ' || normalized.back() == L'\t'))
+        normalized.pop_back();
+
+    if (normalized.size() >= 4 &&
+        (EqualsInsensitive(std::wstring_view(normalized).substr(0, 4), L"\\\\?\\") ||
+            EqualsInsensitive(std::wstring_view(normalized).substr(0, 4), L"\\\\.\\")))
+        normalized.erase(0, 4);
+    std::replace(normalized.begin(), normalized.end(), L'#', L'\\');
+
+    // DisplayConfig paths end in an interface-class GUID; WMI instance IDs do not.
+    const auto interfaceGuid = normalized.find(L"\\{");
+    if (interfaceGuid != std::wstring::npos)
+        normalized.resize(interfaceGuid);
+    while (!normalized.empty() && normalized.back() == L'\\')
+        normalized.pop_back();
+
+    // WmiMonitorID appends its monitor index (usually _0) to the PnP instance.
+    const auto separator = normalized.find_last_of(L'\\');
+    const auto instanceStart = separator == std::wstring::npos ? 0 : separator + 1;
+    const auto indexSeparator = normalized.find_last_of(L'_');
+    if (indexSeparator != std::wstring::npos && indexSeparator >= instanceStart &&
+        indexSeparator + 1 < normalized.size() &&
+        std::all_of(normalized.begin() + static_cast<std::ptrdiff_t>(indexSeparator + 1),
+            normalized.end(), [](wchar_t ch) { return ch >= L'0' && ch <= L'9'; }))
+        normalized.resize(indexSeparator);
+
+    for (auto& character : normalized)
+        if (character >= L'A' && character <= L'Z')
+            character = static_cast<wchar_t>(character + (L'a' - L'A'));
+    return normalized;
+}
+
+PanelTargetMatch ResolvePanelWindowsTarget(const PanelIdentity& panel,
+    const IntelVrrWindowsTargets& windowsTargets)
+{
+    if (!windowsTargets.enumerationComplete)
+        return { PanelTargetMappingStatus::Unavailable, std::nullopt };
+
+    const auto panelPath = NormalizeMonitorInstancePath(WidenAscii(panel.instanceName));
+    if (panelPath.empty())
+        return { PanelTargetMappingStatus::Unavailable, std::nullopt };
+
+    std::optional<std::size_t> match;
+    for (std::size_t index = 0; index < windowsTargets.targets.size(); ++index)
+    {
+        const auto& target = windowsTargets.targets[index];
+        if (NormalizeMonitorInstancePath(target.monitorDevicePath) != panelPath)
+            continue;
+
+        const auto kind = ClassifySupportedPanel(panel);
+        if (!kind)
+            continue;
+        const std::wstring expectedDeviceId = *kind == SupportedPanelKind::ClawInternal
+            ? L"display\\csw0801\\" : L"display\\gsm5c8c\\";
+        const auto targetPath = NormalizeMonitorInstancePath(target.monitorDevicePath);
+        if (targetPath.rfind(expectedDeviceId, 0) != 0)
+            continue;
+        if (*kind == SupportedPanelKind::Lg27gs65f &&
+            !IsLg27gs65fWindowsIdentity(target.monitorDevicePath, target.friendlyName))
+            continue;
+        if (match)
+            return { PanelTargetMappingStatus::Ambiguous, std::nullopt };
+        match = index;
+    }
+
+    if (!match)
+        return { PanelTargetMappingStatus::NotActive, std::nullopt };
+    if (!windowsTargets.targets[*match].available)
+        return { PanelTargetMappingStatus::NotActive, std::nullopt };
+    return { PanelTargetMappingStatus::Exact, match };
 }
 
 std::vector<PanelIdentity> EnumeratePanelIdentities()

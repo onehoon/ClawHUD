@@ -1,11 +1,8 @@
 #pragma once
 
-#include "IntelVrrRunResult.h"
-#include "DiagIntelVrrStateProbe.h"
+#include "Probe/IntelVrrTargetStateProbe.h"
 
-#include <string>
 #include <string_view>
-#include <vector>
 
 namespace clawhud
 {
@@ -24,16 +21,5 @@ bool IsLg27gs65fWindowsIdentity(std::wstring_view monitorDevicePath,
 
 // Pure eligibility decision, shared with Windows-free policy tests.
 Lg27gs65fProfileDecision EvaluateLg27gs65fProductionProfile(
-    const DiagIntelVrrState& state) noexcept;
-
-struct Lg27gs65fVrrFixOutcome
-{
-    IntelVrrRunResult result;
-    std::vector<std::string> log;
-    // True only after the exact active LG Windows target has been verified.
-    bool targetVerified{};
-};
-
-// Manual Settings toggle controls startup execution; this never changes the HUD.
-Lg27gs65fVrrFixOutcome RunLg27gs65fProductionVrrFix();
+    const IntelVrrTargetState& state) noexcept;
 }
