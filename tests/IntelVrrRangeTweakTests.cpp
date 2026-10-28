@@ -337,6 +337,16 @@ int main()
         ok &= Check(result.status == IntelVrrRunStatus::Unavailable && fake->setters.empty(),
             "partial IGCL display-property enumeration performs no setter call");
     }
+    {
+        auto fake = std::make_shared<FakeProbeState>();
+        auto state = State(SupportedPanelKind::Lg27gs65f, 1, 90, 180);
+        state.displayOutputCount = 0;
+        state.displayPropertiesSuccessCount = 0;
+        fake->states[22] = state;
+        const auto result = Run({ Lg() }, { LgTarget() }, fake);
+        ok &= Check(result.status == IntelVrrRunStatus::Unavailable && fake->setters.empty(),
+            "empty IGCL output enumeration performs no setter call");
+    }
 
     // Stale WMI-only entries, wrong IDs, and duplicates do not write or retain stale IPC results.
     {
