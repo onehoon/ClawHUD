@@ -87,12 +87,14 @@ T Resolve(HMODULE module, const char* name) noexcept
 
 template<class T>
 bool Enumerate(Handle parent, Result(__cdecl* function)(Handle, std::uint32_t*, T*),
-    std::vector<T>& values)
+    std::vector<T>& values, Result* apiResult = nullptr)
 {
+    if (apiResult) *apiResult = 0;
     std::uint32_t count{};
     const auto countResult = function(parent, &count, nullptr);
     if (countResult != 0)
     {
+        if (apiResult) *apiResult = countResult;
         values.clear();
         return false;
     }
@@ -102,11 +104,13 @@ bool Enumerate(Handle parent, Result(__cdecl* function)(Handle, std::uint32_t*, 
     const auto valuesResult = function(parent, &count, values.data());
     if (valuesResult != 0)
     {
+        if (apiResult) *apiResult = valuesResult;
         values.clear();
         return false;
     }
     if (count > capacity)
     {
+        if (apiResult) *apiResult = ERROR_INVALID_DATA;
         values.clear();
         return false;
     }
@@ -153,6 +157,69 @@ IntelVrrTargetMatch ResolveIntelVrrTarget(const LUID& windowsTargetAdapterLuid,
     if (!enumerationComplete || !match)
         return { IntelVrrTargetMappingStatus::Unknown, std::nullopt };
     return { IntelVrrTargetMappingStatus::Exact, match };
+}
+
+const char* IntelVrrDiscoveryFailureStageName(
+    IntelVrrDiscoveryFailureStage stage) noexcept
+{
+    switch (stage)
+    {
+    case IntelVrrDiscoveryFailureStage::EnumerateDevices: return "EnumerateDevices";
+    case IntelVrrDiscoveryFailureStage::DeviceProperties: return "DeviceProperties";
+    case IntelVrrDiscoveryFailureStage::EnumerateOutputs: return "EnumerateOutputs";
+    case IntelVrrDiscoveryFailureStage::DisplayProperties: return "DisplayProperties";
+    case IntelVrrDiscoveryFailureStage::UnexpectedException: return "UnexpectedException";
+    default: return "None";
+    }
+}
+
+bool IsIntelVrrProfileChangeAllowed(const IntelVrrTargetState& state,
+    IntelVrrPanelClass panelClass, std::uint32_t requestedProfile) noexcept
+{
+    constexpr std::uint32_t recommended = 1;
+    constexpr std::uint32_t excellent = 2;
+    constexpr std::uint32_t good = 3;
+    constexpr std::uint32_t compatible = 4;
+    constexpr std::uint32_t vesa = 6;
+    constexpr float toleranceHz = 0.25f;
+    const float expectedMaximum = panelClass == IntelVrrPanelClass::ClawInternal
+        ? 120.0f : 180.0f;
+    const auto isNear = [=](float value, float expected)
+    {
+        return std::isfinite(value) && std::abs(value - expected) <= toleranceHz;
+    };
+
+    if (!state.initialized || !state.enumerationComplete ||
+        state.mappingStatus != IntelVrrTargetMappingStatus::Exact ||
+        state.targetMatchCount != 1 || state.displayOutputCount == 0 ||
+        state.displayPropertiesSuccessCount != state.displayOutputCount ||
+        !state.capability || !state.profile || state.capabilityResult != 0 ||
+        state.profileResult != 0 || !state.capability->supported ||
+        !isNear(state.capability->minimumHz, 48.0f) ||
+        !isNear(state.capability->maximumHz, expectedMaximum) ||
+        !std::isfinite(state.profile->minimumHz) ||
+        !std::isfinite(state.profile->maximumHz))
+        return false;
+
+    if (panelClass == IntelVrrPanelClass::Lg27gs65f)
+    {
+        if (requestedProfile == excellent)
+            return (state.profile->profile == recommended ||
+                state.profile->profile == compatible) &&
+                isNear(state.profile->minimumHz, 90.0f) &&
+                isNear(state.profile->maximumHz, 180.0f);
+        return (requestedProfile == recommended || requestedProfile == compatible) &&
+            state.profile->profile == excellent;
+    }
+
+    if (requestedProfile != excellent)
+        return false;
+    const bool knownProfile = state.profile->profile == recommended ||
+        state.profile->profile == excellent || state.profile->profile == good ||
+        state.profile->profile == compatible || state.profile->profile == vesa;
+    const bool fullRange = isNear(state.profile->minimumHz, 48.0f) &&
+        isNear(state.profile->maximumHz, 120.0f);
+    return knownProfile && !fullRange;
 }
 
 IntelVrrTargetStateProbe::~IntelVrrTargetStateProbe() { Shutdown(); }
@@ -226,11 +293,14 @@ IntelVrrTargetState IntelVrrTargetStateProbe::Query(
     {
         state.enumerationComplete = true;
         adapters_.clear();
+        Result enumerationResult{};
         const bool deviceEnumerationSucceeded = Enumerate<Handle>(apiHandle_,
-            endpoints_->enumerateDevices, adapters_);
+            endpoints_->enumerateDevices, adapters_, &enumerationResult);
         if (!deviceEnumerationSucceeded)
         {
             state.enumerationComplete = false;
+            state.discoveryFailureStage = IntelVrrDiscoveryFailureStage::EnumerateDevices;
+            state.discoveryFailureResult = enumerationResult;
             return state;
         }
         state.adapterCount = Count32(adapters_.size());
@@ -255,21 +325,29 @@ IntelVrrTargetState IntelVrrTargetStateProbe::Query(
             if (devicePropertiesResult != 0)
             {
                 complete = false;
+                state.discoveryFailureStage = IntelVrrDiscoveryFailureStage::DeviceProperties;
+                state.discoveryFailureResult = devicePropertiesResult;
                 continue;
             }
             if (deviceProperties.pDeviceId != &adapterLuid ||
                 deviceProperties.deviceIdSize != sizeof(adapterLuid))
             {
                 complete = false;
+                state.discoveryFailureStage = IntelVrrDiscoveryFailureStage::DeviceProperties;
+                state.discoveryFailureResult = ERROR_INVALID_DATA;
                 continue;
             }
 
             std::vector<Handle> adapterOutputs;
+            Result outputEnumerationResult{};
             const bool outputEnumerationSucceeded = Enumerate<Handle>(
-                adapter, endpoints_->enumerateOutputs, adapterOutputs);
+                adapter, endpoints_->enumerateOutputs, adapterOutputs,
+                &outputEnumerationResult);
             if (!outputEnumerationSucceeded)
             {
                 complete = false;
+                state.discoveryFailureStage = IntelVrrDiscoveryFailureStage::EnumerateOutputs;
+                state.discoveryFailureResult = outputEnumerationResult;
                 continue;
             }
             state.displayOutputCount = Count32(
@@ -284,6 +362,8 @@ IntelVrrTargetState IntelVrrTargetStateProbe::Query(
                 if (displayPropertiesResult != 0)
                 {
                     complete = false;
+                    state.discoveryFailureStage = IntelVrrDiscoveryFailureStage::DisplayProperties;
+                    state.discoveryFailureResult = displayPropertiesResult;
                     continue;
                 }
                 ++state.displayPropertiesSuccessCount;
@@ -341,19 +421,18 @@ IntelVrrTargetState IntelVrrTargetStateProbe::Query(
         state.capability.reset();
         state.profile.reset();
         state.enumerationComplete = false;
+        state.discoveryFailureStage = IntelVrrDiscoveryFailureStage::UnexpectedException;
+        state.discoveryFailureResult = ERROR_GEN_FAILURE;
         return state;
     }
 }
 
 IntelVrrProfileSetResult IntelVrrTargetStateProbe::SetProfileForExactTarget(
-    const IntelVrrTargetState& expected, std::uint32_t requestedProfile) noexcept
+    const IntelVrrTargetState& expected, IntelVrrPanelClass panelClass,
+    std::uint32_t requestedProfile) noexcept
 {
     constexpr std::uint32_t recommended = 1;
     constexpr std::uint32_t excellent = 2;
-    constexpr std::uint32_t compatible = 4;
-    constexpr float capabilityMinimumHz = 48.0f;
-    constexpr float capabilityMaximumHz = 180.0f;
-    constexpr float toleranceHz = 0.25f;
     const auto reject = [](std::string_view detail,
         std::optional<std::uint32_t> result = std::nullopt)
     {
@@ -364,34 +443,12 @@ IntelVrrProfileSetResult IntelVrrTargetStateProbe::SetProfileForExactTarget(
     exactOutput_ = nullptr;
     if (!apiHandle_ || !endpoints_ || !endpoints_->setArcSyncProfile || !output)
         return reject("IGCL profile setter is unavailable");
-    if ((requestedProfile != excellent && requestedProfile != recommended &&
-         requestedProfile != compatible) ||
-        !expected.enumerationComplete ||
-        expected.mappingStatus != IntelVrrTargetMappingStatus::Exact ||
+    if (expected.mappingStatus != IntelVrrTargetMappingStatus::Exact ||
         expected.windowsTargetAdapterLuid.LowPart != exactOutputAdapterLuid_.LowPart ||
         expected.windowsTargetAdapterLuid.HighPart != exactOutputAdapterLuid_.HighPart ||
         expected.windowsTargetId != exactOutputTargetId_ ||
-        expected.targetMatchCount != 1 || !expected.capability || !expected.profile ||
-        expected.capabilityResult != 0 || expected.profileResult != 0 ||
-        !expected.capability->supported ||
-        !std::isfinite(expected.capability->minimumHz) ||
-        !std::isfinite(expected.capability->maximumHz) ||
-        std::abs(expected.capability->minimumHz - capabilityMinimumHz) > toleranceHz ||
-        std::abs(expected.capability->maximumHz - capabilityMaximumHz) > toleranceHz ||
-        !std::isfinite(expected.profile->minimumHz) ||
-        !std::isfinite(expected.profile->maximumHz))
-        return reject("expected state is not an exact supported LG profile target");
-
-    const bool canApplyExcellent = requestedProfile == excellent &&
-        (expected.profile->profile == recommended ||
-         (expected.profile->profile == compatible &&
-          std::abs(expected.profile->minimumHz - 90.0f) <= toleranceHz &&
-          std::abs(expected.profile->maximumHz - 180.0f) <= toleranceHz));
-    const bool canRestoreOriginal =
-        (requestedProfile == recommended || requestedProfile == compatible) &&
-        expected.profile->profile == excellent;
-    if (!canApplyExcellent && !canRestoreOriginal)
-        return reject("current profile is not eligible for the requested change");
+        !IsIntelVrrProfileChangeAllowed(expected, panelClass, requestedProfile))
+        return reject("expected state does not match the exact supported panel policy");
 
     try
     {

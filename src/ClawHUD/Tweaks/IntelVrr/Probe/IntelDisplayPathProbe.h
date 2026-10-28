@@ -7,6 +7,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace clawhud
 {
@@ -35,6 +36,27 @@ struct IntelVrrDisplayPath
     double nominalRefreshHz{};
     bool usedModeRefreshFallback{};
 };
+
+struct IntelVrrWindowsTarget
+{
+    std::wstring sourceDeviceName;
+    std::wstring monitorDevicePath;
+    std::wstring friendlyName;
+    LUID adapterLuid{};
+    UINT32 targetId{};
+    UINT32 sourceId{};
+    bool available{};
+};
+
+struct IntelVrrWindowsTargets
+{
+    std::vector<IntelVrrWindowsTarget> targets;
+    bool enumerationComplete{};
+    LONG error{};
+};
+
+// Enumerates every active Windows target with its exact monitor device path.
+IntelVrrWindowsTargets EnumerateIntelVrrWindowsTargets() noexcept;
 
 enum class IntelDisplayPathProbeStatus
 {

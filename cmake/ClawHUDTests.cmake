@@ -205,7 +205,6 @@
         src/ClawHUD/Tweaks/IntelVrr/Lg27gs65fVrrRangeTweak.cpp
         src/ClawHUD/Tweaks/IntelVrr/Probe/IntelDisplayPathProbe.cpp
         src/ClawHUD/Tweaks/IntelVrr/Probe/IntelVrrTargetStateProbe.cpp
-        src/ClawHUD/Tweaks/IntelVrr/IntelArcSyncClient.cpp
         src/ClawHUD/Tweaks/IntelVrr/IntelVrrResultStore.cpp
         src/ClawHUD/Tweaks/IntelVrr/IntelVrrRunResult.cpp)
     target_compile_features(ClawHUD.IntelVrrRangeTweakTests PRIVATE cxx_std_20)
@@ -224,14 +223,25 @@
     add_executable(ClawHUD.WindowsDrrDisableTests
         tests/WindowsDrrDisableTests.cpp
         src/ClawHUD/Tweaks/WindowsDrr/WindowsDrrDisable.cpp
-        src/ClawHUD/RuntimeLogger.cpp)
+        src/ClawHUD/Tweaks/VrrDiagnosticLogger.cpp)
     target_compile_features(ClawHUD.WindowsDrrDisableTests PRIVATE cxx_std_20)
     target_compile_definitions(ClawHUD.WindowsDrrDisableTests PRIVATE
-        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX CLAWHUD_RUNTIME_LOGGER_TESTS)
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX CLAWHUD_VRR_DIAGNOSTIC_LOGGER_TESTS)
     target_include_directories(ClawHUD.WindowsDrrDisableTests PRIVATE src/ClawHUD)
     target_link_libraries(ClawHUD.WindowsDrrDisableTests PRIVATE user32 shell32 ole32)
     set_target_properties(ClawHUD.WindowsDrrDisableTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.WindowsDrrDisableTests COMMAND ClawHUD.WindowsDrrDisableTests)
+
+    add_executable(ClawHUD.VrrDiagnosticLoggerTests
+        tests/VrrDiagnosticLoggerTests.cpp
+        src/ClawHUD/Tweaks/VrrDiagnosticLogger.cpp)
+    target_compile_features(ClawHUD.VrrDiagnosticLoggerTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.VrrDiagnosticLoggerTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX CLAWHUD_VRR_DIAGNOSTIC_LOGGER_TESTS)
+    target_include_directories(ClawHUD.VrrDiagnosticLoggerTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.VrrDiagnosticLoggerTests PRIVATE shell32 ole32)
+    set_target_properties(ClawHUD.VrrDiagnosticLoggerTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.VrrDiagnosticLoggerTests COMMAND ClawHUD.VrrDiagnosticLoggerTests)
 
     add_executable(ClawHUD.SuspendResumeRecoveryTests tests/SuspendResumeRecoveryTests.cpp)
     target_compile_features(ClawHUD.SuspendResumeRecoveryTests PRIVATE cxx_std_20)

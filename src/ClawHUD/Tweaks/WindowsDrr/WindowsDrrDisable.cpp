@@ -1,6 +1,7 @@
 #include "WindowsDrrDisable.h"
 
 #include "RuntimeLogger.h"
+#include "Tweaks/VrrDiagnosticLogger.h"
 
 #include <algorithm>
 #include <sstream>
@@ -21,6 +22,14 @@ constexpr UINT32 kSetBaseFlags = SDC_USE_SUPPLIED_DISPLAY_CONFIG |
     SDC_VIRTUAL_REFRESH_RATE_AWARE;
 
 constexpr int kMaximumReadAttempts = 3;
+
+void LogDrr(RuntimeLogLevel level, const std::wstring& message) noexcept
+{
+    const wchar_t* levelName = level == RuntimeLogLevel::Error ? L"ERROR" :
+        level == RuntimeLogLevel::Warn ? L"WARN" : L"INFO";
+    VrrDiagnosticLogger::WriteWide("DRR",
+        std::wstring(L"[") + levelName + L"] " + message);
+}
 
 struct DisplayConfigSnapshot
 {
@@ -291,6 +300,19 @@ std::wstring DeviceNameForPath(const DISPLAYCONFIG_PATH_INFO& path)
     return L"unknown";
 }
 
+std::wstring DevicePathForPath(const DISPLAYCONFIG_PATH_INFO& path)
+{
+    DISPLAYCONFIG_TARGET_DEVICE_NAME name{};
+    name.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME;
+    name.header.size = sizeof(name);
+    name.header.adapterId = path.targetInfo.adapterId;
+    name.header.id = path.targetInfo.id;
+    if (DisplayConfigGetDeviceInfo(&name.header) == ERROR_SUCCESS &&
+        name.monitorDevicePath[0] != L'\0')
+        return name.monitorDevicePath;
+    return L"unknown";
+}
+
 std::wstring FormatRational(const DISPLAYCONFIG_RATIONAL& value)
 {
     if (value.Denominator == 0)
@@ -315,7 +337,7 @@ void LogSnapshot(const wchar_t* stage, const DisplayConfigSnapshot& snapshot)
                 (path.flags & DISPLAYCONFIG_PATH_BOOST_REFRESH_RATE) != 0;
         }));
 
-    RuntimeLogger::Log(RuntimeLogLevel::Info,
+    LogDrr(RuntimeLogLevel::Info,
         std::wstring(L"Windows DRR ") + stage + L" activePathCount=" +
         std::to_wstring(activeCount) + L" drrOnCount=" + std::to_wstring(boostCount));
 
@@ -332,9 +354,10 @@ void LogSnapshot(const wchar_t* stage, const DisplayConfigSnapshot& snapshot)
             physicalRefresh = FormatRational(
                 snapshot.modes[targetModeIndex].targetMode.targetVideoSignalInfo.vSyncFreq);
 
-        RuntimeLogger::Log(RuntimeLogLevel::Info,
+        LogDrr(RuntimeLogLevel::Info,
             std::wstring(L"Windows DRR ") + stage + L" pathIndex=" + std::to_wstring(index) +
             L" monitor=" + DeviceNameForPath(path) +
+            L" monitorDevicePath=" + DevicePathForPath(path) +
             L" sourceAdapter=" + std::to_wstring(path.sourceInfo.adapterId.HighPart) + L":" +
                 std::to_wstring(path.sourceInfo.adapterId.LowPart) +
             L" sourceId=" + std::to_wstring(path.sourceInfo.id) +
@@ -384,14 +407,14 @@ DrrDisableResult DisableWindowsDrrForActivePaths(IWindowsDrrDisplayConfigApi& ap
     }
     catch (...)
     {
-        RuntimeLogger::Log(RuntimeLogLevel::Error,
+        LogDrr(RuntimeLogLevel::Error,
             L"Windows DRR active-path query failed with an unexpected exception");
         return { DrrDisableStatus::Unavailable, 0, 0, ERROR_GEN_FAILURE };
     }
 
     if (!read.succeeded)
     {
-        RuntimeLogger::Log(read.failureStatus == DrrDisableStatus::Unsupported
+        LogDrr(read.failureStatus == DrrDisableStatus::Unsupported
                 ? RuntimeLogLevel::Info : RuntimeLogLevel::Warn,
             std::wstring(L"Windows DRR query status=") +
                 DrrDisableStatusName(read.failureStatus) + L" win32=" +
@@ -407,7 +430,7 @@ DrrDisableResult DisableWindowsDrrForActivePaths(IWindowsDrrDisplayConfigApi& ap
         }));
     if (activePathCount == 0)
     {
-        RuntimeLogger::Log(RuntimeLogLevel::Warn,
+        LogDrr(RuntimeLogLevel::Warn,
             L"Windows DRR query returned no active display paths");
         return { DrrDisableStatus::Unavailable, 0, 0, ERROR_NOT_FOUND };
     }
@@ -426,7 +449,7 @@ DrrDisableResult DisableWindowsDrrForActivePaths(IWindowsDrrDisplayConfigApi& ap
 
     if (changedPathCount == 0)
     {
-        RuntimeLogger::Log(RuntimeLogLevel::Info,
+        LogDrr(RuntimeLogLevel::Info,
             L"Windows DRR status=AlreadyOff; SetDisplayConfig was not called");
         return { DrrDisableStatus::AlreadyOff, activePathCount, 0, ERROR_SUCCESS };
     }
@@ -435,7 +458,7 @@ DrrDisableResult DisableWindowsDrrForActivePaths(IWindowsDrrDisplayConfigApi& ap
     const UINT32 modeCount = static_cast<UINT32>(requested.modes.size());
     const LONG validateStatus = api.Set(pathCount, requested.paths.data(),
         modeCount, requested.modes.data(), kSetBaseFlags | SDC_VALIDATE);
-    RuntimeLogger::Log(validateStatus == ERROR_SUCCESS
+    LogDrr(validateStatus == ERROR_SUCCESS
             ? RuntimeLogLevel::Info : RuntimeLogLevel::Warn,
         std::wstring(L"Windows DRR SetDisplayConfig validate win32=") +
             std::to_wstring(validateStatus));
@@ -446,7 +469,7 @@ DrrDisableResult DisableWindowsDrrForActivePaths(IWindowsDrrDisplayConfigApi& ap
     const LONG applyStatus = api.Set(pathCount, requested.paths.data(),
         modeCount, requested.modes.data(),
         kSetBaseFlags | SDC_APPLY | SDC_SAVE_TO_DATABASE);
-    RuntimeLogger::Log(applyStatus == ERROR_SUCCESS
+    LogDrr(applyStatus == ERROR_SUCCESS
             ? RuntimeLogLevel::Info : RuntimeLogLevel::Warn,
         std::wstring(L"Windows DRR SetDisplayConfig apply win32=") +
             std::to_wstring(applyStatus));
@@ -461,7 +484,7 @@ DrrDisableResult DisableWindowsDrrForActivePaths(IWindowsDrrDisplayConfigApi& ap
     }
     catch (...)
     {
-        RuntimeLogger::Log(RuntimeLogLevel::Error,
+        LogDrr(RuntimeLogLevel::Error,
             L"Windows DRR verification query failed with an unexpected exception");
         return { DrrDisableStatus::VerifyFailed, activePathCount,
             changedPathCount, ERROR_GEN_FAILURE };
@@ -469,7 +492,7 @@ DrrDisableResult DisableWindowsDrrForActivePaths(IWindowsDrrDisplayConfigApi& ap
 
     if (!verification.succeeded)
     {
-        RuntimeLogger::Log(RuntimeLogLevel::Error,
+        LogDrr(RuntimeLogLevel::Error,
             std::wstring(L"Windows DRR verification query failed win32=") +
                 std::to_wstring(verification.error));
         return { DrrDisableStatus::VerifyFailed, activePathCount,
@@ -479,13 +502,13 @@ DrrDisableResult DisableWindowsDrrForActivePaths(IWindowsDrrDisplayConfigApi& ap
     LogSnapshot(L"after", verification.snapshot);
     if (!VerifyBoostDisabledForOriginallyBoostedPaths(original, verification.snapshot))
     {
-        RuntimeLogger::Log(RuntimeLogLevel::Error,
+        LogDrr(RuntimeLogLevel::Error,
             L"Windows DRR apply could not be verified or changed other display configuration");
         return { DrrDisableStatus::VerifyFailed, activePathCount,
             changedPathCount, ERROR_INVALID_DATA };
     }
 
-    RuntimeLogger::Log(RuntimeLogLevel::Info,
+    LogDrr(RuntimeLogLevel::Info,
         L"Windows DRR status=Applied changedPathCount=" +
             std::to_wstring(changedPathCount) + L" remainingDrrOnCount=0");
     return { DrrDisableStatus::Applied, activePathCount,
