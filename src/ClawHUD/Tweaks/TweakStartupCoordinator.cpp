@@ -2,11 +2,32 @@
 #include "IntelVrr\AffectedPanelDetector.h"
 #include "IntelVrr\IntelArcSyncClient.h"
 #include "IntelVrr\IntelVrrRangeTweak.h"
+#include "RuntimeLogger.h"
+#include "WindowsDrr/WindowsDrrDisable.h"
 #include <algorithm>
 #include <chrono>
+#include <string>
 
 namespace clawhud
 {
+namespace
+{
+void LogDrrResult(const DrrDisableResult& result)
+{
+    const auto level = result.status == DrrDisableStatus::Applied ||
+        result.status == DrrDisableStatus::AlreadyOff
+        ? RuntimeLogLevel::Info
+        : result.status == DrrDisableStatus::Unsupported ||
+            result.status == DrrDisableStatus::Unavailable
+            ? RuntimeLogLevel::Warn : RuntimeLogLevel::Error;
+    RuntimeLogger::Log(level,
+        std::wstring(L"Windows DRR startup result=") + DrrDisableStatusName(result.status) +
+        L" activePathCount=" + std::to_wstring(result.activePathCount) +
+        L" changedPathCount=" + std::to_wstring(result.changedPathCount) +
+        L" win32=" + std::to_wstring(result.win32Error));
+}
+}
+
 TweakStartupCoordinator::~TweakStartupCoordinator() { Stop(); }
 void TweakStartupCoordinator::Start(bool enabled)
 {
@@ -20,21 +41,33 @@ void TweakStartupCoordinator::Run(bool enabled)
 {
     try
     {
-    RunRetrySequence(
-        [&](int)
-        {
-            IntelVrrRangeTweak tweak([] { return std::make_unique<IntelArcSyncClient>(); }, [] { return EnumeratePanelIdentities(); });
-            return tweak.Run(enabled);
-        },
-        [&](std::chrono::seconds delay)
-        {
-            for (auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(delay);
-                remaining.count() > 0 && !stopping_; remaining -= std::chrono::milliseconds(100))
+        RunStartupSequence(enabled,
+            []
             {
-                std::this_thread::sleep_for(std::min(remaining, std::chrono::milliseconds(100)));
-            }
-            return !stopping_;
-        });
+                try
+                {
+                    LogDrrResult(DisableWindowsDrrForActivePaths());
+                }
+                catch (...)
+                {
+                    RuntimeLogger::Log(RuntimeLogLevel::Error,
+                        L"Windows DRR startup attempt failed unexpectedly; continuing Intel VRR stage");
+                }
+            },
+            [&](int)
+            {
+                IntelVrrRangeTweak tweak([] { return std::make_unique<IntelArcSyncClient>(); }, [] { return EnumeratePanelIdentities(); });
+                return tweak.Run(enabled);
+            },
+            [&](std::chrono::seconds delay)
+            {
+                for (auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(delay);
+                    remaining.count() > 0 && !stopping_; remaining -= std::chrono::milliseconds(100))
+                {
+                    std::this_thread::sleep_for(std::min(remaining, std::chrono::milliseconds(100)));
+                }
+                return !stopping_;
+            });
     }
     catch (...)
     {
