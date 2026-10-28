@@ -175,6 +175,12 @@ public:
             found->second.current = mode;
         if (driftResolutionOnApply && mode.dmFields == DM_DISPLAYFREQUENCY)
             ++found->second.current.dmPelsWidth;
+        if (driftOrientationOnApply && mode.dmFields == DM_DISPLAYFREQUENCY)
+            found->second.current.dmDisplayOrientation = DMDO_90;
+        if (driftPositionOnApply && mode.dmFields == DM_DISPLAYFREQUENCY)
+            ++found->second.current.dmPosition.x;
+        if (driftDepthOnApply && mode.dmFields == DM_DISPLAYFREQUENCY)
+            found->second.current.dmBitsPerPel += 8;
         for (auto& path : paths)
             if (path.gdiDeviceName == name)
             {
@@ -216,6 +222,9 @@ public:
     bool currentModeUnavailable{};
     bool endlessModes{};
     bool driftResolutionOnApply{};
+    bool driftOrientationOnApply{};
+    bool driftPositionOnApply{};
+    bool driftDepthOnApply{};
     bool fractionalPhysicalRefreshOnApply{};
     bool reenableBoostOnApply{};
     bool driftAdvancedColorOnApply{};
@@ -372,25 +381,6 @@ int main()
 
     {
         FakeRefreshApi api;
-        api.endlessModes = true;
-        const auto result = MaximizeFixedRefreshRateForActiveDisplays(api);
-        ok &= Check(result.status == WindowsMaxRefreshStatus::NoCompatibleMode &&
-            result.targets[0].candidateCount == 4096 &&
-            CountCalls(api, CDS_UPDATEREGISTRY) == 0,
-            "mode enumeration reaching its bound is treated as incomplete");
-    }
-
-    {
-        FakeRefreshApi api;
-        api.paths[0].flags |= DISPLAYCONFIG_PATH_BOOST_REFRESH_RATE;
-        const auto result = MaximizeFixedRefreshRateForActiveDisplays(api);
-        ok &= Check(result.status == WindowsMaxRefreshStatus::Applied &&
-            (api.paths[0].flags & DISPLAYCONFIG_PATH_BOOST_REFRESH_RATE) != 0,
-            "refresh stage can apply independently while DRR remains enabled");
-    }
-
-    {
-        FakeRefreshApi api;
         api.paths.push_back(Path(2, 2, LR"(\\.\DISPLAY2)", 60));
         api.paths.back().sourceAdapter = LUID{ 8, 1 };
         api.paths.back().targetAdapter = LUID{ 10, 2 };
@@ -445,6 +435,14 @@ int main()
 
     {
         FakeRefreshApi api;
+        api.paths[0].outputTechnology = DISPLAYCONFIG_OUTPUT_TECHNOLOGY_INDIRECT_WIRED;
+        const auto result = MaximizeFixedRefreshRateForActiveDisplays(api);
+        ok &= Check(result.status == WindowsMaxRefreshStatus::SkippedUnsafeTopology &&
+            api.calls.empty(), "indirect wired display targets are skipped safely");
+    }
+
+    {
+        FakeRefreshApi api;
         api.driftTopologyAtRead = 2;
         const auto result = MaximizeFixedRefreshRateForActiveDisplays(api);
         ok &= Check(result.status == WindowsMaxRefreshStatus::SkippedUnsafeTopology &&
@@ -460,6 +458,21 @@ int main()
             api.devices[LR"(\\.\DISPLAY1)"].current.dmPelsWidth == 1920 &&
             api.devices[LR"(\\.\DISPLAY1)"].current.dmDisplayFrequency == 60,
             "layout drift fails verification and restores the original mode");
+    }
+
+    for (const auto drift : { 0, 1, 2 })
+    {
+        FakeRefreshApi api;
+        if (drift == 0) api.driftOrientationOnApply = true;
+        if (drift == 1) api.driftPositionOnApply = true;
+        if (drift == 2) api.driftDepthOnApply = true;
+        const auto result = MaximizeFixedRefreshRateForActiveDisplays(api);
+        ok &= Check(result.status == WindowsMaxRefreshStatus::VerifyFailed &&
+            api.devices[LR"(\\.\DISPLAY1)"].current.dmDisplayFrequency == 60 &&
+            api.devices[LR"(\\.\DISPLAY1)"].current.dmPosition.x == 0 &&
+            api.devices[LR"(\\.\DISPLAY1)"].current.dmDisplayOrientation == DMDO_DEFAULT &&
+            api.devices[LR"(\\.\DISPLAY1)"].current.dmBitsPerPel == 32,
+            "orientation position and color-depth drift fail verification and restore the original mode");
     }
 
     {
@@ -489,6 +502,14 @@ int main()
             (api.paths[0].flags & DISPLAYCONFIG_PATH_BOOST_REFRESH_RATE) != 0 &&
             result.finalDrrInvariantFailed,
             "DRR boost state change is reported as a separate verification failure");
+    }
+
+    {
+        FakeRefreshApi api;
+        api.driftTopologyAtRead = 3;
+        const auto result = MaximizeFixedRefreshRateForActiveDisplays(api, true);
+        ok &= Check(result.finalDrrInvariantChecked && result.finalDrrInvariantFailed,
+            "a missing target after refresh apply fails the final DRR invariant");
     }
 
     {

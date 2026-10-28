@@ -22,6 +22,20 @@ int main()
         delays != std::vector<std::chrono::seconds>{ 2s, 5s, 15s })
     { std::cerr << "FAILED: DRR runs once outside Intel retry sequence\n"; ok = false; }
 
+    int refreshCalls = 0;
+    int refreshRetryIntelCalls = 0;
+    int refreshRetryDrrCalls = 0;
+    const int refreshRetryAttempts = TweakStartupCoordinator::RunStartupSequence(true,
+        [&] { ++refreshRetryDrrCalls; },
+        [&] { ++refreshCalls; },
+        [&](int) { ++refreshRetryIntelCalls; return IntelVrrRunResult{
+            refreshRetryIntelCalls == 4 ? IntelVrrRunStatus::Applied :
+                IntelVrrRunStatus::Unavailable }; },
+        [](auto) { return true; });
+    if (refreshRetryAttempts != 4 || refreshRetryDrrCalls != 1 || refreshCalls != 1 ||
+        refreshRetryIntelCalls != 4)
+    { std::cerr << "FAILED: refresh stage runs once outside Intel retries\n"; ok = false; }
+
     int drrOnUnsupportedCalls = 0; int unsupportedIntelCalls = 0;
     const int unsupportedAttempts = TweakStartupCoordinator::RunStartupSequence(true,
         [&] { ++drrOnUnsupportedCalls; },

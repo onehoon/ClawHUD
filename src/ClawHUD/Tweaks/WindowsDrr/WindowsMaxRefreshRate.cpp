@@ -296,6 +296,7 @@ std::wstring SkipReason(const WindowsActiveDisplayPath& path)
     if (path.remoteSession)
         return L"RemoteSession";
     if (path.outputTechnology == DISPLAYCONFIG_OUTPUT_TECHNOLOGY_INDIRECT_VIRTUAL ||
+        path.outputTechnology == DISPLAYCONFIG_OUTPUT_TECHNOLOGY_INDIRECT_WIRED ||
         path.outputTechnology == DISPLAYCONFIG_OUTPUT_TECHNOLOGY_MIRACAST)
         return L"VirtualOrWirelessTarget";
     return {};
@@ -368,8 +369,14 @@ bool SameTopology(const std::vector<WindowsActiveDisplayPath>& before,
             current->outputTechnology != original.outputTechnology ||
             current->gdiDeviceName != original.gdiDeviceName ||
             current->monitorDevicePath != original.monitorDevicePath ||
+            current->sourceNameValid != original.sourceNameValid ||
             current->attachedToDesktop != original.attachedToDesktop ||
-            current->targetAvailable != original.targetAvailable)
+            current->targetAvailable != original.targetAvailable ||
+            current->mirroringDriver != original.mirroringDriver ||
+            current->remoteSession != original.remoteSession ||
+            current->advancedColorKnown != original.advancedColorKnown ||
+            (current->advancedColorKnown &&
+                current->advancedColorEnabled != original.advancedColorEnabled))
             return false;
     }
     return true;
@@ -602,7 +609,11 @@ bool RestoreChanges(IWindowsMaxRefreshRateApi& api,
             currentPath->outputTechnology != baselinePath->outputTechnology ||
             currentPath->monitorDevicePath != baselinePath->monitorDevicePath ||
             currentPath->monitorDevicePath.empty() || !currentPath->attachedToDesktop ||
-            currentPath->mirroringDriver || currentPath->remoteSession)
+            !currentPath->sourceNameValid || !currentPath->targetAvailable ||
+            currentPath->mirroringDriver || currentPath->remoteSession ||
+            currentPath->outputTechnology == DISPLAYCONFIG_OUTPUT_TECHNOLOGY_INDIRECT_VIRTUAL ||
+            currentPath->outputTechnology == DISPLAYCONFIG_OUTPUT_TECHNOLOGY_INDIRECT_WIRED ||
+            currentPath->outputTechnology == DISPLAYCONFIG_OUTPUT_TECHNOLOGY_MIRACAST)
         {
             restored = false;
             VrrDiagnosticLogger::WriteWide("RefreshRate",
@@ -1078,6 +1089,14 @@ WindowsMaxRefreshResult Run(IWindowsMaxRefreshRateApi& api, bool drrStageSucceed
     for (const auto& originalPath : originalPaths)
     {
         const auto* afterPath = FindPath(afterPaths, originalPath);
+        if (drrStageSucceeded && !afterPath)
+        {
+            result.finalDrrInvariantFailed = true;
+            VrrDiagnosticLogger::WriteWide("DRR",
+                L"final invariant=Failed targetAdapter=" + LuidText(originalPath.targetAdapter) +
+                L" targetId=" + std::to_wstring(originalPath.targetId) +
+                L" reason=TargetIdentityMissingAfterRefreshApply");
+        }
         if (originalPath.advancedColorKnown &&
             (!afterPath || !afterPath->advancedColorKnown ||
                 afterPath->advancedColorEnabled != originalPath.advancedColorEnabled))
