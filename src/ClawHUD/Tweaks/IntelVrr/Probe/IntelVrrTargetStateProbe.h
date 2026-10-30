@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../Tma2027VrrEvidence.h"
+
 #include <windows.h>
 
 #include <cstddef>
@@ -89,10 +91,12 @@ enum class IntelVrrPanelClass
 {
     ClawInternal,
     Lg27gs65f,
+    Claw7Internal,
 };
 
 bool IsIntelVrrProfileChangeAllowed(const IntelVrrTargetState& state,
-    IntelVrrPanelClass panelClass, std::uint32_t requestedProfile) noexcept;
+    IntelVrrPanelClass panelClass, std::uint32_t requestedProfile,
+    const Tma2027Evidence* tmaEvidence = nullptr) noexcept;
 
 struct IntelVrrProfileSetResult
 {
@@ -111,7 +115,8 @@ public:
         std::uint32_t windowsTargetId) noexcept = 0;
     virtual IntelVrrProfileSetResult SetProfileForExactTarget(
         const IntelVrrTargetState& expectedCurrentState,
-        IntelVrrPanelClass panelClass, std::uint32_t requestedProfile) noexcept = 0;
+        IntelVrrPanelClass panelClass, std::uint32_t requestedProfile,
+        const Tma2027Evidence* tmaEvidence = nullptr) noexcept = 0;
     virtual void Shutdown() noexcept = 0;
 };
 
@@ -125,7 +130,8 @@ public:
         std::uint32_t windowsTargetId) noexcept override;
     IntelVrrProfileSetResult SetProfileForExactTarget(
         const IntelVrrTargetState& expectedCurrentState,
-        IntelVrrPanelClass panelClass, std::uint32_t requestedProfile) noexcept override;
+        IntelVrrPanelClass panelClass, std::uint32_t requestedProfile,
+        const Tma2027Evidence* tmaEvidence = nullptr) noexcept override;
     void Shutdown() noexcept override;
 
 private:

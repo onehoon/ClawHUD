@@ -123,6 +123,8 @@ add_executable(ClawHUD WIN32
     src/ClawHUD/Tweaks/WindowsDrr/WindowsDrrDisable.cpp
     src/ClawHUD/Tweaks/WindowsDrr/WindowsMaxRefreshRate.cpp
     src/ClawHUD/Tweaks/IntelVrr/AffectedPanelDetector.cpp
+    src/ClawHUD/Tweaks/IntelVrr/Tma2027VrrPolicy.cpp
+    src/ClawHUD/Tweaks/IntelVrr/Tma2027VrrEvidence.cpp
     src/ClawHUD/Tweaks/IntelVrr/IntelVrrRangeTweak.cpp
     src/ClawHUD/Tweaks/IntelVrr/Lg27gs65fVrrRangeTweak.cpp
     src/ClawHUD/Tweaks/IntelVrr/Probe/IntelDisplayPathProbe.cpp
@@ -149,7 +151,7 @@ target_compile_definitions(ClawHUD PRIVATE
     UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX
     CLAWHUD_UPDATE_REPOSITORY=\"https://github.com/onehoon/ClawHUD\")
 target_include_directories(ClawHUD PRIVATE src/ClawHUD src/shared src/resources "${CMAKE_BINARY_DIR}/generated")
-target_link_libraries(ClawHUD PRIVATE ClawHUD.Velopack comctl32 shell32 user32 winmm dwmapi delayimp d3d11 dxgi dcomp d2d1 dwrite powrprof advapi32 wbemuuid ole32 oleaut32 propsys winhttp)
+target_link_libraries(ClawHUD PRIVATE ClawHUD.Velopack comctl32 shell32 user32 gdi32 bcrypt winmm dwmapi delayimp d3d11 dxgi dcomp d2d1 dwrite powrprof advapi32 wbemuuid ole32 oleaut32 propsys winhttp)
 target_link_options(ClawHUD PRIVATE "/DELAYLOAD:velopack_libc.dll")
 set_target_properties(ClawHUD PROPERTIES CXX_EXTENSIONS OFF)
 

@@ -174,7 +174,8 @@ const char* IntelVrrDiscoveryFailureStageName(
 }
 
 bool IsIntelVrrProfileChangeAllowed(const IntelVrrTargetState& state,
-    IntelVrrPanelClass panelClass, std::uint32_t requestedProfile) noexcept
+    IntelVrrPanelClass panelClass, std::uint32_t requestedProfile,
+    const Tma2027Evidence* tmaEvidence) noexcept
 {
     constexpr std::uint32_t recommended = 1;
     constexpr std::uint32_t excellent = 2;
@@ -182,8 +183,8 @@ bool IsIntelVrrProfileChangeAllowed(const IntelVrrTargetState& state,
     constexpr std::uint32_t compatible = 4;
     constexpr std::uint32_t vesa = 6;
     constexpr float toleranceHz = 0.25f;
-    const float expectedMaximum = panelClass == IntelVrrPanelClass::ClawInternal
-        ? 120.0f : 180.0f;
+    const float expectedMaximum = panelClass == IntelVrrPanelClass::Lg27gs65f
+        ? 180.0f : 120.0f;
     const auto isNear = [=](float value, float expected)
     {
         return std::isfinite(value) && std::abs(value - expected) <= toleranceHz;
@@ -195,10 +196,33 @@ bool IsIntelVrrProfileChangeAllowed(const IntelVrrTargetState& state,
         state.displayPropertiesSuccessCount != state.displayOutputCount ||
         !state.capability || !state.profile || state.capabilityResult != 0 ||
         state.profileResult != 0 || !state.capability->supported ||
-        !isNear(state.capability->minimumHz, 48.0f) ||
-        !isNear(state.capability->maximumHz, expectedMaximum) ||
+        !std::isfinite(state.capability->minimumHz) ||
+        !std::isfinite(state.capability->maximumHz) ||
         !std::isfinite(state.profile->minimumHz) ||
         !std::isfinite(state.profile->maximumHz))
+        return false;
+
+    if (panelClass == IntelVrrPanelClass::Claw7Internal)
+    {
+        if (requestedProfile != excellent || !tmaEvidence ||
+            tmaEvidence->target.adapterLuidLowPart !=
+                state.windowsTargetAdapterLuid.LowPart ||
+            tmaEvidence->target.adapterLuidHighPart !=
+                state.windowsTargetAdapterLuid.HighPart ||
+            tmaEvidence->target.targetId != state.windowsTargetId ||
+            !IsTma2027VerifiedPhysicalEdidEvidence(*tmaEvidence,
+                tmaEvidence->target))
+            return false;
+        const Tma2027ProfileState tmaState{
+            true, state.capability->supported, state.capability->minimumHz,
+            state.capability->maximumHz, true, state.profile->profile,
+            state.profile->minimumHz, state.profile->maximumHz,
+            tmaEvidence->target };
+        return IsTma2027ExcellentSetterAllowed(tmaState, tmaEvidence);
+    }
+
+    if (!isNear(state.capability->minimumHz, 48.0f) ||
+        !isNear(state.capability->maximumHz, expectedMaximum))
         return false;
 
     if (panelClass == IntelVrrPanelClass::Lg27gs65f)
@@ -429,7 +453,7 @@ IntelVrrTargetState IntelVrrTargetStateProbe::Query(
 
 IntelVrrProfileSetResult IntelVrrTargetStateProbe::SetProfileForExactTarget(
     const IntelVrrTargetState& expected, IntelVrrPanelClass panelClass,
-    std::uint32_t requestedProfile) noexcept
+    std::uint32_t requestedProfile, const Tma2027Evidence* tmaEvidence) noexcept
 {
     constexpr std::uint32_t recommended = 1;
     constexpr std::uint32_t excellent = 2;
@@ -447,7 +471,8 @@ IntelVrrProfileSetResult IntelVrrTargetStateProbe::SetProfileForExactTarget(
         expected.windowsTargetAdapterLuid.LowPart != exactOutputAdapterLuid_.LowPart ||
         expected.windowsTargetAdapterLuid.HighPart != exactOutputAdapterLuid_.HighPart ||
         expected.windowsTargetId != exactOutputTargetId_ ||
-        !IsIntelVrrProfileChangeAllowed(expected, panelClass, requestedProfile))
+        !IsIntelVrrProfileChangeAllowed(expected, panelClass, requestedProfile,
+            tmaEvidence))
         return reject("expected state does not match the exact supported panel policy");
 
     try

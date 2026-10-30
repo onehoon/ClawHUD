@@ -81,7 +81,8 @@ std::string DecodeWmiUShortString(const std::vector<unsigned short>& values)
 bool IsAffectedPanel(const PanelIdentity& identity)
 {
     const auto kind = ClassifySupportedPanel(identity);
-    return kind == SupportedPanelKind::ClawInternal;
+    return kind == SupportedPanelKind::ClawInternal ||
+        kind == SupportedPanelKind::Claw7Internal;
 }
 
 bool IsLg27gs65fPanel(const PanelIdentity& identity)
@@ -96,6 +97,10 @@ std::optional<SupportedPanelKind> ClassifySupportedPanel(const PanelIdentity& id
         EqualsInsensitive(identity.productCode, "0801") &&
         EqualsInsensitive(identity.panelName, "PN8007QB1-2"))
         return SupportedPanelKind::ClawInternal;
+    if (EqualsInsensitive(identity.manufacturer, "TMA") &&
+        EqualsInsensitive(identity.productCode, "2027") &&
+        EqualsInsensitive(identity.panelName, "TL070FVXS02-0"))
+        return SupportedPanelKind::Claw7Internal;
     if (EqualsInsensitive(identity.manufacturer, "GSM") &&
         EqualsInsensitive(identity.productCode, "5C8C") &&
         (EqualsInsensitive(identity.panelName, "LG ULTRAGEAR") ||
@@ -162,7 +167,8 @@ PanelTargetMatch ResolvePanelWindowsTarget(const PanelIdentity& panel,
         if (!kind)
             continue;
         const std::wstring expectedDeviceId = *kind == SupportedPanelKind::ClawInternal
-            ? L"display\\csw0801\\" : L"display\\gsm5c8c\\";
+            ? L"display\\csw0801\\" : *kind == SupportedPanelKind::Claw7Internal
+                ? L"display\\tma2027\\" : L"display\\gsm5c8c\\";
         const auto targetPath = NormalizeMonitorInstancePath(target.monitorDevicePath);
         if (targetPath.rfind(expectedDeviceId, 0) != 0)
             continue;

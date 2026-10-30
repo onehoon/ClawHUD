@@ -2,6 +2,8 @@
 # if(BUILD_TESTING) block (R8). The root file owns the BUILD_TESTING
 # condition and includes this file; declarations here are unchanged.
 
+include("${CMAKE_CURRENT_LIST_DIR}/Tma2027VrrTests.cmake")
+
     add_executable(ClawHUD.HudModelTests
         tests/HudModelTests.cpp
         src/ClawHUD/HudModel.cpp)
@@ -198,9 +200,26 @@
     set_target_properties(ClawHUD.ProductionTargetPolicyTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.ProductionTargetPolicyTests COMMAND ClawHUD.ProductionTargetPolicyTests)
 
+    add_executable(ClawHUD.AffectedPanelDetectorTests
+        tests/AffectedPanelDetectorTests.cpp
+        src/ClawHUD/Tweaks/IntelVrr/AffectedPanelDetector.cpp
+        src/ClawHUD/Tweaks/IntelVrr/Lg27gs65fVrrRangeTweak.cpp)
+    target_compile_features(ClawHUD.AffectedPanelDetectorTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.AffectedPanelDetectorTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_include_directories(ClawHUD.AffectedPanelDetectorTests PRIVATE
+        src/ClawHUD)
+    target_link_libraries(ClawHUD.AffectedPanelDetectorTests PRIVATE
+        user32 wbemuuid ole32 oleaut32)
+    set_target_properties(ClawHUD.AffectedPanelDetectorTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.AffectedPanelDetectorTests
+        COMMAND ClawHUD.AffectedPanelDetectorTests)
+
     add_executable(ClawHUD.IntelVrrRangeTweakTests
         tests/IntelVrrRangeTweakTests.cpp
         src/ClawHUD/Tweaks/IntelVrr/AffectedPanelDetector.cpp
+        src/ClawHUD/Tweaks/IntelVrr/Tma2027VrrPolicy.cpp
+        src/ClawHUD/Tweaks/IntelVrr/Tma2027VrrEvidence.cpp
         src/ClawHUD/Tweaks/IntelVrr/IntelVrrRangeTweak.cpp
         src/ClawHUD/Tweaks/IntelVrr/Lg27gs65fVrrRangeTweak.cpp
         src/ClawHUD/Tweaks/IntelVrr/Probe/IntelDisplayPathProbe.cpp
@@ -210,7 +229,7 @@
     target_compile_features(ClawHUD.IntelVrrRangeTweakTests PRIVATE cxx_std_20)
     target_compile_definitions(ClawHUD.IntelVrrRangeTweakTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
     target_include_directories(ClawHUD.IntelVrrRangeTweakTests PRIVATE src/ClawHUD)
-    target_link_libraries(ClawHUD.IntelVrrRangeTweakTests PRIVATE wbemuuid ole32 oleaut32 shell32 user32 gdi32)
+    target_link_libraries(ClawHUD.IntelVrrRangeTweakTests PRIVATE wbemuuid ole32 oleaut32 shell32 user32 gdi32 bcrypt)
     set_target_properties(ClawHUD.IntelVrrRangeTweakTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.IntelVrrRangeTweakTests COMMAND ClawHUD.IntelVrrRangeTweakTests)
 
