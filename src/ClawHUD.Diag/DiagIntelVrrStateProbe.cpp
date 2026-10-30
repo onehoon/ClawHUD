@@ -431,7 +431,8 @@ DiagIntelVrrState DiagIntelVrrStateProbe::Query(
 }
 
 bool IsIntelVrrProfileChangeAllowed(const DiagIntelVrrState& state,
-    IntelVrrPanelClass panelClass, std::uint32_t requestedProfile) noexcept
+    IntelVrrPanelClass panelClass, std::uint32_t requestedProfile,
+    const clawhud::Tma2027Evidence* tmaEvidence) noexcept
 {
     constexpr std::uint32_t recommended = 1;
     constexpr std::uint32_t excellent = 2;
@@ -439,8 +440,8 @@ bool IsIntelVrrProfileChangeAllowed(const DiagIntelVrrState& state,
     constexpr std::uint32_t compatible = 4;
     constexpr std::uint32_t vesa = 6;
     constexpr float toleranceHz = 0.25f;
-    const float expectedMaximum = panelClass == IntelVrrPanelClass::ClawInternal
-        ? 120.0f : 180.0f;
+    const float expectedMaximum = panelClass == IntelVrrPanelClass::Lg27gs65f
+        ? 180.0f : 120.0f;
     const auto isNear = [=](float value, float expected)
     {
         return std::isfinite(value) && std::abs(value - expected) <= toleranceHz;
@@ -452,10 +453,40 @@ bool IsIntelVrrProfileChangeAllowed(const DiagIntelVrrState& state,
         state.displayPropertiesSuccessCount != state.displayOutputCount ||
         !state.capability || !state.profile || state.capabilityResult != 0 ||
         state.profileResult != 0 || !state.capability->supported ||
-        !isNear(state.capability->minimumHz, 48.0f) ||
-        !isNear(state.capability->maximumHz, expectedMaximum) ||
+        !std::isfinite(state.capability->minimumHz) ||
+        !std::isfinite(state.capability->maximumHz) ||
         !std::isfinite(state.profile->minimumHz) ||
         !std::isfinite(state.profile->maximumHz))
+        return false;
+
+    if (panelClass == IntelVrrPanelClass::Claw7Internal)
+    {
+        if (requestedProfile != excellent)
+            return false;
+        const bool halfFloor = isNear(state.capability->minimumHz, 24.0f) &&
+            isNear(state.capability->maximumHz, 120.0f);
+        if (halfFloor && (!tmaEvidence ||
+            tmaEvidence->target.adapterLuidLowPart !=
+                state.windowsTargetAdapterLuid.LowPart ||
+            tmaEvidence->target.adapterLuidHighPart !=
+                state.windowsTargetAdapterLuid.HighPart ||
+            tmaEvidence->target.targetId != state.windowsTargetId))
+            return false;
+        const clawhud::Tma2027ProfileState tmaState{
+            true, state.capability->supported, state.capability->minimumHz,
+            state.capability->maximumHz, true, state.profile->profile,
+            state.profile->minimumHz, state.profile->maximumHz,
+            halfFloor && tmaEvidence ? tmaEvidence->target :
+                clawhud::Tma2027TargetIdentity{
+                    state.windowsTargetAdapterLuid.HighPart,
+                    state.windowsTargetAdapterLuid.LowPart, 0,
+                    state.windowsTargetId, L"bound-by-IGCL-output" } };
+        return clawhud::IsTma2027ExcellentSetterAllowed(tmaState,
+            halfFloor ? tmaEvidence : nullptr);
+    }
+
+    if (!isNear(state.capability->minimumHz, 48.0f) ||
+        !isNear(state.capability->maximumHz, expectedMaximum))
         return false;
 
     if (panelClass == IntelVrrPanelClass::Lg27gs65f)
@@ -488,7 +519,8 @@ DiagIgclProfileSetResult DiagIntelVrrStateProbe::SetProfileForExactTarget(
 
 DiagIgclProfileSetResult DiagIntelVrrStateProbe::SetProfileForExactTarget(
     const DiagIntelVrrState& expected, IntelVrrPanelClass panelClass,
-    std::uint32_t requestedProfile) noexcept
+    std::uint32_t requestedProfile,
+    const clawhud::Tma2027Evidence* tmaEvidence) noexcept
 {
     const auto reject = [](std::string_view detail,
         std::optional<std::uint32_t> result = std::nullopt)
@@ -504,7 +536,8 @@ DiagIgclProfileSetResult DiagIntelVrrStateProbe::SetProfileForExactTarget(
         expected.windowsTargetAdapterLuid.LowPart != exactOutputAdapterLuid_.LowPart ||
         expected.windowsTargetAdapterLuid.HighPart != exactOutputAdapterLuid_.HighPart ||
         expected.windowsTargetId != exactOutputTargetId_ ||
-        !IsIntelVrrProfileChangeAllowed(expected, panelClass, requestedProfile))
+        !IsIntelVrrProfileChangeAllowed(expected, panelClass, requestedProfile,
+            tmaEvidence))
         return reject("expected state does not match the exact supported panel policy");
 
     try

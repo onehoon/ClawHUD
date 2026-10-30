@@ -26,6 +26,7 @@ enum class SupportedPanelKind
 {
     ClawInternal,
     Lg27gs65f,
+    Claw7Internal,
 };
 
 enum class PanelTargetMappingStatus
