@@ -461,28 +461,24 @@ bool IsIntelVrrProfileChangeAllowed(const DiagIntelVrrState& state,
 
     if (panelClass == IntelVrrPanelClass::Claw7Internal)
     {
-        if (requestedProfile != excellent)
-            return false;
-        const bool halfFloor = isNear(state.capability->minimumHz, 24.0f) &&
-            isNear(state.capability->maximumHz, 120.0f);
-        if (halfFloor && (!tmaEvidence ||
+        if (requestedProfile != excellent || !tmaEvidence ||
             tmaEvidence->target.adapterLuidLowPart !=
                 state.windowsTargetAdapterLuid.LowPart ||
             tmaEvidence->target.adapterLuidHighPart !=
                 state.windowsTargetAdapterLuid.HighPart ||
-            tmaEvidence->target.targetId != state.windowsTargetId))
+            tmaEvidence->target.targetId != state.windowsTargetId ||
+            !clawhud::IsTma2027VerifiedPhysicalEdidEvidence(*tmaEvidence,
+                tmaEvidence->target))
             return false;
+        const bool halfFloor = isNear(state.capability->minimumHz, 24.0f) &&
+            isNear(state.capability->maximumHz, 120.0f);
         const clawhud::Tma2027ProfileState tmaState{
             true, state.capability->supported, state.capability->minimumHz,
             state.capability->maximumHz, true, state.profile->profile,
             state.profile->minimumHz, state.profile->maximumHz,
-            halfFloor && tmaEvidence ? tmaEvidence->target :
-                clawhud::Tma2027TargetIdentity{
-                    state.windowsTargetAdapterLuid.HighPart,
-                    state.windowsTargetAdapterLuid.LowPart, 0,
-                    state.windowsTargetId, L"bound-by-IGCL-output" } };
+            tmaEvidence->target };
         return clawhud::IsTma2027ExcellentSetterAllowed(tmaState,
-            halfFloor ? tmaEvidence : nullptr);
+            tmaEvidence);
     }
 
     if (!isNear(state.capability->minimumHz, 48.0f) ||

@@ -270,9 +270,23 @@ int main()
         };
         const auto result = Run({ Claw7() }, { Claw7Target() }, fake, true,
             unavailableBeforeWrite);
-        ok &= Check(result.status == IntelVrrRunStatus::Applied &&
-            evidenceReads == 3 && fake->setters == std::vector<UINT32>{ 33 },
-            "native 48-120 TMA policy does not depend on half-floor evidence availability");
+        ok &= Check(result.status == IntelVrrRunStatus::Unavailable &&
+            evidenceReads == 2 && fake->setters.empty(),
+            "native 48-120 TMA write is blocked if pre-write physical EDID evidence disappears");
+    }
+    {
+        auto fake = TmaProbeState(1, 60, 120);
+        auto overrideEvidence = [](const PanelIdentity&,
+            const IntelVrrWindowsTarget& target, bool direct)
+        {
+            auto evidence = TmaEvidenceFor(target, direct);
+            evidence.edidStatus = Tma2027EdidStatus::OverridePresent;
+            return evidence;
+        };
+        const auto result = Run({ Claw7() }, { Claw7Target() }, fake, true,
+            overrideEvidence);
+        ok &= Check(result.status == IntelVrrRunStatus::Unavailable && fake->setters.empty(),
+            "native 48-120 capability cannot bypass an installed TMA EDID override");
     }
     {
         auto fake = TmaProbeState(4, 48, 120);

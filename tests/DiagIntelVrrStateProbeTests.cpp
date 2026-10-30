@@ -222,16 +222,26 @@ int main()
     claw7Native.capability = DiagArcSyncCapability{ true, 48.0f, 120.0f, 0, 0 };
     claw7Native.windowsTargetAdapterLuid = LUID{ 303, 3 };
     claw7Native.windowsTargetId = 33;
-    assert(IsIntelVrrProfileChangeAllowed(claw7Native,
-        IntelVrrPanelClass::Claw7Internal, 2));
-    auto claw7HalfFloor = claw7Native;
-    claw7HalfFloor.capability->minimumHz = 24.0f;
     clawhud::Tma2027Evidence tmaEvidence;
     tmaEvidence.target = { 3, 303, 3, 33, L"display\\tma2027\\5&3&uid3" };
     tmaEvidence.edidStatus = clawhud::Tma2027EdidStatus::Matched;
     tmaEvidence.edidSha256 = std::string(clawhud::kTma2027PhysicalEdidSha256);
     tmaEvidence.directRange = { true, true, true, true, true, 0,
         3, 303, 3, 33, 1, 48, 120 };
+    assert(!IsIntelVrrProfileChangeAllowed(claw7Native,
+        IntelVrrPanelClass::Claw7Internal, 2));
+    assert(IsIntelVrrProfileChangeAllowed(claw7Native,
+        IntelVrrPanelClass::Claw7Internal, 2, &tmaEvidence));
+    auto nativeOverrideEvidence = tmaEvidence;
+    nativeOverrideEvidence.edidStatus = clawhud::Tma2027EdidStatus::OverridePresent;
+    assert(!IsIntelVrrProfileChangeAllowed(claw7Native,
+        IntelVrrPanelClass::Claw7Internal, 2, &nativeOverrideEvidence));
+    nativeOverrideEvidence = tmaEvidence;
+    nativeOverrideEvidence.edidStatus = clawhud::Tma2027EdidStatus::Mismatch;
+    assert(!IsIntelVrrProfileChangeAllowed(claw7Native,
+        IntelVrrPanelClass::Claw7Internal, 2, &nativeOverrideEvidence));
+    auto claw7HalfFloor = claw7Native;
+    claw7HalfFloor.capability->minimumHz = 24.0f;
     assert(!IsIntelVrrProfileChangeAllowed(claw7HalfFloor,
         IntelVrrPanelClass::Claw7Internal, 2));
     assert(IsIntelVrrProfileChangeAllowed(claw7HalfFloor,

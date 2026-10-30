@@ -53,24 +53,41 @@ std::vector<std::uint8_t> ValidEdid()
 
 int main()
 {
+    auto evidence = VerifiedEvidence();
     auto state = Profile(1, 48.0f, 60.0f, 120.0f);
-    assert(EvaluateTma2027Profile(state, nullptr) == Tma2027Decision::ApplyExcellent);
-    assert(IsTma2027ExcellentSetterAllowed(state, nullptr));
+    assert(EvaluateTma2027Profile(state, nullptr) == Tma2027Decision::Unavailable);
+    assert(!IsTma2027ExcellentSetterAllowed(state, nullptr));
+    assert(EvaluateTma2027Profile(state, &evidence) == Tma2027Decision::ApplyExcellent);
+    assert(IsTma2027ExcellentSetterAllowed(state, &evidence));
+    auto untrustedNativeEvidence = evidence;
+    untrustedNativeEvidence.edidStatus = Tma2027EdidStatus::OverridePresent;
+    assert(EvaluateTma2027Profile(state, &untrustedNativeEvidence) ==
+        Tma2027Decision::Unavailable);
+    assert(!IsTma2027ExcellentSetterAllowed(state, &untrustedNativeEvidence));
+    untrustedNativeEvidence = evidence;
+    untrustedNativeEvidence.edidStatus = Tma2027EdidStatus::Mismatch;
+    assert(!IsTma2027ExcellentSetterAllowed(state, &untrustedNativeEvidence));
+    untrustedNativeEvidence = evidence;
+    untrustedNativeEvidence.target.targetId++;
+    assert(!IsTma2027ExcellentSetterAllowed(state, &untrustedNativeEvidence));
 
     state = Profile(4, 48.0f, 48.0f, 120.0f);
-    assert(EvaluateTma2027Profile(state, nullptr) == Tma2027Decision::AlreadyCorrect);
-    assert(!IsTma2027ExcellentSetterAllowed(state, nullptr));
+    assert(EvaluateTma2027Profile(state, nullptr) == Tma2027Decision::Unavailable);
+    assert(EvaluateTma2027Profile(state, &evidence) == Tma2027Decision::AlreadyCorrect);
+    assert(!IsTma2027ExcellentSetterAllowed(state, &evidence));
 
     state = Profile(1, 24.0f, 60.0f, 120.0f);
     assert(EvaluateTma2027Profile(state, nullptr) == Tma2027Decision::Unavailable);
     assert(!IsTma2027ExcellentSetterAllowed(state, nullptr));
 
-    auto evidence = VerifiedEvidence();
     assert(EvaluateTma2027Profile(state, &evidence) == Tma2027Decision::ApplyExcellent);
     assert(IsTma2027ExcellentSetterAllowed(state, &evidence));
     auto readback = Profile(2, 24.0f, 48.0f, 120.0f);
     assert(IsTma2027ExcellentReadbackVerified(readback, &evidence));
     assert(EvaluateTma2027Profile(readback, &evidence) == Tma2027Decision::AlreadyCorrect);
+    readback = Profile(2, 48.0f, 48.0f, 120.0f);
+    assert(!IsTma2027ExcellentReadbackVerified(readback, nullptr));
+    assert(IsTma2027ExcellentReadbackVerified(readback, &evidence));
 
     auto invalidEvidence = evidence;
     invalidEvidence.directRange.minimumHz = 24;

@@ -735,9 +735,13 @@ IntelVrrRunResult IntelVrrRangeTweak::Run(bool enabled)
             {
                 tmaEvidence.reset();
             }
-            if (HasHalfFloorCapability(before) && (!tmaEvidence ||
-                !IsTma2027VerifiedHalfFloorEvidence(*tmaEvidence,
-                    TmaTargetIdentity(item.target))))
+            const auto expectedTmaTarget = TmaTargetIdentity(item.target);
+            const bool physicalEdidVerified = tmaEvidence &&
+                IsTma2027VerifiedPhysicalEdidEvidence(*tmaEvidence, expectedTmaTarget);
+            const bool directRangeVerified = !HasHalfFloorCapability(before) ||
+                (tmaEvidence && IsTma2027VerifiedHalfFloorEvidence(*tmaEvidence,
+                    expectedTmaTarget));
+            if (!physicalEdidVerified || !directRangeVerified)
             {
                 if (tmaEvidence)
                     LogTmaEvidence(log_, label, *tmaEvidence);

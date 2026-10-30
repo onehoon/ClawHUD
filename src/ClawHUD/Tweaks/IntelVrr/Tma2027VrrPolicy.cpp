@@ -100,9 +100,11 @@ bool IsValidForPolicy(const Tma2027ProfileState& state,
     if (!state.exact || !state.profileAvailable || !state.capabilitySupported ||
         !IsKnownStandardProfile(state.profile) || !IsPlausibleProfileRange(state))
         return false;
+    if (!evidence || !IsTma2027VerifiedPhysicalEdidEvidence(*evidence, state.target))
+        return false;
     if (IsNativeCapability(state))
         return true;
-    return IsHalfFloorCapability(state) && evidence &&
+    return IsHalfFloorCapability(state) &&
         IsTma2027VerifiedHalfFloorEvidence(*evidence, state.target);
 }
 }
@@ -177,14 +179,20 @@ Tma2027DirectRange DecodeTma2027DirectRange(std::int32_t ntStatus,
     return result;
 }
 
+bool IsTma2027VerifiedPhysicalEdidEvidence(const Tma2027Evidence& evidence,
+    const Tma2027TargetIdentity& expectedTarget) noexcept
+{
+    return evidence.edidStatus == Tma2027EdidStatus::Matched &&
+        IsTma2027PhysicalEdidHash(evidence.edidSha256) &&
+        IsTma2027MonitorPath(evidence.target.normalizedMonitorInstance) &&
+        IsExactIdentity(evidence.target, expectedTarget);
+}
+
 bool IsTma2027VerifiedHalfFloorEvidence(const Tma2027Evidence& evidence,
     const Tma2027TargetIdentity& expectedTarget) noexcept
 {
     const auto& direct = evidence.directRange;
-    return evidence.edidStatus == Tma2027EdidStatus::Matched &&
-        IsTma2027PhysicalEdidHash(evidence.edidSha256) &&
-        IsTma2027MonitorPath(evidence.target.normalizedMonitorInstance) &&
-        IsExactIdentity(evidence.target, expectedTarget) &&
+    return IsTma2027VerifiedPhysicalEdidEvidence(evidence, expectedTarget) &&
         direct.attempted && direct.available && direct.ntStatus == 0 &&
         direct.adapterAndSourceMatch && direct.supported && direct.vrrEnabled &&
         direct.displayCount > 0 &&
@@ -209,6 +217,9 @@ Tma2027Decision EvaluateTma2027Profile(const Tma2027ProfileState& state,
     const bool halfFloor = IsHalfFloorCapability(state);
     if (!native && !halfFloor)
         return Tma2027Decision::Unsupported;
+    if (!evidence ||
+        !IsTma2027VerifiedPhysicalEdidEvidence(*evidence, state.target))
+        return Tma2027Decision::Unavailable;
     if (halfFloor && (!evidence ||
         !IsTma2027VerifiedHalfFloorEvidence(*evidence, state.target)))
         return Tma2027Decision::Unavailable;
@@ -229,6 +240,9 @@ bool IsTma2027ExcellentReadbackVerified(const Tma2027ProfileState& state,
     if (!state.exact || !state.profileAvailable || state.profile != kExcellent ||
         !Near(state.profileMinimumHz, 48.0f) ||
         !Near(state.profileMaximumHz, 120.0f))
+        return false;
+    if (!evidence ||
+        !IsTma2027VerifiedPhysicalEdidEvidence(*evidence, state.target))
         return false;
     if (IsNativeCapability(state))
         return true;

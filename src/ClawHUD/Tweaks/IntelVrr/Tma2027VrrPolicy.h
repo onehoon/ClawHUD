@@ -86,6 +86,8 @@ std::optional<std::vector<std::uint8_t>> CanonicalizeTma2027Edid(
 Tma2027DirectRange DecodeTma2027DirectRange(std::int32_t ntStatus,
     std::span<const std::uint8_t> payload, std::int32_t adapterLuidHighPart,
     std::uint32_t adapterLuidLowPart, std::uint32_t sourceId) noexcept;
+bool IsTma2027VerifiedPhysicalEdidEvidence(const Tma2027Evidence& evidence,
+    const Tma2027TargetIdentity& expectedTarget) noexcept;
 bool IsTma2027VerifiedHalfFloorEvidence(const Tma2027Evidence& evidence,
     const Tma2027TargetIdentity& expectedTarget) noexcept;
 Tma2027Decision EvaluateTma2027Profile(const Tma2027ProfileState& state,
