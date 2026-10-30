@@ -10,6 +10,8 @@
 #include <string_view>
 #include <vector>
 
+#include "Tweaks/IntelVrr/Tma2027VrrPolicy.h"
+
 enum class DiagIgclTargetMappingStatus
 {
     Exact,
@@ -21,6 +23,7 @@ enum class IntelVrrPanelClass
 {
     ClawInternal,
     Lg27gs65f,
+    Claw7Internal,
 };
 
 struct DiagIgclTargetMatch
@@ -125,7 +128,8 @@ struct DiagIgclProfileSetResult
 };
 
 bool IsIntelVrrProfileChangeAllowed(const DiagIntelVrrState& state,
-    IntelVrrPanelClass panelClass, std::uint32_t requestedProfile) noexcept;
+    IntelVrrPanelClass panelClass, std::uint32_t requestedProfile,
+    const clawhud::Tma2027Evidence* tmaEvidence = nullptr) noexcept;
 
 class DiagIntelVrrStateProbe
 {
@@ -140,7 +144,8 @@ public:
         std::uint32_t requestedProfile) noexcept;
     DiagIgclProfileSetResult SetProfileForExactTarget(
         const DiagIntelVrrState& expectedCurrentState,
-        IntelVrrPanelClass panelClass, std::uint32_t requestedProfile) noexcept;
+        IntelVrrPanelClass panelClass, std::uint32_t requestedProfile,
+        const clawhud::Tma2027Evidence* tmaEvidence = nullptr) noexcept;
     void Shutdown() noexcept;
 
 private:

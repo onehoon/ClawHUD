@@ -31,9 +31,10 @@ public:
 
     IntelVrrProfileSetResult SetProfileForExactTarget(
         const IntelVrrTargetState& expected, IntelVrrPanelClass panelClass,
-        std::uint32_t profile) noexcept override
+        std::uint32_t profile, const Tma2027Evidence* tmaEvidence) noexcept override
     {
-        return probe_.SetProfileForExactTarget(expected, panelClass, profile);
+        return probe_.SetProfileForExactTarget(expected, panelClass, profile,
+            tmaEvidence);
     }
 
     void Shutdown() noexcept override { probe_.Shutdown(); }
