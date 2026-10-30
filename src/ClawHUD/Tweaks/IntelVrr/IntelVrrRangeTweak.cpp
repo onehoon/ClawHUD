@@ -120,6 +120,85 @@ bool ExactState(const IntelVrrTargetState& state) noexcept
         state.profileResult == 0;
 }
 
+bool HasHalfFloorCapability(const IntelVrrTargetState& state) noexcept
+{
+    return state.capability && state.capability->supported &&
+        Near(state.capability->minimumHz, 24.0f, 0.25f) &&
+        Near(state.capability->maximumHz, 120.0f, 0.25f);
+}
+
+Tma2027TargetIdentity TmaTargetIdentity(const IntelVrrWindowsTarget& target)
+{
+    return { target.adapterLuid.HighPart, target.adapterLuid.LowPart,
+        target.sourceId, target.targetId,
+        NormalizeMonitorInstancePath(target.monitorDevicePath) };
+}
+
+Tma2027ProfileState TmaProfileState(const IntelVrrTargetState& state,
+    const IntelVrrWindowsTarget& target)
+{
+    return { ExactState(state), state.capability && state.capability->supported,
+        state.capability ? state.capability->minimumHz : 0.0f,
+        state.capability ? state.capability->maximumHz : 0.0f,
+        state.profile.has_value(), state.profile ? state.profile->profile : 0,
+        state.profile ? state.profile->minimumHz : 0.0f,
+        state.profile ? state.profile->maximumHz : 0.0f,
+        TmaTargetIdentity(target) };
+}
+
+IntelVrrRunStatus ToRunStatus(Tma2027Decision decision) noexcept
+{
+    switch (decision)
+    {
+    case Tma2027Decision::Unavailable: return IntelVrrRunStatus::Unavailable;
+    case Tma2027Decision::Unsupported: return IntelVrrRunStatus::UnsupportedPanel;
+    case Tma2027Decision::AlreadyCorrect: return IntelVrrRunStatus::AlreadyCorrect;
+    case Tma2027Decision::PreserveUserProfile: return IntelVrrRunStatus::SkippedUserProfile;
+    case Tma2027Decision::ApplyExcellent: return IntelVrrRunStatus::Applied;
+    default: return IntelVrrRunStatus::Unavailable;
+    }
+}
+
+Tma2027EvidenceRequest TmaEvidenceRequest(const PanelIdentity& panel,
+    const IntelVrrWindowsTarget& target)
+{
+    return { panel.manufacturer, panel.productCode, panel.panelName,
+        NormalizeMonitorInstancePath(WidenUtf8(panel.instanceName)),
+        NormalizeMonitorInstancePath(target.monitorDevicePath), target.sourceDeviceName,
+        target.adapterLuid.HighPart, target.adapterLuid.LowPart,
+        target.sourceId, target.targetId, target.available };
+}
+
+void LogTmaEvidence(std::vector<std::string>& log,
+    const std::string& label, const Tma2027Evidence& evidence)
+{
+    std::string line = "Panel=" + label + " EDID=" +
+        Tma2027EdidStatusName(evidence.edidStatus) + " edidSha256=" +
+        (evidence.edidSha256.empty() ? "none" : evidence.edidSha256) +
+        " directRange=" + Tma2027DirectRangeStatusName(evidence.directRange);
+    if (!evidence.directRange.failureDetail.empty())
+        line += " directDetail=" + evidence.directRange.failureDetail;
+    if (evidence.directRange.win32Error != 0)
+        line += " directWin32=0x" + ApiCode(evidence.directRange.win32Error);
+    if (evidence.directRange.attempted)
+    {
+        line += " directNtStatus=" + ApiCode(static_cast<std::uint32_t>(
+            evidence.directRange.ntStatus)) +
+            " directAdapter=" +
+            std::to_string(evidence.directRange.adapterLuidHighPart) + ":" +
+            std::to_string(evidence.directRange.adapterLuidLowPart) +
+            " directSource=" + std::to_string(evidence.directRange.sourceId) +
+            " directTarget=" + std::to_string(evidence.directRange.targetId) +
+            " directDisplayCount=" + std::to_string(evidence.directRange.displayCount) +
+            " directSupported=" + (evidence.directRange.supported ? "1" : "0") +
+            " directVrrEnabled=" + (evidence.directRange.vrrEnabled ? "1" : "0") +
+            " directHz=" + (evidence.directRange.available
+                ? Range(static_cast<float>(evidence.directRange.minimumHz),
+                    static_cast<float>(evidence.directRange.maximumHz)) : "unknown");
+    }
+    log.push_back(std::move(line));
+}
+
 IntelVrrRunResult PanelResult(IntelVrrRunStatus status, const PanelIdentity& panel,
     const IntelVrrTargetState* state, std::string message, const std::string& timestamp)
 {
@@ -184,21 +263,37 @@ IntelVrrRunResult Summarize(const std::vector<IntelVrrRunResult>& results,
 
 const char* PanelKindName(SupportedPanelKind kind) noexcept
 {
-    return kind == SupportedPanelKind::ClawInternal ? "Claw" : "LG27GS65F";
+    switch (kind)
+    {
+    case SupportedPanelKind::ClawInternal: return "Claw8-CSW0801";
+    case SupportedPanelKind::Claw7Internal: return "Claw7-TMA2027";
+    case SupportedPanelKind::Lg27gs65f: return "LG27GS65F";
+    default: return "Unsupported";
+    }
 }
 
 IntelVrrPanelClass ProbePanelClass(SupportedPanelKind kind) noexcept
 {
-    return kind == SupportedPanelKind::ClawInternal
-        ? IntelVrrPanelClass::ClawInternal : IntelVrrPanelClass::Lg27gs65f;
+    switch (kind)
+    {
+    case SupportedPanelKind::ClawInternal: return IntelVrrPanelClass::ClawInternal;
+    case SupportedPanelKind::Claw7Internal: return IntelVrrPanelClass::Claw7Internal;
+    default: return IntelVrrPanelClass::Lg27gs65f;
+    }
 }
 
 bool Verified(const IntelVrrTargetState& state, SupportedPanelKind kind,
-    std::uint32_t profile) noexcept
+    std::uint32_t profile, const IntelVrrWindowsTarget& target,
+    const Tma2027Evidence* tmaEvidence) noexcept
 {
     if (!ExactState(state) || !state.capability->supported ||
         state.profile->profile != profile)
         return false;
+    if (kind == SupportedPanelKind::Claw7Internal)
+    {
+        const auto tmaState = TmaProfileState(state, target);
+        return IsTma2027ExcellentReadbackVerified(tmaState, tmaEvidence);
+    }
     const float maximum = kind == SupportedPanelKind::ClawInternal
         ? kClawMaximumHz : kLgMaximumHz;
     return Near(state.capability->minimumHz, kClawMinimumHz, 0.25f) &&
@@ -232,12 +327,21 @@ IntelVrrRunStatus EvaluateClawInternalProfile(const IntelVrrTargetState& state) 
 }
 
 IntelVrrRangeTweak::IntelVrrRangeTweak(ProbeFactory probeFactory,
-    PanelProvider panelProvider, WindowsTargetProvider windowsTargetProvider)
+    PanelProvider panelProvider, WindowsTargetProvider windowsTargetProvider,
+    TmaEvidenceProvider tmaEvidenceProvider)
     : probeFactory_(std::move(probeFactory)), panelProvider_(std::move(panelProvider)),
-      windowsTargetProvider_(std::move(windowsTargetProvider))
+      windowsTargetProvider_(std::move(windowsTargetProvider)),
+      tmaEvidenceProvider_(std::move(tmaEvidenceProvider))
 {
     if (!windowsTargetProvider_)
         windowsTargetProvider_ = [] { return EnumerateIntelVrrWindowsTargets(); };
+    if (!tmaEvidenceProvider_)
+        tmaEvidenceProvider_ = [](const PanelIdentity& panel,
+            const IntelVrrWindowsTarget& target, bool queryDirectRange)
+        {
+            return CollectTma2027Evidence(TmaEvidenceRequest(panel, target),
+                queryDirectRange);
+        };
 }
 
 IntelVrrRunResult IntelVrrRangeTweak::Run(bool enabled)
@@ -313,14 +417,13 @@ IntelVrrRunResult IntelVrrRangeTweak::Run(bool enabled)
     try { windowsTargets = windowsTargetProvider_(); }
     catch (...)
     {
-        IntelVrrResultStore::Clear();
         result.status = IntelVrrRunStatus::Unavailable;
         result.message = "Could not enumerate active Windows display targets.";
         summary_ = "targets=" + std::to_string(supported.size()) +
             " applied=0 alreadyCorrect=0 skipped=0 unavailable=" +
             std::to_string(supported.size()) + " failed=0";
-        log_.push_back("Windows target enumeration threw; stale result cleared.");
-        return result;
+        log_.push_back("Windows target enumeration threw; supported candidates remain unresolved.");
+        return finish(std::move(result));
     }
     log_.push_back("Windows active targets=" + std::to_string(windowsTargets.targets.size()) +
         " complete=" + std::to_string(windowsTargets.enumerationComplete) +
@@ -333,10 +436,9 @@ IntelVrrRunResult IntelVrrRangeTweak::Run(bool enabled)
         IntelVrrWindowsTarget target;
     };
     std::vector<TargetWork> work;
+    std::vector<IntelVrrRunResult> panelResults;
     std::vector<std::pair<LUID, UINT32>> seenTargets;
     std::size_t skippedNotActive{};
-    std::size_t ambiguousMappings{};
-    std::size_t unavailableMappings{};
     for (const auto& [panel, kind] : supported)
     {
         const auto match = ResolvePanelWindowsTarget(panel, windowsTargets);
@@ -348,12 +450,22 @@ IntelVrrRunResult IntelVrrRangeTweak::Run(bool enabled)
             log_.push_back(std::string("Panel model=") + PanelKindName(kind) +
                 " targetMapping=" + status + " WMIActive=" +
                 (panel.active ? "1" : "0") + " setter=0");
+            if (kind == SupportedPanelKind::Claw7Internal)
+                log_.push_back(std::string("Panel=") + PanelKindName(kind) +
+                    " action=SKIPPED_UNSAFE reason=target_mapping_" + status +
+                    " setter=0");
             if (match.status == PanelTargetMappingStatus::NotActive)
                 ++skippedNotActive;
             else if (match.status == PanelTargetMappingStatus::Ambiguous)
-                ++ambiguousMappings;
+            {
+                panelResults.push_back(PanelResult(IntelVrrRunStatus::AmbiguousDisplay,
+                    panel, nullptr, "Active Windows target mapping is ambiguous.", timestamp));
+            }
             else
-                ++unavailableMappings;
+            {
+                panelResults.push_back(PanelResult(IntelVrrRunStatus::Unavailable,
+                    panel, nullptr, "Active Windows target enumeration is incomplete.", timestamp));
+            }
             continue;
         }
 
@@ -365,7 +477,11 @@ IntelVrrRunResult IntelVrrRangeTweak::Run(bool enabled)
         {
             log_.push_back(std::string("Panel model=") + PanelKindName(kind) +
                 " targetMapping=DuplicateExactTarget setter=0");
-            ++ambiguousMappings;
+            if (kind == SupportedPanelKind::Claw7Internal)
+                log_.push_back(std::string("Panel=") + PanelKindName(kind) +
+                    " action=SKIPPED_UNSAFE reason=duplicate_exact_target setter=0");
+            panelResults.push_back(PanelResult(IntelVrrRunStatus::AmbiguousDisplay,
+                panel, nullptr, "Multiple supported panels map to one exact Windows target.", timestamp));
             continue;
         }
         seenTargets.emplace_back(target.adapterLuid, target.targetId);
@@ -383,19 +499,30 @@ IntelVrrRunResult IntelVrrRangeTweak::Run(bool enabled)
 
     if (work.empty())
     {
+        if (!panelResults.empty())
+        {
+            result = Summarize(panelResults, timestamp);
+            const auto count = [&](IntelVrrRunStatus status)
+            {
+                return std::count_if(panelResults.begin(), panelResults.end(),
+                    [status](const auto& item) { return item.status == status; });
+            };
+            summary_ = "targets=" + std::to_string(supported.size()) +
+                " applied=0 alreadyCorrect=0 skipped=" + std::to_string(skippedNotActive) +
+                " unavailable=" + std::to_string(count(IntelVrrRunStatus::Unavailable)) +
+                " ambiguous=" + std::to_string(count(IntelVrrRunStatus::AmbiguousDisplay)) +
+                " failed=0";
+            log_.push_back("No writable target; mapping failures retained in aggregate result.");
+            return finish(std::move(result));
+        }
+
         IntelVrrResultStore::Clear();
-        result.status = ambiguousMappings != 0 ? IntelVrrRunStatus::AmbiguousDisplay :
-            unavailableMappings != 0 || !windowsTargets.enumerationComplete
-                ? IntelVrrRunStatus::Unavailable : IntelVrrRunStatus::UnsupportedPanel;
-        result.message = windowsTargets.enumerationComplete
-            ? "No supported panel maps to an active Windows target."
-            : "Active Windows target enumeration was incomplete.";
+        result.status = IntelVrrRunStatus::UnsupportedPanel;
+        result.message = "No supported panel maps to an active Windows target.";
         summary_ = "targets=" + std::to_string(supported.size()) +
             " applied=0 alreadyCorrect=0 skipped=" + std::to_string(skippedNotActive) +
-            " unavailable=" + std::to_string(unavailableMappings) +
-            " ambiguous=" + std::to_string(ambiguousMappings) +
-            " failed=0";
-        log_.push_back("No exact active supported target; stale result cleared.");
+            " unavailable=0 ambiguous=0 failed=0";
+        log_.push_back("All supported WMI candidates are inactive or disconnected; stale result cleared.");
         return result;
     }
 
@@ -404,7 +531,6 @@ IntelVrrRunResult IntelVrrRangeTweak::Run(bool enabled)
     if (!initialized)
         log_.push_back("IGCL initialization failed; no target setter called.");
 
-    std::vector<IntelVrrRunResult> panelResults;
     for (const auto& item : work)
     {
         const auto panelClass = ProbePanelClass(item.kind);
@@ -417,6 +543,9 @@ IntelVrrRunResult IntelVrrRangeTweak::Run(bool enabled)
             panelResults.push_back(PanelResult(IntelVrrRunStatus::Unavailable,
                 item.panel, nullptr, "IGCL initialization failed.", timestamp));
             log_.push_back("Panel=" + label + " IGCL=Unavailable setter=0");
+            if (item.kind == SupportedPanelKind::Claw7Internal)
+                log_.push_back("Panel=" + label +
+                    " action=SKIPPED_UNSAFE reason=IGCL_unavailable setter=0");
             continue;
         }
 
@@ -434,6 +563,27 @@ IntelVrrRunResult IntelVrrRangeTweak::Run(bool enabled)
             " capabilityResult=" + ApiCode(before.capabilityResult) +
             " profileResult=" + ApiCode(before.profileResult));
 
+        std::optional<Tma2027Evidence> tmaEvidence;
+        if (item.kind == SupportedPanelKind::Claw7Internal)
+        {
+            try
+            {
+                tmaEvidence = tmaEvidenceProvider_(item.panel, item.target,
+                    HasHalfFloorCapability(before));
+            }
+            catch (...)
+            {
+                Tma2027Evidence unavailable;
+                unavailable.target = TmaTargetIdentity(item.target);
+                unavailable.edidStatus = Tma2027EdidStatus::Unavailable;
+                unavailable.directRange.attempted = HasHalfFloorCapability(before);
+                unavailable.directRange.failureDetail = "evidence provider threw";
+                tmaEvidence = std::move(unavailable);
+            }
+            if (tmaEvidence)
+                LogTmaEvidence(log_, label, *tmaEvidence);
+        }
+
         log_.push_back("Panel=" + label + " capabilitySupported=" +
             (before.capability ? (before.capability->supported ? "1" : "0") : "unknown") +
             " capability=" + (before.capability
@@ -450,12 +600,18 @@ IntelVrrRunResult IntelVrrRangeTweak::Run(bool enabled)
                 "Could not query one complete exact IGCL output.", timestamp));
             log_.push_back("Panel=" + label + " decision=" +
                 IntelVrrRunStatusName(status) + " setter=0");
+            if (item.kind == SupportedPanelKind::Claw7Internal)
+                log_.push_back("Panel=" + label +
+                    " action=SKIPPED_UNSAFE reason=exact_IGCL_state_unavailable setter=0");
             continue;
         }
 
         const auto decision = item.kind == SupportedPanelKind::ClawInternal
             ? EvaluateClawInternalProfile(before)
-            : IntelVrrRunStatus::Unavailable;
+            : item.kind == SupportedPanelKind::Claw7Internal
+                ? ToRunStatus(EvaluateTma2027Profile(TmaProfileState(before, item.target),
+                    tmaEvidence ? &*tmaEvidence : nullptr))
+                : IntelVrrRunStatus::Unavailable;
         const auto lgDecision = item.kind == SupportedPanelKind::Lg27gs65f
             ? EvaluateLg27gs65fProductionProfile(before)
             : Lg27gs65fProfileDecision::Unavailable;
@@ -474,6 +630,17 @@ IntelVrrRunResult IntelVrrRangeTweak::Run(bool enabled)
 
         log_.push_back("Panel=" + label + " decision=" +
             IntelVrrRunStatusName(status));
+        if (item.kind == SupportedPanelKind::Claw7Internal)
+        {
+            const char* action = status == IntelVrrRunStatus::AlreadyCorrect
+                ? "NO_WRITE_ALREADY_CORRECT" :
+                status == IntelVrrRunStatus::SkippedUserProfile
+                    ? before.profile && before.profile->profile == kCustom
+                        ? "PRESERVED_OEM_CUSTOM" : "PRESERVED_USER_PROFILE" :
+                status == IntelVrrRunStatus::Applied ? "APPLY_EXCELLENT" : "SKIPPED_UNSAFE";
+            log_.push_back("Panel=" + label + " action=" + action + " setter=" +
+                std::string(status == IntelVrrRunStatus::Applied ? "pending" : "0"));
+        }
 
         if (status != IntelVrrRunStatus::Applied)
         {
@@ -498,10 +665,46 @@ IntelVrrRunResult IntelVrrRangeTweak::Run(bool enabled)
             panelResults.push_back(PanelResult(IntelVrrRunStatus::AmbiguousDisplay,
                 item.panel, &before, "Windows display target changed before apply.", timestamp));
             log_.push_back("Panel=" + label + " target revalidation failed; setter=0");
+            if (item.kind == SupportedPanelKind::Claw7Internal)
+                log_.push_back("Panel=" + label +
+                    " action=SKIPPED_UNSAFE reason=pre_write_target_revalidation_failed setter=0");
             continue;
         }
 
-        const auto applied = probe->SetProfileForExactTarget(before, panelClass, kExcellent);
+        if (item.kind == SupportedPanelKind::Claw7Internal)
+        {
+            try
+            {
+                tmaEvidence = tmaEvidenceProvider_(item.panel, item.target,
+                    HasHalfFloorCapability(before));
+            }
+            catch (...)
+            {
+                tmaEvidence.reset();
+            }
+            const auto expectedTmaTarget = TmaTargetIdentity(item.target);
+            const bool physicalEdidVerified = tmaEvidence &&
+                IsTma2027VerifiedPhysicalEdidEvidence(*tmaEvidence, expectedTmaTarget);
+            const bool directRangeVerified = !HasHalfFloorCapability(before) ||
+                (tmaEvidence && IsTma2027VerifiedHalfFloorEvidence(*tmaEvidence,
+                    expectedTmaTarget));
+            if (!physicalEdidVerified || !directRangeVerified)
+            {
+                if (tmaEvidence)
+                    LogTmaEvidence(log_, label, *tmaEvidence);
+                panelResults.push_back(PanelResult(IntelVrrRunStatus::Unavailable,
+                    item.panel, &before,
+                    "TMA2027 evidence changed or is unavailable before EXCELLENT.", timestamp));
+                log_.push_back("Panel=" + label +
+                    " action=SKIPPED_UNSAFE reason=pre-write evidence revalidation failed setter=0");
+                continue;
+            }
+            if (tmaEvidence)
+                LogTmaEvidence(log_, label, *tmaEvidence);
+        }
+
+        const auto applied = probe->SetProfileForExactTarget(before, panelClass, kExcellent,
+            tmaEvidence ? &*tmaEvidence : nullptr);
         if (applied.apiResult)
         {
             std::ostringstream api;
@@ -520,6 +723,12 @@ IntelVrrRunResult IntelVrrRangeTweak::Run(bool enabled)
                 ? IntelVrrRunStatus::ApplyFailed : IntelVrrRunStatus::Unavailable;
             panelResults.push_back(PanelResult(failure, item.panel, &before,
                 "EXCELLENT profile write was rejected.", timestamp));
+            if (item.kind == SupportedPanelKind::Claw7Internal)
+                log_.push_back("Panel=" + label + " action=" +
+                    std::string(applied.attempted ? "APPLY_FAILED" : "SKIPPED_UNSAFE") +
+                    " setter=" +
+                    std::string(applied.attempted ? "1" : "0") + " api=" +
+                    ApiCode(applied.apiResult));
             continue;
         }
 
@@ -533,20 +742,70 @@ IntelVrrRunResult IntelVrrRangeTweak::Run(bool enabled)
             panelResults.push_back(PanelResult(IntelVrrRunStatus::VerificationFailed,
                 item.panel, &before, "Windows display target changed after apply.", timestamp));
             log_.push_back("Panel=" + label + " post-apply target revalidation failed.");
+            if (item.kind == SupportedPanelKind::Claw7Internal)
+                log_.push_back("Panel=" + label +
+                    " action=VERIFY_FAILED reason=post_write_target_revalidation_failed setter=1 readback=0");
             continue;
         }
 
         const auto after = probe->Query(item.target.adapterLuid, item.target.targetId);
+        if (item.kind == SupportedPanelKind::Claw7Internal)
+        {
+            log_.push_back("Panel=" + label + " IGCL_AFTER initialized=" +
+                std::to_string(after.initialized) + " enumerationComplete=" +
+                std::to_string(after.enumerationComplete) + " outputs=" +
+                std::to_string(after.displayOutputCount) + " propertiesOk=" +
+                std::to_string(after.displayPropertiesSuccessCount) + " targetMatches=" +
+                std::to_string(after.targetMatchCount) + " mapping=" +
+                (after.mappingStatus == IntelVrrTargetMappingStatus::Exact ? "Exact" :
+                    after.mappingStatus == IntelVrrTargetMappingStatus::Ambiguous ? "Ambiguous" : "Unknown") +
+                " discoveryFailureStage=" +
+                IntelVrrDiscoveryFailureStageName(after.discoveryFailureStage) +
+                " discoveryFailureResult=" + ApiCode(after.discoveryFailureResult) +
+                " capabilitySupported=" +
+                (after.capability ? (after.capability->supported ? "1" : "0") : "unknown") +
+                " capability=" + (after.capability
+                    ? Range(after.capability->minimumHz, after.capability->maximumHz) : "unknown") +
+                " profile=" + (after.profile ? std::to_string(after.profile->profile) : "unknown") +
+                " range=" + (after.profile
+                    ? Range(after.profile->minimumHz, after.profile->maximumHz) : "unknown") +
+                " capabilityResult=" + ApiCode(after.capabilityResult) +
+                " profileResult=" + ApiCode(after.profileResult));
+        }
+        std::optional<Tma2027Evidence> afterEvidence;
+        if (item.kind == SupportedPanelKind::Claw7Internal)
+        {
+            try
+            {
+                afterEvidence = tmaEvidenceProvider_(item.panel, item.target,
+                    HasHalfFloorCapability(after));
+            }
+            catch (...)
+            {
+                Tma2027Evidence unavailable;
+                unavailable.target = TmaTargetIdentity(item.target);
+                unavailable.edidStatus = Tma2027EdidStatus::Unavailable;
+                unavailable.directRange.failureDetail = "post-write evidence provider threw";
+                unavailable.directRange.attempted = HasHalfFloorCapability(after);
+                afterEvidence = std::move(unavailable);
+            }
+            LogTmaEvidence(log_, label, *afterEvidence);
+        }
         if (after.profile)
             log_.push_back("Panel=" + label + " rangeAfter=" +
                 Range(after.profile->minimumHz, after.profile->maximumHz) +
                 " profileAfter=" + std::to_string(after.profile->profile));
-        if (Verified(after, item.kind, kExcellent))
+        if (Verified(after, item.kind, kExcellent, item.target,
+                afterEvidence ? &*afterEvidence : nullptr))
         {
             auto appliedResult = PanelResult(IntelVrrRunStatus::Applied, item.panel,
-                &before, "Full native VRR range verified.", timestamp);
+                &before, item.kind == SupportedPanelKind::Claw7Internal
+                    ? "TMA2027 EXCELLENT 48-120 Hz profile verified."
+                    : "Full native VRR range verified.", timestamp);
             appliedResult.rangeAfter = Range(after.profile->minimumHz, after.profile->maximumHz);
             panelResults.push_back(std::move(appliedResult));
+            if (item.kind == SupportedPanelKind::Claw7Internal)
+                log_.push_back("Panel=" + label + " action=APPLY_EXCELLENT verified=1");
             continue;
         }
 
@@ -603,6 +862,8 @@ IntelVrrRunResult IntelVrrRangeTweak::Run(bool enabled)
         if (after.profile)
             failedResult.rangeAfter = Range(after.profile->minimumHz, after.profile->maximumHz);
         panelResults.push_back(std::move(failedResult));
+        if (item.kind == SupportedPanelKind::Claw7Internal)
+            log_.push_back("Panel=" + label + " action=VERIFY_FAILED setter=1 readback=0");
     }
 
     if (probe) probe->Shutdown();
@@ -617,9 +878,8 @@ IntelVrrRunResult IntelVrrRangeTweak::Run(bool enabled)
         " alreadyCorrect=" + std::to_string(count(IntelVrrRunStatus::AlreadyCorrect)) +
         " skipped=" + std::to_string(skippedNotActive +
             count(IntelVrrRunStatus::SkippedUserProfile)) +
-        " unavailable=" + std::to_string(count(IntelVrrRunStatus::Unavailable) +
-            count(IntelVrrRunStatus::AmbiguousDisplay) + unavailableMappings) +
-        " ambiguous=" + std::to_string(ambiguousMappings) +
+        " unavailable=" + std::to_string(count(IntelVrrRunStatus::Unavailable)) +
+        " ambiguous=" + std::to_string(count(IntelVrrRunStatus::AmbiguousDisplay)) +
         " unsupported=" + std::to_string(count(IntelVrrRunStatus::UnsupportedPanel)) +
         " failed=" + std::to_string(count(IntelVrrRunStatus::ApplyFailed) +
             count(IntelVrrRunStatus::VerificationFailed));
