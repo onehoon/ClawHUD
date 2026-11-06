@@ -34,6 +34,7 @@ public:
     std::thread::id lastCallThread;
     int snapshotCalls{};
     bool hudEnableResult{true};
+    bool startWithWindowsResult{true};
     bool opacityResult{true};
     std::optional<float> lastPreviewOpacity;
     std::optional<float> lastCommitOpacity;
@@ -45,12 +46,13 @@ public:
         const_cast<FakeRuntimeControl*>(this)->snapshotCalls++;
         return state;
     }
-    void SetStartWithWindows(bool enabled) override
+    bool SetStartWithWindows(bool enabled) override
     {
         lastCallThread = std::this_thread::get_id();
         lastStartWithWindowsRequest = enabled;
         // Deliberately does NOT adopt `enabled` - the fake simulates a runtime
         // that rolled the request back.
+        return startWithWindowsResult;
     }
     bool SetHudEnabled(bool enabled) override
     {
@@ -197,6 +199,22 @@ void AuthoritativeSnapshot()
         "the requested value reached the semantic call");
     Check(response.snapshot && response.snapshot->startWithWindows == false,
         "response reflects rolled-back authoritative state, not the request");
+}
+
+void StartWithWindowsRejection()
+{
+    Harness h;
+    h.fake.startWithWindowsResult = false;
+    auto request = Request(ctl::Operation::SetStartWithWindows);
+    request.flag = true;
+    const auto response = h.FromWorker(request);
+
+    Check(response.status == ctl::ControlStatus::OperationFailed,
+        "rejected SetStartWithWindows returns OperationFailed");
+    Check(!response.snapshot.has_value(),
+        "rejected SetStartWithWindows carries no snapshot");
+    Check(h.fake.lastStartWithWindowsRequest == std::optional<bool>(true),
+        "rejected request still reaches the semantic boundary");
 }
 
 // ---- 19.3 every semantic enum mapping ------------------------------
@@ -460,6 +478,7 @@ int main()
 {
     MainThreadExecution();
     AuthoritativeSnapshot();
+    StartWithWindowsRejection();
     EnumMapping();
     IntelVrrStatusMapping();
     OpacityPreviewCommit();

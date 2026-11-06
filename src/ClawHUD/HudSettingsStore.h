@@ -38,6 +38,10 @@ public:
     // from the ini with its documented fallback.
     HudSettings Load() const;
 
+    // Creates the developer logging default only when settings.ini does not
+    // exist. Existing files are never migrated or rewritten.
+    bool CreateFreshDefaultsIfMissing() const;
+
     // Writes the layout / general subset. hudEnabled and the developer-only
     // [Developer] DebugLoggingEnabled key are not written here. No-op when unavailable.
     void Save(const HudSettings& settings) const;

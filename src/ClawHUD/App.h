@@ -12,6 +12,7 @@
 #include "RuntimeControl.h"
 #include "RuntimeControlDispatchBridge.h"
 #include "RuntimeControlPipeServer.h"
+#include "RuntimeLifecyclePolicy.h"
 #include "HudModel.h"
 #include "GameDetection/GameSessionController.h"
 #include "PresentMonTelemetryProvider.h"
@@ -67,7 +68,7 @@ public:
     // use over Control IPC. App stays the implementation authority; these delegate
     // to the existing product methods below.
     clawhud::RuntimeSettingsSnapshot GetSettingsSnapshot() const override;
-    void SetStartWithWindows(bool enabled) override;
+    bool SetStartWithWindows(bool enabled) override;
     bool SetHudEnabled(bool enabled) override;
     void SetHudVisibilityMode(clawhud::HudVisibilityMode mode) override;
     void SetHudSizeOffset(int offset) override;
@@ -81,13 +82,12 @@ public:
 private:
     std::optional<clawhud::IntelVrrRunResult> IntelVrrLastResult() const;
     bool SetHudOpacity(float opacity, bool persist);
-    bool AcquireSingleInstance();
+    clawhud::SingleInstanceResult AcquireSingleInstance();
     void CheckForUpdates();
     // PresentMon shared-runtime prerequisite gate. Runs after the single-instance
-    // and supported-hardware gates and before any startup side effect. Returns
-    // true to continue; false means a Win32 message was shown and Run() must exit
-    // without initializing the tray / runtime window / provider / HUD.
-    bool HandlePresentMonRuntimeBootstrapResult(
+    // and supported-hardware gates and before any startup side effect. A value
+    // means Run() must exit; nullopt continues normal startup.
+    std::optional<int> HandlePresentMonRuntimeBootstrapResult(
         clawhud::PresentMonRuntimeBootstrapResult result);
     int ProcessMessages();
     void LoadHudSettings();

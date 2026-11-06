@@ -4,14 +4,24 @@
 #include <array>
 #include <cstdlib>
 #include <iostream>
+#include <optional>
 #include <span>
 #include <string_view>
 #include <vector>
 
 using clawhud::LaunchMode;
 using clawhud::ResolveLaunchMode;
+using clawhud::ManagedStartupExitCode;
+using clawhud::ManagedStartupExitCodeForSingleInstanceResult;
+using clawhud::SingleInstanceResult;
+using clawhud::ShouldAllowStartWithWindowsMutation;
+using clawhud::ShouldFailStartupWhenControlIpcUnavailable;
 using clawhud::ShouldReconcileStartupRegistration;
+using clawhud::ShouldRegisterGlobalHudHotkey;
 using clawhud::ShouldRestartAfterVelopackUpdate;
+using clawhud::ShouldRunSelfUpdate;
+using clawhud::ShouldShowStartupFailureUi;
+using clawhud::ShouldInitializeFreshManagedSettings;
 using clawhud::ToWireLaunchMode;
 namespace ctl = clawhud::control;
 
@@ -70,6 +80,41 @@ void LifecyclePolicy()
     Check(!ShouldReconcileStartupRegistration(LaunchMode::Managed),
         "Managed launch does not touch the startup shortcut");
 
+    Check(ShouldAllowStartWithWindowsMutation(LaunchMode::Standalone),
+        "Standalone accepts Start with Windows mutations");
+    Check(!ShouldAllowStartWithWindowsMutation(LaunchMode::Managed),
+        "Managed rejects Start with Windows mutations");
+
+    Check(ShouldRunSelfUpdate(LaunchMode::Standalone),
+        "Standalone runs the ClawHUD self-update path");
+    Check(!ShouldRunSelfUpdate(LaunchMode::Managed),
+        "Managed does not run the ClawHUD self-update path");
+    Check(ShouldShowStartupFailureUi(LaunchMode::Standalone),
+        "Standalone owns startup failure UI");
+    Check(!ShouldShowStartupFailureUi(LaunchMode::Managed),
+        "Managed does not show ClawHUD startup failure UI");
+    Check(!ShouldFailStartupWhenControlIpcUnavailable(LaunchMode::Standalone),
+        "Standalone tolerates Control IPC startup failure");
+    Check(ShouldFailStartupWhenControlIpcUnavailable(LaunchMode::Managed),
+        "Managed treats Control IPC startup failure as fatal");
+    Check(ShouldRegisterGlobalHudHotkey(LaunchMode::Standalone),
+        "Standalone registers the global HUD hotkey");
+    Check(!ShouldRegisterGlobalHudHotkey(LaunchMode::Managed),
+        "Managed does not register the global HUD hotkey");
+    Check(!ShouldInitializeFreshManagedSettings(LaunchMode::Standalone),
+        "Standalone does not eagerly create settings.ini");
+    Check(ShouldInitializeFreshManagedSettings(LaunchMode::Managed),
+        "Managed creates fresh settings only after IPC readiness");
+
+    Check(!ManagedStartupExitCodeForSingleInstanceResult(SingleInstanceResult::Acquired),
+        "an acquired mutex does not map to a failure");
+    Check(ManagedStartupExitCodeForSingleInstanceResult(
+        SingleInstanceResult::AlreadyRunning) == ManagedStartupExitCode::AlreadyRunning,
+        "an existing mutex maps to Managed exit 20");
+    Check(ManagedStartupExitCodeForSingleInstanceResult(SingleInstanceResult::Failed) ==
+        ManagedStartupExitCode::RuntimeInitializationFailed,
+        "a mutex failure maps to Managed exit 40");
+
     // Velopack restart-after-apply: Standalone only. The same predicate drives
     // both the pending-update and newly-downloaded-update paths.
     Check(ShouldRestartAfterVelopackUpdate(LaunchMode::Standalone),
@@ -79,6 +124,12 @@ void LifecyclePolicy()
 
     static_assert(ShouldReconcileStartupRegistration(LaunchMode::Standalone));
     static_assert(!ShouldRestartAfterVelopackUpdate(LaunchMode::Managed));
+    static_assert(!ShouldAllowStartWithWindowsMutation(LaunchMode::Managed));
+    static_assert(!ShouldRunSelfUpdate(LaunchMode::Managed));
+    static_assert(!ShouldShowStartupFailureUi(LaunchMode::Managed));
+    static_assert(ShouldFailStartupWhenControlIpcUnavailable(LaunchMode::Managed));
+    static_assert(!ShouldRegisterGlobalHudHotkey(LaunchMode::Managed));
+    static_assert(ShouldInitializeFreshManagedSettings(LaunchMode::Managed));
 }
 
 void EmptySpan()

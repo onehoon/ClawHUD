@@ -1,5 +1,8 @@
 #pragma once
 
+#include <optional>
+
+#include "ManagedStartupExitCode.h"
 #include "PresentMonRuntimeBootstrap.h"
 
 namespace clawhud
@@ -58,5 +61,30 @@ constexpr const wchar_t* PresentMonRuntimeBootstrapResultName(
         return L"ValidationFailed";
     }
     return L"Unknown";
+}
+
+constexpr std::optional<ManagedStartupExitCode>
+ManagedPresentMonStartupExitCodeForResult(
+    PresentMonRuntimeBootstrapResult result) noexcept
+{
+    switch (result)
+    {
+    case PresentMonRuntimeBootstrapResult::AlreadyReady:
+    case PresentMonRuntimeBootstrapResult::Installed:
+        return std::nullopt;
+    case PresentMonRuntimeBootstrapResult::InstalledRebootRequired:
+        return ManagedStartupExitCode::PresentMonRebootRequired;
+    case PresentMonRuntimeBootstrapResult::ElevationCancelled:
+        return ManagedStartupExitCode::PresentMonElevationCancelled;
+    case PresentMonRuntimeBootstrapResult::MsiMissing:
+        return ManagedStartupExitCode::PresentMonMsiMissing;
+    case PresentMonRuntimeBootstrapResult::InstallTimedOut:
+        return ManagedStartupExitCode::PresentMonInstallTimedOut;
+    case PresentMonRuntimeBootstrapResult::InstallFailed:
+        return ManagedStartupExitCode::PresentMonInstallFailed;
+    case PresentMonRuntimeBootstrapResult::ValidationFailed:
+        return ManagedStartupExitCode::PresentMonValidationFailed;
+    }
+    return ManagedStartupExitCode::PresentMonInstallFailed;
 }
 }

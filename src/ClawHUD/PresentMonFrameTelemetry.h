@@ -3,10 +3,12 @@
 #include "PresentMonApi2Client.h"
 #include "PresentMonTelemetryTypes.h"
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <string>
 #include <vector>
 
 namespace clawhud
@@ -81,12 +83,29 @@ public:
         PresentMonApi2Client& client, std::uint32_t processId);
 
 private:
+    friend class PresentMonTelemetryProvider;
+
+    std::optional<std::wstring> TakePendingDiagnostic();
+    void ResetAttemptDiagnostics();
+    void QueuePollSummary(const wchar_t* result, bool force = false,
+        std::optional<double> firstPositive = std::nullopt);
+
     PresentMonFrameQueryPlan plan_;
     PM_FRAME_QUERY_HANDLE query_{};
     std::vector<PM_QUERY_ELEMENT> queryElements_;
     std::uint32_t blobSize_{};
     std::uint32_t armedProcessId_{};
     PresentMonDisplayedFrameDetector detector_;
+    struct AttemptDiagnostics
+    {
+        std::chrono::steady_clock::time_point startedAt{}, lastDiagnosticAt{};
+        std::uint64_t polls{}, records{}, emptyPolls{}, statusFailures{};
+        std::uint64_t invalidSamples{}, nonpositiveSamples{}, layoutMismatches{};
+        PM_STATUS lastStatus{PM_STATUS_SUCCESS};
+        std::uint32_t lastUnarmedPid{};
+        bool firstOutcomeLogged{};
+    } diagnostics_;
+    std::optional<std::wstring> pendingDiagnostic_;
     bool ready_{};
 };
 }
