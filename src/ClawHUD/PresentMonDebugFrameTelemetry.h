@@ -3,6 +3,7 @@
 #include "PresentMonApi2Client.h"
 #include "PresentMonTelemetryTypes.h"
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -65,11 +66,25 @@ public:
         PresentMonApi2Client& client, std::uint32_t processId);
 
 private:
+    friend class PresentMonTelemetryProvider;
+
+    void ResetPollDiagnostics();
+    void QueuePollSummary(PM_STATUS status, std::uint32_t count);
+    std::vector<std::wstring> TakePendingDiagnostics();
+
     PresentMonDebugFrameQueryPlan plan_;
     PM_FRAME_QUERY_HANDLE query_{};
     std::vector<PM_QUERY_ELEMENT> queryElements_;
     std::uint32_t blobSize_{};
     std::uint32_t targetProcessId_{};
+    struct PollDiagnostics
+    {
+        std::chrono::steady_clock::time_point startedAt{}, lastDiagnosticAt{};
+        std::uint64_t polls{}, records{}, emptyPolls{}, statusFailures{};
+        PM_STATUS lastStatus{PM_STATUS_SUCCESS};
+        bool firstOutcomeLogged{};
+    } diagnostics_;
+    std::vector<std::wstring> pendingDiagnostics_;
     bool ready_{};
 };
 }

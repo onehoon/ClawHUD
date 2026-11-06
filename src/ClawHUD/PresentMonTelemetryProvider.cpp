@@ -1,4 +1,6 @@
 #include "PresentMonTelemetryProvider.h"
+#include "RuntimeLogger.h"
+
 namespace clawhud
 {
 PresentMonProcessLease& PresentMonProcessLease::operator=(
@@ -46,23 +48,38 @@ PresentMonTelemetryCapabilities BuildPresentMonTelemetryCapabilities(const PM_IN
 PresentMonTelemetryProvider::~PresentMonTelemetryProvider() { Shutdown(); }
 bool PresentMonTelemetryProvider::Initialize()
 {
-    std::scoped_lock lock(apiMutex_);
-    ShutdownUnlocked();
-    if (!client_.Initialize() || client_.OpenSession() != PM_STATUS_SUCCESS) { ShutdownUnlocked(); return false; }
-    const PM_INTROSPECTION_ROOT* root{};
-    if (client_.GetIntrospectionRoot(&root) != PM_STATUS_SUCCESS || !root) { ShutdownUnlocked(); return false; }
-    auto copied = BuildPresentMonTelemetryCapabilities(root);
-    if (client_.FreeIntrospectionRoot(root) != PM_STATUS_SUCCESS) { ShutdownUnlocked(); return false; }
-    capabilities_ = std::move(copied);
-    ready_ = true;
-    // Apply the official PresentMon UI ETW flush period once for the shared
-    // session. If it cannot be configured, leave process FPS telemetry
-    // unavailable rather than sampling with the wrong ETW timing.
-    if (client_.SetEtwFlushPeriod(kPresentMonEtwFlushPeriodMs) == PM_STATUS_SUCCESS)
-        processTelemetry_.Initialize(client_, capabilities_);
-    systemTelemetry_.Initialize(client_, capabilities_);
-    frameTelemetry_.Initialize(client_, capabilities_);
-    debugFrameTelemetry_.Initialize(client_, capabilities_);
+    bool frameReady{};
+    bool debugFrameReady{};
+    std::optional<std::wstring> frameInitDiagnostic;
+    {
+        std::scoped_lock lock(apiMutex_);
+        ShutdownUnlocked();
+        if (!client_.Initialize() || client_.OpenSession() != PM_STATUS_SUCCESS)
+        { ShutdownUnlocked(); return false; }
+        const PM_INTROSPECTION_ROOT* root{};
+        if (client_.GetIntrospectionRoot(&root) != PM_STATUS_SUCCESS || !root)
+        { ShutdownUnlocked(); return false; }
+        auto copied = BuildPresentMonTelemetryCapabilities(root);
+        if (client_.FreeIntrospectionRoot(root) != PM_STATUS_SUCCESS)
+        { ShutdownUnlocked(); return false; }
+        capabilities_ = std::move(copied);
+        ready_ = true;
+        // Apply the official PresentMon UI ETW flush period once for the shared
+        // session. If it cannot be configured, leave process FPS telemetry
+        // unavailable rather than sampling with the wrong ETW timing.
+        if (client_.SetEtwFlushPeriod(kPresentMonEtwFlushPeriodMs) == PM_STATUS_SUCCESS)
+            processTelemetry_.Initialize(client_, capabilities_);
+        systemTelemetry_.Initialize(client_, capabilities_);
+        frameReady = frameTelemetry_.Initialize(client_, capabilities_);
+        debugFrameReady = debugFrameTelemetry_.Initialize(client_, capabilities_);
+        frameInitDiagnostic = frameTelemetry_.TakePendingDiagnostic();
+    }
+    RuntimeLogger::Log(RuntimeLogLevel::Debug,
+        L"[PresentMonFrameVerify] init ready=1 frameReady=" +
+        std::to_wstring(frameReady ? 1 : 0) + L" debugFrameReady=" +
+        std::to_wstring(debugFrameReady ? 1 : 0));
+    if (frameInitDiagnostic)
+        RuntimeLogger::Log(RuntimeLogLevel::Debug, *frameInitDiagnostic);
     return true;
 }
 void PresentMonTelemetryProvider::Shutdown() noexcept
@@ -101,17 +118,44 @@ PresentMonProcessLease PresentMonTelemetryProvider::AcquireProcess(std::uint32_t
 PresentMonProcessLease PresentMonTelemetryProvider::BeginGameRenderVerification(
     std::uint32_t processId)
 {
-    std::scoped_lock lock(apiMutex_);
-    if (!ready_ || !frameTelemetry_.Ready() || processId == 0)
-        return {};
-    if (client_.StartTrackingProcess(processId) != PM_STATUS_SUCCESS)
-        return {};
-    if (!frameTelemetry_.BeginVerification(client_, processId))
+    std::vector<std::wstring> diagnostics;
+    PresentMonProcessLease lease;
     {
-        client_.StopTrackingProcess(processId);
-        return {};
+        std::scoped_lock lock(apiMutex_);
+        const bool frameReady = frameTelemetry_.Ready();
+        const bool validPid = processId != 0;
+        if (!ready_ || !frameReady || !validPid)
+            diagnostics.push_back(L"[PresentMonFrameVerify] begin pid=" +
+                std::to_wstring(processId) + L" ready=" +
+                std::to_wstring(ready_ ? 1 : 0) + L" frameReady=" +
+                std::to_wstring(frameReady ? 1 : 0) + L" validPid=" +
+                std::to_wstring(validPid ? 1 : 0) + L" result=not-ready");
+        else
+        {
+            const PM_STATUS trackingStatus = client_.StartTrackingProcess(processId);
+            diagnostics.push_back(L"[PresentMonFrameVerify] begin pid=" +
+                std::to_wstring(processId) + L" ready=1 frameReady=1 validPid=1" +
+                L" stage=start-tracking status=" +
+                std::to_wstring(static_cast<int>(trackingStatus)));
+            if (trackingStatus == PM_STATUS_SUCCESS)
+            {
+                const bool armed = frameTelemetry_.BeginVerification(client_, processId);
+                if (auto pending = frameTelemetry_.TakePendingDiagnostic())
+                    diagnostics.push_back(std::move(*pending));
+                if (!armed)
+                    client_.StopTrackingProcess(processId);
+                else
+                {
+                    lease = PresentMonProcessLease(this, processId);
+                    diagnostics.push_back(L"[PresentMonFrameVerify] begin pid=" +
+                        std::to_wstring(processId) + L" result=armed");
+                }
+            }
+        }
     }
-    return PresentMonProcessLease(this, processId);
+    for (const auto& diagnostic : diagnostics)
+        RuntimeLogger::Log(RuntimeLogLevel::Debug, diagnostic);
+    return lease;
 }
 void PresentMonTelemetryProvider::ReleaseProcess(std::uint32_t processId) noexcept
 {
@@ -122,18 +166,31 @@ void PresentMonTelemetryProvider::ReleaseProcess(std::uint32_t processId) noexce
 std::optional<bool> PresentMonTelemetryProvider::PollGameRenderDisplayedFrame(
     std::uint32_t processId)
 {
-    std::scoped_lock lock(apiMutex_);
-    return ready_ ? frameTelemetry_.PollDisplayedFrame(client_, processId)
-                  : std::nullopt;
+    std::optional<bool> result;
+    std::optional<std::wstring> diagnostic;
+    std::unique_lock lock(apiMutex_);
+    if (ready_)
+        result = frameTelemetry_.PollDisplayedFrame(client_, processId);
+    diagnostic = frameTelemetry_.TakePendingDiagnostic();
+    lock.unlock();
+    if (diagnostic)
+        RuntimeLogger::Log(RuntimeLogLevel::Debug, *diagnostic);
+    return result;
 }
 bool PresentMonTelemetryProvider::FrameReady() const noexcept
 { std::scoped_lock lock(apiMutex_); return ready_ && frameTelemetry_.Ready(); }
 std::optional<PresentMonDebugFrame> PresentMonTelemetryProvider::ReadDebugFrameActivity(
     std::uint32_t processId)
 {
-    std::scoped_lock lock(apiMutex_);
-    return ready_ ? debugFrameTelemetry_.ReadLatest(client_, processId)
-                  : std::nullopt;
+    std::optional<PresentMonDebugFrame> result;
+    std::unique_lock lock(apiMutex_);
+    if (ready_)
+        result = debugFrameTelemetry_.ReadLatest(client_, processId);
+    auto diagnostics = debugFrameTelemetry_.TakePendingDiagnostics();
+    lock.unlock();
+    for (const auto& diagnostic : diagnostics)
+        RuntimeLogger::Log(RuntimeLogLevel::Debug, diagnostic);
+    return result;
 }
 std::optional<PresentMonSystemSnapshot> PresentMonTelemetryProvider::ReadSystem()
 {
