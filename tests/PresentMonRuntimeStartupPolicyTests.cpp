@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <string>
+#include <string_view>
 
 // Cleanup 2 (work order 11.1): every PresentMonRuntimeBootstrapResult must have
 // an explicit startup meaning. The bootstrap result is no longer ignored.
@@ -12,6 +13,7 @@ using clawhud::PresentMonRuntimeStartupActionForResult;
 using clawhud::PresentMonRuntimeBootstrapResultName;
 using clawhud::ManagedPresentMonStartupExitCodeForResult;
 using clawhud::ManagedStartupExitCode;
+using clawhud::ManagedStartupFailureReason;
 using clawhud::ToProcessExitCode;
 
 static_assert(ToProcessExitCode(ManagedStartupExitCode::AlreadyRunning) == 20);
@@ -25,6 +27,29 @@ static_assert(ToProcessExitCode(ManagedStartupExitCode::PresentMonInstallFailed)
 static_assert(ToProcessExitCode(ManagedStartupExitCode::PresentMonValidationFailed) == 35);
 static_assert(ToProcessExitCode(ManagedStartupExitCode::RuntimeInitializationFailed) == 40);
 static_assert(ToProcessExitCode(ManagedStartupExitCode::ControlIpcUnavailable) == 41);
+
+static_assert(std::wstring_view(ManagedStartupFailureReason(
+    ManagedStartupExitCode::AlreadyRunning)) == L"already-running");
+static_assert(std::wstring_view(ManagedStartupFailureReason(
+    ManagedStartupExitCode::UnsupportedHardware)) == L"unsupported-hardware");
+static_assert(std::wstring_view(ManagedStartupFailureReason(
+    ManagedStartupExitCode::HardwareIndeterminate)) == L"hardware-indeterminate");
+static_assert(std::wstring_view(ManagedStartupFailureReason(
+    ManagedStartupExitCode::PresentMonRebootRequired)) == L"presentmon-reboot-required");
+static_assert(std::wstring_view(ManagedStartupFailureReason(
+    ManagedStartupExitCode::PresentMonElevationCancelled)) == L"presentmon-elevation-cancelled");
+static_assert(std::wstring_view(ManagedStartupFailureReason(
+    ManagedStartupExitCode::PresentMonMsiMissing)) == L"presentmon-msi-missing");
+static_assert(std::wstring_view(ManagedStartupFailureReason(
+    ManagedStartupExitCode::PresentMonInstallTimedOut)) == L"presentmon-install-timeout");
+static_assert(std::wstring_view(ManagedStartupFailureReason(
+    ManagedStartupExitCode::PresentMonInstallFailed)) == L"presentmon-install-failed");
+static_assert(std::wstring_view(ManagedStartupFailureReason(
+    ManagedStartupExitCode::PresentMonValidationFailed)) == L"presentmon-validation-failed");
+static_assert(std::wstring_view(ManagedStartupFailureReason(
+    ManagedStartupExitCode::RuntimeInitializationFailed)) == L"runtime-initialization-failed");
+static_assert(std::wstring_view(ManagedStartupFailureReason(
+    ManagedStartupExitCode::ControlIpcUnavailable)) == L"control-ipc-unavailable");
 
 static_assert(PresentMonRuntimeStartupActionForResult(
     PresentMonRuntimeBootstrapResult::AlreadyReady) ==

@@ -1,17 +1,21 @@
 #pragma once
 
-// CH-I1 — the mode-aware lifecycle decisions, isolated as pure
-// constexpr predicates so they can be tested without App / Velopack / a HWND.
-//
-// Standalone owns its own shell concerns:
-//  - Managed launch must not become the owner of the Standalone startup
-//    shortcut just because it was launched.
-//  - Managed launch must not discover or apply ClawHUD self-updates.
-
+// Mode-specific lifecycle decisions stay pure and testable without App, Velopack,
+// or a HWND. Managed launch must not acquire Standalone shell ownership.
 #include "LaunchMode.h"
+#include "ManagedStartupExitCode.h"
+
+#include <optional>
 
 namespace clawhud
 {
+enum class SingleInstanceResult
+{
+    Acquired,
+    AlreadyRunning,
+    Failed,
+};
+
 constexpr bool ShouldReconcileStartupRegistration(LaunchMode mode) noexcept
 {
     return mode == LaunchMode::Standalone;
@@ -35,5 +39,35 @@ constexpr bool ShouldShowStartupFailureUi(LaunchMode mode) noexcept
 constexpr bool ShouldFailStartupWhenControlIpcUnavailable(LaunchMode mode) noexcept
 {
     return mode == LaunchMode::Managed;
+}
+
+constexpr bool ShouldRestartAfterVelopackUpdate(LaunchMode mode) noexcept
+{
+    return mode == LaunchMode::Standalone;
+}
+
+constexpr bool ShouldRegisterGlobalHudHotkey(LaunchMode mode) noexcept
+{
+    return mode == LaunchMode::Standalone;
+}
+
+constexpr bool ShouldInitializeFreshManagedSettings(LaunchMode mode) noexcept
+{
+    return mode == LaunchMode::Managed;
+}
+
+constexpr std::optional<ManagedStartupExitCode>
+ManagedStartupExitCodeForSingleInstanceResult(SingleInstanceResult result) noexcept
+{
+    switch (result)
+    {
+    case SingleInstanceResult::Acquired:
+        return std::nullopt;
+    case SingleInstanceResult::AlreadyRunning:
+        return ManagedStartupExitCode::AlreadyRunning;
+    case SingleInstanceResult::Failed:
+        return ManagedStartupExitCode::RuntimeInitializationFailed;
+    }
+    return ManagedStartupExitCode::RuntimeInitializationFailed;
 }
 }

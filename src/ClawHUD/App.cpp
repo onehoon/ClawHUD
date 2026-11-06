@@ -102,6 +102,10 @@ void App::StopRuntimeSources()
     gameSession_.StopSources();
     if (debugObservation_)
         debugObservation_->Stop();
+    if (clawhud::ShouldRegisterGlobalHudHotkey(launchMode_) &&
+        hudHotkeyRegistered_ && runtimeMessageWindow_.Window())
+        UnregisterHotKey(runtimeMessageWindow_.Window(), kHudToggleHotkeyId);
+    hudHotkeyRegistered_ = false;
 }
 
 clawhud::GameSessionHooks App::MakeGameSessionHooks()
@@ -133,14 +137,12 @@ clawhud::GameSessionHooks App::MakeGameSessionHooks()
 int App::Run()
 {
     const auto instanceResult = AcquireSingleInstance();
-    if (instanceResult != SingleInstanceResult::Acquired)
+    if (instanceResult != clawhud::SingleInstanceResult::Acquired)
     {
         if (launchMode_ != clawhud::LaunchMode::Managed)
             return 0;
         return ReportManagedStartupFailure(
-            instanceResult == SingleInstanceResult::AlreadyRunning
-                ? clawhud::ManagedStartupExitCode::AlreadyRunning
-                : clawhud::ManagedStartupExitCode::RuntimeInitializationFailed);
+            *clawhud::ManagedStartupExitCodeForSingleInstanceResult(instanceResult));
     }
     if (clawhud::ShouldRunSelfUpdate(launchMode_))
         CheckForUpdates();
@@ -174,8 +176,8 @@ int App::Run()
             clawhud::EnsurePresentMonRuntime()))
         return *startupExitCode;
     // Managed launch is not the owner of the Standalone startup task and must
-    // not create / delete / rewrite it; explicit SetStartWithWindows over IPC
-    // is rejected by the semantic control boundary below.
+    // not create / delete / rewrite it; SetStartWithWindows over IPC is also
+    // rejected at the semantic control boundary.
     if (clawhud::ShouldReconcileStartupRegistration(launchMode_))
     {
         if (!ApplyStartupRegistration())
@@ -221,6 +223,14 @@ int App::Run()
         debugObservation_ = std::make_unique<clawhud::DebugObservationController>(
             presentMonTelemetryProvider_);
         debugObservation_->Start();
+    }
+    if (clawhud::ShouldRegisterGlobalHudHotkey(launchMode_))
+    {
+        hudHotkeyRegistered_ = RegisterHotKey(runtimeMessageWindow_.Window(),
+            kHudToggleHotkeyId, MOD_NOREPEAT, VK_F8) != FALSE;
+        if (!hudHotkeyRegistered_)
+            clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
+                L"RegisterHotKey(F8) failed; continuing without the global HUD toggle");
     }
     const bool providerReady = presentMonTelemetryProvider_.Initialize();
     Log(L"[PresentMon] providerReady=" + std::to_wstring(providerReady) +
@@ -282,7 +292,9 @@ int App::Run()
     if (!controlPipeStarted)
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
             L"Control pipe server did not start; continuing without external Control IPC");
-    hudSettingsStore_.CreateFreshDefaultsIfMissing();
+    if (controlPipeStarted &&
+        clawhud::ShouldInitializeFreshManagedSettings(launchMode_))
+        hudSettingsStore_.CreateFreshDefaultsIfMissing();
     return ProcessMessages();
 }
 
@@ -325,11 +337,7 @@ bool App::CommitHudOpacity(float opacity)
 bool App::SetStartWithWindows(bool enabled)
 {
     if (!clawhud::ShouldAllowStartWithWindowsMutation(launchMode_))
-    {
-        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Warn,
-            L"SetStartWithWindows rejected in Managed mode");
         return false;
-    }
     if (startWithWindows_ == enabled)
         return true;
     const bool previous = startWithWindows_;
@@ -393,13 +401,14 @@ void App::TryResumeRecovery()
         processId, gameSession_.VerifierProcessId(), gameSession_.VerifierRunning());
     const bool rendererForegroundActive = gameSession_.CurrentForegroundGameActive();
     const bool hudEnabled = hudController_.Enabled();
+    const auto manualOverride = hudController_.ManualOverride();
     const auto visibilityMode = hudController_.VisibilityMode();
     const bool steamAddonOverlayVisible =
         gameSession_.SteamAddonOverlayVisible();
     const bool expectedVisible = clawhud::ResolveHudVisible(
-        hudEnabled, visibilityMode, rendererForegroundActive,
+        hudEnabled, manualOverride, visibilityMode, rendererForegroundActive,
         steamAddonOverlayVisible);
-    const bool visibilityUsesForeground =
+    const bool visibilityUsesForeground = !manualOverride.has_value() &&
         visibilityMode == clawhud::HudVisibilityMode::InGameOnly &&
         !steamAddonOverlayVisible;
     gameSession_.DiscardPendingRenderVerifierEvents();
@@ -496,6 +505,7 @@ bool App::SetHudEnabled(bool enabled)
     }
     if (!hudController_.Ensure()) return false;
     hudController_.MarkEnabled(true);
+    hudController_.ResetManualOverride();
     gameSession_.ReevaluateForeground();
     ReconcileHudVisibility();
     SaveHudEnabledSetting(true);
@@ -639,6 +649,22 @@ void App::SetHudVisibilityMode(clawhud::HudVisibilityMode mode)
     ReconcileHudVisibility();
 }
 
+void App::HandleHudToggleHotkey()
+{
+    const auto hotkeyOverride = clawhud::ResolveHudHotkeyOverride(
+        hudController_.Enabled(), HudVisible());
+    if (!hotkeyOverride.has_value())
+    {
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
+            L"F8 HUD override ignored: HUD disabled");
+        return;
+    }
+    clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info,
+        *hotkeyOverride ? L"F8 HUD override=show" : L"F8 HUD override=hide");
+    hudController_.SetManualOverride(*hotkeyOverride);
+    ReconcileHudVisibility();
+}
+
 void App::ReconcileHudVisibility()
 {
     if (!hudController_.HasPresentation())
@@ -660,16 +686,16 @@ void App::ReconcileHudVisibility()
         StopProductionSampling(clawhud::SamplingStopCause::HudHidden, false);
 }
 
-App::SingleInstanceResult App::AcquireSingleInstance()
+clawhud::SingleInstanceResult App::AcquireSingleInstance()
 {
     instanceMutex_ = CreateMutexW(nullptr, TRUE, kInstanceMutexName);
     if (!instanceMutex_)
     {
         if (launchMode_ == clawhud::LaunchMode::Managed)
-            return SingleInstanceResult::Failed;
+            return clawhud::SingleInstanceResult::Failed;
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
             L"CreateMutex failed; exiting");
-        return SingleInstanceResult::Failed;
+        return clawhud::SingleInstanceResult::Failed;
     }
     if (GetLastError() == ERROR_ALREADY_EXISTS)
     {
@@ -677,14 +703,14 @@ App::SingleInstanceResult App::AcquireSingleInstance()
         {
             CloseHandle(instanceMutex_);
             instanceMutex_ = nullptr;
-            return SingleInstanceResult::AlreadyRunning;
+            return clawhud::SingleInstanceResult::AlreadyRunning;
         }
         Log(L"another ClawHUD instance already exists");
         CloseHandle(instanceMutex_);
         instanceMutex_ = nullptr;
-        return SingleInstanceResult::AlreadyRunning;
+        return clawhud::SingleInstanceResult::AlreadyRunning;
     }
-    return SingleInstanceResult::Acquired;
+    return clawhud::SingleInstanceResult::Acquired;
 }
 
 void App::LoadHudSettings()

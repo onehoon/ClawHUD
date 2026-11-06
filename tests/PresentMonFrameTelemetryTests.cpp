@@ -52,9 +52,12 @@ public:
     std::vector<PM_QUERY_ELEMENT> elements;
     std::uint32_t recordSize{sizeof(double)};
     int flushCount{};
+    int consumeCount{};
     std::uint32_t lastFlushPid{};
     PM_STATUS flushStatus{PM_STATUS_SUCCESS};
     PM_STATUS consumeStatus{PM_STATUS_SUCCESS};
+    bool invalidBetweenDisplayChangeLayout{};
+    std::optional<std::uint32_t> reportedFrameCount;
     // Frames the next ConsumeFrames returns (BETWEEN_DISPLAY_CHANGE value each).
     std::vector<double> pending;
 
@@ -66,6 +69,8 @@ public:
         {
             els[i].dataOffset = 0;
             els[i].dataSize = sizeof(double);
+            if (i == 0 && invalidBetweenDisplayChangeLayout)
+                els[i].dataOffset = recordSize;
             elements.push_back(els[i]);
         }
         *blobSize = recordSize;
@@ -87,8 +92,15 @@ public:
     PM_STATUS ConsumeFrames(PM_FRAME_QUERY_HANDLE, std::uint32_t,
         std::uint8_t* blob, std::uint32_t* frameCount) override
     {
+        ++consumeCount;
         if (consumeStatus != PM_STATUS_SUCCESS)
             return consumeStatus;
+        if (reportedFrameCount)
+        {
+            *frameCount = *reportedFrameCount;
+            pending.clear();
+            return PM_STATUS_SUCCESS;
+        }
         const std::uint32_t n = std::min<std::uint32_t>(
             *frameCount, static_cast<std::uint32_t>(pending.size()));
         for (std::uint32_t i = 0; i < n; ++i)
@@ -177,8 +189,11 @@ void ArmedAttemptLifecycle(bool& ok)
     ok &= Check(frame.PollDisplayedFrame(client, 100) == true,
         "the first-frame result latches for the current attempt");
 
-    ok &= Check(!frame.PollDisplayedFrame(client, 200),
-        "polling a PID that is not the armed target yields nullopt");
+    const int consumesBeforeWrongPid = client.consumeCount;
+    ok &= Check(!frame.PollDisplayedFrame(client, 200) &&
+        !frame.PollDisplayedFrame(client, 200) &&
+        client.consumeCount == consumesBeforeWrongPid,
+        "polling an unarmed PID yields nullopt without consuming its frames");
 
     // Regression: a second attempt on the SAME numeric PID must NOT inherit the
     // previous attempt's displayed-frame evidence.
@@ -206,6 +221,26 @@ void ArmedAttemptLifecycle(bool& ok)
     frame.Shutdown(client);
     ok &= Check(!frame.Ready() && !frame.PollDisplayedFrame(client, 100),
         "Shutdown frees the query and disarms");
+
+    FakeClient oversizedClient;
+    oversizedClient.reportedFrameCount = 100;
+    PresentMonFrameTelemetry oversizedFrame;
+    ok &= Check(oversizedFrame.Initialize(oversizedClient, Capabilities()) &&
+        oversizedFrame.BeginVerification(oversizedClient, 400) &&
+        oversizedFrame.PollDisplayedFrame(oversizedClient, 400) == false,
+        "an unexpected record count is bounded to the allocated batch");
+    oversizedFrame.Shutdown(oversizedClient);
+
+    FakeClient malformedClient;
+    malformedClient.invalidBetweenDisplayChangeLayout = true;
+    PresentMonFrameTelemetry malformedFrame;
+    ok &= Check(malformedFrame.Initialize(malformedClient, Capabilities()) &&
+        malformedFrame.BeginVerification(malformedClient, 500),
+        "malformed-layout fixture initializes and arms for rejection testing");
+    malformedClient.pending = {12.5};
+    ok &= Check(malformedFrame.PollDisplayedFrame(malformedClient, 500) == false,
+        "a BETWEEN_DISPLAY_CHANGE layout outside its record is not admitted");
+    malformedFrame.Shutdown(malformedClient);
 }
 
 int RunTests()

@@ -99,6 +99,17 @@ int main()
         "InGameOnly shows with a foreground game");
     ok &= Check(ResolveHudVisible(true, HudVisibilityMode::InGameOnly, true, true),
         "Overlay visibility does not hide an active game HUD");
+    ok &= Check(ResolveHudVisible(true, true, HudVisibilityMode::InGameOnly,
+        false, false), "F8 can show the enabled HUD without a foreground game");
+    ok &= Check(!ResolveHudVisible(true, false, HudVisibilityMode::Always,
+        true, false), "F8 can hide the enabled HUD until a normal setting changes");
+    ok &= Check(ResolveHudVisible(true, false, HudVisibilityMode::InGameOnly,
+        false, true), "a visible SteamAddon Overlay remains an expected-visible HUD target");
+    ok &= Check(!ResolveHudHotkeyOverride(false, false).has_value(),
+        "F8 does not override the disabled master HUD setting");
+    ok &= Check(ResolveHudHotkeyOverride(true, true) == false &&
+        ResolveHudHotkeyOverride(true, false) == true,
+        "F8 toggles an enabled HUD from its current visibility");
 
     ok &= Check(ShouldSampleProductionTelemetry(
         ShouldShowHud(HudVisibilityMode::Always, false), false),
