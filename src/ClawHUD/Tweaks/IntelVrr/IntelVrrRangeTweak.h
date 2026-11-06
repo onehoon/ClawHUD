@@ -1,7 +1,7 @@
 #pragma once
 
 #include "AffectedPanelDetector.h"
-#include "DiagIntelVrrStateProbe.h"
+#include "Probe/IntelVrrTargetStateProbe.h"
 #include "IntelVrrRunResult.h"
 #include "Lg27gs65fVrrRangeTweak.h"
 #include "Tma2027VrrEvidence.h"
@@ -12,26 +12,6 @@
 
 namespace clawhud
 {
-using IntelVrrTargetState = DiagIntelVrrState;
-using IntelVrrTargetMappingStatus = DiagIgclTargetMappingStatus;
-using IntelVrrArcSyncCapability = DiagArcSyncCapability;
-using IntelVrrArcSyncProfile = DiagArcSyncProfile;
-using IntelVrrProfileSetResult = DiagIgclProfileSetResult;
-
-class IIntelVrrTargetStateProbe
-{
-public:
-    virtual ~IIntelVrrTargetStateProbe() = default;
-    virtual bool Initialize() noexcept = 0;
-    virtual IntelVrrTargetState Query(const LUID& targetAdapterLuid,
-        std::uint32_t targetId) noexcept = 0;
-    virtual IntelVrrProfileSetResult SetProfileForExactTarget(
-        const IntelVrrTargetState& expectedCurrentState,
-        IntelVrrPanelClass panelClass, std::uint32_t requestedProfile,
-        const Tma2027Evidence* tmaEvidence = nullptr) noexcept = 0;
-    virtual void Shutdown() noexcept = 0;
-};
-
 class IntelVrrRangeTweak
 {
 public:

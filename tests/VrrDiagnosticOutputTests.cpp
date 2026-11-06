@@ -168,10 +168,14 @@ void TestReportWriterCreatesCompleteRunFiles()
     failedReport.igcl.targetMatchCount = 0;
     failedReport.igcl.capabilityResult = 0x4800000Fu;
     failedReport.igcl.profileResult = 0;
-    failedReport.igcl.failureRecordCount = 1;
+    failedReport.igcl.failureRecordCount = 2;
     failedReport.igcl.failures[0] = { DiagIgclProbeFailureStage::GetDisplayProperties,
         DiagIgclProbeResultDomain::ControlLibrary, 0x4800000Fu,
         "ctlGetDisplayProperties", 1, 2 };
+    failedReport.igcl.failures[1] = { DiagIgclProbeFailureStage::GetArcSyncProfile,
+        DiagIgclProbeResultDomain::ControlLibrary, 0x48000010u,
+        "ctlGetIntelArcSyncProfile", 1, 2 };
+    failedReport.igcl.suppressedFailureCount = 3;
 
     DiagD3dkmtCadenceCapture failedCapture;
     failedCapture.attempted = true;
@@ -190,8 +194,11 @@ void TestReportWriterCreatesCompleteRunFiles()
     assert(failureTimeline.find("0.000,500.000,0,0.00,,") != std::string::npos);
     const auto failureSummary = ReadText(failureFiles->report);
     assert(failureSummary.find("Probe status                 INITIALIZED") != std::string::npos);
+    assert(failureSummary.find("Probe failures               2 (suppressed=3)") != std::string::npos);
     assert(failureSummary.find("CTL_RESULT 0x4800000F") != std::string::npos);
     assert(failureSummary.find("ctlGetDisplayProperties") != std::string::npos);
+    assert(failureSummary.find("CTL_RESULT 0x48000010") != std::string::npos);
+    assert(failureSummary.find("ctlGetIntelArcSyncProfile") != std::string::npos);
     assert(failureSummary.find("Failure                      wait_failed") != std::string::npos);
     assert(failureSummary.find("NTSTATUS 0xC000000D") != std::string::npos);
     assert(failureSummary.find("Sampler mode                 D3DKMTWaitForVerticalBlankEvent")

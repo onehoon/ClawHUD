@@ -2,7 +2,7 @@
 
 #include "IntelVrr/AffectedPanelDetector.h"
 #include "IntelVrr/IntelVrrRangeTweak.h"
-#include "DiagIntelVrrStateProbe.h"
+#include "IntelVrr/Probe/IntelVrrTargetStateProbe.h"
 #include "VrrDiagnosticLogger.h"
 #include "WindowsDrr/WindowsDrrDisable.h"
 #include "WindowsDrr/WindowsMaxRefreshRate.h"
@@ -18,31 +18,6 @@ namespace clawhud
 {
 namespace
 {
-class DiagIntelVrrProbeAdapter final : public IIntelVrrTargetStateProbe
-{
-public:
-    bool Initialize() noexcept override { return probe_.Initialize(); }
-
-    IntelVrrTargetState Query(const LUID& adapterLuid,
-        std::uint32_t targetId) noexcept override
-    {
-        return probe_.Query(adapterLuid, targetId);
-    }
-
-    IntelVrrProfileSetResult SetProfileForExactTarget(
-        const IntelVrrTargetState& expected, IntelVrrPanelClass panelClass,
-        std::uint32_t profile, const Tma2027Evidence* tmaEvidence) noexcept override
-    {
-        return probe_.SetProfileForExactTarget(expected, panelClass, profile,
-            tmaEvidence);
-    }
-
-    void Shutdown() noexcept override { probe_.Shutdown(); }
-
-private:
-    DiagIntelVrrStateProbe probe_;
-};
-
 const char* DrrStatusText(DrrDisableStatus status) noexcept
 {
     switch (status)
@@ -182,7 +157,7 @@ void TweakStartupCoordinator::Run(bool enabled)
                     return EnumeratePanelIdentities();
                 };
                 IntelVrrRangeTweak tweak(
-                    [] { return std::make_unique<DiagIntelVrrProbeAdapter>(); },
+                    [] { return std::make_unique<IntelVrrTargetStateProbe>(); },
                     std::move(panelProvider));
                 lastIntelResult = tweak.Run(enabled);
                 intelSummary = tweak.LastSummary();

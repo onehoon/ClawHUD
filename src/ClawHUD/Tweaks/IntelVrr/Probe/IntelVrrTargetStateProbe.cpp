@@ -1,5 +1,5 @@
-#include "DiagIntelVrrStateProbe.h"
-#include "DiagIntelVrrStateProbeAbi.h"
+#include "IntelVrrTargetStateProbe.h"
+#include "IntelVrrTargetStateProbeAbi.h"
 
 #include <windows.h>
 
@@ -11,6 +11,9 @@
 #include <optional>
 #include <string_view>
 #include <vector>
+
+namespace clawhud
+{
 
 namespace
 {
@@ -120,11 +123,25 @@ EnumerationOutcome<T> Enumerate(Handle parent, Result(__cdecl* function)(Handle,
     return { true, std::nullopt, {} };
 }
 
-void AddFailure(DiagIntelVrrState& state, DiagIgclProbeFailureStage stage,
-    std::string_view detail, DiagIgclProbeResultDomain domain = DiagIgclProbeResultDomain::None,
-    std::optional<std::uint32_t> result = std::nullopt,
-    std::size_t adapterIndex = DiagIgclProbeFailure::NoIndex,
-    std::size_t outputIndex = DiagIgclProbeFailure::NoIndex) noexcept
+std::uint32_t Count32(std::size_t count) noexcept
+{
+    return count > std::numeric_limits<std::uint32_t>::max()
+        ? std::numeric_limits<std::uint32_t>::max()
+        : static_cast<std::uint32_t>(count);
+}
+}
+
+bool detail::HasExactIntelVrrDeviceId(const void* expectedPointer,
+    std::size_t expectedSize, const void* returnedPointer,
+    std::uint32_t returnedSize) noexcept
+{
+    return returnedPointer == expectedPointer && returnedSize == expectedSize;
+}
+
+void detail::RecordIntelVrrProbeFailure(IntelVrrTargetState& state,
+    IntelVrrProbeFailureStage stage, std::string_view detail,
+    IntelVrrProbeResultDomain domain, std::optional<std::uint32_t> result,
+    std::size_t adapterIndex, std::size_t outputIndex) noexcept
 {
     if (state.failureRecordCount < state.failures.size())
     {
@@ -137,15 +154,7 @@ void AddFailure(DiagIntelVrrState& state, DiagIgclProbeFailureStage stage,
     }
 }
 
-std::uint32_t Count32(std::size_t count) noexcept
-{
-    return count > std::numeric_limits<std::uint32_t>::max()
-        ? std::numeric_limits<std::uint32_t>::max()
-        : static_cast<std::uint32_t>(count);
-}
-}
-
-struct DiagIntelVrrStateProbe::Endpoints
+struct IntelVrrTargetStateProbe::Endpoints
 {
     InitFn init{};
     CloseFn close{};
@@ -158,8 +167,8 @@ struct DiagIntelVrrStateProbe::Endpoints
     ArcSyncProfileFn setArcSyncProfile{};
 };
 
-DiagIgclTargetMatch ResolveDiagIgclTarget(const LUID& windowsTargetAdapterLuid,
-    std::uint32_t windowsTargetId, std::span<const DiagIgclOutputIdentity> outputs,
+IntelVrrTargetMatch ResolveIntelVrrTarget(const LUID& windowsTargetAdapterLuid,
+    std::uint32_t windowsTargetId, std::span<const IntelVrrOutputIdentity> outputs,
     bool enumerationComplete) noexcept
 {
     std::optional<std::size_t> match;
@@ -170,17 +179,17 @@ DiagIgclTargetMatch ResolveDiagIgclTarget(const LUID& windowsTargetAdapterLuid,
             adapterLuid.HighPart != windowsTargetAdapterLuid.HighPart ||
             outputs[i].targetId != windowsTargetId)
             continue;
-        if (match) return { DiagIgclTargetMappingStatus::Ambiguous, std::nullopt };
+        if (match) return { IntelVrrTargetMappingStatus::Ambiguous, std::nullopt };
         match = i;
     }
     if (!enumerationComplete || !match)
-        return { DiagIgclTargetMappingStatus::Unknown, std::nullopt };
-    return { DiagIgclTargetMappingStatus::Exact, match };
+        return { IntelVrrTargetMappingStatus::Unknown, std::nullopt };
+    return { IntelVrrTargetMappingStatus::Exact, match };
 }
 
-DiagIntelVrrStateProbe::~DiagIntelVrrStateProbe() { Shutdown(); }
+IntelVrrTargetStateProbe::~IntelVrrTargetStateProbe() { Shutdown(); }
 
-bool DiagIntelVrrStateProbe::Initialize() noexcept
+bool IntelVrrTargetStateProbe::Initialize() noexcept
 {
     Shutdown();
     attempted_ = true;
@@ -188,8 +197,8 @@ bool DiagIntelVrrStateProbe::Initialize() noexcept
     library_ = LoadLibraryExW(L"ControlLib.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
     if (!library_)
     {
-        initializationFailure_ = { DiagIgclProbeFailureStage::LoadLibrary,
-            DiagIgclProbeResultDomain::Win32, GetLastError(), "ControlLib.dll" };
+        initializationFailure_ = { IntelVrrProbeFailureStage::LoadLibrary,
+            IntelVrrProbeResultDomain::Win32, GetLastError(), "ControlLib.dll" };
         return false;
     }
 
@@ -206,8 +215,8 @@ bool DiagIntelVrrStateProbe::Initialize() noexcept
         Resolve<ArcSyncProfileFn>(library, "ctlSetIntelArcSyncProfile") };
     if (!endpoints_)
     {
-        initializationFailure_ = { DiagIgclProbeFailureStage::InternalError,
-            DiagIgclProbeResultDomain::None, std::nullopt,
+        initializationFailure_ = { IntelVrrProbeFailureStage::InternalError,
+            IntelVrrProbeResultDomain::None, std::nullopt,
             "allocate IGCL API endpoint table" };
         Shutdown();
         return false;
@@ -224,8 +233,8 @@ bool DiagIntelVrrStateProbe::Initialize() noexcept
     else if (!endpoints_->getArcSyncProfile) missingFunction = "ctlGetIntelArcSyncProfile";
     if (!missingFunction.empty())
     {
-        initializationFailure_ = { DiagIgclProbeFailureStage::ResolveFunction,
-            DiagIgclProbeResultDomain::None, std::nullopt, missingFunction };
+        initializationFailure_ = { IntelVrrProbeFailureStage::ResolveFunction,
+            IntelVrrProbeResultDomain::None, std::nullopt, missingFunction };
         Shutdown();
         return false;
     }
@@ -236,15 +245,15 @@ bool DiagIntelVrrStateProbe::Initialize() noexcept
     const auto initResult = endpoints_->init(&args, &apiHandle_);
     if (initResult != 0)
     {
-        initializationFailure_ = { DiagIgclProbeFailureStage::Initialize,
-            DiagIgclProbeResultDomain::ControlLibrary, initResult, "ctlInit" };
+        initializationFailure_ = { IntelVrrProbeFailureStage::Initialize,
+            IntelVrrProbeResultDomain::ControlLibrary, initResult, "ctlInit" };
         Shutdown();
         return false;
     }
     if (!apiHandle_)
     {
-        initializationFailure_ = { DiagIgclProbeFailureStage::Initialize,
-            DiagIgclProbeResultDomain::None, std::nullopt,
+        initializationFailure_ = { IntelVrrProbeFailureStage::Initialize,
+            IntelVrrProbeResultDomain::None, std::nullopt,
             "ctlInit returned success with a null API handle" };
         Shutdown();
         return false;
@@ -252,23 +261,23 @@ bool DiagIntelVrrStateProbe::Initialize() noexcept
     return true;
 }
 
-DiagIntelVrrState DiagIntelVrrStateProbe::Query(
+IntelVrrTargetState IntelVrrTargetStateProbe::Query(
     const LUID& windowsTargetAdapterLuid, std::uint32_t windowsTargetId) noexcept
 {
     exactOutput_ = nullptr;
-    DiagIntelVrrState state;
+    IntelVrrTargetState state;
     state.windowsTargetAdapterLuid = windowsTargetAdapterLuid;
     state.windowsTargetId = windowsTargetId;
     state.attempted = attempted_;
     state.initialized = apiHandle_ && endpoints_;
     if (!state.initialized)
     {
-        if (initializationFailure_.stage != DiagIgclProbeFailureStage::None)
-            AddFailure(state, initializationFailure_.stage, initializationFailure_.detail,
+        if (initializationFailure_.stage != IntelVrrProbeFailureStage::None)
+            detail::RecordIntelVrrProbeFailure(state, initializationFailure_.stage, initializationFailure_.detail,
                 initializationFailure_.resultDomain, initializationFailure_.result,
                 initializationFailure_.adapterIndex, initializationFailure_.outputIndex);
         else if (attempted_)
-            AddFailure(state, DiagIgclProbeFailureStage::NotInitialized,
+            detail::RecordIntelVrrProbeFailure(state, IntelVrrProbeFailureStage::NotInitialized,
                 "IGCL API is not initialized");
         return state;
     }
@@ -282,8 +291,8 @@ DiagIntelVrrState DiagIntelVrrStateProbe::Query(
         if (!deviceEnumeration.success)
         {
             state.enumerationComplete = false;
-            AddFailure(state, DiagIgclProbeFailureStage::EnumerateDevices,
-                deviceEnumeration.detail, DiagIgclProbeResultDomain::ControlLibrary,
+            detail::RecordIntelVrrProbeFailure(state, IntelVrrProbeFailureStage::EnumerateDevices,
+                deviceEnumeration.detail, IntelVrrProbeResultDomain::ControlLibrary,
                 deviceEnumeration.result);
             return state;
         }
@@ -291,7 +300,7 @@ DiagIntelVrrState DiagIntelVrrStateProbe::Query(
         struct Output
         {
             Handle handle{};
-            DiagIgclOutputIdentity identity;
+            IntelVrrOutputIdentity identity;
         };
         std::vector<Output> outputs;
         bool complete = true;
@@ -309,17 +318,17 @@ DiagIntelVrrState DiagIntelVrrStateProbe::Query(
             if (devicePropertiesResult != 0)
             {
                 complete = false;
-                AddFailure(state, DiagIgclProbeFailureStage::GetDeviceProperties,
-                    "ctlGetDeviceProperties", DiagIgclProbeResultDomain::ControlLibrary,
+                detail::RecordIntelVrrProbeFailure(state, IntelVrrProbeFailureStage::GetDeviceProperties,
+                    "ctlGetDeviceProperties", IntelVrrProbeResultDomain::ControlLibrary,
                     devicePropertiesResult, adapterIndex);
                 continue;
             }
-            if (deviceProperties.pDeviceId != &adapterLuid ||
-                deviceProperties.deviceIdSize != sizeof(adapterLuid))
+            if (!detail::HasExactIntelVrrDeviceId(&adapterLuid, sizeof(adapterLuid),
+                deviceProperties.pDeviceId, deviceProperties.deviceIdSize))
             {
                 complete = false;
-                AddFailure(state, DiagIgclProbeFailureStage::GetDeviceProperties,
-                    "unexpected device ID pointer or size", DiagIgclProbeResultDomain::None,
+                detail::RecordIntelVrrProbeFailure(state, IntelVrrProbeFailureStage::GetDeviceProperties,
+                    "unexpected device ID pointer or size", IntelVrrProbeResultDomain::None,
                     std::nullopt, adapterIndex);
                 continue;
             }
@@ -330,8 +339,8 @@ DiagIntelVrrState DiagIntelVrrStateProbe::Query(
             if (!outputEnumeration.success)
             {
                 complete = false;
-                AddFailure(state, DiagIgclProbeFailureStage::EnumerateDisplayOutputs,
-                    outputEnumeration.detail, DiagIgclProbeResultDomain::ControlLibrary,
+                detail::RecordIntelVrrProbeFailure(state, IntelVrrProbeFailureStage::EnumerateDisplayOutputs,
+                    outputEnumeration.detail, IntelVrrProbeResultDomain::ControlLibrary,
                     outputEnumeration.result, adapterIndex);
                 continue;
             }
@@ -340,15 +349,15 @@ DiagIntelVrrState DiagIntelVrrStateProbe::Query(
             for (std::size_t outputIndex = 0; outputIndex < adapterOutputs.size(); ++outputIndex)
             {
                 const auto output = adapterOutputs[outputIndex];
-                diag_igcl_abi::DisplayProperties properties{};
-                diag_igcl_abi::InitializeDisplayProperties(properties);
+                intel_vrr_igcl_abi::DisplayProperties properties{};
+                intel_vrr_igcl_abi::InitializeDisplayProperties(properties);
                 const auto displayPropertiesResult = endpoints_->getDisplayProperties(
                     output, &properties);
                 if (displayPropertiesResult != 0)
                 {
                     complete = false;
-                    AddFailure(state, DiagIgclProbeFailureStage::GetDisplayProperties,
-                        "ctlGetDisplayProperties", DiagIgclProbeResultDomain::ControlLibrary,
+                    detail::RecordIntelVrrProbeFailure(state, IntelVrrProbeFailureStage::GetDisplayProperties,
+                        "ctlGetDisplayProperties", IntelVrrProbeResultDomain::ControlLibrary,
                         displayPropertiesResult, adapterIndex, firstOutputIndex + outputIndex);
                     continue;
                 }
@@ -358,7 +367,7 @@ DiagIntelVrrState DiagIntelVrrStateProbe::Query(
             }
         }
 
-        std::vector<DiagIgclOutputIdentity> identities;
+        std::vector<IntelVrrOutputIdentity> identities;
         identities.reserve(outputs.size());
         for (const auto& output : outputs) identities.push_back(output.identity);
         for (const auto& identity : identities)
@@ -369,16 +378,16 @@ DiagIntelVrrState DiagIntelVrrStateProbe::Query(
                 ++state.targetMatchCount;
         }
         state.enumerationComplete = complete;
-        const auto match = ResolveDiagIgclTarget(windowsTargetAdapterLuid,
+        const auto match = ResolveIntelVrrTarget(windowsTargetAdapterLuid,
             windowsTargetId, identities, complete);
         state.mappingStatus = match.status;
-        if (match.status != DiagIgclTargetMappingStatus::Exact || !match.outputIndex)
+        if (match.status != IntelVrrTargetMappingStatus::Exact || !match.outputIndex)
         {
-            if (match.status == DiagIgclTargetMappingStatus::Ambiguous)
-                AddFailure(state, DiagIgclProbeFailureStage::TargetMapping,
+            if (match.status == IntelVrrTargetMappingStatus::Ambiguous)
+                detail::RecordIntelVrrProbeFailure(state, IntelVrrProbeFailureStage::TargetMapping,
                     "multiple exact adapter LUID and target ID matches");
             else if (complete)
-                AddFailure(state, DiagIgclProbeFailureStage::TargetMapping,
+                detail::RecordIntelVrrProbeFailure(state, IntelVrrProbeFailureStage::TargetMapping,
                     "no exact adapter LUID and target ID match");
             return state;
         }
@@ -389,26 +398,26 @@ DiagIntelVrrState DiagIntelVrrStateProbe::Query(
         const auto capabilityResult = endpoints_->getArcSyncInfo(output, &capability);
         state.capabilityResult = capabilityResult;
         if (capabilityResult == 0)
-            state.capability = DiagArcSyncCapability{ capability.supported,
+            state.capability = IntelVrrArcSyncCapability{ capability.supported,
                 capability.minimumHz, capability.maximumHz,
                 capability.maxFrameTimeIncreaseUs, capability.maxFrameTimeDecreaseUs };
         else
-            AddFailure(state, DiagIgclProbeFailureStage::GetArcSyncInfo,
+            detail::RecordIntelVrrProbeFailure(state, IntelVrrProbeFailureStage::GetArcSyncInfo,
                 "ctlGetIntelArcSyncInfoForMonitor",
-                DiagIgclProbeResultDomain::ControlLibrary, capabilityResult);
+                IntelVrrProbeResultDomain::ControlLibrary, capabilityResult);
 
         ArcSyncProfileAbi profile{};
         profile.size = sizeof(profile);
         const auto profileResult = endpoints_->getArcSyncProfile(output, &profile);
         state.profileResult = profileResult;
         if (profileResult == 0)
-            state.profile = DiagArcSyncProfile{ profile.profile, profile.maximumHz,
+            state.profile = IntelVrrArcSyncProfile{ profile.profile, profile.maximumHz,
                 profile.minimumHz, profile.maxFrameTimeIncreaseUs,
                 profile.maxFrameTimeDecreaseUs };
         else
-            AddFailure(state, DiagIgclProbeFailureStage::GetArcSyncProfile,
+            detail::RecordIntelVrrProbeFailure(state, IntelVrrProbeFailureStage::GetArcSyncProfile,
                 "ctlGetIntelArcSyncProfile",
-                DiagIgclProbeResultDomain::ControlLibrary, profileResult);
+                IntelVrrProbeResultDomain::ControlLibrary, profileResult);
         if (capabilityResult == 0 && profileResult == 0)
         {
             exactOutput_ = output;
@@ -420,17 +429,17 @@ DiagIntelVrrState DiagIntelVrrStateProbe::Query(
     catch (...)
     {
         exactOutput_ = nullptr;
-        state.mappingStatus = DiagIgclTargetMappingStatus::Unknown;
+        state.mappingStatus = IntelVrrTargetMappingStatus::Unknown;
         state.capability.reset();
         state.profile.reset();
         state.enumerationComplete = false;
-        AddFailure(state, DiagIgclProbeFailureStage::InternalError,
+        detail::RecordIntelVrrProbeFailure(state, IntelVrrProbeFailureStage::InternalError,
             "exception during IGCL query or output enumeration");
         return state;
     }
 }
 
-bool IsIntelVrrProfileChangeAllowed(const DiagIntelVrrState& state,
+bool IsIntelVrrProfileChangeAllowed(const IntelVrrTargetState& state,
     IntelVrrPanelClass panelClass, std::uint32_t requestedProfile,
     const clawhud::Tma2027Evidence* tmaEvidence) noexcept
 {
@@ -448,7 +457,7 @@ bool IsIntelVrrProfileChangeAllowed(const DiagIntelVrrState& state,
     };
 
     if (!state.initialized || !state.enumerationComplete ||
-        state.mappingStatus != DiagIgclTargetMappingStatus::Exact ||
+        state.mappingStatus != IntelVrrTargetMappingStatus::Exact ||
         state.targetMatchCount != 1 || state.displayOutputCount == 0 ||
         state.displayPropertiesSuccessCount != state.displayOutputCount ||
         !state.capability || !state.profile || state.capabilityResult != 0 ||
@@ -506,29 +515,41 @@ bool IsIntelVrrProfileChangeAllowed(const DiagIntelVrrState& state,
     return knownProfile && !fullRange;
 }
 
-DiagIgclProfileSetResult DiagIntelVrrStateProbe::SetProfileForExactTarget(
-    const DiagIntelVrrState& expected, std::uint32_t requestedProfile) noexcept
+bool detail::IsIntelVrrFreshStateMatch(
+    const IntelVrrTargetState& expected,
+    const IntelVrrArcSyncCapability& capability,
+    const IntelVrrArcSyncProfile& profile) noexcept
 {
-    return SetProfileForExactTarget(expected, IntelVrrPanelClass::Lg27gs65f,
-        requestedProfile);
+    if (!expected.capability || !expected.profile || !capability.supported ||
+        !std::isfinite(capability.minimumHz) ||
+        !std::isfinite(capability.maximumHz) ||
+        !std::isfinite(profile.minimumHz) ||
+        !std::isfinite(profile.maximumHz))
+        return false;
+
+    return std::abs(capability.minimumHz - expected.capability->minimumHz) <= 0.01f &&
+        std::abs(capability.maximumHz - expected.capability->maximumHz) <= 0.01f &&
+        profile.profile == expected.profile->profile &&
+        std::abs(profile.minimumHz - expected.profile->minimumHz) <= 0.01f &&
+        std::abs(profile.maximumHz - expected.profile->maximumHz) <= 0.01f;
 }
 
-DiagIgclProfileSetResult DiagIntelVrrStateProbe::SetProfileForExactTarget(
-    const DiagIntelVrrState& expected, IntelVrrPanelClass panelClass,
+IntelVrrProfileSetResult IntelVrrTargetStateProbe::SetProfileForExactTarget(
+    const IntelVrrTargetState& expected, IntelVrrPanelClass panelClass,
     std::uint32_t requestedProfile,
     const clawhud::Tma2027Evidence* tmaEvidence) noexcept
 {
     const auto reject = [](std::string_view detail,
         std::optional<std::uint32_t> result = std::nullopt)
     {
-        return DiagIgclProfileSetResult{ false, false, result, detail };
+        return IntelVrrProfileSetResult{ false, false, result, detail };
     };
 
     const auto output = exactOutput_;
     exactOutput_ = nullptr;
     if (!apiHandle_ || !endpoints_ || !endpoints_->setArcSyncProfile || !output)
         return reject("IGCL profile setter is unavailable");
-    if (expected.mappingStatus != DiagIgclTargetMappingStatus::Exact ||
+    if (expected.mappingStatus != IntelVrrTargetMappingStatus::Exact ||
         expected.windowsTargetAdapterLuid.LowPart != exactOutputAdapterLuid_.LowPart ||
         expected.windowsTargetAdapterLuid.HighPart != exactOutputAdapterLuid_.HighPart ||
         expected.windowsTargetId != exactOutputTargetId_ ||
@@ -548,23 +569,24 @@ DiagIgclProfileSetResult DiagIntelVrrStateProbe::SetProfileForExactTarget(
         const auto profileResult = endpoints_->getArcSyncProfile(output, &current);
         if (profileResult != 0)
             return reject("ctlGetIntelArcSyncProfile failed", profileResult);
-        if (!capability.supported ||
-            !std::isfinite(capability.minimumHz) ||
-            !std::isfinite(capability.maximumHz) ||
-            !std::isfinite(current.minimumHz) ||
-            !std::isfinite(current.maximumHz) ||
-            std::abs(capability.minimumHz - expected.capability->minimumHz) > 0.01f ||
-            std::abs(capability.maximumHz - expected.capability->maximumHz) > 0.01f ||
-            current.profile != expected.profile->profile ||
-            std::abs(current.minimumHz - expected.profile->minimumHz) > 0.01f ||
-            std::abs(current.maximumHz - expected.profile->maximumHz) > 0.01f)
+        const IntelVrrArcSyncCapability currentCapability{
+            capability.supported, capability.minimumHz, capability.maximumHz,
+            capability.maxFrameTimeIncreaseUs, capability.maxFrameTimeDecreaseUs };
+        const IntelVrrArcSyncProfile currentProfile{
+            current.profile, current.maximumHz, current.minimumHz,
+            current.maxFrameTimeIncreaseUs, current.maxFrameTimeDecreaseUs };
+        std::uint32_t setResult{};
+        const bool attempted = detail::SetIntelVrrProfileIfFresh(expected,
+            currentCapability, currentProfile, [&]
+            {
+                ArcSyncProfileAbi requested{};
+                requested.size = sizeof(requested);
+                requested.version = 0;
+                requested.profile = requestedProfile;
+                setResult = endpoints_->setArcSyncProfile(output, &requested);
+            });
+        if (!attempted)
             return reject("IGCL state changed after confirmation; no profile was written");
-
-        ArcSyncProfileAbi requested{};
-        requested.size = sizeof(requested);
-        requested.version = 0;
-        requested.profile = requestedProfile;
-        const auto setResult = endpoints_->setArcSyncProfile(output, &requested);
         return { true, setResult == 0, setResult,
             setResult == 0 ? std::string_view{} : std::string_view("ctlSetIntelArcSyncProfile") };
     }
@@ -574,7 +596,7 @@ DiagIgclProfileSetResult DiagIntelVrrStateProbe::SetProfileForExactTarget(
     }
 }
 
-void DiagIntelVrrStateProbe::Shutdown() noexcept
+void IntelVrrTargetStateProbe::Shutdown() noexcept
 {
     if (apiHandle_ && endpoints_ && endpoints_->close)
         endpoints_->close(apiHandle_);
@@ -588,3 +610,5 @@ void DiagIntelVrrStateProbe::Shutdown() noexcept
     if (library_) FreeLibrary(static_cast<HMODULE>(library_));
     library_ = nullptr;
 }
+
+} // namespace clawhud

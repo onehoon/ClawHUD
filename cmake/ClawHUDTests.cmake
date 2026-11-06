@@ -203,12 +203,13 @@ include("${CMAKE_CURRENT_LIST_DIR}/Tma2027VrrTests.cmake")
     add_executable(ClawHUD.AffectedPanelDetectorTests
         tests/AffectedPanelDetectorTests.cpp
         src/ClawHUD/Tweaks/IntelVrr/AffectedPanelDetector.cpp
+        src/ClawHUD/Tweaks/IntelVrr/Probe/IntelDisplayPathProbe.cpp
         src/ClawHUD/Tweaks/IntelVrr/Lg27gs65fVrrRangeTweak.cpp)
     target_compile_features(ClawHUD.AffectedPanelDetectorTests PRIVATE cxx_std_20)
     target_compile_definitions(ClawHUD.AffectedPanelDetectorTests PRIVATE
         UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
     target_include_directories(ClawHUD.AffectedPanelDetectorTests PRIVATE
-        src/ClawHUD src/ClawHUD.Diag)
+        src/ClawHUD)
     target_link_libraries(ClawHUD.AffectedPanelDetectorTests PRIVATE
         user32 wbemuuid ole32 oleaut32)
     set_target_properties(ClawHUD.AffectedPanelDetectorTests PROPERTIES CXX_EXTENSIONS OFF)
@@ -222,13 +223,13 @@ include("${CMAKE_CURRENT_LIST_DIR}/Tma2027VrrTests.cmake")
         src/ClawHUD/Tweaks/IntelVrr/Tma2027VrrEvidence.cpp
         src/ClawHUD/Tweaks/IntelVrr/IntelVrrRangeTweak.cpp
         src/ClawHUD/Tweaks/IntelVrr/Lg27gs65fVrrRangeTweak.cpp
-        src/ClawHUD.Diag/DisplayPathProbe.cpp
-        src/ClawHUD.Diag/DiagIntelVrrStateProbe.cpp
+        src/ClawHUD/Tweaks/IntelVrr/Probe/IntelDisplayPathProbe.cpp
+        src/ClawHUD/Tweaks/IntelVrr/Probe/IntelVrrTargetStateProbe.cpp
         src/ClawHUD/Tweaks/IntelVrr/IntelVrrResultStore.cpp
         src/ClawHUD/Tweaks/IntelVrr/IntelVrrRunResult.cpp)
     target_compile_features(ClawHUD.IntelVrrRangeTweakTests PRIVATE cxx_std_20)
     target_compile_definitions(ClawHUD.IntelVrrRangeTweakTests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-    target_include_directories(ClawHUD.IntelVrrRangeTweakTests PRIVATE src/ClawHUD src/ClawHUD.Diag)
+    target_include_directories(ClawHUD.IntelVrrRangeTweakTests PRIVATE src/ClawHUD)
     target_link_libraries(ClawHUD.IntelVrrRangeTweakTests PRIVATE wbemuuid ole32 oleaut32 shell32 user32 gdi32 bcrypt)
     set_target_properties(ClawHUD.IntelVrrRangeTweakTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.IntelVrrRangeTweakTests COMMAND ClawHUD.IntelVrrRangeTweakTests)
@@ -653,11 +654,11 @@ include("${CMAKE_CURRENT_LIST_DIR}/Tma2027VrrTests.cmake")
 
     add_executable(ClawHUD.DiagDisplayPathProbeTests
         tests/DiagDisplayPathProbeTests.cpp
-        src/ClawHUD.Diag/DisplayPathProbe.cpp)
+        src/ClawHUD/Tweaks/IntelVrr/Probe/IntelDisplayPathProbe.cpp)
     target_compile_features(ClawHUD.DiagDisplayPathProbeTests PRIVATE cxx_std_20)
     target_compile_definitions(ClawHUD.DiagDisplayPathProbeTests PRIVATE
         UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-    target_include_directories(ClawHUD.DiagDisplayPathProbeTests PRIVATE src/ClawHUD.Diag)
+    target_include_directories(ClawHUD.DiagDisplayPathProbeTests PRIVATE src/ClawHUD src/ClawHUD.Diag)
     target_link_libraries(ClawHUD.DiagDisplayPathProbeTests PRIVATE user32)
     set_target_properties(ClawHUD.DiagDisplayPathProbeTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.DiagDisplayPathProbeTests
@@ -666,9 +667,9 @@ include("${CMAKE_CURRENT_LIST_DIR}/Tma2027VrrTests.cmake")
     add_executable(ClawHUD.DiagIntelVrrStateProbeTests
         tests/DiagIntelVrrStateProbeTests.cpp
         src/ClawHUD/Tweaks/IntelVrr/Tma2027VrrPolicy.cpp
-        src/ClawHUD.Diag/DiagIntelVrrStateProbe.cpp
+        src/ClawHUD/Tweaks/IntelVrr/Probe/IntelVrrTargetStateProbe.cpp
         src/ClawHUD.Diag/Lg27gs65fVrrProfileCommand.cpp
-        src/ClawHUD.Diag/DisplayPathProbe.cpp)
+        src/ClawHUD/Tweaks/IntelVrr/Probe/IntelDisplayPathProbe.cpp)
     target_compile_features(ClawHUD.DiagIntelVrrStateProbeTests PRIVATE cxx_std_20)
     target_compile_definitions(ClawHUD.DiagIntelVrrStateProbeTests PRIVATE
         UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
@@ -697,7 +698,8 @@ include("${CMAKE_CURRENT_LIST_DIR}/Tma2027VrrTests.cmake")
     target_compile_features(ClawHUD.DiagD3dkmtCadenceProbeTests PRIVATE cxx_std_20)
     target_compile_definitions(ClawHUD.DiagD3dkmtCadenceProbeTests PRIVATE
         UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-    target_include_directories(ClawHUD.DiagD3dkmtCadenceProbeTests PRIVATE src/ClawHUD.Diag)
+    target_include_directories(ClawHUD.DiagD3dkmtCadenceProbeTests PRIVATE
+        src/ClawHUD src/ClawHUD.Diag)
     target_link_libraries(ClawHUD.DiagD3dkmtCadenceProbeTests PRIVATE gdi32 user32)
     set_target_properties(ClawHUD.DiagD3dkmtCadenceProbeTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.DiagD3dkmtCadenceProbeTests
