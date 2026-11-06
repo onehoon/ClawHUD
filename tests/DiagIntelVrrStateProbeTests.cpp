@@ -45,6 +45,38 @@ int main()
     assert(displayProperties.displayTiming.size == sizeof(displayProperties.displayTiming));
     assert(displayProperties.displayTiming.version == 0);
 
+    const LUID deviceId{ 17, 2 };
+    assert(clawhud::detail::HasExactIntelVrrDeviceId(&deviceId, sizeof(deviceId),
+        &deviceId, sizeof(deviceId)));
+    assert(!clawhud::detail::HasExactIntelVrrDeviceId(&deviceId, sizeof(deviceId),
+        nullptr, sizeof(deviceId)));
+    assert(!clawhud::detail::HasExactIntelVrrDeviceId(&deviceId, sizeof(deviceId),
+        &deviceId, sizeof(deviceId) - 1));
+
+    DiagIntelVrrState outputFailure;
+    clawhud::detail::RecordIntelVrrProbeFailure(outputFailure,
+        DiagIgclProbeFailureStage::GetDisplayProperties,
+        "ctlGetDisplayProperties", DiagIgclProbeResultDomain::ControlLibrary,
+        0x40000009, 1, 2);
+    assert(outputFailure.failureRecordCount == 1);
+    assert(outputFailure.failures[0].stage ==
+        DiagIgclProbeFailureStage::GetDisplayProperties);
+    assert(outputFailure.failures[0].resultDomain ==
+        DiagIgclProbeResultDomain::ControlLibrary);
+    assert(outputFailure.failures[0].result == 0x40000009);
+    assert(outputFailure.failures[0].adapterIndex == 1);
+    assert(outputFailure.failures[0].outputIndex == 2);
+
+    DiagIntelVrrState saturatedFailures;
+    for (std::size_t i = 0; i < kMaximumDiagIgclFailureRecords + 3; ++i)
+        clawhud::detail::RecordIntelVrrProbeFailure(saturatedFailures,
+            DiagIgclProbeFailureStage::GetDisplayProperties,
+            "ctlGetDisplayProperties", DiagIgclProbeResultDomain::ControlLibrary,
+            0x40000009, 1, i);
+    assert(saturatedFailures.failureRecordCount ==
+        kMaximumDiagIgclFailureRecords);
+    assert(saturatedFailures.suppressedFailureCount == 3);
+
     const LUID intel{ 17, 2 };
     const LUID discrete{ 21, 3 };
     const std::array<DiagIgclOutputIdentity, 3> outputs{{

@@ -1,163 +1,64 @@
 #pragma once
 
-#include <windows.h>
+#include "Tweaks/IntelVrr/Probe/IntelVrrTargetStateProbe.h"
 
-#include <array>
-#include <cstddef>
-#include <cstdint>
-#include <optional>
-#include <span>
-#include <string_view>
-#include <vector>
+using DiagIgclTargetMappingStatus = clawhud::IntelVrrTargetMappingStatus;
+using DiagIgclTargetMatch = clawhud::IntelVrrTargetMatch;
+using DiagIgclOutputIdentity = clawhud::IntelVrrOutputIdentity;
+using DiagArcSyncCapability = clawhud::IntelVrrArcSyncCapability;
+using DiagArcSyncProfile = clawhud::IntelVrrArcSyncProfile;
+using DiagIgclProbeFailureStage = clawhud::IntelVrrProbeFailureStage;
+using DiagIgclProbeResultDomain = clawhud::IntelVrrProbeResultDomain;
+using DiagIgclProbeFailure = clawhud::IntelVrrProbeFailure;
+using DiagIntelVrrState = clawhud::IntelVrrTargetState;
+using DiagIgclProfileSetResult = clawhud::IntelVrrProfileSetResult;
+using IntelVrrPanelClass = clawhud::IntelVrrPanelClass;
 
-#include "Tweaks/IntelVrr/Tma2027VrrPolicy.h"
+inline constexpr std::size_t kMaximumDiagIgclFailureRecords =
+    clawhud::kMaximumIntelVrrFailureRecords;
 
-enum class DiagIgclTargetMappingStatus
+inline DiagIgclTargetMatch ResolveDiagIgclTarget(
+    const LUID& windowsTargetAdapterLuid, std::uint32_t windowsTargetId,
+    std::span<const DiagIgclOutputIdentity> outputs,
+    bool enumerationComplete = true) noexcept
 {
-    Exact,
-    Unknown,
-    Ambiguous,
-};
+    return clawhud::ResolveIntelVrrTarget(windowsTargetAdapterLuid,
+        windowsTargetId, outputs, enumerationComplete);
+}
 
-enum class IntelVrrPanelClass
-{
-    ClawInternal,
-    Lg27gs65f,
-    Claw7Internal,
-};
+using clawhud::IsIntelVrrProfileChangeAllowed;
 
-struct DiagIgclTargetMatch
-{
-    DiagIgclTargetMappingStatus status{ DiagIgclTargetMappingStatus::Unknown };
-    std::optional<std::size_t> outputIndex;
-};
-
-struct DiagIgclOutputIdentity
-{
-    LUID adapterLuid{};
-    std::uint32_t targetId{};
-};
-
-DiagIgclTargetMatch ResolveDiagIgclTarget(const LUID& windowsTargetAdapterLuid,
-    std::uint32_t windowsTargetId, std::span<const DiagIgclOutputIdentity> outputs,
-    bool enumerationComplete = true) noexcept;
-
-struct DiagArcSyncCapability
-{
-    bool supported{};
-    float minimumHz{};
-    float maximumHz{};
-    std::uint32_t maxFrameTimeIncreaseUs{};
-    std::uint32_t maxFrameTimeDecreaseUs{};
-};
-
-struct DiagArcSyncProfile
-{
-    std::uint32_t profile{};
-    float maximumHz{};
-    float minimumHz{};
-    std::uint32_t maxFrameTimeIncreaseUs{};
-    std::uint32_t maxFrameTimeDecreaseUs{};
-};
-
-enum class DiagIgclProbeFailureStage
-{
-    None,
-    NotInitialized,
-    LoadLibrary,
-    ResolveFunction,
-    Initialize,
-    EnumerateDevices,
-    GetDeviceProperties,
-    EnumerateDisplayOutputs,
-    GetDisplayProperties,
-    TargetMapping,
-    GetArcSyncInfo,
-    GetArcSyncProfile,
-    InternalError,
-};
-
-enum class DiagIgclProbeResultDomain
-{
-    None,
-    Win32,
-    ControlLibrary,
-};
-
-struct DiagIgclProbeFailure
-{
-    static constexpr std::size_t NoIndex = static_cast<std::size_t>(-1);
-
-    DiagIgclProbeFailureStage stage{ DiagIgclProbeFailureStage::None };
-    DiagIgclProbeResultDomain resultDomain{ DiagIgclProbeResultDomain::None };
-    std::optional<std::uint32_t> result;
-    std::string_view detail;
-    std::size_t adapterIndex{ NoIndex };
-    std::size_t outputIndex{ NoIndex };
-};
-
-inline constexpr std::size_t kMaximumDiagIgclFailureRecords = 16;
-
-struct DiagIntelVrrState
-{
-    DiagIgclTargetMappingStatus mappingStatus{ DiagIgclTargetMappingStatus::Unknown };
-    LUID windowsTargetAdapterLuid{};
-    std::uint32_t windowsTargetId{};
-    std::optional<DiagArcSyncCapability> capability;
-    std::optional<DiagArcSyncProfile> profile;
-    std::optional<std::uint32_t> capabilityResult;
-    std::optional<std::uint32_t> profileResult;
-    bool attempted{};
-    bool initialized{};
-    bool enumerationComplete{};
-    std::uint32_t adapterCount{};
-    std::uint32_t displayOutputCount{};
-    std::uint32_t displayPropertiesSuccessCount{};
-    std::uint32_t targetMatchCount{};
-    std::array<DiagIgclProbeFailure, kMaximumDiagIgclFailureRecords> failures{};
-    std::size_t failureRecordCount{};
-    std::uint32_t suppressedFailureCount{};
-};
-
-struct DiagIgclProfileSetResult
-{
-    bool attempted{};
-    bool succeeded{};
-    std::optional<std::uint32_t> apiResult;
-    std::string_view detail;
-};
-
-bool IsIntelVrrProfileChangeAllowed(const DiagIntelVrrState& state,
-    IntelVrrPanelClass panelClass, std::uint32_t requestedProfile,
-    const clawhud::Tma2027Evidence* tmaEvidence = nullptr) noexcept;
-
+// Source-compatible Diag facade. The legacy overload is intentionally LG-only.
 class DiagIntelVrrStateProbe
 {
 public:
-    ~DiagIntelVrrStateProbe();
+    bool Initialize() noexcept { return probe_.Initialize(); }
 
-    bool Initialize() noexcept;
     DiagIntelVrrState Query(const LUID& windowsTargetAdapterLuid,
-        std::uint32_t windowsTargetId) noexcept;
+        std::uint32_t windowsTargetId) noexcept
+    {
+        return probe_.Query(windowsTargetAdapterLuid, windowsTargetId);
+    }
+
     DiagIgclProfileSetResult SetProfileForExactTarget(
         const DiagIntelVrrState& expectedCurrentState,
-        std::uint32_t requestedProfile) noexcept;
+        std::uint32_t requestedProfile) noexcept
+    {
+        return probe_.SetProfileForExactTarget(expectedCurrentState,
+            IntelVrrPanelClass::Lg27gs65f, requestedProfile);
+    }
+
     DiagIgclProfileSetResult SetProfileForExactTarget(
         const DiagIntelVrrState& expectedCurrentState,
         IntelVrrPanelClass panelClass, std::uint32_t requestedProfile,
-        const clawhud::Tma2027Evidence* tmaEvidence = nullptr) noexcept;
-    void Shutdown() noexcept;
+        const clawhud::Tma2027Evidence* tmaEvidence = nullptr) noexcept
+    {
+        return probe_.SetProfileForExactTarget(expectedCurrentState, panelClass,
+            requestedProfile, tmaEvidence);
+    }
+
+    void Shutdown() noexcept { probe_.Shutdown(); }
 
 private:
-    struct Endpoints;
-    Endpoints* endpoints_{};
-    void* library_{};
-    void* apiHandle_{};
-    std::vector<void*> adapters_;
-    // Single-use output handle from the immediately preceding exact Query.
-    void* exactOutput_{};
-    LUID exactOutputAdapterLuid_{};
-    std::uint32_t exactOutputTargetId_{};
-    bool attempted_{};
-    DiagIgclProbeFailure initializationFailure_;
+    clawhud::IntelVrrTargetStateProbe probe_;
 };

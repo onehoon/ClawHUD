@@ -1,8 +1,11 @@
-#include "DisplayPathProbe.h"
+#include "IntelDisplayPathProbe.h"
 
 #include <cmath>
 #include <utility>
 #include <vector>
+
+namespace clawhud
+{
 
 namespace
 {
@@ -30,29 +33,29 @@ std::optional<double> ReadModeRefreshRate(const wchar_t* deviceName) noexcept
     return static_cast<double>(mode.dmDisplayFrequency);
 }
 
-DisplayPathProbeResult Unavailable() noexcept
+IntelDisplayPathProbeResult Unavailable() noexcept
 {
-    return { DisplayPathProbeStatus::Unavailable, std::nullopt };
+    return { IntelDisplayPathProbeStatus::Unavailable, std::nullopt };
 }
 }
 
-DisplayPathProbeResult ResolveVrrDisplayPath(std::wstring_view monitorDeviceName,
-    const RECT& monitorRect, std::span<const VrrActiveDisplayPath> activePaths,
+IntelDisplayPathProbeResult ResolveIntelVrrDisplayPath(std::wstring_view monitorDeviceName,
+    const RECT& monitorRect, std::span<const IntelVrrActiveDisplayPath> activePaths,
     bool enumerationComplete, std::optional<double> fallbackNominalRefreshHz)
 {
-    std::vector<const VrrActiveDisplayPath*> matches;
+    std::vector<const IntelVrrActiveDisplayPath*> matches;
     for (const auto& path : activePaths)
         if (EqualDeviceName(monitorDeviceName, path.sourceDeviceName)) matches.push_back(&path);
 
     if (matches.size() > 1)
-        return { DisplayPathProbeStatus::Ambiguous, std::nullopt };
+        return { IntelDisplayPathProbeStatus::Ambiguous, std::nullopt };
     if (!enumerationComplete)
         return Unavailable();
     if (matches.empty())
-        return { DisplayPathProbeStatus::NotFound, std::nullopt };
+        return { IntelDisplayPathProbeStatus::NotFound, std::nullopt };
 
     const auto& matched = *matches.front();
-    VrrDisplayPath result;
+    IntelVrrDisplayPath result;
     result.monitorDeviceName = std::wstring(monitorDeviceName);
     result.monitorRect = monitorRect;
     result.sourceAdapterLuid = matched.sourceAdapterLuid;
@@ -73,10 +76,10 @@ DisplayPathProbeResult ResolveVrrDisplayPath(std::wstring_view monitorDeviceName
         result.usedModeRefreshFallback = true;
     }
 
-    return { DisplayPathProbeStatus::Matched, std::move(result) };
+    return { IntelDisplayPathProbeStatus::Matched, std::move(result) };
 }
 
-VrrWindowsTargets EnumerateVrrWindowsTargets() noexcept
+IntelVrrWindowsTargets EnumerateIntelVrrWindowsTargets() noexcept
 {
     try
     {
@@ -102,7 +105,7 @@ VrrWindowsTargets EnumerateVrrWindowsTargets() noexcept
                 return { {}, false, queryResult == ERROR_SUCCESS
                     ? ERROR_INVALID_DATA : queryResult };
 
-            VrrWindowsTargets result;
+            IntelVrrWindowsTargets result;
             result.enumerationComplete = true;
             result.targets.reserve(pathCount);
             for (UINT32 index = 0; index < pathCount; ++index)
@@ -149,7 +152,7 @@ VrrWindowsTargets EnumerateVrrWindowsTargets() noexcept
     }
 }
 
-DisplayPathProbeResult DisplayPathProbe::Probe(HMONITOR monitor) const noexcept
+IntelDisplayPathProbeResult IntelDisplayPathProbe::Probe(HMONITOR monitor) const noexcept
 {
     try
     {
@@ -159,7 +162,7 @@ DisplayPathProbeResult DisplayPathProbe::Probe(HMONITOR monitor) const noexcept
         if (!GetMonitorInfoW(monitor, reinterpret_cast<MONITORINFO*>(&monitorInfo)))
             return Unavailable();
 
-        std::vector<VrrActiveDisplayPath> activePaths;
+        std::vector<IntelVrrActiveDisplayPath> activePaths;
         bool complete = false;
         for (int attempt = 0; attempt < 2; ++attempt)
         {
@@ -202,9 +205,9 @@ DisplayPathProbeResult DisplayPathProbe::Probe(HMONITOR monitor) const noexcept
         }
         if (!complete) return Unavailable();
 
-        auto result = ResolveVrrDisplayPath(monitorInfo.szDevice, monitorInfo.rcMonitor,
+        auto result = ResolveIntelVrrDisplayPath(monitorInfo.szDevice, monitorInfo.rcMonitor,
             activePaths, true);
-        if (result.status == DisplayPathProbeStatus::Matched && result.path &&
+        if (result.status == IntelDisplayPathProbeStatus::Matched && result.path &&
             result.path->nominalRefreshHz <= 0.0)
         {
             if (const auto fallback = ReadModeRefreshRate(monitorInfo.szDevice))
@@ -217,3 +220,5 @@ DisplayPathProbeResult DisplayPathProbe::Probe(HMONITOR monitor) const noexcept
     }
     catch (...) { return Unavailable(); }
 }
+
+} // namespace clawhud

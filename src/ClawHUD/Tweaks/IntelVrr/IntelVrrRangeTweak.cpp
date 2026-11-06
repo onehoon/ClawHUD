@@ -48,32 +48,32 @@ std::string ApiCode(const std::optional<std::uint32_t>& value)
     return text.str();
 }
 
-const char* ProbeFailureStageName(DiagIgclProbeFailureStage stage) noexcept
+const char* ProbeFailureStageName(IntelVrrProbeFailureStage stage) noexcept
 {
     switch (stage)
     {
-    case DiagIgclProbeFailureStage::NotInitialized: return "NotInitialized";
-    case DiagIgclProbeFailureStage::LoadLibrary: return "LoadLibrary";
-    case DiagIgclProbeFailureStage::ResolveFunction: return "ResolveFunction";
-    case DiagIgclProbeFailureStage::Initialize: return "Initialize";
-    case DiagIgclProbeFailureStage::EnumerateDevices: return "EnumerateDevices";
-    case DiagIgclProbeFailureStage::GetDeviceProperties: return "GetDeviceProperties";
-    case DiagIgclProbeFailureStage::EnumerateDisplayOutputs: return "EnumerateDisplayOutputs";
-    case DiagIgclProbeFailureStage::GetDisplayProperties: return "GetDisplayProperties";
-    case DiagIgclProbeFailureStage::TargetMapping: return "TargetMapping";
-    case DiagIgclProbeFailureStage::GetArcSyncInfo: return "GetArcSyncInfo";
-    case DiagIgclProbeFailureStage::GetArcSyncProfile: return "GetArcSyncProfile";
-    case DiagIgclProbeFailureStage::InternalError: return "InternalError";
+    case IntelVrrProbeFailureStage::NotInitialized: return "NotInitialized";
+    case IntelVrrProbeFailureStage::LoadLibrary: return "LoadLibrary";
+    case IntelVrrProbeFailureStage::ResolveFunction: return "ResolveFunction";
+    case IntelVrrProbeFailureStage::Initialize: return "Initialize";
+    case IntelVrrProbeFailureStage::EnumerateDevices: return "EnumerateDevices";
+    case IntelVrrProbeFailureStage::GetDeviceProperties: return "GetDeviceProperties";
+    case IntelVrrProbeFailureStage::EnumerateDisplayOutputs: return "EnumerateDisplayOutputs";
+    case IntelVrrProbeFailureStage::GetDisplayProperties: return "GetDisplayProperties";
+    case IntelVrrProbeFailureStage::TargetMapping: return "TargetMapping";
+    case IntelVrrProbeFailureStage::GetArcSyncInfo: return "GetArcSyncInfo";
+    case IntelVrrProbeFailureStage::GetArcSyncProfile: return "GetArcSyncProfile";
+    case IntelVrrProbeFailureStage::InternalError: return "InternalError";
     default: return "None";
     }
 }
 
-const char* ProbeFailureDomainName(DiagIgclProbeResultDomain domain) noexcept
+const char* ProbeFailureDomainName(IntelVrrProbeResultDomain domain) noexcept
 {
     switch (domain)
     {
-    case DiagIgclProbeResultDomain::Win32: return "Win32";
-    case DiagIgclProbeResultDomain::ControlLibrary: return "ControlLibrary";
+    case IntelVrrProbeResultDomain::Win32: return "Win32";
+    case IntelVrrProbeResultDomain::ControlLibrary: return "ControlLibrary";
     default: return "None";
     }
 }
@@ -90,9 +90,9 @@ void AppendProbeFailures(std::vector<std::string>& log, const std::string& panel
             " domain=" + ProbeFailureDomainName(failure.resultDomain) +
             " result=" + ApiCode(failure.result) +
             " detail=" + std::string(failure.detail);
-        if (failure.adapterIndex != DiagIgclProbeFailure::NoIndex)
+        if (failure.adapterIndex != IntelVrrProbeFailure::NoIndex)
             line += " adapterIndex=" + std::to_string(failure.adapterIndex);
-        if (failure.outputIndex != DiagIgclProbeFailure::NoIndex)
+        if (failure.outputIndex != IntelVrrProbeFailure::NoIndex)
             line += " outputIndex=" + std::to_string(failure.outputIndex);
         log.push_back(std::move(line));
     }
@@ -387,7 +387,7 @@ IntelVrrRangeTweak::IntelVrrRangeTweak(ProbeFactory probeFactory,
       tmaEvidenceProvider_(std::move(tmaEvidenceProvider))
 {
     if (!windowsTargetProvider_)
-        windowsTargetProvider_ = [] { return EnumerateVrrWindowsTargets(); };
+        windowsTargetProvider_ = [] { return EnumerateIntelVrrWindowsTargets(); };
     if (!tmaEvidenceProvider_)
         tmaEvidenceProvider_ = [](const PanelIdentity& panel,
             const IntelVrrWindowsTarget& target, bool queryDirectRange)
