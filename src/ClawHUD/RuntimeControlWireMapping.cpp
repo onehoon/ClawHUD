@@ -217,7 +217,8 @@ ctl::ControlResponse ExecuteControlResponse(
         return SnapshotResponse(request, rc);
 
     case Operation::SetStartWithWindows:
-        rc.SetStartWithWindows(request.flag);
+        if (!rc.SetStartWithWindows(request.flag))
+            return StatusResponse(request, ControlStatus::OperationFailed);
         return SnapshotResponse(request, rc);
 
     case Operation::SetHudEnabled:
