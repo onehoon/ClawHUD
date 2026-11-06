@@ -67,4 +67,5 @@ static_assert(offsetof(DisplayProperties, osDisplayEncoder) == 8);
 static_assert(offsetof(DisplayProperties, displayTiming) == 72);
 static_assert(sizeof(DisplayProperties) == 200);
 }
-}
+
+} // namespace clawhud

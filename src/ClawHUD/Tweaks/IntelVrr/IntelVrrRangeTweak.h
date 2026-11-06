@@ -1,9 +1,9 @@
 #pragma once
 
 #include "AffectedPanelDetector.h"
+#include "Probe/IntelVrrTargetStateProbe.h"
 #include "IntelVrrRunResult.h"
 #include "Lg27gs65fVrrRangeTweak.h"
-#include "Probe/IntelVrrTargetStateProbe.h"
 #include "Tma2027VrrEvidence.h"
 
 #include <functional>

@@ -203,6 +203,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/Tma2027VrrTests.cmake")
     add_executable(ClawHUD.AffectedPanelDetectorTests
         tests/AffectedPanelDetectorTests.cpp
         src/ClawHUD/Tweaks/IntelVrr/AffectedPanelDetector.cpp
+        src/ClawHUD/Tweaks/IntelVrr/Probe/IntelDisplayPathProbe.cpp
         src/ClawHUD/Tweaks/IntelVrr/Lg27gs65fVrrRangeTweak.cpp)
     target_compile_features(ClawHUD.AffectedPanelDetectorTests PRIVATE cxx_std_20)
     target_compile_definitions(ClawHUD.AffectedPanelDetectorTests PRIVATE
@@ -623,6 +624,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/Tma2027VrrTests.cmake")
     target_link_libraries(ClawHUD.DiagApi2EvidenceTests PRIVATE kernel32)
     set_target_properties(ClawHUD.DiagApi2EvidenceTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.DiagApi2EvidenceTests COMMAND ClawHUD.DiagApi2EvidenceTests)
+
 
     add_executable(ClawHUD.DiagProcessMetadataTests
         tests/DiagProcessMetadataTests.cpp

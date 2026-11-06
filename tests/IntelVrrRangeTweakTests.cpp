@@ -1,13 +1,16 @@
 #include "Tweaks/IntelVrr/IntelVrrRangeTweak.h"
+#include "Tweaks/IntelVrr/Probe/IntelVrrTargetStateProbe.h"
 #include "Tweaks/IntelVrr/IntelVrrResultStore.h"
 #include "Tweaks/TweakStartupCoordinator.h"
 
 #include <windows.h>
 
+#include <array>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <vector>
@@ -542,6 +545,65 @@ int main()
     ok &= Check(IsIntelVrrProfileChangeAllowed(lgRollback,
         IntelVrrPanelClass::Lg27gs65f, 4),
         "LG rollback remains allowed after EXCELLENT readback has a mismatched range");
+
+    const std::array nonFiniteValues{
+        std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::infinity(),
+        -std::numeric_limits<float>::infinity() };
+    int setterCalls{};
+    for (const auto value : nonFiniteValues)
+    {
+        auto invalid = clawNarrow;
+        invalid.capability->minimumHz = value;
+        ok &= Check(!IsIntelVrrProfileChangeAllowed(invalid,
+            IntelVrrPanelClass::ClawInternal, 2),
+            "non-finite capability minimum rejects profile changes");
+        invalid = clawNarrow;
+        invalid.capability->maximumHz = value;
+        ok &= Check(!IsIntelVrrProfileChangeAllowed(invalid,
+            IntelVrrPanelClass::ClawInternal, 2),
+            "non-finite capability maximum rejects profile changes");
+        invalid = clawNarrow;
+        invalid.profile->minimumHz = value;
+        ok &= Check(!IsIntelVrrProfileChangeAllowed(invalid,
+            IntelVrrPanelClass::ClawInternal, 2),
+            "non-finite profile minimum rejects profile changes");
+        invalid = clawNarrow;
+        invalid.profile->maximumHz = value;
+        ok &= Check(!IsIntelVrrProfileChangeAllowed(invalid,
+            IntelVrrPanelClass::ClawInternal, 2),
+            "non-finite profile maximum rejects profile changes");
+
+        auto capability = *clawNarrow.capability;
+        auto profile = *clawNarrow.profile;
+        capability.minimumHz = value;
+        ok &= Check(!detail::SetIntelVrrProfileIfFresh(clawNarrow,
+            capability, profile, [&] { ++setterCalls; }),
+            "non-finite fresh capability minimum blocks the setter call");
+        capability = *clawNarrow.capability;
+        capability.maximumHz = value;
+        ok &= Check(!detail::SetIntelVrrProfileIfFresh(clawNarrow,
+            capability, profile, [&] { ++setterCalls; }),
+            "non-finite fresh capability maximum blocks the setter call");
+        capability = *clawNarrow.capability;
+        profile = *clawNarrow.profile;
+        profile.minimumHz = value;
+        ok &= Check(!detail::SetIntelVrrProfileIfFresh(clawNarrow,
+            capability, profile, [&] { ++setterCalls; }),
+            "non-finite fresh profile minimum blocks the setter call");
+        profile = *clawNarrow.profile;
+        profile.maximumHz = value;
+        ok &= Check(!detail::SetIntelVrrProfileIfFresh(clawNarrow,
+            capability, profile, [&] { ++setterCalls; }),
+            "non-finite fresh profile maximum blocks the setter call");
+    }
+    ok &= Check(setterCalls == 0,
+        "non-finite fresh re-query values never invoke the profile setter");
+    ok &= Check(detail::SetIntelVrrProfileIfFresh(clawNarrow,
+        *clawNarrow.capability, *clawNarrow.profile,
+        [&] { ++setterCalls; }) && setterCalls == 1,
+        "unchanged finite re-query values invoke the profile setter once");
+
 
     // LG active by itself: a stale WMI Claw record must not steal its IGCL output.
     {

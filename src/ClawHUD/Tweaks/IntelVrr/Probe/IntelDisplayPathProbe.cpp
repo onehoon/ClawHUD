@@ -6,6 +6,7 @@
 
 namespace clawhud
 {
+
 namespace
 {
 wchar_t FoldAscii(wchar_t value) noexcept
@@ -219,4 +220,5 @@ IntelDisplayPathProbeResult IntelDisplayPathProbe::Probe(HMONITOR monitor) const
     }
     catch (...) { return Unavailable(); }
 }
-}
+
+} // namespace clawhud
