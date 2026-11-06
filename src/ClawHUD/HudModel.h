@@ -99,10 +99,16 @@ struct HudTextRun
 bool ShouldShowHud(HudVisibilityMode mode, bool foregroundGameActive) noexcept;
 // The production HUD visibility decision used by App::ReconcileHudVisibility
 // after its suspended / resume-recovery early-out. Always hidden when the HUD
-// is off; otherwise the configured mode, foreground game, or visible SteamAddon
-// Overlay decides.
+// is off; a visible SteamAddon Overlay takes precedence, then the optional F8
+// manual override, then the configured mode and foreground game.
+bool ResolveHudVisible(bool hudEnabled, std::optional<bool> manualOverride,
+    HudVisibilityMode mode, bool foregroundActive,
+    bool steamAddonOverlayVisible = false) noexcept;
+// Compatibility overload for callers that only supply the Addon overlay policy.
 bool ResolveHudVisible(bool hudEnabled, HudVisibilityMode mode,
     bool foregroundActive, bool steamAddonOverlayVisible) noexcept;
+std::optional<bool> ResolveHudHotkeyOverride(bool hudEnabled,
+    bool currentlyVisible) noexcept;
 std::uint8_t HudOpacityByte(float opacityPercent) noexcept;
 bool ShouldSampleProductionTelemetry(bool resolvedShow, bool suspended) noexcept;
 std::vector<HudTextRun> FormatHud(const HudTelemetrySnapshot& snapshot);

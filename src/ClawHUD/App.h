@@ -12,6 +12,7 @@
 #include "RuntimeControl.h"
 #include "RuntimeControlDispatchBridge.h"
 #include "RuntimeControlPipeServer.h"
+#include "RuntimeLifecyclePolicy.h"
 #include "HudModel.h"
 #include "GameDetection/GameSessionController.h"
 #include "PresentMonTelemetryProvider.h"
@@ -37,6 +38,7 @@ class DebugObservationController;
 // Runtime-control dispatch wake-up on the runtime message window. WM_APP + 2/5/6/
 // 7/8/9 are game-session messages (WM_APP + 1 is unused since the Win32 Settings
 // frontend was removed), so this sits clear of them.
+constexpr UINT kHudToggleHotkeyId = 1;
 constexpr UINT kRuntimeControlDispatchMessage = WM_APP + 11;
 // Posted by the pipe worker after a RequestShutdown response has been delivered;
 // the main-thread handler enters the normal App::Exit() path.
@@ -56,6 +58,7 @@ public:
     void HandleSystemSuspend();
     void HandleSystemResume();
     void HandleTimer(UINT_PTR timerId);
+    void HandleHudToggleHotkey();
 
     // Main-thread wake handler for the runtime-control dispatch bridge.
     void HandleRuntimeControlDispatch();
@@ -78,16 +81,9 @@ public:
     void SetIntelVrrRangeFixEnabled(bool enabled) override;
 
 private:
-    enum class SingleInstanceResult
-    {
-        Acquired,
-        AlreadyRunning,
-        Failed,
-    };
-
     std::optional<clawhud::IntelVrrRunResult> IntelVrrLastResult() const;
     bool SetHudOpacity(float opacity, bool persist);
-    SingleInstanceResult AcquireSingleInstance();
+    clawhud::SingleInstanceResult AcquireSingleInstance();
     void CheckForUpdates();
     // PresentMon shared-runtime prerequisite gate. Runs after the single-instance
     // and supported-hardware gates and before any startup side effect. A value
@@ -158,6 +154,7 @@ private:
     // normal DebugLoggingEnabled=false run. See GameDetection/DebugObservationController.h.
     std::unique_ptr<clawhud::DebugObservationController> debugObservation_;
     bool exiting_{};
+    bool hudHotkeyRegistered_{};
     std::wstring executablePath_;
     bool intelVrrRangeFixEnabled_{ true };
     // Suspend/resume is deliberately kept as top-level App orchestration (R5):

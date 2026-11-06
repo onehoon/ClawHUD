@@ -11,6 +11,7 @@
 
 namespace clawhud
 {
+
 struct IntelVrrActiveDisplayPath
 {
     std::wstring sourceDeviceName;
@@ -37,6 +38,20 @@ struct IntelVrrDisplayPath
     bool usedModeRefreshFallback{};
 };
 
+enum class IntelDisplayPathProbeStatus
+{
+    Matched,
+    NotFound,
+    Ambiguous,
+    Unavailable,
+};
+
+struct IntelDisplayPathProbeResult
+{
+    IntelDisplayPathProbeStatus status{ IntelDisplayPathProbeStatus::Unavailable };
+    std::optional<IntelVrrDisplayPath> path;
+};
+
 struct IntelVrrWindowsTarget
 {
     std::wstring sourceDeviceName;
@@ -55,31 +70,18 @@ struct IntelVrrWindowsTargets
     LONG error{};
 };
 
-// Enumerates every active Windows target with its exact monitor device path.
-IntelVrrWindowsTargets EnumerateIntelVrrWindowsTargets() noexcept;
-
-enum class IntelDisplayPathProbeStatus
-{
-    Matched,
-    NotFound,
-    Ambiguous,
-    Unavailable,
-};
-
-struct IntelDisplayPathProbeResult
-{
-    IntelDisplayPathProbeStatus status{ IntelDisplayPathProbeStatus::Unavailable };
-    std::optional<IntelVrrDisplayPath> path;
-};
-
 IntelDisplayPathProbeResult ResolveIntelVrrDisplayPath(std::wstring_view monitorDeviceName,
     const RECT& monitorRect, std::span<const IntelVrrActiveDisplayPath> activePaths,
     bool enumerationComplete = true,
     std::optional<double> fallbackNominalRefreshHz = std::nullopt);
+
+// Enumerates active Windows targets with their source and exact monitor identity.
+IntelVrrWindowsTargets EnumerateIntelVrrWindowsTargets() noexcept;
 
 class IntelDisplayPathProbe
 {
 public:
     IntelDisplayPathProbeResult Probe(HMONITOR monitor) const noexcept;
 };
-}
+
+} // namespace clawhud

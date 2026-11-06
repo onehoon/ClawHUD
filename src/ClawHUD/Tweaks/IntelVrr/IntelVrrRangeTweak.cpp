@@ -48,6 +48,59 @@ std::string ApiCode(const std::optional<std::uint32_t>& value)
     return text.str();
 }
 
+const char* ProbeFailureStageName(IntelVrrProbeFailureStage stage) noexcept
+{
+    switch (stage)
+    {
+    case IntelVrrProbeFailureStage::NotInitialized: return "NotInitialized";
+    case IntelVrrProbeFailureStage::LoadLibrary: return "LoadLibrary";
+    case IntelVrrProbeFailureStage::ResolveFunction: return "ResolveFunction";
+    case IntelVrrProbeFailureStage::Initialize: return "Initialize";
+    case IntelVrrProbeFailureStage::EnumerateDevices: return "EnumerateDevices";
+    case IntelVrrProbeFailureStage::GetDeviceProperties: return "GetDeviceProperties";
+    case IntelVrrProbeFailureStage::EnumerateDisplayOutputs: return "EnumerateDisplayOutputs";
+    case IntelVrrProbeFailureStage::GetDisplayProperties: return "GetDisplayProperties";
+    case IntelVrrProbeFailureStage::TargetMapping: return "TargetMapping";
+    case IntelVrrProbeFailureStage::GetArcSyncInfo: return "GetArcSyncInfo";
+    case IntelVrrProbeFailureStage::GetArcSyncProfile: return "GetArcSyncProfile";
+    case IntelVrrProbeFailureStage::InternalError: return "InternalError";
+    default: return "None";
+    }
+}
+
+const char* ProbeFailureDomainName(IntelVrrProbeResultDomain domain) noexcept
+{
+    switch (domain)
+    {
+    case IntelVrrProbeResultDomain::Win32: return "Win32";
+    case IntelVrrProbeResultDomain::ControlLibrary: return "ControlLibrary";
+    default: return "None";
+    }
+}
+
+void AppendProbeFailures(std::vector<std::string>& log, const std::string& panel,
+    const IntelVrrTargetState& state)
+{
+    for (std::size_t index = 0;
+        index < state.failureRecordCount && index < state.failures.size(); ++index)
+    {
+        const auto& failure = state.failures[index];
+        std::string line = "Panel=" + panel + " probeFailure=" +
+            std::to_string(index) + " stage=" + ProbeFailureStageName(failure.stage) +
+            " domain=" + ProbeFailureDomainName(failure.resultDomain) +
+            " result=" + ApiCode(failure.result) +
+            " detail=" + std::string(failure.detail);
+        if (failure.adapterIndex != IntelVrrProbeFailure::NoIndex)
+            line += " adapterIndex=" + std::to_string(failure.adapterIndex);
+        if (failure.outputIndex != IntelVrrProbeFailure::NoIndex)
+            line += " outputIndex=" + std::to_string(failure.outputIndex);
+        log.push_back(std::move(line));
+    }
+    if (state.suppressedFailureCount != 0)
+        log.push_back("Panel=" + panel + " suppressedProbeFailures=" +
+            std::to_string(state.suppressedFailureCount));
+}
+
 std::string NowUtc()
 {
     SYSTEMTIME time{};
@@ -557,11 +610,11 @@ IntelVrrRunResult IntelVrrRangeTweak::Run(bool enabled)
             std::to_string(before.targetMatchCount) + " mapping=" +
             (before.mappingStatus == IntelVrrTargetMappingStatus::Exact ? "Exact" :
                 before.mappingStatus == IntelVrrTargetMappingStatus::Ambiguous ? "Ambiguous" : "Unknown") +
-            " discoveryFailureStage=" +
-            IntelVrrDiscoveryFailureStageName(before.discoveryFailureStage) +
-            " discoveryFailureResult=" + ApiCode(before.discoveryFailureResult) +
+            " failureRecords=" + std::to_string(before.failureRecordCount) +
+            " suppressedFailures=" + std::to_string(before.suppressedFailureCount) +
             " capabilityResult=" + ApiCode(before.capabilityResult) +
             " profileResult=" + ApiCode(before.profileResult));
+        AppendProbeFailures(log_, label, before);
 
         std::optional<Tma2027Evidence> tmaEvidence;
         if (item.kind == SupportedPanelKind::Claw7Internal)
@@ -759,9 +812,6 @@ IntelVrrRunResult IntelVrrRangeTweak::Run(bool enabled)
                 std::to_string(after.targetMatchCount) + " mapping=" +
                 (after.mappingStatus == IntelVrrTargetMappingStatus::Exact ? "Exact" :
                     after.mappingStatus == IntelVrrTargetMappingStatus::Ambiguous ? "Ambiguous" : "Unknown") +
-                " discoveryFailureStage=" +
-                IntelVrrDiscoveryFailureStageName(after.discoveryFailureStage) +
-                " discoveryFailureResult=" + ApiCode(after.discoveryFailureResult) +
                 " capabilitySupported=" +
                 (after.capability ? (after.capability->supported ? "1" : "0") : "unknown") +
                 " capability=" + (after.capability
@@ -771,6 +821,7 @@ IntelVrrRunResult IntelVrrRangeTweak::Run(bool enabled)
                     ? Range(after.profile->minimumHz, after.profile->maximumHz) : "unknown") +
                 " capabilityResult=" + ApiCode(after.capabilityResult) +
                 " profileResult=" + ApiCode(after.profileResult));
+            AppendProbeFailures(log_, label + "-AFTER", after);
         }
         std::optional<Tma2027Evidence> afterEvidence;
         if (item.kind == SupportedPanelKind::Claw7Internal)
