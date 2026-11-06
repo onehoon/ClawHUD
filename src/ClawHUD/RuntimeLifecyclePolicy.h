@@ -1,29 +1,71 @@
 #pragma once
 
-// CH-RTF-9 — the two mode-aware lifecycle decisions, isolated as pure
-// constexpr predicates so they can be tested without App / Velopack / a HWND.
-//
-// Both are Standalone-only:
-//  - Managed launch must not become the owner of the Standalone startup
-//    shortcut just because it was launched.
-//  - Managed update applies with restart=false; the surviving external owner
-//    relaunches `ClawHUD.exe --managed`, so Velopack must not restart it.
-//
-// Explicit SetStartWithWindows via IPC is NOT gated by these — a frontend
-// controlling a Managed runtime may still change the user's Standalone
-// preference.
-
 #include "LaunchMode.h"
+#include "ManagedStartupExitCode.h"
+
+#include <optional>
 
 namespace clawhud
 {
+enum class SingleInstanceResult
+{
+    Acquired,
+    AlreadyRunning,
+    Failed,
+};
+
 constexpr bool ShouldReconcileStartupRegistration(LaunchMode mode) noexcept
 {
     return mode == LaunchMode::Standalone;
 }
 
+constexpr bool ShouldAllowStartWithWindowsMutation(LaunchMode mode) noexcept
+{
+    return mode == LaunchMode::Standalone;
+}
+
+constexpr bool ShouldRunSelfUpdate(LaunchMode mode) noexcept
+{
+    return mode == LaunchMode::Standalone;
+}
+
+constexpr bool ShouldShowStartupFailureUi(LaunchMode mode) noexcept
+{
+    return mode == LaunchMode::Standalone;
+}
+
+constexpr bool ShouldFailStartupWhenControlIpcUnavailable(LaunchMode mode) noexcept
+{
+    return mode == LaunchMode::Managed;
+}
+
 constexpr bool ShouldRestartAfterVelopackUpdate(LaunchMode mode) noexcept
 {
     return mode == LaunchMode::Standalone;
+}
+
+constexpr bool ShouldRegisterGlobalHudHotkey(LaunchMode mode) noexcept
+{
+    return mode == LaunchMode::Standalone;
+}
+
+constexpr bool ShouldInitializeFreshManagedSettings(LaunchMode mode) noexcept
+{
+    return mode == LaunchMode::Managed;
+}
+
+constexpr std::optional<ManagedStartupExitCode>
+ManagedStartupExitCodeForSingleInstanceResult(SingleInstanceResult result) noexcept
+{
+    switch (result)
+    {
+    case SingleInstanceResult::Acquired:
+        return std::nullopt;
+    case SingleInstanceResult::AlreadyRunning:
+        return ManagedStartupExitCode::AlreadyRunning;
+    case SingleInstanceResult::Failed:
+        return ManagedStartupExitCode::RuntimeInitializationFailed;
+    }
+    return ManagedStartupExitCode::RuntimeInitializationFailed;
 }
 }
