@@ -617,11 +617,24 @@ void CheckSystemTelemetry(bool& ok)
     auto amdWithNvidiaEgpu = amdCapabilities;
     amdWithNvidiaEgpu.devices.push_back({3, PM_DEVICE_TYPE_GRAPHICS_ADAPTER,
         PM_DEVICE_VENDOR_NVIDIA, "Nvidia eGPU"});
+    const auto nvidiaOnlyPower = std::find_if(amdWithNvidiaEgpu.metrics.begin(),
+        amdWithNvidiaEgpu.metrics.end(), [](const auto& metric)
+        { return metric.id == PM_METRIC_GPU_POWER; });
+    if (nvidiaOnlyPower != amdWithNvidiaEgpu.metrics.end())
+    {
+        for (auto& device : nvidiaOnlyPower->devices)
+            if (device.deviceId == 1)
+                device.availability = PM_METRIC_AVAILABILITY_UNAVAILABLE;
+        nvidiaOnlyPower->devices.push_back({3, PM_METRIC_AVAILABILITY_AVAILABLE, 1});
+    }
     const auto amdWithEgpuPlan = BuildPresentMonSystemQueryPlan(
         amdWithNvidiaEgpu, HudGpuVendor::Amd);
     ok &= Check(amdWithEgpuPlan.gpuTargetStatus == PresentMonGpuTargetStatus::Selected &&
-        amdWithEgpuPlan.gpuDeviceId == 1 && gpuSlotsUseOnly(amdWithEgpuPlan, 1),
-        "an AMD target does not fall back to a different-vendor Nvidia eGPU");
+        amdWithEgpuPlan.gpuDeviceId == 1 && gpuSlotsUseOnly(amdWithEgpuPlan, 1) &&
+        amdWithEgpuPlan.bindings.size() == 5 &&
+        std::none_of(amdWithEgpuPlan.bindings.begin(), amdWithEgpuPlan.bindings.end(),
+            [](const auto& binding) { return binding.slot == SystemMetricSlot::GpuPower; }),
+        "an AMD target does not source power from a different-vendor Nvidia eGPU");
 
     auto unavailableAmdMetrics = amdCapabilities;
     for (auto& metric : unavailableAmdMetrics.metrics)
