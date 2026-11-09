@@ -50,6 +50,9 @@ void ProductionTelemetryController::FillSnapshot(HudTelemetrySnapshot& snapshot)
 {
     aggregator_.FillSnapshot(snapshot);
     snapshot.presentMonDisplayedFps = latestProcessFps_;
+    snapshot.fpsSamplingTargetActive = ResolveProductionFpsTargetPid(
+        visibilityMode_, alwaysFpsTarget_.TargetProcessId(),
+        inGameForegroundProcessId_) != 0;
     if (latestPower_)
     {
         snapshot.batteryPercent = latestPower_->batteryPercent;

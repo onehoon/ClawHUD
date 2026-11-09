@@ -283,5 +283,127 @@ int main()
             [](const auto& run) { return run.kind != HudSegmentKind::Ram; }),
         "unavailable RAM omits HUD group");
 
+    HudTelemetrySnapshot a8AllSystemMetrics{};
+    a8AllSystemMetrics.showUnavailableMetrics = true;
+    a8AllSystemMetrics.fpsSamplingTargetActive = true;
+    a8AllSystemMetrics.presentMonDisplayedFps = 119.6;
+    a8AllSystemMetrics.cpuUsagePercent = 42.0;
+    a8AllSystemMetrics.cpuClockMHz = 4200.4;
+    a8AllSystemMetrics.gpuUsagePercent = 75.0;
+    a8AllSystemMetrics.gpuClockMHz = 2200.0;
+    a8AllSystemMetrics.gpuPowerW = 12.6;
+    a8AllSystemMetrics.systemMemoryUsedBytes = 8ULL * 1024 * 1024 * 1024;
+    a8AllSystemMetrics.gpuMemoryUsedBytes = 4ULL * 1024 * 1024 * 1024;
+    a8AllSystemMetrics.onBattery = true;
+    a8AllSystemMetrics.batteryPercent = 75;
+    a8AllSystemMetrics.remainingMinutes = 90;
+    ok &= Check(JoinHudRuns(FormatHud(a8AllSystemMetrics)) ==
+        L"120FPS | CPU 42% 4200MHz --\u00B0C | GPU 75% 2200MHz 13W | TDP --W | RAM 8.0GB | VRAM 4.0GB | FAN --RPM | BAT 75% 1.5h",
+        "A8 formats available system telemetry and marks disabled EC metrics unavailable");
+
+    HudTelemetrySnapshot a8Unavailable{};
+    a8Unavailable.showUnavailableMetrics = true;
+    const auto a8UnavailableText = JoinHudRuns(FormatHud(a8Unavailable));
+    ok &= Check(a8UnavailableText ==
+        L"CPU --% --MHz --\u00B0C | GPU --% --MHz --W | TDP --W | RAM --GB | VRAM --GB | FAN --RPM | BAT --%",
+        "A8 exposes placeholders when all telemetry is unavailable and no FPS target exists");
+    ok &= Check(a8UnavailableText.find(L"0FPS") == std::wstring::npos,
+        "A8 never fabricates zero FPS");
+
+    HudTelemetrySnapshot a8Partial{};
+    a8Partial.showUnavailableMetrics = true;
+    a8Partial.cpuUsagePercent = 30.0;
+    a8Partial.cpuTemperatureC = 61;
+    a8Partial.gpuUsagePercent = 55.0;
+    a8Partial.gpuClockMHz = 1900.0;
+    a8Partial.systemMemoryUsedBytes = 0;
+    ok &= Check(JoinHudRuns(FormatHud(a8Partial)) ==
+        L"CPU 30% --MHz 61\u00B0C | GPU 55% 1900MHz --W | TDP --W | RAM 0.0GB | VRAM --GB | FAN --RPM | BAT --%",
+        "A8 partial telemetry keeps per-metric placeholders and accepts zero-byte RAM");
+
+    HudTelemetrySnapshot a8EcUnavailable{};
+    a8EcUnavailable.showUnavailableMetrics = true;
+    a8EcUnavailable.cpuUsagePercent = 50.0;
+    a8EcUnavailable.cpuClockMHz = 3600.0;
+    a8EcUnavailable.gpuUsagePercent = 60.0;
+    a8EcUnavailable.gpuClockMHz = 2000.0;
+    a8EcUnavailable.gpuPowerW = 10.0;
+    ok &= Check(JoinHudRuns(FormatHud(a8EcUnavailable)).find(
+            L"CPU 50% 3600MHz --\u00B0C | GPU 60% 2000MHz 10W | TDP --W") == 0 &&
+        JoinHudRuns(FormatHud(a8EcUnavailable)).find(L"FAN --RPM") != std::wstring::npos,
+        "A8 leaves EC temperature, package power, and fan readings unavailable");
+
+    HudTelemetrySnapshot a8ZeroValues{};
+    a8ZeroValues.showUnavailableMetrics = true;
+    a8ZeroValues.cpuUsagePercent = 0.0;
+    a8ZeroValues.cpuClockMHz = 0.0;
+    a8ZeroValues.gpuUsagePercent = 0.0;
+    a8ZeroValues.gpuClockMHz = 0.0;
+    a8ZeroValues.gpuPowerW = 0.0;
+    a8ZeroValues.cpuPackagePowerW = 0.0;
+    a8ZeroValues.systemMemoryUsedBytes = 0;
+    a8ZeroValues.gpuMemoryUsedBytes = 0;
+    a8ZeroValues.fan1Rpm = 0;
+    a8ZeroValues.batteryPercent = 0;
+    ok &= Check(JoinHudRuns(FormatHud(a8ZeroValues)) ==
+        L"CPU 0% 0MHz --\u00B0C | GPU 0% 0MHz 0W | TDP 0W | RAM 0.0GB | VRAM 0.0GB | FAN 0RPM | BAT 0%",
+        "A8 preserves legitimate zero utilization, power, memory, fan, and battery values");
+
+    HudTelemetrySnapshot a8DcWithoutEta{};
+    a8DcWithoutEta.showUnavailableMetrics = true;
+    a8DcWithoutEta.onBattery = true;
+    a8DcWithoutEta.batteryPercent = 55;
+    ok &= Check(JoinHudRuns(FormatHud(a8DcWithoutEta)).find(L"BAT 55% --") != std::wstring::npos,
+        "known DC appends an unavailable ETA placeholder");
+    a8DcWithoutEta.remainingMinutes = 120;
+    ok &= Check(JoinHudRuns(FormatHud(a8DcWithoutEta)).find(L"BAT 55% 2h") != std::wstring::npos,
+        "known DC formats a valid ETA");
+    a8DcWithoutEta.batteryPercent.reset();
+    a8DcWithoutEta.remainingMinutes.reset();
+    ok &= Check(JoinHudRuns(FormatHud(a8DcWithoutEta)).find(L"BAT --% --") != std::wstring::npos,
+        "known DC with no battery level or ETA shows both unavailable values");
+    HudTelemetrySnapshot a8AcOrUnknown{};
+    a8AcOrUnknown.showUnavailableMetrics = true;
+    a8AcOrUnknown.batteryPercent = 55;
+    a8AcOrUnknown.remainingMinutes = 120;
+    ok &= Check(JoinHudRuns(FormatHud(a8AcOrUnknown)).find(L"BAT 55%") != std::wstring::npos &&
+        JoinHudRuns(FormatHud(a8AcOrUnknown)).find(L"BAT 55% 2h") == std::wstring::npos,
+        "AC or unknown power state does not claim DC or display an ETA");
+
+    HudTelemetrySnapshot a8FpsTarget{};
+    a8FpsTarget.showUnavailableMetrics = true;
+    a8FpsTarget.fpsSamplingTargetActive = true;
+    const auto a8TargetMissingFps = JoinHudRuns(FormatHud(a8FpsTarget));
+    ok &= Check(a8TargetMissingFps.starts_with(L"--FPS | ") &&
+        a8TargetMissingFps.find(L"0FPS") == std::wstring::npos,
+        "A8 shows --FPS only for an active sampling target with unavailable FPS");
+    a8FpsTarget.presentMonDisplayedFps = 0.0;
+    const auto a8ZeroFps = JoinHudRuns(FormatHud(a8FpsTarget));
+    ok &= Check(a8ZeroFps.starts_with(L"--FPS | ") &&
+        a8ZeroFps.find(L"0FPS") == std::wstring::npos,
+        "A8 treats zero FPS as unavailable instead of fabricating a 0FPS reading");
+    a8FpsTarget.presentMonDisplayedFps = 0.2;
+    const auto a8RoundedZeroFps = JoinHudRuns(FormatHud(a8FpsTarget));
+    ok &= Check(a8RoundedZeroFps.starts_with(L"--FPS | ") &&
+        a8RoundedZeroFps.find(L"0FPS") == std::wstring::npos,
+        "A8 treats a value that rounds to zero as unavailable FPS");
+    a8FpsTarget.fpsSamplingTargetActive = false;
+    a8FpsTarget.presentMonDisplayedFps.reset();
+    const auto a8NoTargetFps = JoinHudRuns(FormatHud(a8FpsTarget));
+    ok &= Check(a8NoTargetFps.find(L"FPS") == std::wstring::npos,
+        "A8 does not show a permanent FPS placeholder without an active target");
+
+    HudTelemetrySnapshot a8Invalid{};
+    a8Invalid.showUnavailableMetrics = true;
+    a8Invalid.cpuUsagePercent = std::numeric_limits<double>::quiet_NaN();
+    a8Invalid.cpuClockMHz = std::numeric_limits<double>::infinity();
+    a8Invalid.cpuTemperatureC = -1;
+    a8Invalid.gpuUsagePercent = 101.0;
+    a8Invalid.gpuClockMHz = std::numeric_limits<double>::infinity();
+    a8Invalid.gpuPowerW = -1.0;
+    ok &= Check(JoinHudRuns(FormatHud(a8Invalid)).find(
+            L"CPU --% --MHz --\u00B0C | GPU --% --MHz --W") == 0,
+        "A8 invalid values use unavailable placeholders instead of invalid formatting");
+
     return ok ? 0 : 1;
 }
