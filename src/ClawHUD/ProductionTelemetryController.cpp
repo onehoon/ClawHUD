@@ -1,13 +1,13 @@
 #include "ProductionTelemetryController.h"
 
 #include "ProductionTargetPolicy.h"
+#include "MsiEcTelemetryReader.h"
 #include "RuntimeLogger.h"
 #include "WindowsMemoryTelemetry.h"
 
 #include <iomanip>
 #include <sstream>
 #include <string>
-#include <vector>
 
 namespace clawhud
 {
@@ -36,6 +36,16 @@ void ProductionTelemetryController::Bind(HWND messageWindow,
     requestRender_ = std::move(requestRender);
 }
 
+bool ProductionTelemetryController::ConfigureDeviceSensors(
+    HudSensorSupport sensors) noexcept
+{
+    if (samplingActive_ || sensorSupportConfigured_ || ecClient_)
+        return false;
+    sensorSupport_ = sensors;
+    sensorSupportConfigured_ = true;
+    return true;
+}
+
 void ProductionTelemetryController::FillSnapshot(HudTelemetrySnapshot& snapshot) const
 {
     aggregator_.FillSnapshot(snapshot);
@@ -51,72 +61,19 @@ void ProductionTelemetryController::FillSnapshot(HudTelemetrySnapshot& snapshot)
 
 MsiEcHudTelemetry ProductionTelemetryController::ReadEcTelemetry()
 {
-    MsiEcHudTelemetry result{};
-    if (!ecClient_)
-        ecClient_ = std::make_unique<EcHelperClient>();
-
     // Session-level failures only abort the current sample. EcHelperClient has
     // already closed its own broken transport and kept the launch attempt
     // consumed, so this controller must not call Close() here: that would re-arm
     // an automatic runas on the next 1 s sample. A new elevated helper lifetime
     // begins only via ReleaseEcHelper() at an explicit boundary.
-    const auto abortAfterFailure = [this]()
+    const bool onBattery = latestPower_ &&
+        latestPower_->onBattery.value_or(false);
+    return ReadMsiEcHudTelemetry(sensorSupport_, onBattery, [this]() -> EcHelperClient&
     {
-        return ShouldAbortEcTelemetrySample(ecClient_->LastStage());
-    };
-
-    std::vector<std::uint8_t> payload;
-    if (ecClient_->ReadTemperature(payload))
-        result.cpuTempC = DecodeCpuTempC(payload);
-    else if (abortAfterFailure())
-        return result;
-
-    payload.clear();
-    if (ecClient_->ReadFan(payload))
-    {
-        if (const auto fans = DecodeFanTelemetry(payload))
-        {
-            result.fan1Rpm = fans->fan1Rpm;
-            result.fan2Rpm = fans->fan2Rpm;
-        }
-    }
-    else if (abortAfterFailure())
-        return result;
-
-    payload.clear();
-    if (ecClient_->ReadData(221, payload))
-        result.cpuPackagePowerW = DecodeCpuPackagePowerW(payload);
-    else if (abortAfterFailure())
-        return result;
-
-    if (!latestPower_ || !latestPower_->onBattery.value_or(false))
-        return result;
-
-    std::vector<std::uint8_t> currentLow;
-    std::vector<std::uint8_t> currentHigh;
-    std::vector<std::uint8_t> voltageLow;
-    std::vector<std::uint8_t> voltageHigh;
-    const bool c0 = ecClient_->ReadData(70, currentLow);
-    if (!c0 || currentLow.empty())
-        return result;
-    const bool c1 = ecClient_->ReadData(71, currentHigh);
-    if (!c1 || currentHigh.empty())
-        return result;
-    const bool v0 = ecClient_->ReadData(74, voltageLow);
-    if (!v0 || voltageLow.empty())
-        return result;
-    const bool v1 = ecClient_->ReadData(75, voltageHigh);
-    if (!v1 || voltageHigh.empty())
-        return result;
-    if (c0 && c1 && v0 && v1 && !currentLow.empty() && !currentHigh.empty() &&
-        !voltageLow.empty() && !voltageHigh.empty())
-    {
-        const auto battery = DecodeBatteryPower(
-            currentLow[0], currentHigh[0], voltageLow[0], voltageHigh[0]);
-        if (battery)
-            result.batteryDischargePowerW = battery->powerW;
-    }
-    return result;
+        if (!ecClient_)
+            ecClient_ = std::make_unique<EcHelperClient>();
+        return *ecClient_;
+    });
 }
 
 void ProductionTelemetryController::SampleSystemEc()

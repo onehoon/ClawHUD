@@ -149,7 +149,15 @@ int App::Run()
     else
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info,
             L"ClawHUD self-update skipped launchMode=Managed");
-    const auto hardware = CheckSupportedHardware();
+    const auto deviceSelection = DetectSupportedHudDevice();
+    auto hardware = deviceSelection.status;
+    if (hardware == HardwareSupport::Supported &&
+        !clawhud::IsHudDeviceSelectionAdmitted(deviceSelection))
+    {
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
+            L"Supported hardware decision did not include an admitted device model");
+        hardware = HardwareSupport::Indeterminate;
+    }
     if (hardware == HardwareSupport::Unsupported)
     {
         if (!clawhud::ShouldShowStartupFailureUi(launchMode_))
@@ -168,6 +176,27 @@ int App::Run()
             L"This device could not be identified. ClawHUD will exit without making any changes.",
             L"ClawHUD", MB_OK | MB_ICONWARNING);
         return 0;
+    }
+    selectedHudDeviceModel_ = deviceSelection.model;
+    if (!presentMonTelemetryProvider_.ConfigureExpectedGpuVendor(
+            selectedHudDeviceModel_->capabilities.expectedGpuVendor))
+    {
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
+            L"PresentMon GPU vendor policy could not be configured before initialization");
+        if (launchMode_ == clawhud::LaunchMode::Managed)
+            return ReportManagedStartupFailure(
+                clawhud::ManagedStartupExitCode::RuntimeInitializationFailed);
+        return 1;
+    }
+    if (!productionTelemetry_.ConfigureDeviceSensors(
+            selectedHudDeviceModel_->capabilities.sensors))
+    {
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
+            L"EC sensor policy could not be configured before sampling");
+        if (launchMode_ == clawhud::LaunchMode::Managed)
+            return ReportManagedStartupFailure(
+                clawhud::ManagedStartupExitCode::RuntimeInitializationFailed);
+        return 1;
     }
     // PresentMon shared-runtime prerequisite. Gated here so an unsupported device
     // or a losing second instance never reaches the elevated MSI path, and so a
@@ -261,7 +290,17 @@ int App::Run()
             ReconcileHudVisibility();
         }
     }
-    tweakStartupCoordinator_.Start(intelVrrRangeFixEnabled_);
+    if (clawhud::SupportsIntelVrrFix(selectedHudDeviceModel_))
+    {
+        // Preserve the existing Start(false) behavior for admitted Intel models:
+        // it intentionally records the disabled/retry result path.
+        tweakStartupCoordinator_.Start(intelVrrRangeFixEnabled_);
+    }
+    else
+    {
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info,
+            L"Intel VRR startup work skipped: selected device has no Intel VRR Fix capability");
+    }
     runtimeControlBridge_.Start(std::this_thread::get_id(),
         [this]
         {
@@ -298,17 +337,40 @@ int App::Run()
     return ProcessMessages();
 }
 
-void App::SetIntelVrrRangeFixEnabled(bool enabled)
+bool App::SetIntelVrrRangeFixEnabled(bool enabled)
 {
+    if (!clawhud::SupportsIntelVrrFix(selectedHudDeviceModel_))
+        return false;
+
     // The startup coordinator reads this persisted policy on the next app start;
     // changing the toggle does not apply or restore display configuration immediately.
     intelVrrRangeFixEnabled_ = enabled;
     hudSettingsStore_.SaveIntelVrrRangeFixEnabled(enabled);
+    return true;
 }
 
 std::optional<clawhud::IntelVrrRunResult> App::IntelVrrLastResult() const
 {
+    if (!clawhud::SupportsIntelVrrFix(selectedHudDeviceModel_))
+        return std::nullopt;
     return clawhud::IntelVrrResultStore::Load();
+}
+
+std::optional<clawhud::RuntimeDeviceInfo> App::GetDeviceInfo() const
+{
+    if (!selectedHudDeviceModel_ || !selectedHudDeviceModel_->admittedToProduction ||
+        selectedHudDeviceModel_->modelId.empty() || selectedHudDeviceModel_->familyId.empty() ||
+        selectedHudDeviceModel_->displayName.empty())
+        return std::nullopt;
+
+    const auto& model = *selectedHudDeviceModel_;
+    return clawhud::RuntimeDeviceInfo{
+        std::string(model.modelId),
+        std::string(model.familyId),
+        std::string(model.displayName),
+        model.capabilities.expectedGpuVendor,
+        clawhud::SupportsIntelVrrFix(&model),
+    };
 }
 
 clawhud::RuntimeSettingsSnapshot App::GetSettingsSnapshot() const
@@ -319,7 +381,8 @@ clawhud::RuntimeSettingsSnapshot App::GetSettingsSnapshot() const
     snapshot.hudSizeOffset = hudController_.SizeOffset();
     snapshot.hudFont = hudController_.Font();
     snapshot.hudOptions = hudController_.Options();
-    snapshot.intelVrrRangeFixEnabled = intelVrrRangeFixEnabled_;
+    snapshot.intelVrrRangeFixEnabled =
+        clawhud::SupportsIntelVrrFix(selectedHudDeviceModel_) && intelVrrRangeFixEnabled_;
     snapshot.intelVrrLastResult = IntelVrrLastResult();
     return snapshot;
 }

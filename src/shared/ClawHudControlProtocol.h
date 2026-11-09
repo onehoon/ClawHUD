@@ -51,6 +51,7 @@ enum class Operation : std::uint16_t
 {
     GetRuntimeInfo = 1,
     GetSettingsSnapshot = 2,
+    GetDeviceInfo = 3,
 
     SetStartWithWindows = 10,
     SetHudEnabled = 11,
@@ -129,6 +130,14 @@ enum class WireRuntimeState : std::uint8_t
     ShuttingDown = 3,
 };
 
+enum class WireGpuVendor : std::uint8_t
+{
+    Unknown = 0,
+    Intel = 1,
+    Amd = 2,
+    Nvidia = 3,
+};
+
 // ---- Product value bounds (shared by codec validation) -------------------
 
 inline constexpr std::int32_t kMinHudSizeOffset = -2;
@@ -185,15 +194,25 @@ struct WireRuntimeInfo
     std::uint8_t runtimeState{};  // WireRuntimeState value
 };
 
+struct WireDeviceInfo
+{
+    std::string modelId;
+    std::string familyId;
+    std::string displayName;
+    std::uint8_t expectedGpuVendor{}; // WireGpuVendor value
+    bool supportsIntelVrrFix{};
+};
+
 // A decoded response. `operationId` is the raw wire operation echoed from the
 // request, so an error response (e.g. UnknownOperation from a version-skewed
 // client) can still be correlated even when the operation is not a known v1
-// Operation. On a non-Ok status both optionals are empty. On Ok (which always
+// Operation. On a non-Ok status all optionals are empty. On Ok (which always
 // implies a known operation):
 //   GetRuntimeInfo      -> runtimeInfo set
 //   GetSettingsSnapshot -> snapshot set
+//   GetDeviceInfo       -> deviceInfo set
 //   Set*/Preview/Commit -> snapshot set (authoritative post-mutation state)
-//   RequestShutdown     -> both empty (empty payload)
+//   RequestShutdown     -> all empty (empty payload)
 struct ControlResponse
 {
     std::uint16_t operationId{};
@@ -202,5 +221,6 @@ struct ControlResponse
 
     std::optional<WireRuntimeInfo> runtimeInfo;
     std::optional<WireSettingsSnapshot> snapshot;
+    std::optional<WireDeviceInfo> deviceInfo;
 };
 }

@@ -149,6 +149,7 @@ class FakeRuntimeControl : public clawhud::IRuntimeControl
 {
 public:
     clawhud::RuntimeSettingsSnapshot state;
+    std::optional<clawhud::RuntimeDeviceInfo> deviceInfo;
     std::atomic<std::thread::id> lastCallThread{};
     std::optional<bool> lastStartWithWindows;
     std::optional<float> lastPreview;
@@ -161,6 +162,11 @@ public:
     {
         const_cast<FakeRuntimeControl*>(this)->lastCallThread = std::this_thread::get_id();
         return state;
+    }
+    std::optional<clawhud::RuntimeDeviceInfo> GetDeviceInfo() const override
+    {
+        const_cast<FakeRuntimeControl*>(this)->lastCallThread = std::this_thread::get_id();
+        return deviceInfo;
     }
     bool SetStartWithWindows(bool enabled) override
     {
@@ -217,10 +223,11 @@ public:
         }
         return opacityResult;
     }
-    void SetIntelVrrRangeFixEnabled(bool enabled) override
+    bool SetIntelVrrRangeFixEnabled(bool enabled) override
     {
         lastCallThread = std::this_thread::get_id();
         state.intelVrrRangeFixEnabled = enabled;
+        return true;
     }
 };
 
@@ -334,7 +341,11 @@ void ReadOnlyRoundTrips()
                   response.operationId = static_cast<std::uint16_t>(request.operation);
                   response.requestId = request.requestId;
                   response.status = ctl::ControlStatus::Ok;
-                  response.snapshot = SampleSnapshot();
+                  if (request.operation == ctl::Operation::GetDeviceInfo)
+                      response.deviceInfo = ctl::WireDeviceInfo{"msi.claw.a2vm.7", "msi.claw",
+                          "MSI Claw A2VM 7", static_cast<std::uint8_t>(ctl::WireGpuVendor::Intel), true};
+                  else
+                      response.snapshot = SampleSnapshot();
                   return Exec(std::move(response));
               },
               {}, name),
@@ -349,7 +360,12 @@ void ReadOnlyRoundTrips()
         Encode(EmptyRequest(ctl::Operation::GetSettingsSnapshot, 202)));
     Check(snap && snap->status == ctl::ControlStatus::Ok && snap->snapshot.has_value(),
         "GetSettingsSnapshot round trip");
-    Check(dispatchCount.load() == 2, "each read-only request reached dispatch once");
+    const auto device = RoundtripDecoded(name,
+        Encode(EmptyRequest(ctl::Operation::GetDeviceInfo, 303)));
+    Check(device && device->status == ctl::ControlStatus::Ok && device->deviceInfo &&
+        device->deviceInfo->modelId == "msi.claw.a2vm.7" && device->deviceInfo->supportsIntelVrrFix,
+        "GetDeviceInfo round trip uses the existing pipe transport");
+    Check(dispatchCount.load() == 3, "each read-only request reached dispatch once");
     server.Stop();
 }
 

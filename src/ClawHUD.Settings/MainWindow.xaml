@@ -9,6 +9,10 @@
         ResizeMode="NoResize"
         WindowStartupLocation="CenterScreen">
 
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+    </Window.Resources>
+
     <!-- All five cards are interactive. Discrete controls: IsChecked one-way
          projects the authoritative snapshot, Click sends one mutation, the
          returned snapshot re-projects. The opacity slider drives live
@@ -120,7 +124,8 @@
             </Border>
 
             <!-- Card 4: VRR Fix; the persisted setting is applied at next startup. -->
-            <Border Style="{StaticResource SettingsCard}">
+            <Border x:Name="IntelVrrFixCard" Style="{StaticResource SettingsCard}"
+                    Visibility="{Binding IsIntelVrrFixSupported, Converter={StaticResource BooleanToVisibilityConverter}, FallbackValue=Collapsed, TargetNullValue=Collapsed}">
                 <DockPanel IsEnabled="{Binding AreDiscreteSettingsControlsEnabled}">
                     <ToggleButton DockPanel.Dock="Right" Style="{StaticResource SettingToggleSwitch}"
                                   IsChecked="{Binding IntelVrrRangeFixEnabled, Mode=OneWay}"

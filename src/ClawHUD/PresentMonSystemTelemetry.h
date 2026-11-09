@@ -1,6 +1,7 @@
 #pragma once
 
 #include "PresentMonTelemetryTypes.h"
+#include "SupportedHardware.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -16,6 +17,7 @@ constexpr std::uint32_t kSystemTelemetryProcessId = 0;
 bool SupportsPresentMonDynamicQuery(PM_METRIC_TYPE type) noexcept;
 
 enum class SystemMetricSlot { CpuUsage, CpuFrequency, GpuUsage, GpuFrequency, GpuMemoryUsed, GpuPower };
+enum class PresentMonGpuTargetStatus { Selected, UnknownVendor, NoMatch, Ambiguous };
 
 struct SystemMetricBinding
 {
@@ -29,10 +31,14 @@ struct PresentMonSystemQueryPlan
 {
     std::vector<PM_QUERY_ELEMENT> elements;
     std::vector<SystemMetricBinding> bindings;
+    PresentMonGpuTargetStatus gpuTargetStatus{ PresentMonGpuTargetStatus::UnknownVendor };
+    std::optional<std::uint32_t> gpuDeviceId;
+    std::size_t gpuTargetMatchCount{};
 };
 
 PresentMonSystemQueryPlan BuildPresentMonSystemQueryPlan(
-    const PresentMonTelemetryCapabilities& capabilities);
+    const PresentMonTelemetryCapabilities& capabilities,
+    HudGpuVendor expectedGpuVendor);
 std::optional<double> DecodePresentMonPercentage(
     std::span<const std::uint8_t> blob, const PM_QUERY_ELEMENT& element,
     PM_DATA_TYPE type);
@@ -56,7 +62,8 @@ class PresentMonSystemTelemetry
 {
 public:
     bool Initialize(PresentMonApi2Client& client,
-        const PresentMonTelemetryCapabilities& capabilities);
+        const PresentMonTelemetryCapabilities& capabilities,
+        HudGpuVendor expectedGpuVendor);
     void Shutdown(PresentMonApi2Client& client) noexcept;
     std::optional<PresentMonSystemSnapshot> Read(PresentMonApi2Client& client);
     bool Ready() const noexcept { return query_ != nullptr; }

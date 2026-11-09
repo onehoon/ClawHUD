@@ -73,6 +73,7 @@ bool IsValidBackgroundMode(std::uint8_t value) noexcept;
 bool IsValidIntelVrrStatus(std::uint8_t value) noexcept;
 bool IsValidLaunchMode(std::uint8_t value) noexcept;
 bool IsValidRuntimeState(std::uint8_t value) noexcept;
+bool IsValidGpuVendor(std::uint8_t value) noexcept;
 bool IsValidHudSizeOffset(std::int32_t value) noexcept;
 bool IsValidOpacityPercent(std::uint16_t value) noexcept;
 

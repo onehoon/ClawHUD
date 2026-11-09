@@ -19,7 +19,8 @@ public sealed record ResponseDecodeResult(
     ResponseDecodeOutcome Outcome,
     ControlStatus Status,
     RuntimeInfo? RuntimeInfo = null,
-    SettingsSnapshot? Snapshot = null)
+    SettingsSnapshot? Snapshot = null,
+    DeviceInfo? DeviceInfo = null)
 {
     internal static ResponseDecodeResult Malformed { get; } =
         new(ResponseDecodeOutcome.Malformed, ControlStatus.InvalidFrame);
@@ -35,7 +36,7 @@ public static class ControlCodec
 
     /// <summary>
     /// Encodes a protocol-v1 request as an exact little-endian frame. Covers the
-    /// two empty-payload reads and the six PR3 HUD mutations; every client-side
+    /// three empty-payload reads and the six PR3 HUD mutations; every client-side
     /// value is validated here before it can reach the wire. Throws for a zero
     /// request id, a missing/invalid field, or an operation PR3 does not send.
     /// </summary>
@@ -46,7 +47,8 @@ public static class ControlCodec
 
         ReadOnlySpan<byte> payload = request.Operation switch
         {
-            ControlOperation.GetRuntimeInfo or ControlOperation.GetSettingsSnapshot =>
+            ControlOperation.GetRuntimeInfo or ControlOperation.GetSettingsSnapshot or
+            ControlOperation.GetDeviceInfo =>
                 ReadOnlySpan<byte>.Empty,
             ControlOperation.SetHudEnabled or
             ControlOperation.SetStartWithWindows or
@@ -165,6 +167,8 @@ public static class ControlCodec
         var reader = new ByteReader(payload);
         if (expectedOperation == ControlOperation.GetRuntimeInfo)
             return DecodeRuntimeInfo(ref reader);
+        if (expectedOperation == ControlOperation.GetDeviceInfo)
+            return DecodeDeviceInfo(ref reader);
         if (CarriesSnapshot(expectedOperation))
             return DecodeSnapshot(ref reader);
         return ResponseDecodeResult.Malformed;
@@ -199,6 +203,24 @@ public static class ControlCodec
         var info = new RuntimeInfo(version, minVersion, maxVersion,
             (WireLaunchMode)launchMode, (WireRuntimeState)runtimeState);
         return new ResponseDecodeResult(ResponseDecodeOutcome.Ok, ControlStatus.Ok, RuntimeInfo: info);
+    }
+
+    private static ResponseDecodeResult DecodeDeviceInfo(ref ByteReader r)
+    {
+        if (!r.TryReadString(out string modelId) || modelId.Length == 0)
+            return ResponseDecodeResult.Malformed;
+        if (!r.TryReadString(out string familyId) || familyId.Length == 0)
+            return ResponseDecodeResult.Malformed;
+        if (!r.TryReadString(out string displayName) || displayName.Length == 0)
+            return ResponseDecodeResult.Malformed;
+        if (!r.TryReadByte(out byte vendor) || !WireValue.IsGpuVendor(vendor))
+            return ResponseDecodeResult.Malformed;
+        if (!r.TryReadBool(out bool supportsIntelVrrFix) || !r.AtEnd)
+            return ResponseDecodeResult.Malformed;
+
+        var info = new DeviceInfo(modelId, familyId, displayName,
+            (WireGpuVendor)vendor, supportsIntelVrrFix);
+        return new ResponseDecodeResult(ResponseDecodeOutcome.Ok, ControlStatus.Ok, DeviceInfo: info);
     }
 
     private static ResponseDecodeResult DecodeSnapshot(ref ByteReader r)

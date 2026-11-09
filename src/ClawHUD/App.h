@@ -28,6 +28,7 @@
 namespace clawhud
 {
 class DebugObservationController;
+struct HudDeviceModel;
 }
 
 // The production telemetry timer ids (2, 3, 4, 6) live in
@@ -69,6 +70,7 @@ public:
     // use over Control IPC. App stays the implementation authority; these delegate
     // to the existing product methods below.
     clawhud::RuntimeSettingsSnapshot GetSettingsSnapshot() const override;
+    std::optional<clawhud::RuntimeDeviceInfo> GetDeviceInfo() const override;
     bool SetStartWithWindows(bool enabled) override;
     bool SetHudEnabled(bool enabled) override;
     void SetHudVisibilityMode(clawhud::HudVisibilityMode mode) override;
@@ -78,7 +80,7 @@ public:
     void SetHudBackgroundMode(clawhud::HudBackgroundMode mode) override;
     bool PreviewHudOpacity(float opacity) override;
     bool CommitHudOpacity(float opacity) override;
-    void SetIntelVrrRangeFixEnabled(bool enabled) override;
+    bool SetIntelVrrRangeFixEnabled(bool enabled) override;
 
 private:
     std::optional<clawhud::IntelVrrRunResult> IntelVrrLastResult() const;
@@ -117,6 +119,8 @@ private:
     // The runtime (window, telemetry, game detection, HUD, tweaks, Control IPC) is
     // identical in both modes. Never persisted; never mutated after construction.
     const clawhud::LaunchMode launchMode_;
+    // Points into the immutable model catalog selected by the one startup check.
+    const clawhud::HudDeviceModel* selectedHudDeviceModel_{};
     clawhud::HudSettingsStore hudSettingsStore_;
     // Runtime-owned hidden message window: suspend/resume power notifications,
     // the production WM_TIMER stream and runtime-control dispatch /

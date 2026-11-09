@@ -16,6 +16,7 @@
 #include "HudTelemetryAggregator.h"
 #include "MsiEcHudTelemetry.h"
 #include "PresentMonTelemetryProvider.h"
+#include "SupportedHardware.h"
 #include "WindowsPowerTelemetry.h"
 
 namespace clawhud
@@ -44,6 +45,7 @@ public:
     // render-request callback. Must be called once, after the tray window
     // exists and before any sampling starts.
     void Bind(HWND messageWindow, std::function<void()> requestRender);
+    bool ConfigureDeviceSensors(HudSensorSupport sensors) noexcept;
 
     // --- snapshot ---------------------------------------------------------
     void FillSnapshot(HudTelemetrySnapshot& snapshot) const;
@@ -97,6 +99,8 @@ private:
     std::function<void()> requestRender_;
 
     std::unique_ptr<EcHelperClient> ecClient_;
+    HudSensorSupport sensorSupport_{};
+    bool sensorSupportConfigured_{};
     HudTelemetryAggregator aggregator_;
     std::optional<WindowsPowerTelemetry> latestPower_;
     BatteryPowerEstimator batteryEstimator_;

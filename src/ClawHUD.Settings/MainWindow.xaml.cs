@@ -9,13 +9,13 @@ using ClawHUD.Settings.ViewModels;
 namespace ClawHUD.Settings;
 
 /// <summary>
-/// Settings page. On open it loads runtime info + the settings snapshot; every
-/// discrete control forwards user actions to the ViewModel, which sends one
-/// Control-IPC mutation at a time and re-projects the runtime's authoritative
-/// snapshot. The opacity slider previews live during a drag and commits once on
-/// release. Re-activating the window refreshes the snapshot. When an IPC point
-/// proves the runtime is gone, the window closes cleanly (never restarting
-/// ClawHUD.exe).
+/// Settings page. On open it loads runtime info, the settings snapshot and the
+/// optional static DeviceInfo capability; every discrete control forwards user
+/// actions to the ViewModel, which sends one Control-IPC mutation at a time and
+/// re-projects the runtime's authoritative snapshot. The opacity slider previews
+/// live during a drag and commits once on release. Re-activating the window
+/// refreshes the snapshot. When an IPC point proves the runtime is gone, the
+/// window closes cleanly (never restarting ClawHUD.exe).
 /// </summary>
 public partial class MainWindow : Window
 {
@@ -79,6 +79,19 @@ public partial class MainWindow : Window
         }
 
         _viewModel.ApplySnapshot(snapshotResult.Value!);
+
+        // DeviceInfo is an optional additive v1 operation. Older runtimes return
+        // UnknownOperation; only a terminal runtime-loss result closes Settings.
+        // Every other failure leaves the static capability unknown and VRR hidden.
+        var deviceInfoResult = await _client.GetDeviceInfoAsync();
+        if (deviceInfoResult.IsSuccess)
+            _viewModel.ApplyDeviceInfo(deviceInfoResult.Value!);
+        else if (RuntimeLoss.IsTerminal(deviceInfoResult))
+        {
+            CloseFromRuntimeLoss();
+            return;
+        }
+
         _initialLoadComplete = true;
     }
 

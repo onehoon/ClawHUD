@@ -120,6 +120,7 @@ RequestPayloadShape ShapeOf(Operation op)
     {
     case Operation::GetRuntimeInfo:
     case Operation::GetSettingsSnapshot:
+    case Operation::GetDeviceInfo:
     case Operation::RequestShutdown:
         return RequestPayloadShape::Empty;
     case Operation::SetStartWithWindows:
@@ -284,6 +285,35 @@ bool DecodeRuntimeInfoPayload(Reader& r, WireRuntimeInfo& info)
     return true;
 }
 
+bool EncodeDeviceInfoPayload(const WireDeviceInfo& info, std::vector<std::uint8_t>& out)
+{
+    if (info.modelId.empty() || info.familyId.empty() || info.displayName.empty() ||
+        !IsValidWireString(info.modelId) || !IsValidWireString(info.familyId) ||
+        !IsValidWireString(info.displayName) || !IsValidGpuVendor(info.expectedGpuVendor))
+        return false;
+
+    Writer w(out);
+    w.String(info.modelId);
+    w.String(info.familyId);
+    w.String(info.displayName);
+    w.U8(info.expectedGpuVendor);
+    w.U8(info.supportsIntelVrrFix ? 1 : 0);
+    return true;
+}
+
+bool DecodeDeviceInfoPayload(Reader& r, WireDeviceInfo& info)
+{
+    std::uint8_t supportsIntelVrrFix{};
+    if (!r.String(info.modelId) || info.modelId.empty() ||
+        !r.String(info.familyId) || info.familyId.empty() ||
+        !r.String(info.displayName) || info.displayName.empty() ||
+        !r.U8(info.expectedGpuVendor) || !IsValidGpuVendor(info.expectedGpuVendor) ||
+        !r.U8(supportsIntelVrrFix) || supportsIntelVrrFix > 1)
+        return false;
+    info.supportsIntelVrrFix = supportsIntelVrrFix == 1;
+    return true;
+}
+
 // ---- Header --------------------------------------------------------------
 
 struct FrameHeader
@@ -354,6 +384,7 @@ bool IsKnownOperation(std::uint16_t operation) noexcept
     {
     case Operation::GetRuntimeInfo:
     case Operation::GetSettingsSnapshot:
+    case Operation::GetDeviceInfo:
     case Operation::SetStartWithWindows:
     case Operation::SetHudEnabled:
     case Operation::SetHudVisibilityMode:
@@ -377,6 +408,7 @@ bool IsValidBackgroundMode(std::uint8_t v) noexcept { return v >= 1 && v <= 2; }
 bool IsValidIntelVrrStatus(std::uint8_t v) noexcept { return v >= 1 && v <= 9; }
 bool IsValidLaunchMode(std::uint8_t v) noexcept { return v >= 1 && v <= 2; }
 bool IsValidRuntimeState(std::uint8_t v) noexcept { return v >= 1 && v <= 3; }
+bool IsValidGpuVendor(std::uint8_t v) noexcept { return v <= 3; }
 
 bool IsValidHudSizeOffset(std::int32_t v) noexcept
 {
@@ -545,10 +577,13 @@ std::optional<std::vector<std::uint8_t>> EncodeControlResponse(const ControlResp
         response.operationId == static_cast<std::uint16_t>(Operation::GetRuntimeInfo);
     const bool wantsSnapshot = response.status == ControlStatus::Ok && knownOperation &&
         ResponseCarriesSnapshot(static_cast<Operation>(response.operationId));
+    const bool wantsDeviceInfo = response.status == ControlStatus::Ok && knownOperation &&
+        response.operationId == static_cast<std::uint16_t>(Operation::GetDeviceInfo);
 
     // A payload optional may be set only for the response that carries it.
     if (response.runtimeInfo.has_value() != wantsRuntimeInfo) return std::nullopt;
     if (response.snapshot.has_value() != wantsSnapshot) return std::nullopt;
+    if (response.deviceInfo.has_value() != wantsDeviceInfo) return std::nullopt;
 
     std::vector<std::uint8_t> payload;
     if (response.status == ControlStatus::Ok)
@@ -558,6 +593,10 @@ std::optional<std::vector<std::uint8_t>> EncodeControlResponse(const ControlResp
         if (operation == Operation::GetRuntimeInfo)
         {
             if (!EncodeRuntimeInfoPayload(*response.runtimeInfo, payload)) return std::nullopt;
+        }
+        else if (wantsDeviceInfo)
+        {
+            if (!EncodeDeviceInfoPayload(*response.deviceInfo, payload)) return std::nullopt;
         }
         else if (wantsSnapshot)
         {
@@ -627,6 +666,13 @@ ResponseDecode DecodeControlResponse(std::span<const std::uint8_t> bytes)
         if (!DecodeRuntimeInfoPayload(r, info) || !r.AtEnd())
             return ResponseDecode::Failure(ControlStatus::InvalidPayload, id);
         response.runtimeInfo = std::move(info);
+    }
+    else if (operation == Operation::GetDeviceInfo)
+    {
+        WireDeviceInfo info;
+        if (!DecodeDeviceInfoPayload(r, info) || !r.AtEnd())
+            return ResponseDecode::Failure(ControlStatus::InvalidPayload, id);
+        response.deviceInfo = std::move(info);
     }
     else if (ResponseCarriesSnapshot(operation))
     {
