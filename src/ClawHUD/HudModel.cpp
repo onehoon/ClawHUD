@@ -83,6 +83,60 @@ std::wstring GpuValue(const HudTelemetrySnapshot& snapshot)
         value += L"--W";
     return value;
 }
+
+bool IsValidUsage(const std::optional<double>& value) noexcept
+{
+    return value && std::isfinite(*value) && *value >= 0.0 && *value <= 100.0;
+}
+
+bool IsValidNonnegativeMetric(const std::optional<double>& value) noexcept
+{
+    return value && std::isfinite(*value) && *value >= 0.0 &&
+        *value < static_cast<double>(std::numeric_limits<long>::max());
+}
+
+std::wstring A8CpuValue(const HudTelemetrySnapshot& snapshot)
+{
+    const auto usage = IsValidUsage(snapshot.cpuUsagePercent)
+        ? Integer(*snapshot.cpuUsagePercent) + L"%" : L"--%";
+    const auto clock = IsValidNonnegativeMetric(snapshot.cpuClockMHz)
+        ? Integer(*snapshot.cpuClockMHz) + L"MHz" : L"--MHz";
+    const auto temperature = snapshot.cpuTemperatureC && *snapshot.cpuTemperatureC >= 0
+        ? std::to_wstring(*snapshot.cpuTemperatureC) + L"\u00B0C" : L"--\u00B0C";
+    return usage + L" " + clock + L" " + temperature;
+}
+
+std::wstring A8GpuValue(const HudTelemetrySnapshot& snapshot)
+{
+    const auto usage = IsValidUsage(snapshot.gpuUsagePercent)
+        ? Integer(*snapshot.gpuUsagePercent) + L"%" : L"--%";
+    const auto clock = IsValidNonnegativeMetric(snapshot.gpuClockMHz)
+        ? Integer(*snapshot.gpuClockMHz) + L"MHz" : L"--MHz";
+    const auto power = IsValidNonnegativeMetric(snapshot.gpuPowerW)
+        ? Integer(*snapshot.gpuPowerW) + L"W" : L"--W";
+    return usage + L" " + clock + L" " + power;
+}
+
+std::wstring A8BatteryValue(const HudTelemetrySnapshot& snapshot)
+{
+    std::wstring value = snapshot.batteryPercent &&
+        *snapshot.batteryPercent >= 0 && *snapshot.batteryPercent <= 100
+        ? std::to_wstring(*snapshot.batteryPercent) + L"%" : L"--%";
+    if (snapshot.onBattery)
+    {
+        if (snapshot.remainingMinutes && *snapshot.remainingMinutes >= 0)
+        {
+            const int minutes = *snapshot.remainingMinutes;
+            if (minutes >= 60)
+                value += L" " + Number(minutes / 60.0) + L"h";
+            else
+                value += L" " + std::to_wstring(minutes) + L"m";
+        }
+        else
+            value += L" --";
+    }
+    return value;
+}
 }
 
 bool ShouldShowHud(HudVisibilityMode mode, bool foregroundGameActive) noexcept
@@ -172,39 +226,59 @@ std::vector<HudTextRun> FormatHud(const HudTelemetrySnapshot& snapshot)
     else if (snapshot.renderFps)
         fps = snapshot.renderFps;
 
-    if (fps)
+    const bool usableA8Fps = fps && std::isfinite(*fps) && std::round(*fps) > 0.0 &&
+        *fps < static_cast<double>(std::numeric_limits<long>::max());
+    if ((!snapshot.showUnavailableMetrics && fps) ||
+        (snapshot.showUnavailableMetrics && usableA8Fps))
         Add(runs, HudSegmentKind::Graphics,
             L"",
             Integer(*fps) + L"FPS");
+    else if (snapshot.showUnavailableMetrics && snapshot.fpsSamplingTargetActive)
+        Add(runs, HudSegmentKind::Graphics, L"", L"--FPS");
 
-    const auto cpu = CpuValue(snapshot);
-    if (!cpu.empty())
+    const auto cpu = snapshot.showUnavailableMetrics
+        ? A8CpuValue(snapshot) : CpuValue(snapshot);
+    if (snapshot.showUnavailableMetrics || !cpu.empty())
         Add(runs, HudSegmentKind::Cpu, L"CPU", cpu);
 
-    const auto gpu = GpuValue(snapshot);
-    if (!gpu.empty())
+    const auto gpu = snapshot.showUnavailableMetrics
+        ? A8GpuValue(snapshot) : GpuValue(snapshot);
+    if (snapshot.showUnavailableMetrics || !gpu.empty())
         Add(runs, HudSegmentKind::Gpu, L"GPU", gpu);
 
-    if (snapshot.cpuPackagePowerW)
+    if (snapshot.showUnavailableMetrics)
+        Add(runs, HudSegmentKind::Tdp, L"TDP",
+            IsValidNonnegativeMetric(snapshot.cpuPackagePowerW)
+                ? Integer(*snapshot.cpuPackagePowerW) + L"W" : L"--W");
+    else if (snapshot.cpuPackagePowerW)
         Add(runs, HudSegmentKind::Tdp, L"TDP", Integer(*snapshot.cpuPackagePowerW) + L"W");
 
-    if (snapshot.systemMemoryUsedBytes)
-        Add(runs, HudSegmentKind::Ram, L"RAM", Gigabytes(*snapshot.systemMemoryUsedBytes) + L"GB");
+    if (snapshot.showUnavailableMetrics || snapshot.systemMemoryUsedBytes)
+        Add(runs, HudSegmentKind::Ram, L"RAM", snapshot.systemMemoryUsedBytes
+            ? Gigabytes(*snapshot.systemMemoryUsedBytes) + L"GB" : L"--GB");
 
-    if (snapshot.gpuMemoryUsedBytes)
-        Add(runs, HudSegmentKind::Vram, L"VRAM", Gigabytes(*snapshot.gpuMemoryUsedBytes) + L"GB");
+    if (snapshot.showUnavailableMetrics || snapshot.gpuMemoryUsedBytes)
+        Add(runs, HudSegmentKind::Vram, L"VRAM", snapshot.gpuMemoryUsedBytes
+            ? Gigabytes(*snapshot.gpuMemoryUsedBytes) + L"GB" : L"--GB");
 
     const auto fan1 = snapshot.fan1Rpm && *snapshot.fan1Rpm >= 0 ? snapshot.fan1Rpm : std::nullopt;
     const auto fan2 = snapshot.fan2Rpm && *snapshot.fan2Rpm >= 0 ? snapshot.fan2Rpm : std::nullopt;
-    if (fan1 || fan2)
+    if (snapshot.showUnavailableMetrics || fan1 || fan2)
     {
-        const double average = fan1 && fan2
-            ? (static_cast<double>(*fan1) + *fan2) / 2.0
-            : static_cast<double>(fan1 ? *fan1 : *fan2);
-        Add(runs, HudSegmentKind::Fan, L"FAN", Integer(average) + L"RPM");
+        if (fan1 || fan2)
+        {
+            const double average = fan1 && fan2
+                ? (static_cast<double>(*fan1) + *fan2) / 2.0
+                : static_cast<double>(fan1 ? *fan1 : *fan2);
+            Add(runs, HudSegmentKind::Fan, L"FAN", Integer(average) + L"RPM");
+        }
+        else
+            Add(runs, HudSegmentKind::Fan, L"FAN", L"--RPM");
     }
 
-    if (snapshot.batteryPercent)
+    if (snapshot.showUnavailableMetrics)
+        Add(runs, HudSegmentKind::Battery, L"BAT", A8BatteryValue(snapshot));
+    else if (snapshot.batteryPercent)
     {
         std::wstring value = std::to_wstring(*snapshot.batteryPercent) + L"%";
         if (snapshot.onBattery && snapshot.remainingMinutes)

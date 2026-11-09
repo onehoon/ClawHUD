@@ -27,7 +27,7 @@ int main()
 
     const auto productionModels = HudDeviceModelCatalog();
     ok &= Check(productionModels.size() == 4,
-        "catalog has three admitted models and one denied candidate");
+        "catalog retains all four exact MSI model identities");
     ok &= Check(IsHudDeviceModelCatalogValid(productionModels),
         "production catalog identities are unique");
     const HudDeviceModel* a8Candidate = nullptr;
@@ -39,21 +39,24 @@ int main()
             break;
         }
     }
-    ok &= Check(a8Candidate &&
+    ok &= Check(a8Candidate && a8Candidate->modelId == "msi.claw.bz2em" &&
         a8Candidate->capabilities.expectedGpuVendor == HudGpuVendor::Amd &&
-        !a8Candidate->admittedToProduction &&
+        a8Candidate->admittedToProduction &&
         !a8Candidate->capabilities.sensors.msiCpuTemperature &&
         !a8Candidate->capabilities.sensors.msiFanRpm &&
         !a8Candidate->capabilities.sensors.msiCpuPackagePower &&
         !a8Candidate->capabilities.sensors.msiBatteryDischarge &&
         !a8Candidate->capabilities.intelVrrFix,
-        "A8 metadata candidate carries no production feature permissions");
+        "A8 exact model is admitted with AMD GPU and no EC or Intel VRR permissions");
 
     ok &= Check(ClassifyBaseBoardProduct(L"MS-1T42") == HardwareSupport::Supported, "MS-1T42 supported");
     ok &= Check(ClassifyBaseBoardProduct(L"MS-1T52") == HardwareSupport::Supported, "MS-1T52 supported");
     ok &= Check(ClassifyBaseBoardProduct(L"MS-1T91") == HardwareSupport::Supported, "MS-1T91 supported");
+    ok &= Check(ClassifyBaseBoardProduct(L"MS-1T8K") == HardwareSupport::Supported, "MS-1T8K supported");
     ok &= Check(ClassifyBaseBoardProduct(L"ms-1t42") == HardwareSupport::Supported, "case-insensitive match");
     ok &= Check(ClassifyBaseBoardProduct(L" MS-1T91 ") == HardwareSupport::Supported, "trimmed match");
+    ok &= Check(ClassifyBaseBoardProduct(L" ms-1t8k ") == HardwareSupport::Supported,
+        "A8 board ID matching ignores case and surrounding whitespace");
     ok &= Check(ClassifyBaseBoardProduct(L"MS-1T41") == HardwareSupport::Unsupported, "MS-1T41 unsupported");
     ok &= Check(ClassifyBaseBoardProduct(L"MS-1T92") == HardwareSupport::Unsupported, "MS-1T92 unsupported");
     ok &= Check(ClassifyBaseBoardProduct(L"OTHER-BOARD") == HardwareSupport::Unsupported, "other board unsupported");
@@ -73,22 +76,34 @@ int main()
         "MS-1T52 resolves to its admitted canonical model");
     ok &= Check(IsHudDeviceSelectionAdmitted(clawcg) && clawcg.model->modelId == "msi.claw.cg3em",
         "MS-1T91 resolves to its admitted canonical model");
-    ok &= Check(claw7.model->capabilities.expectedGpuVendor == HudGpuVendor::Intel &&
-        claw7.model->capabilities.sensors.msiCpuTemperature &&
-        claw7.model->capabilities.sensors.msiFanRpm &&
-        claw7.model->capabilities.sensors.msiCpuPackagePower &&
-        claw7.model->capabilities.sensors.msiBatteryDischarge &&
-        claw7.model->capabilities.intelVrrFix,
-        "existing Intel model permissions preserve current behavior");
+    const auto hasExistingIntelPermissions = [](const HudDeviceModel* model)
+    {
+        return model && model->capabilities.expectedGpuVendor == HudGpuVendor::Intel &&
+            model->capabilities.sensors.msiCpuTemperature &&
+            model->capabilities.sensors.msiFanRpm &&
+            model->capabilities.sensors.msiCpuPackagePower &&
+            model->capabilities.sensors.msiBatteryDischarge &&
+            model->capabilities.intelVrrFix;
+    };
+    ok &= Check(hasExistingIntelPermissions(claw7.model) &&
+        hasExistingIntelPermissions(claw8.model) &&
+        hasExistingIntelPermissions(clawcg.model),
+        "all existing Intel model capabilities preserve their original permissions");
     ok &= Check(SupportsIntelVrrFix(claw7.model) &&
         SupportsIntelVrrFix(claw8.model) && SupportsIntelVrrFix(clawcg.model),
         "all currently admitted Intel models retain the same VRR eligibility");
 
     const auto a8 = ResolveHudDevice({ L"MS-1T8K", {} });
-    ok &= Check(a8.status == HardwareSupport::Unsupported && a8.model == nullptr &&
-        !IsHudDeviceSelectionAdmitted(a8), "A8 candidate remains unadmitted without a selected model");
-    ok &= Check(!SupportsIntelVrrFix(a8Candidate) && !SupportsIntelVrrFix(nullptr),
-        "unadmitted A8 metadata and missing model cannot enable Intel VRR");
+    ok &= Check(IsHudDeviceSelectionAdmitted(a8) && a8.model == a8Candidate &&
+        a8.model->modelId == "msi.claw.bz2em" &&
+        a8.model->capabilities.expectedGpuVendor == HudGpuVendor::Amd,
+        "exact A8 board resolves to its admitted production model");
+    const auto normalizedA8 = ResolveHudDevice({ L" ms-1t8k ", {} });
+    ok &= Check(IsHudDeviceSelectionAdmitted(normalizedA8) &&
+        normalizedA8.model->modelId == "msi.claw.bz2em",
+        "normalized A8 board resolves to the same model");
+    ok &= Check(!SupportsIntelVrrFix(a8.model) && !SupportsIntelVrrFix(nullptr),
+        "A8 and missing model cannot enable Intel VRR");
 
     constexpr HudDeviceCapabilities kSyntheticAmdCapabilities{
         HudGpuVendor::Amd, {}, false };

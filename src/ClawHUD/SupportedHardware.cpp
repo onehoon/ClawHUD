@@ -34,7 +34,7 @@ constexpr clawhud::HudDeviceModel kHudDeviceModels[] =
     { "msi.claw.cg3em", "msi", "msi.claw", "MSI Claw CG3EM",
         L"MS-1T91", {}, true, kMsiIntelCapabilities },
     { "msi.claw.bz2em", "msi", "msi.claw", "MSI Claw BZ2EM",
-        L"MS-1T8K", {}, false, kMsiAmdCandidateCapabilities },
+        L"MS-1T8K", {}, true, kMsiAmdCandidateCapabilities },
 };
 
 std::wstring_view TrimWhitespace(std::wstring_view value) noexcept

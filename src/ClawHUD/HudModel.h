@@ -75,6 +75,10 @@ struct HudTelemetrySnapshot
     std::optional<std::uint64_t> gpuMemoryUsedBytes;
     std::optional<std::uint64_t> systemMemoryUsedBytes;
     std::optional<double> gpuPowerW;
+    // A8 opts in at the App composition root; false preserves legacy output.
+    bool showUnavailableMetrics{};
+    // Derived from the production FPS target authority, not a second detector.
+    bool fpsSamplingTargetActive{};
 };
 
 enum class HudSegmentKind

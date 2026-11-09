@@ -1,6 +1,6 @@
 # ClawHUD
 
-ClawHUD is a lightweight performance HUD built specifically for supported **MSI Claw** handhelds on **Windows 11**.
+ClawHUD is a lightweight performance HUD for supported **MSI Claw** handhelds on **Windows 11**.
 
 It displays FPS, CPU/GPU telemetry, memory usage, fan speed, power, and battery information without injecting into games or hooking their rendering pipeline. The production HUD is designed around preserving **VRR** compatibility.
 
@@ -10,12 +10,14 @@ It displays FPS, CPU/GPU telemetry, memory usage, fan speed, power, and battery 
 
 ClawHUD currently supports only the following MSI Claw models:
 
-| Device | Board ID |
-| --- | --- |
-| MSI Claw A2VM | `MS-1T42` / `MS-1T52` |
-| MSI Claw 8 EX AI+ | `MS-1T91` |
+| Device | Board ID | GPU |
+| --- | --- | --- |
+| MSI Claw A2VM 7 | `MS-1T42` | Intel Arc |
+| MSI Claw A2VM 8 | `MS-1T52` | Intel Arc |
+| MSI Claw 8 EX AI+ | `MS-1T91` | Intel Arc |
+| MSI Claw A8 BZ2EM | `MS-1T8K` | AMD |
 
-**Windows 11 x64** and the device's **Intel Arc GPU** are required.
+**Windows 11 x64** is required. ClawHUD uses the device's Intel Arc or AMD GPU as appropriate; telemetry availability depends on the GPU driver and PresentMon API2 support.
 
 ClawHUD checks the baseboard ID at startup. Unsupported devices are rejected instead of running with unverified hardware behavior.
 
@@ -48,17 +50,17 @@ ClawHUD combines PresentMon API2, Windows telemetry, and MSI-specific EC telemet
 | HUD item | Displayed information | Source |
 | --- | --- | --- |
 | **FPS** | Displayed FPS for the active FPS target | [PresentMon API2](https://github.com/GameTechDev/PresentMon) |
-| **CPU** | CPU usage + CPU temperature | PresentMon API2 + MSI EC |
-| **GPU** | GPU usage + GPU clock | PresentMon API2 |
+| **CPU** | CPU usage + clock + temperature | PresentMon API2 + MSI EC |
+| **GPU** | GPU usage + clock + power | PresentMon API2 |
 | **TDP** | CPU package power | MSI EC |
 | **RAM** | System memory usage | Windows |
 | **VRAM** | GPU memory usage | PresentMon API2 |
 | **FAN** | Fan speed | MSI EC |
 | **BAT** | Battery level + estimated remaining time while on battery | Windows + MSI EC |
 
-MSI EC telemetry is read through ClawHUD's narrowly scoped read-only EC helper. See [MSI EC Telemetry Reference](docs/MSI_EC_TELEMETRY_REFERENCE.md) for implementation details.
+MSI EC telemetry is read through ClawHUD's narrowly scoped read-only EC helper. On the MSI Claw A8 BZ2EM, EC access is disabled in this phase: CPU temperature, CPU package power, fan speed, and the battery-discharge remaining-time estimate are unavailable and shown as `--` placeholders. See [MSI EC Telemetry Reference](docs/MSI_EC_TELEMETRY_REFERENCE.md) for implementation details.
 
-Telemetry values are displayed only when the corresponding data is available. Missing sensor data is not presented as a synthetic zero value.
+Missing telemetry is never reported as a synthetic numeric zero. Most devices omit unavailable metric groups; the A8 HUD marks unavailable metrics with `--` placeholders.
 
 ### FPS and Intel XeFG
 
@@ -100,7 +102,7 @@ Settings are persisted between launches.
 
 ## Intel VRR Range Fix
 
-**Intel VRR Range Fix** is available directly on the main Settings page.
+**Intel VRR Range Fix** is available directly on the main Settings page and only on devices with the Intel VRR capability.
 
 This tweak restores the native VRR range on affected MSI Claw internal displays and on the **LG 27GS65F** external monitor when connected to the Intel GPU. It runs on application startup when enabled.
 

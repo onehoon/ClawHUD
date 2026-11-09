@@ -613,6 +613,8 @@ void App::RenderProductionHud(bool allowHidden)
 {
     clawhud::HudTelemetrySnapshot snapshot{};
     productionTelemetry_.FillSnapshot(snapshot);
+    snapshot.showUnavailableMetrics = selectedHudDeviceModel_ &&
+        selectedHudDeviceModel_->modelId == "msi.claw.bz2em";
     hudController_.Render(snapshot, allowHidden);
 }
 
