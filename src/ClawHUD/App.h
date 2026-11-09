@@ -28,6 +28,7 @@
 namespace clawhud
 {
 class DebugObservationController;
+struct HudDeviceModel;
 }
 
 // The production telemetry timer ids (2, 3, 4, 6) live in
@@ -117,6 +118,8 @@ private:
     // The runtime (window, telemetry, game detection, HUD, tweaks, Control IPC) is
     // identical in both modes. Never persisted; never mutated after construction.
     const clawhud::LaunchMode launchMode_;
+    // Points into the immutable model catalog selected by the one startup check.
+    const clawhud::HudDeviceModel* selectedHudDeviceModel_{};
     clawhud::HudSettingsStore hudSettingsStore_;
     // Runtime-owned hidden message window: suspend/resume power notifications,
     // the production WM_TIMER stream and runtime-control dispatch /
