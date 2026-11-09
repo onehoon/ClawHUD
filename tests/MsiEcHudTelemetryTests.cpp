@@ -1,8 +1,9 @@
-#include "MsiEcHudTelemetry.h"
+#include "MsiEcTelemetryReader.h"
 #include "TelemetryRetention.h"
 
 #include <iostream>
 #include <cmath>
+#include <string>
 #include <vector>
 
 using namespace clawhud;
@@ -15,11 +16,170 @@ bool Check(bool condition, const char* message)
     std::cerr << "FAILED: " << message << '\n';
     return false;
 }
+
+struct FakeEcReader
+{
+    std::vector<std::string> calls;
+    std::string failCall;
+    ec::EcFailureStage failureStage{ ec::EcFailureStage::None };
+    ec::EcFailureStage failureStageOnFail{ ec::EcFailureStage::Pipe };
+
+    bool Fail(const std::string& call)
+    {
+        calls.push_back(call);
+        if (call != failCall)
+            return false;
+        failureStage = failureStageOnFail;
+        return true;
+    }
+
+    bool ReadTemperature(std::vector<std::uint8_t>& payload)
+    {
+        if (Fail("temperature"))
+            return false;
+        payload = { 67 };
+        return true;
+    }
+
+    bool ReadFan(std::vector<std::uint8_t>& payload)
+    {
+        if (Fail("fan"))
+            return false;
+        payload = { 0x00, 0x70, 0x00, 0x6F };
+        return true;
+    }
+
+    bool ReadData(std::uint8_t selector, std::vector<std::uint8_t>& payload)
+    {
+        const auto call = "data:" + std::to_string(selector);
+        if (Fail(call))
+            return false;
+        switch (selector)
+        {
+        case 221: payload = { 13 }; break;
+        case 70: payload = { 0xF9 }; break;
+        case 71: payload = { 0xF5 }; break;
+        case 74: payload = { 0xF3 }; break;
+        case 75: payload = { 0x3D }; break;
+        default: return false;
+        }
+        return true;
+    }
+
+    ec::EcFailureStage LastStage() const noexcept { return failureStage; }
+};
+
+bool CheckSensorGating()
+{
+    bool ok = true;
+    int constructions = 0;
+    FakeEcReader unusedReader;
+    const auto read = [&](HudSensorSupport sensors, bool onBattery,
+        FakeEcReader& reader)
+    {
+        return ReadMsiEcHudTelemetry(sensors, onBattery, [&]() -> FakeEcReader&
+        {
+            ++constructions;
+            return reader;
+        });
+    };
+
+    (void)read({}, true, unusedReader);
+    ok &= Check(constructions == 0 && unusedReader.calls.empty(),
+        "disabled EC policy creates no reader and performs no reads");
+
+    const HudSensorSupport dischargeOnly{ false, false, false, true };
+    (void)read(dischargeOnly, false, unusedReader);
+    ok &= Check(constructions == 0 && unusedReader.calls.empty(),
+        "AC or unknown battery state does not create a discharge-only reader");
+
+    FakeEcReader temperatureReader;
+    constructions = 0;
+    const auto temperature = read({ true, false, false, false }, false,
+        temperatureReader);
+    ok &= Check(constructions == 1 &&
+        temperatureReader.calls == std::vector<std::string>{ "temperature" } &&
+        temperature.cpuTempC == 67 && !temperature.fan1Rpm &&
+        !temperature.cpuPackagePowerW,
+        "temperature permission invokes only the temperature operation");
+
+    FakeEcReader fanReader;
+    constructions = 0;
+    const auto fan = read({ false, true, false, false }, false, fanReader);
+    ok &= Check(constructions == 1 &&
+        fanReader.calls == std::vector<std::string>{ "fan" } &&
+        fan.fan1Rpm == 4285 && fan.fan2Rpm == 4324 && !fan.cpuTempC,
+        "fan permission invokes only the fan operation and keeps existing decoding");
+
+    FakeEcReader packageReader;
+    constructions = 0;
+    const auto package = read({ false, false, true, false }, false,
+        packageReader);
+    ok &= Check(constructions == 1 && packageReader.calls ==
+        std::vector<std::string>{ "data:221" } && package.cpuPackagePowerW == 13,
+        "CPU package power permission invokes only selector 221");
+
+    FakeEcReader dischargeReader;
+    constructions = 0;
+    const auto discharge = read(dischargeOnly, true, dischargeReader);
+    ok &= Check(constructions == 1 && dischargeReader.calls ==
+        (std::vector<std::string>{ "data:70", "data:71", "data:74", "data:75" }) &&
+        discharge.batteryDischargePowerW &&
+        std::abs(*discharge.batteryDischargePowerW - 40.710713) < 0.001,
+        "battery discharge permission invokes only its ordered four-selector DC sequence");
+
+    FakeEcReader intelReader;
+    constructions = 0;
+    const auto intel = read({ true, true, true, true }, true, intelReader);
+    ok &= Check(constructions == 1 && intelReader.calls ==
+        (std::vector<std::string>{ "temperature", "fan", "data:221", "data:70",
+            "data:71", "data:74", "data:75" }) && intel.cpuTempC == 67 &&
+        intel.fan1Rpm == 4285 && intel.fan2Rpm == 4324 &&
+        intel.cpuPackagePowerW == 13 && intel.batteryDischargePowerW,
+        "all-enabled Intel policy preserves its original operation order and values");
+
+    FakeEcReader acReader;
+    constructions = 0;
+    (void)read({ true, true, true, true }, false, acReader);
+    ok &= Check(constructions == 1 && acReader.calls ==
+        (std::vector<std::string>{ "temperature", "fan", "data:221" }),
+        "AC sampling keeps allowed sensors and suppresses only the discharge quartet");
+
+    FakeEcReader failedReader;
+    failedReader.failCall = "fan";
+    constructions = 0;
+    (void)read({ true, true, true, true }, true, failedReader);
+    ok &= Check(constructions == 1 && failedReader.calls ==
+        (std::vector<std::string>{ "temperature", "fan" }),
+        "session failure aborts remaining reads without constructing another reader");
+
+    FakeEcReader nonSessionFailureReader;
+    nonSessionFailureReader.failCall = "fan";
+    nonSessionFailureReader.failureStageOnFail = ec::EcFailureStage::ExecMethod;
+    constructions = 0;
+    (void)read({ true, true, true, true }, true, nonSessionFailureReader);
+    ok &= Check(constructions == 1 && nonSessionFailureReader.calls ==
+        (std::vector<std::string>{ "temperature", "fan", "data:221", "data:70",
+            "data:71", "data:74", "data:75" }),
+        "non-session EC operation failure retains existing continue-sampling behavior");
+
+    FakeEcReader failedBatteryReader;
+    failedBatteryReader.failCall = "data:71";
+    failedBatteryReader.failureStageOnFail = ec::EcFailureStage::ExecMethod;
+    constructions = 0;
+    (void)read(dischargeOnly, true, failedBatteryReader);
+    ok &= Check(constructions == 1 && failedBatteryReader.calls ==
+        (std::vector<std::string>{ "data:70", "data:71" }),
+        "incomplete battery selector quartet remains unavailable and stops immediately");
+
+    return ok;
+}
 }
 
 int main()
 {
     bool ok = true;
+    ok &= CheckSensorGating();
     ok &= Check(DecodeCpuTempC(std::vector<std::uint8_t>{0x20}).value() == 32, "CPU temperature 0x20");
     ok &= Check(DecodeCpuTempC(std::vector<std::uint8_t>{0x2C}).value() == 44, "CPU temperature 0x2C");
     ok &= Check(DecodeCpuTempC(std::vector<std::uint8_t>{0x34}).value() == 52, "CPU temperature 0x34");
