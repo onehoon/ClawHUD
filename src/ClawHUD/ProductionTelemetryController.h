@@ -8,6 +8,7 @@
 #include <optional>
 #include <string>
 
+#include "A8TelemetryEvidence.h"
 #include "AlwaysModeFpsTarget.h"
 #include "BatteryPowerEstimator.h"
 #include "EcHelperClient.h"
@@ -47,6 +48,8 @@ public:
     // exists and before any sampling starts.
     void Bind(HWND messageWindow, std::function<void()> requestRender);
     bool ConfigureDeviceSensors(HudSensorSupport sensors) noexcept;
+    bool ConfigureA8TelemetryEvidence(bool enabled) noexcept;
+    void InitializeA8TelemetryEvidence();
 
     // --- snapshot ---------------------------------------------------------
     void FillSnapshot(HudTelemetrySnapshot& snapshot) const;
@@ -96,6 +99,7 @@ public:
 
 private:
     PresentMonTelemetryProvider& provider_;
+    A8TelemetryEvidence a8TelemetryEvidence_;
     HWND messageWindow_{};
     std::function<void()> requestRender_;
 

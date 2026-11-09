@@ -1,4 +1,5 @@
 #include "App.h"
+#include "A8TelemetryEvidence.h"
 
 #include "SettingsFrontendLauncher.h"
 #include "Tweaks/IntelVrr/IntelVrrResultStore.h"
@@ -198,6 +199,17 @@ int App::Run()
                 clawhud::ManagedStartupExitCode::RuntimeInitializationFailed);
         return 1;
     }
+    if (!productionTelemetry_.ConfigureA8TelemetryEvidence(
+            clawhud::A8TelemetryEvidence::IsEnabledForModel(
+                selectedHudDeviceModel_->modelId)))
+    {
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
+            L"A8 telemetry evidence policy could not be configured before sampling");
+        if (launchMode_ == clawhud::LaunchMode::Managed)
+            return ReportManagedStartupFailure(
+                clawhud::ManagedStartupExitCode::RuntimeInitializationFailed);
+        return 1;
+    }
     // PresentMon shared-runtime prerequisite. Gated here so an unsupported device
     // or a losing second instance never reaches the elevated MSI path, and so a
     // fatal result stops startup before any runtime side effect below.
@@ -262,6 +274,7 @@ int App::Run()
                 L"RegisterHotKey(F8) failed; continuing without the global HUD toggle");
     }
     const bool providerReady = presentMonTelemetryProvider_.Initialize();
+    productionTelemetry_.InitializeA8TelemetryEvidence();
     Log(L"[PresentMon] providerReady=" + std::to_wstring(providerReady) +
         L" processReady=" + std::to_wstring(
             presentMonTelemetryProvider_.ProcessReady()) +

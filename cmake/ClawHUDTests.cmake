@@ -95,6 +95,18 @@ include("${CMAKE_CURRENT_LIST_DIR}/Tma2027VrrTests.cmake")
     set_target_properties(ClawHUD.RuntimeLoggerTests PROPERTIES CXX_EXTENSIONS OFF)
     add_test(NAME ClawHUD.RuntimeLoggerTests COMMAND ClawHUD.RuntimeLoggerTests)
 
+    add_executable(ClawHUD.A8TelemetryEvidenceTests
+        tests/A8TelemetryEvidenceTests.cpp
+        src/ClawHUD/A8TelemetryEvidence.cpp
+        src/ClawHUD/RuntimeLogger.cpp)
+    target_compile_features(ClawHUD.A8TelemetryEvidenceTests PRIVATE cxx_std_20)
+    target_compile_definitions(ClawHUD.A8TelemetryEvidenceTests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX CLAWHUD_RUNTIME_LOGGER_TESTS)
+    target_include_directories(ClawHUD.A8TelemetryEvidenceTests PRIVATE src/ClawHUD)
+    target_link_libraries(ClawHUD.A8TelemetryEvidenceTests PRIVATE shell32 ole32)
+    set_target_properties(ClawHUD.A8TelemetryEvidenceTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.A8TelemetryEvidenceTests COMMAND ClawHUD.A8TelemetryEvidenceTests)
+
     add_executable(ClawHUD.EcHelperClientRuntimeLoggingTests
         tests/EcHelperClientRuntimeLoggingTests.cpp
         src/ClawHUD/EcHelperClient.cpp
