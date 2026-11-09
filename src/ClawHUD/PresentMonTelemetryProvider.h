@@ -46,6 +46,7 @@ public:
     PresentMonTelemetryProvider() = default; ~PresentMonTelemetryProvider();
     PresentMonTelemetryProvider(const PresentMonTelemetryProvider&) = delete;
     PresentMonTelemetryProvider& operator=(const PresentMonTelemetryProvider&) = delete;
+    bool ConfigureExpectedGpuVendor(HudGpuVendor vendor) noexcept;
     bool Initialize(); void Shutdown() noexcept;
     bool Ready() const noexcept { return ready_; }
     bool ProcessReady() const noexcept { return processTelemetry_.Ready(); }
@@ -90,7 +91,8 @@ private:
     PresentMonFrameTelemetry frameTelemetry_;
     PresentMonDebugFrameTelemetry debugFrameTelemetry_;
     PresentMonTelemetryCapabilities capabilities_;
-    HudGpuVendor expectedGpuVendor_{ HudGpuVendor::Intel };
+    HudGpuVendor expectedGpuVendor_{ HudGpuVendor::Unknown };
+    bool gpuVendorConfigured_{};
     mutable std::mutex apiMutex_;
     bool ready_{};
 };

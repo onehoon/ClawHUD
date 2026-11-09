@@ -46,6 +46,16 @@ PresentMonTelemetryCapabilities BuildPresentMonTelemetryCapabilities(const PM_IN
     return result;
 }
 PresentMonTelemetryProvider::~PresentMonTelemetryProvider() { Shutdown(); }
+bool PresentMonTelemetryProvider::ConfigureExpectedGpuVendor(
+    HudGpuVendor vendor) noexcept
+{
+    std::scoped_lock lock(apiMutex_);
+    if (ready_ || gpuVendorConfigured_)
+        return false;
+    expectedGpuVendor_ = vendor;
+    gpuVendorConfigured_ = true;
+    return true;
+}
 bool PresentMonTelemetryProvider::Initialize()
 {
     bool frameReady{};

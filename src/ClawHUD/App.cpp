@@ -178,6 +178,16 @@ int App::Run()
         return 0;
     }
     selectedHudDeviceModel_ = deviceSelection.model;
+    if (!presentMonTelemetryProvider_.ConfigureExpectedGpuVendor(
+            selectedHudDeviceModel_->capabilities.expectedGpuVendor))
+    {
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
+            L"PresentMon GPU vendor policy could not be configured before initialization");
+        if (launchMode_ == clawhud::LaunchMode::Managed)
+            return ReportManagedStartupFailure(
+                clawhud::ManagedStartupExitCode::RuntimeInitializationFailed);
+        return 1;
+    }
     // PresentMon shared-runtime prerequisite. Gated here so an unsupported device
     // or a losing second instance never reaches the elevated MSI path, and so a
     // fatal result stops startup before any runtime side effect below.
