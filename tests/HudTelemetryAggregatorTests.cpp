@@ -142,6 +142,27 @@ void PresentMonMappingAndCpuClockRetentionAreIndependent(bool& ok)
         "missing PresentMon snapshot leaves independent system memory usable");
 }
 
+void EmptyEcDoesNotSuppressSystemTelemetry(bool& ok)
+{
+    HudTelemetryAggregator agg;
+    agg.IngestEc(MsiEcHudTelemetry{});
+    PresentMonSystemSnapshot presentMon{};
+    presentMon.cpuUsagePercent = 42.0;
+    presentMon.cpuClockMHz = 4200.0;
+    presentMon.gpuUsagePercent = 75.0;
+    presentMon.gpuClockMHz = 1800.0;
+    presentMon.gpuMemoryUsedBytes = 8'000'000'000ULL;
+    presentMon.gpuPowerW = 13.0;
+    agg.IngestSystem(MakeHudSystemTelemetryInput(presentMon, 9'000'000'000ULL));
+    const auto snapshot = SnapshotOf(agg);
+    ok &= Check(snapshot.cpuUsagePercent == 42.0 && snapshot.cpuClockMHz == 4200.0 &&
+        snapshot.gpuUsagePercent == 75.0 && snapshot.gpuClockMHz == 1800.0 &&
+        snapshot.gpuMemoryUsedBytes == 8'000'000'000ULL &&
+        snapshot.gpuPowerW == 13.0 &&
+        snapshot.systemMemoryUsedBytes == 9'000'000'000ULL,
+        "empty EC data leaves API2 CPU/GPU and Windows memory ingestion usable");
+}
+
 void PartialSystemPollUpdatesOnlyPresentFields(bool& ok)
 {
     HudTelemetryAggregator agg;
@@ -230,6 +251,7 @@ int main()
     FreshEcValueResetsTheMissStreak(ok);
     SystemFieldRetentionMatchesThreshold(ok);
     PresentMonMappingAndCpuClockRetentionAreIndependent(ok);
+    EmptyEcDoesNotSuppressSystemTelemetry(ok);
     PartialSystemPollUpdatesOnlyPresentFields(ok);
     FillSnapshotLeavesUnownedFieldsAlone(ok);
     ResetScopes(ok);

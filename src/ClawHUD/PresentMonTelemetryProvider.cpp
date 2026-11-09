@@ -46,6 +46,16 @@ PresentMonTelemetryCapabilities BuildPresentMonTelemetryCapabilities(const PM_IN
     return result;
 }
 PresentMonTelemetryProvider::~PresentMonTelemetryProvider() { Shutdown(); }
+bool PresentMonTelemetryProvider::ConfigureExpectedGpuVendor(
+    HudGpuVendor vendor) noexcept
+{
+    std::scoped_lock lock(apiMutex_);
+    if (ready_ || gpuVendorConfigured_)
+        return false;
+    expectedGpuVendor_ = vendor;
+    gpuVendorConfigured_ = true;
+    return true;
+}
 bool PresentMonTelemetryProvider::Initialize()
 {
     bool frameReady{};
@@ -69,7 +79,7 @@ bool PresentMonTelemetryProvider::Initialize()
         // unavailable rather than sampling with the wrong ETW timing.
         if (client_.SetEtwFlushPeriod(kPresentMonEtwFlushPeriodMs) == PM_STATUS_SUCCESS)
             processTelemetry_.Initialize(client_, capabilities_);
-        systemTelemetry_.Initialize(client_, capabilities_);
+        systemTelemetry_.Initialize(client_, capabilities_, expectedGpuVendor_);
         frameReady = frameTelemetry_.Initialize(client_, capabilities_);
         debugFrameReady = debugFrameTelemetry_.Initialize(client_, capabilities_);
         frameInitDiagnostic = frameTelemetry_.TakePendingDiagnostic();

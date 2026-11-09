@@ -28,20 +28,6 @@ const PresentMonMetricCapability* Metric(
     for (const auto& metric : capabilities.metrics) if (metric.id == id) return &metric;
     return nullptr;
 }
-const PresentMonDeviceCapability* Device(
-    const PresentMonTelemetryCapabilities& capabilities, PM_DEVICE_TYPE type,
-    PM_DEVICE_VENDOR vendor, PM_METRIC metric)
-{
-    for (const auto& device : capabilities.devices)
-        if (device.type == type && device.vendor == vendor)
-        {
-            const auto* found = Metric(capabilities, metric);
-            if (found) for (const auto& info : found->devices)
-                if (info.deviceId == device.id &&
-                    info.availability == PM_METRIC_AVAILABILITY_AVAILABLE) return &device;
-        }
-    return nullptr;
-}
 const PresentMonDeviceCapability* SystemDevice(
     const PresentMonTelemetryCapabilities& capabilities, PM_METRIC metric)
 {
@@ -81,6 +67,28 @@ std::size_t DataTypeSize(PM_DATA_TYPE type) noexcept
 }
 bool SupportedType(PM_DATA_TYPE type)
 { return DataTypeSize(type) != 0; }
+std::optional<PM_DEVICE_VENDOR> ToPresentMonVendor(HudGpuVendor vendor) noexcept
+{
+    switch (vendor)
+    {
+    case HudGpuVendor::Intel: return PM_DEVICE_VENDOR_INTEL;
+    case HudGpuVendor::Amd: return PM_DEVICE_VENDOR_AMD;
+    case HudGpuVendor::Nvidia: return PM_DEVICE_VENDOR_NVIDIA;
+    case HudGpuVendor::Unknown: return std::nullopt;
+    }
+    return std::nullopt;
+}
+std::wstring_view GpuTargetStatusName(PresentMonGpuTargetStatus status) noexcept
+{
+    switch (status)
+    {
+    case PresentMonGpuTargetStatus::Selected: return L"selected";
+    case PresentMonGpuTargetStatus::UnknownVendor: return L"unknown-vendor";
+    case PresentMonGpuTargetStatus::NoMatch: return L"no-expected-vendor-adapter";
+    case PresentMonGpuTargetStatus::Ambiguous: return L"ambiguous-adapters";
+    }
+    return L"unknown";
+}
 std::wstring Status(PM_STATUS status)
 { return std::to_wstring(static_cast<int>(status)); }
 std::wstring OptionalDouble(const std::optional<double>& value)
@@ -124,22 +132,57 @@ void AddMetric(PresentMonSystemQueryPlan& plan, const PresentMonMetricCapability
 }
 
 PresentMonSystemQueryPlan BuildPresentMonSystemQueryPlan(
-    const PresentMonTelemetryCapabilities& capabilities)
+    const PresentMonTelemetryCapabilities& capabilities,
+    HudGpuVendor expectedGpuVendor)
 {
     PresentMonSystemQueryPlan plan;
-    const auto add = [&](PM_METRIC metric, PM_DEVICE_TYPE type, PM_DEVICE_VENDOR vendor, SystemMetricSlot slot)
+    const auto addSystem = [&](PM_METRIC metric, SystemMetricSlot slot)
     {
         const auto* metadata = Metric(capabilities, metric); if (!metadata) return;
-        const auto* device = type == PM_DEVICE_TYPE_SYSTEM
-            ? SystemDevice(capabilities, metric) : Device(capabilities, type, vendor, metric);
+        const auto* device = SystemDevice(capabilities, metric);
         if (device) AddMetric(plan, *metadata, device->id, slot);
     };
-    add(PM_METRIC_CPU_UTILIZATION, PM_DEVICE_TYPE_SYSTEM, PM_DEVICE_VENDOR_UNKNOWN, SystemMetricSlot::CpuUsage);
-    add(PM_METRIC_CPU_FREQUENCY, PM_DEVICE_TYPE_SYSTEM, PM_DEVICE_VENDOR_UNKNOWN, SystemMetricSlot::CpuFrequency);
-    add(PM_METRIC_GPU_UTILIZATION, PM_DEVICE_TYPE_GRAPHICS_ADAPTER, PM_DEVICE_VENDOR_INTEL, SystemMetricSlot::GpuUsage);
-    add(PM_METRIC_GPU_FREQUENCY, PM_DEVICE_TYPE_GRAPHICS_ADAPTER, PM_DEVICE_VENDOR_INTEL, SystemMetricSlot::GpuFrequency);
-    add(PM_METRIC_GPU_MEM_USED, PM_DEVICE_TYPE_GRAPHICS_ADAPTER, PM_DEVICE_VENDOR_INTEL, SystemMetricSlot::GpuMemoryUsed);
-    add(PM_METRIC_GPU_POWER, PM_DEVICE_TYPE_GRAPHICS_ADAPTER, PM_DEVICE_VENDOR_INTEL, SystemMetricSlot::GpuPower);
+    addSystem(PM_METRIC_CPU_UTILIZATION, SystemMetricSlot::CpuUsage);
+    addSystem(PM_METRIC_CPU_FREQUENCY, SystemMetricSlot::CpuFrequency);
+
+    const auto expectedVendor = ToPresentMonVendor(expectedGpuVendor);
+    if (!expectedVendor)
+        plan.gpuTargetStatus = PresentMonGpuTargetStatus::UnknownVendor;
+    else
+    {
+        std::vector<std::uint32_t> matchingDeviceIds;
+        for (const auto& device : capabilities.devices)
+        {
+            if (device.type == PM_DEVICE_TYPE_GRAPHICS_ADAPTER &&
+                device.vendor == *expectedVendor &&
+                std::find(matchingDeviceIds.begin(), matchingDeviceIds.end(), device.id) ==
+                    matchingDeviceIds.end())
+                matchingDeviceIds.push_back(device.id);
+        }
+        plan.gpuTargetMatchCount = matchingDeviceIds.size();
+        if (matchingDeviceIds.empty())
+            plan.gpuTargetStatus = PresentMonGpuTargetStatus::NoMatch;
+        else if (matchingDeviceIds.size() > 1)
+            plan.gpuTargetStatus = PresentMonGpuTargetStatus::Ambiguous;
+        else
+        {
+            plan.gpuTargetStatus = PresentMonGpuTargetStatus::Selected;
+            plan.gpuDeviceId = matchingDeviceIds.front();
+        }
+    }
+
+    if (plan.gpuDeviceId)
+    {
+        const auto addGpu = [&](PM_METRIC metric, SystemMetricSlot slot)
+        {
+            const auto* metadata = Metric(capabilities, metric);
+            if (metadata) AddMetric(plan, *metadata, *plan.gpuDeviceId, slot);
+        };
+        addGpu(PM_METRIC_GPU_UTILIZATION, SystemMetricSlot::GpuUsage);
+        addGpu(PM_METRIC_GPU_FREQUENCY, SystemMetricSlot::GpuFrequency);
+        addGpu(PM_METRIC_GPU_MEM_USED, SystemMetricSlot::GpuMemoryUsed);
+        addGpu(PM_METRIC_GPU_POWER, SystemMetricSlot::GpuPower);
+    }
     return plan;
 }
 
@@ -216,10 +259,17 @@ std::optional<PresentMonSystemSnapshot> DecodePresentMonSystemSnapshot(
 }
 
 bool PresentMonSystemTelemetry::Initialize(PresentMonApi2Client& client,
-    const PresentMonTelemetryCapabilities& capabilities)
+    const PresentMonTelemetryCapabilities& capabilities,
+    HudGpuVendor expectedGpuVendor)
 {
     Shutdown(client);
-    const auto plan = BuildPresentMonSystemQueryPlan(capabilities);
+    const auto plan = BuildPresentMonSystemQueryPlan(capabilities, expectedGpuVendor);
+    RuntimeLogger::Log(plan.gpuTargetStatus == PresentMonGpuTargetStatus::Selected
+        ? RuntimeLogLevel::Info : RuntimeLogLevel::Warn,
+        L"[PresentMonSystem] gpu-target status=" +
+        std::wstring(GpuTargetStatusName(plan.gpuTargetStatus)) + L" matches=" +
+        std::to_wstring(plan.gpuTargetMatchCount) + L" deviceId=" +
+        (plan.gpuDeviceId ? std::to_wstring(*plan.gpuDeviceId) : L"n/a"));
     const auto bound = [&](SystemMetricSlot slot)
     {
         return std::any_of(plan.bindings.begin(), plan.bindings.end(),
