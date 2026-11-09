@@ -28,6 +28,24 @@ public class ControlCodecTests
     }
 
     [Fact]
+    public void EncodeRequest_GetDeviceInfo_IsExactGoldenFrame()
+    {
+        byte[] frame = ControlCodec.EncodeRequest(
+            new ControlRequest(ControlOperation.GetDeviceInfo, 0x11223344));
+
+        Assert.Equal(new byte[]
+        {
+            0x43, 0x48, 0x55, 0x44,
+            0x01, 0x00, 0x18, 0x00,
+            0x01, 0x00,
+            0x03, 0x00,
+            0x44, 0x33, 0x22, 0x11,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+        }, frame);
+    }
+
+    [Fact]
     public void EncodeRequest_SetHudSizeOffset_IsExactGoldenFrameWithLittleEndianI32()
     {
         byte[] frame = ControlCodec.EncodeRequest(
@@ -293,6 +311,87 @@ public class ControlCodecTests
 
         Assert.Equal(ResponseDecodeOutcome.Malformed,
             ControlCodec.DecodeResponse(frame, 7, ControlOperation.GetRuntimeInfo).Outcome);
+    }
+
+    [Fact]
+    public void DecodeResponse_DeviceInfo_GoldenFixtureMatchesNativeBytes()
+    {
+        byte[] frame =
+        {
+            0x43, 0x48, 0x55, 0x44, 0x01, 0x00, 0x18, 0x00,
+            0x02, 0x00, 0x03, 0x00,
+            0x04, 0x03, 0x02, 0x01,
+            0x00, 0x00, 0x00, 0x00,
+            0x0B, 0x00, 0x00, 0x00,
+            0x01, 0x00, 0x6D, 0x01, 0x00, 0x66, 0x01, 0x00, 0x44, 0x01, 0x01,
+        };
+
+        ResponseDecodeResult result = ControlCodec.DecodeResponse(frame, 0x01020304,
+            ControlOperation.GetDeviceInfo);
+        Assert.Equal(ResponseDecodeOutcome.Ok, result.Outcome);
+        DeviceInfo info = Assert.IsType<DeviceInfo>(result.DeviceInfo);
+        Assert.Equal("m", info.ModelId);
+        Assert.Equal("f", info.FamilyId);
+        Assert.Equal("D", info.DisplayName);
+        Assert.Equal(WireGpuVendor.Intel, info.ExpectedGpuVendor);
+        Assert.True(info.SupportsIntelVrrFix);
+        Assert.Null(result.Snapshot);
+        Assert.Null(result.RuntimeInfo);
+    }
+
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(0, true)]
+    [InlineData(1, false)]
+    [InlineData(1, true)]
+    [InlineData(2, false)]
+    [InlineData(2, true)]
+    [InlineData(3, false)]
+    [InlineData(3, true)]
+    public void DecodeResponse_DeviceInfo_AcceptsEveryExplicitVendorAndBoolean(byte vendor, bool supports)
+    {
+        byte[] payload = WireFixtures.DeviceInfoPayload("msi.claw.a2vm.7", "msi.claw", "MSI Claw 🦀",
+            vendor, (byte)(supports ? 1 : 0));
+        byte[] frame = WireFixtures.ResponseFrame(ControlOperation.GetDeviceInfo, 3,
+            ControlStatus.Ok, payload);
+
+        ResponseDecodeResult result = ControlCodec.DecodeResponse(frame, 3, ControlOperation.GetDeviceInfo);
+        Assert.Equal(ResponseDecodeOutcome.Ok, result.Outcome);
+        Assert.Equal((WireGpuVendor)vendor, result.DeviceInfo!.ExpectedGpuVendor);
+        Assert.Equal(supports, result.DeviceInfo.SupportsIntelVrrFix);
+        Assert.Equal("MSI Claw 🦀", result.DeviceInfo.DisplayName);
+    }
+
+    [Fact]
+    public void DecodeResponse_DeviceInfo_RejectsMalformedOrTrailingPayload()
+    {
+        byte[] valid = WireFixtures.DeviceInfoPayload();
+        byte[][] invalidPayloads =
+        [
+            [0, 0, 1, 0, (byte)'f', 1, 0, (byte)'D', 1, 1], // empty model id
+            [1, 0, 0xFF, 1, 0, (byte)'f', 1, 0, (byte)'D', 1, 1], // malformed UTF-8
+            [1, 0, 0, 1, 0, (byte)'f', 1, 0, (byte)'D', 1, 1], // embedded NUL
+            [1, 0, (byte)'m', 1, 0, (byte)'f', 1, 0, (byte)'D', 4, 1], // invalid GPU enum
+            [1, 0, (byte)'m', 1, 0, (byte)'f', 1, 0, (byte)'D', 1, 2], // invalid bool
+            [1, 0, (byte)'m', 1, 0, (byte)'f', 1, 0, (byte)'D', 1], // truncated
+            [1, 0, (byte)'m', 1, 0, (byte)'f', 1, 0, (byte)'D', 1, 1, 0], // trailing
+        ];
+
+        foreach (byte[] payload in invalidPayloads)
+        {
+            byte[] frame = WireFixtures.ResponseFrame(ControlOperation.GetDeviceInfo, 7,
+                ControlStatus.Ok, payload);
+            Assert.Equal(ResponseDecodeOutcome.Malformed,
+                ControlCodec.DecodeResponse(frame, 7, ControlOperation.GetDeviceInfo).Outcome);
+        }
+
+        byte[] tooLong = new byte[2 + 4097];
+        tooLong[0] = 1;
+        tooLong[1] = 16;
+        byte[] oversizedFrame = WireFixtures.ResponseFrame(ControlOperation.GetDeviceInfo, 8,
+            ControlStatus.Ok, [.. tooLong, .. valid]);
+        Assert.Equal(ResponseDecodeOutcome.Malformed,
+            ControlCodec.DecodeResponse(oversizedFrame, 8, ControlOperation.GetDeviceInfo).Outcome);
     }
 
     // ---- Golden settings-snapshot response decode (§18.3) --------------

@@ -20,6 +20,9 @@ internal sealed class FakeRuntimeControlClient : IRuntimeControlClient
     internal List<ushort> CommitValues { get; } = [];
     internal int MaxConcurrentCalls { get; private set; }
     internal SettingsSnapshot? NextSnapshot { get; set; }
+    internal DeviceInfo? NextDeviceInfo { get; set; }
+    internal ControlClientOutcome NextDeviceInfoOutcome { get; set; } = ControlClientOutcome.ProtocolError;
+    internal ControlStatus NextDeviceInfoStatus { get; set; } = ControlStatus.UnknownOperation;
     internal ControlClientOutcome NextOutcome { get; set; } = ControlClientOutcome.Success;
     internal ControlStatus NextStatus { get; set; } = ControlStatus.OperationFailed;
     internal TaskCompletionSource? Gate { get; set; }
@@ -57,6 +60,24 @@ internal sealed class FakeRuntimeControlClient : IRuntimeControlClient
     public Task<ControlClientResult<RuntimeInfo>> GetRuntimeInfoAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult(ControlClientResult<RuntimeInfo>.Success(
             new RuntimeInfo("test", 1, 1, WireLaunchMode.Standalone, WireRuntimeState.Ready)));
+
+    public Task<ControlClientResult<DeviceInfo>> GetDeviceInfoAsync(CancellationToken cancellationToken = default)
+    {
+        lock (_sync)
+            Calls.Add(ControlOperation.GetDeviceInfo);
+
+        return Task.FromResult(NextDeviceInfoOutcome switch
+        {
+            ControlClientOutcome.Success when NextDeviceInfo is not null =>
+                ControlClientResult<DeviceInfo>.Success(NextDeviceInfo),
+            ControlClientOutcome.ProtocolError =>
+                ControlClientResult<DeviceInfo>.Protocol(NextDeviceInfoStatus),
+            ControlClientOutcome.MalformedResponse => ControlClientResult<DeviceInfo>.Malformed,
+            ControlClientOutcome.TimedOut => ControlClientResult<DeviceInfo>.Timeout,
+            ControlClientOutcome.TransportUnavailable => ControlClientResult<DeviceInfo>.Transport,
+            _ => ControlClientResult<DeviceInfo>.Malformed,
+        });
+    }
 
     public Task<ControlClientResult<SettingsSnapshot>> GetSettingsSnapshotAsync(CancellationToken cancellationToken = default) =>
         Respond(ControlOperation.GetSettingsSnapshot);
