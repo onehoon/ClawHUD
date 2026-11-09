@@ -27,6 +27,7 @@
 namespace clawhud
 {
 class DebugObservationController;
+struct HudDeviceModel;
 }
 
 constexpr int kHudToggleHotkeyId = 1;
@@ -116,6 +117,8 @@ private:
     // The runtime (window, telemetry, game detection, HUD, tweaks, Control IPC) is
     // identical in both modes. Never persisted; never mutated after construction.
     const clawhud::LaunchMode launchMode_;
+    // Points into the immutable model catalog selected by the one startup check.
+    const clawhud::HudDeviceModel* selectedHudDeviceModel_{};
     clawhud::HudSettingsStore hudSettingsStore_;
     // Runtime-owned hidden message window: F8 hotkey, suspend/resume power
     // notifications, the production WM_TIMER stream and the runtime-control
