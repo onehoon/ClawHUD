@@ -556,7 +556,7 @@ void CheckSystemTelemetry(bool& ok)
     PM_INTROSPECTION_OBJARRAY metricArray{metricEntries.data(), metricEntries.size()};
     PM_INTROSPECTION_ROOT root{&metricArray, nullptr, &deviceArray, nullptr};
     const auto capabilities = BuildPresentMonTelemetryCapabilities(&root);
-    const auto plan = BuildPresentMonSystemQueryPlan(capabilities);
+    const auto plan = BuildPresentMonSystemQueryPlan(capabilities, HudGpuVendor::Intel);
     ok &= Check(plan.elements.size() == 6 && plan.bindings.size() == 6,
         "system metrics share one query");
     ok &= Check(plan.bindings[0].slot == SystemMetricSlot::CpuUsage &&
@@ -581,13 +581,98 @@ void CheckSystemTelemetry(bool& ok)
         plan.elements[5].deviceId == 1 && plan.bindings[5].unit == PM_UNIT_MILLIWATTS,
         "GPU power query uses the selected Intel graphics adapter and introspected units");
 
+    const auto gpuSlotsUseOnly = [](const PresentMonSystemQueryPlan& candidate,
+        std::uint32_t deviceId)
+    {
+        return std::all_of(candidate.bindings.begin(), candidate.bindings.end(),
+            [&](const auto& binding)
+            {
+                const bool gpu = binding.slot == SystemMetricSlot::GpuUsage ||
+                    binding.slot == SystemMetricSlot::GpuFrequency ||
+                    binding.slot == SystemMetricSlot::GpuMemoryUsed ||
+                    binding.slot == SystemMetricSlot::GpuPower;
+                return !gpu || candidate.elements[binding.elementIndex].deviceId == deviceId;
+            });
+    };
+    auto amdCapabilities = capabilities;
+    amdCapabilities.devices.front().vendor = PM_DEVICE_VENDOR_AMD;
+    const auto amdPlan = BuildPresentMonSystemQueryPlan(amdCapabilities, HudGpuVendor::Amd);
+    ok &= Check(amdPlan.gpuTargetStatus == PresentMonGpuTargetStatus::Selected &&
+        amdPlan.gpuDeviceId == 1 && gpuSlotsUseOnly(amdPlan, 1) &&
+        amdPlan.bindings.size() == 6,
+        "synthetic AMD policy binds the available GPU metrics to its AMD device");
+
+    auto nvidiaCapabilities = capabilities;
+    nvidiaCapabilities.devices.front().vendor = PM_DEVICE_VENDOR_NVIDIA;
+    const auto nvidiaPlan = BuildPresentMonSystemQueryPlan(
+        nvidiaCapabilities, HudGpuVendor::Nvidia);
+    ok &= Check(nvidiaPlan.gpuTargetStatus == PresentMonGpuTargetStatus::Selected &&
+        nvidiaPlan.gpuDeviceId == 1 && gpuSlotsUseOnly(nvidiaPlan, 1) &&
+        nvidiaPlan.bindings.size() == 6,
+        "synthetic Nvidia policy binds the available GPU metrics to its Nvidia device");
+
+    auto amdWithNvidiaEgpu = amdCapabilities;
+    amdWithNvidiaEgpu.devices.push_back({3, PM_DEVICE_TYPE_GRAPHICS_ADAPTER,
+        PM_DEVICE_VENDOR_NVIDIA, "Nvidia eGPU"});
+    const auto amdWithEgpuPlan = BuildPresentMonSystemQueryPlan(
+        amdWithNvidiaEgpu, HudGpuVendor::Amd);
+    ok &= Check(amdWithEgpuPlan.gpuTargetStatus == PresentMonGpuTargetStatus::Selected &&
+        amdWithEgpuPlan.gpuDeviceId == 1 && gpuSlotsUseOnly(amdWithEgpuPlan, 1),
+        "an AMD target does not fall back to a different-vendor Nvidia eGPU");
+
+    auto sameVendorAdapters = amdCapabilities;
+    sameVendorAdapters.devices.push_back({3, PM_DEVICE_TYPE_GRAPHICS_ADAPTER,
+        PM_DEVICE_VENDOR_AMD, "Second AMD adapter"});
+    for (auto& metric : sameVendorAdapters.metrics)
+    {
+        if (metric.id != PM_METRIC_GPU_UTILIZATION &&
+            metric.id != PM_METRIC_GPU_FREQUENCY &&
+            metric.id != PM_METRIC_GPU_MEM_USED && metric.id != PM_METRIC_GPU_POWER)
+            continue;
+        if (metric.id == PM_METRIC_GPU_UTILIZATION || metric.id == PM_METRIC_GPU_POWER)
+        {
+            for (auto& device : metric.devices)
+                if (device.deviceId == 1)
+                    device.availability = PM_METRIC_AVAILABILITY_UNAVAILABLE;
+            metric.devices.push_back({3, PM_METRIC_AVAILABILITY_AVAILABLE, 1});
+        }
+        else
+            metric.devices.push_back({3, PM_METRIC_AVAILABILITY_UNAVAILABLE, 1});
+    }
+    const auto ambiguousPlan = BuildPresentMonSystemQueryPlan(
+        sameVendorAdapters, HudGpuVendor::Amd);
+    ok &= Check(ambiguousPlan.gpuTargetStatus == PresentMonGpuTargetStatus::Ambiguous &&
+        ambiguousPlan.gpuTargetMatchCount == 2 && !ambiguousPlan.gpuDeviceId &&
+        std::none_of(ambiguousPlan.bindings.begin(), ambiguousPlan.bindings.end(),
+            [](const auto& binding)
+            {
+                return binding.slot == SystemMetricSlot::GpuUsage ||
+                    binding.slot == SystemMetricSlot::GpuFrequency ||
+                    binding.slot == SystemMetricSlot::GpuMemoryUsed ||
+                    binding.slot == SystemMetricSlot::GpuPower;
+            }) && ambiguousPlan.bindings.size() == 2 &&
+        std::all_of(ambiguousPlan.elements.begin(), ambiguousPlan.elements.end(),
+            [](const auto& element) { return element.deviceId == 2; }),
+        "same-vendor adapters with complementary metrics fail closed while CPU remains");
+
+    const auto noMatchPlan = BuildPresentMonSystemQueryPlan(
+        capabilities, HudGpuVendor::Nvidia);
+    const auto unknownVendorPlan = BuildPresentMonSystemQueryPlan(
+        capabilities, HudGpuVendor::Unknown);
+    ok &= Check(noMatchPlan.gpuTargetStatus == PresentMonGpuTargetStatus::NoMatch &&
+        noMatchPlan.bindings.size() == 2 &&
+        unknownVendorPlan.gpuTargetStatus == PresentMonGpuTargetStatus::UnknownVendor &&
+        unknownVendorPlan.bindings.size() == 2,
+        "missing and unknown vendor policies keep CPU-only query slots");
+
     auto unavailableGpuPower = capabilities;
     const auto gpuPowerMetric = std::find_if(unavailableGpuPower.metrics.begin(),
         unavailableGpuPower.metrics.end(), [](const auto& metric)
         { return metric.id == PM_METRIC_GPU_POWER; });
     if (gpuPowerMetric != unavailableGpuPower.metrics.end())
         gpuPowerMetric->devices.front().availability = PM_METRIC_AVAILABILITY_UNAVAILABLE;
-    const auto planWithoutGpuPower = BuildPresentMonSystemQueryPlan(unavailableGpuPower);
+    const auto planWithoutGpuPower = BuildPresentMonSystemQueryPlan(
+        unavailableGpuPower, HudGpuVendor::Intel);
     ok &= Check(planWithoutGpuPower.bindings.size() == 5 &&
         std::none_of(planWithoutGpuPower.bindings.begin(), planWithoutGpuPower.bindings.end(),
             [](const auto& binding) { return binding.slot == SystemMetricSlot::GpuPower; }) &&
@@ -606,7 +691,8 @@ void CheckSystemTelemetry(bool& ok)
     auto missingGpuPower = capabilities;
     std::erase_if(missingGpuPower.metrics, [](const auto& metric)
         { return metric.id == PM_METRIC_GPU_POWER; });
-    ok &= Check(BuildPresentMonSystemQueryPlan(missingGpuPower).bindings.size() == 5,
+    ok &= Check(BuildPresentMonSystemQueryPlan(missingGpuPower,
+        HudGpuVendor::Intel).bindings.size() == 5,
         "an unexported GPU power metric does not change the other query bindings");
 
     auto unsupportedGpuPower = capabilities;
@@ -615,7 +701,8 @@ void CheckSystemTelemetry(bool& ok)
         { return metric.id == PM_METRIC_GPU_POWER; });
     if (unsupportedPower != unsupportedGpuPower.metrics.end())
         unsupportedPower->type = PM_METRIC_TYPE_STATIC;
-    ok &= Check(BuildPresentMonSystemQueryPlan(unsupportedGpuPower).bindings.size() == 5,
+    ok &= Check(BuildPresentMonSystemQueryPlan(unsupportedGpuPower,
+        HudGpuVendor::Intel).bindings.size() == 5,
         "unsupported GPU power metric type is omitted without affecting other metrics");
 
     auto unavailableCpuFrequency = capabilities;
@@ -624,7 +711,8 @@ void CheckSystemTelemetry(bool& ok)
         { return metric.id == PM_METRIC_CPU_FREQUENCY; });
     if (cpuFrequencyMetric != unavailableCpuFrequency.metrics.end())
         cpuFrequencyMetric->devices.front().availability = PM_METRIC_AVAILABILITY_UNAVAILABLE;
-    const auto planWithoutCpuFrequency = BuildPresentMonSystemQueryPlan(unavailableCpuFrequency);
+    const auto planWithoutCpuFrequency = BuildPresentMonSystemQueryPlan(
+        unavailableCpuFrequency, HudGpuVendor::Intel);
     ok &= Check(planWithoutCpuFrequency.bindings.size() == 5 &&
         std::none_of(planWithoutCpuFrequency.bindings.begin(), planWithoutCpuFrequency.bindings.end(),
             [](const auto& binding) { return binding.slot == SystemMetricSlot::CpuFrequency; }) &&
@@ -637,7 +725,8 @@ void CheckSystemTelemetry(bool& ok)
     auto missingCpuFrequency = capabilities;
     std::erase_if(missingCpuFrequency.metrics, [](const auto& metric)
         { return metric.id == PM_METRIC_CPU_FREQUENCY; });
-    ok &= Check(BuildPresentMonSystemQueryPlan(missingCpuFrequency).bindings.size() == 5,
+    ok &= Check(BuildPresentMonSystemQueryPlan(missingCpuFrequency,
+        HudGpuVendor::Intel).bindings.size() == 5,
         "absent CPU frequency capability leaves the other system metrics planned");
 
     const auto decodeFrequency = [](double value, PM_UNIT unit)
@@ -787,7 +876,8 @@ void CheckSystemTelemetry(bool& ok)
 
     FakeClient normalClient;
     PresentMonSystemTelemetry normalTelemetry;
-    const bool normalInitialized = normalTelemetry.Initialize(normalClient, capabilities);
+    const bool normalInitialized = normalTelemetry.Initialize(
+        normalClient, capabilities, HudGpuVendor::Intel);
     ok &= Check(normalInitialized && normalTelemetry.Ready() &&
         normalClient.elements_.size() == 6 && normalClient.freeCount == 0 &&
         normalClient.lastWindowMs == 1000.0 && normalClient.lastOffsetMs == 1064.0,
@@ -812,7 +902,8 @@ void CheckSystemTelemetry(bool& ok)
         PresentMonProcessTelemetry processTelemetry;
         processTelemetry.Initialize(client, Capabilities());
         PresentMonSystemTelemetry telemetry;
-        const bool initialized = telemetry.Initialize(client, capabilities);
+        const bool initialized = telemetry.Initialize(
+            client, capabilities, HudGpuVendor::Intel);
         const bool rejected = !initialized && !telemetry.Ready() &&
             !client.pollCount && client.freeCount == 1 && processTelemetry.Ready();
         telemetry.Shutdown(client);
@@ -831,7 +922,8 @@ void CheckSystemTelemetry(bool& ok)
     FakeClient nullHandleClient;
     nullHandleClient.nullQueryOnRegister = true;
     PresentMonSystemTelemetry nullHandleTelemetry;
-    ok &= Check(!nullHandleTelemetry.Initialize(nullHandleClient, capabilities) &&
+    ok &= Check(!nullHandleTelemetry.Initialize(
+            nullHandleClient, capabilities, HudGpuVendor::Intel) &&
         !nullHandleTelemetry.Ready() && nullHandleClient.pollCount == 0 &&
         nullHandleClient.freeCount == 0,
         "successful registration with a null query handle is rejected without polling");

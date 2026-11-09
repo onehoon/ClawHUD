@@ -90,6 +90,7 @@ private:
     PresentMonFrameTelemetry frameTelemetry_;
     PresentMonDebugFrameTelemetry debugFrameTelemetry_;
     PresentMonTelemetryCapabilities capabilities_;
+    HudGpuVendor expectedGpuVendor_{ HudGpuVendor::Intel };
     mutable std::mutex apiMutex_;
     bool ready_{};
 };

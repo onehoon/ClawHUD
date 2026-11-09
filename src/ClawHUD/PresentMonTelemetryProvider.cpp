@@ -69,7 +69,7 @@ bool PresentMonTelemetryProvider::Initialize()
         // unavailable rather than sampling with the wrong ETW timing.
         if (client_.SetEtwFlushPeriod(kPresentMonEtwFlushPeriodMs) == PM_STATUS_SUCCESS)
             processTelemetry_.Initialize(client_, capabilities_);
-        systemTelemetry_.Initialize(client_, capabilities_);
+        systemTelemetry_.Initialize(client_, capabilities_, expectedGpuVendor_);
         frameReady = frameTelemetry_.Initialize(client_, capabilities_);
         debugFrameReady = debugFrameTelemetry_.Initialize(client_, capabilities_);
         frameInitDiagnostic = frameTelemetry_.TakePendingDiagnostic();
