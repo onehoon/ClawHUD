@@ -235,6 +235,9 @@ void CheckQueryPlanning(bool& ok)
     ok &= Check(!provider.Ready() && !provider.ProcessReady() &&
         !provider.SystemReady(),
         "process and system readiness are independent on an uninitialized provider");
+    ok &= Check(provider.ConfigureExpectedGpuVendor(HudGpuVendor::Amd) &&
+        !provider.ConfigureExpectedGpuVendor(HudGpuVendor::Intel),
+        "GPU vendor policy is accepted once before provider initialization");
 }
 
 void CheckDecoding(bool& ok)
@@ -619,6 +622,23 @@ void CheckSystemTelemetry(bool& ok)
     ok &= Check(amdWithEgpuPlan.gpuTargetStatus == PresentMonGpuTargetStatus::Selected &&
         amdWithEgpuPlan.gpuDeviceId == 1 && gpuSlotsUseOnly(amdWithEgpuPlan, 1),
         "an AMD target does not fall back to a different-vendor Nvidia eGPU");
+
+    auto unavailableAmdMetrics = amdCapabilities;
+    for (auto& metric : unavailableAmdMetrics.metrics)
+    {
+        if (metric.id == PM_METRIC_GPU_UTILIZATION ||
+            metric.id == PM_METRIC_GPU_FREQUENCY ||
+            metric.id == PM_METRIC_GPU_MEM_USED || metric.id == PM_METRIC_GPU_POWER)
+            for (auto& device : metric.devices)
+                if (device.deviceId == 1)
+                    device.availability = PM_METRIC_AVAILABILITY_UNAVAILABLE;
+    }
+    const auto unavailableAmdPlan = BuildPresentMonSystemQueryPlan(
+        unavailableAmdMetrics, HudGpuVendor::Amd);
+    ok &= Check(unavailableAmdPlan.gpuTargetStatus ==
+        PresentMonGpuTargetStatus::Selected && unavailableAmdPlan.gpuDeviceId == 1 &&
+        unavailableAmdPlan.bindings.size() == 2,
+        "unique adapter identity is selected independently of metric availability");
 
     auto sameVendorAdapters = amdCapabilities;
     sameVendorAdapters.devices.push_back({3, PM_DEVICE_TYPE_GRAPHICS_ADAPTER,

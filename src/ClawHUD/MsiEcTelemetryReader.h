@@ -5,7 +5,6 @@
 #include "SupportedHardware.h"
 
 #include <cstdint>
-#include <utility>
 #include <vector>
 
 namespace clawhud
