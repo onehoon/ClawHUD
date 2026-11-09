@@ -188,6 +188,16 @@ int App::Run()
                 clawhud::ManagedStartupExitCode::RuntimeInitializationFailed);
         return 1;
     }
+    if (!productionTelemetry_.ConfigureDeviceSensors(
+            selectedHudDeviceModel_->capabilities.sensors))
+    {
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
+            L"EC sensor policy could not be configured before sampling");
+        if (launchMode_ == clawhud::LaunchMode::Managed)
+            return ReportManagedStartupFailure(
+                clawhud::ManagedStartupExitCode::RuntimeInitializationFailed);
+        return 1;
+    }
     // PresentMon shared-runtime prerequisite. Gated here so an unsupported device
     // or a losing second instance never reaches the elevated MSI path, and so a
     // fatal result stops startup before any runtime side effect below.
