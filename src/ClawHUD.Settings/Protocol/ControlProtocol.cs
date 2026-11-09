@@ -33,6 +33,7 @@ public enum ControlOperation : ushort
 {
     GetRuntimeInfo = 1,
     GetSettingsSnapshot = 2,
+    GetDeviceInfo = 3,
 
     SetStartWithWindows = 10,
     SetHudEnabled = 11,
@@ -111,6 +112,14 @@ public enum WireRuntimeState : byte
     ShuttingDown = 3,
 }
 
+public enum WireGpuVendor : byte
+{
+    Unknown = 0,
+    Intel = 1,
+    Amd = 2,
+    Nvidia = 3,
+}
+
 /// <summary>
 /// A protocol-v1 request to encode. Only the field the operation needs is set;
 /// <see cref="ControlCodec.EncodeRequest"/> validates the operation/field pairing
@@ -130,6 +139,13 @@ public sealed record RuntimeInfo(
     ushort MaximumProtocolVersion,
     WireLaunchMode LaunchMode,
     WireRuntimeState RuntimeState);
+
+public sealed record DeviceInfo(
+    string ModelId,
+    string FamilyId,
+    string DisplayName,
+    WireGpuVendor ExpectedGpuVendor,
+    bool SupportsIntelVrrFix);
 
 public sealed record IntelVrrResult(
     WireIntelVrrStatus Status,
@@ -162,6 +178,7 @@ public static class WireValue
     internal static bool IsIntelVrrStatus(byte v) => v is >= 1 and <= 9;
     internal static bool IsLaunchMode(byte v) => v is >= 1 and <= 2;
     internal static bool IsRuntimeState(byte v) => v is >= 1 and <= 3;
+    internal static bool IsGpuVendor(byte v) => v <= 3;
 
     internal static bool IsHudSizeOffset(int v) =>
         v is >= ControlProtocol.MinHudSizeOffset and <= ControlProtocol.MaxHudSizeOffset;

@@ -278,12 +278,37 @@ public class MainViewModelTests
     public async Task IntelVrrRangeFix_TogglesToReturnedSnapshotValue(bool from, bool to)
     {
         var (vm, fake) = Loaded(Snapshot(intelVrr: from));
+        vm.ApplyDeviceInfo(new DeviceInfo("msi.claw.a2vm.7", "msi.claw", "MSI Claw A2VM 7",
+            WireGpuVendor.Intel, true));
         fake.NextSnapshot = Snapshot(intelVrr: to);
 
         await vm.ToggleIntelVrrRangeFixAsync();
 
         Assert.Equal(new[] { ControlOperation.SetIntelVrrRangeFixEnabled }, fake.Calls);
         Assert.Equal(to, vm.IntelVrrRangeFixEnabled);
+    }
+
+    [Fact]
+    public async Task IntelVrrRangeFix_UnknownOrUnsupportedDevice_HidesEffectiveStateAndNeverMutates()
+    {
+        var (vm, fake) = Loaded(Snapshot(intelVrr: true));
+
+        Assert.False(vm.IsIntelVrrFixSupported);
+        Assert.False(vm.IntelVrrRangeFixEnabled);
+        await vm.ToggleIntelVrrRangeFixAsync();
+        Assert.DoesNotContain(ControlOperation.SetIntelVrrRangeFixEnabled, fake.Calls);
+
+        vm.ApplyDeviceInfo(new DeviceInfo("synthetic.amd.handheld", "synthetic.handheld",
+            "Synthetic AMD", WireGpuVendor.Amd, false));
+        Assert.False(vm.IsIntelVrrFixSupported);
+        Assert.False(vm.IntelVrrRangeFixEnabled);
+        await vm.ToggleIntelVrrRangeFixAsync();
+        Assert.DoesNotContain(ControlOperation.SetIntelVrrRangeFixEnabled, fake.Calls);
+
+        vm.ApplyDeviceInfo(new DeviceInfo("synthetic.device", "synthetic.family", "Synthetic",
+            WireGpuVendor.Amd, true));
+        Assert.True(vm.IsIntelVrrFixSupported,
+            "the explicit capability result is authoritative and is not inferred from GPU vendor");
     }
 
     [Fact] // §17.4 whole-snapshot reconciliation

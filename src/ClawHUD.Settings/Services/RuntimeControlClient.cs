@@ -40,6 +40,7 @@ public sealed record ControlClientResult<T>(
 public interface IRuntimeControlClient
 {
     Task<ControlClientResult<RuntimeInfo>> GetRuntimeInfoAsync(CancellationToken cancellationToken = default);
+    Task<ControlClientResult<DeviceInfo>> GetDeviceInfoAsync(CancellationToken cancellationToken = default);
     Task<ControlClientResult<SettingsSnapshot>> GetSettingsSnapshotAsync(CancellationToken cancellationToken = default);
     Task<ControlClientResult<SettingsSnapshot>> SetHudEnabledAsync(bool enabled, CancellationToken cancellationToken = default);
     Task<ControlClientResult<SettingsSnapshot>> SetHudVisibilityModeAsync(WireVisibilityMode mode, CancellationToken cancellationToken = default);
@@ -78,6 +79,12 @@ public sealed class RuntimeControlClient : IRuntimeControlClient
         ExecuteAsync(ControlOperation.GetRuntimeInfo,
             id => new ControlRequest(ControlOperation.GetRuntimeInfo, id),
             r => r.RuntimeInfo, cancellationToken);
+
+    public Task<ControlClientResult<DeviceInfo>> GetDeviceInfoAsync(
+        CancellationToken cancellationToken = default) =>
+        ExecuteAsync(ControlOperation.GetDeviceInfo,
+            id => new ControlRequest(ControlOperation.GetDeviceInfo, id),
+            r => r.DeviceInfo, cancellationToken);
 
     public Task<ControlClientResult<SettingsSnapshot>> GetSettingsSnapshotAsync(
         CancellationToken cancellationToken = default) =>

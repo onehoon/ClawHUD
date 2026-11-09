@@ -23,6 +23,7 @@ int main()
     using clawhud::IsHudDeviceModelCatalogValid;
     using clawhud::IsHudDeviceSelectionAdmitted;
     using clawhud::ResolveHudDevice;
+    using clawhud::SupportsIntelVrrFix;
 
     const auto productionModels = HudDeviceModelCatalog();
     ok &= Check(productionModels.size() == 4,
@@ -79,10 +80,23 @@ int main()
         claw7.model->capabilities.sensors.msiBatteryDischarge &&
         claw7.model->capabilities.intelVrrFix,
         "existing Intel model permissions preserve current behavior");
+    ok &= Check(SupportsIntelVrrFix(claw7.model) &&
+        SupportsIntelVrrFix(claw8.model) && SupportsIntelVrrFix(clawcg.model),
+        "all currently admitted Intel models retain the same VRR eligibility");
 
     const auto a8 = ResolveHudDevice({ L"MS-1T8K", {} });
     ok &= Check(a8.status == HardwareSupport::Unsupported && a8.model == nullptr &&
         !IsHudDeviceSelectionAdmitted(a8), "A8 candidate remains unadmitted without a selected model");
+    ok &= Check(!SupportsIntelVrrFix(a8Candidate) && !SupportsIntelVrrFix(nullptr),
+        "unadmitted A8 metadata and missing model cannot enable Intel VRR");
+
+    constexpr HudDeviceCapabilities kSyntheticAmdCapabilities{
+        HudGpuVendor::Amd, {}, false };
+    constexpr HudDeviceModel kSyntheticAmd{
+        "synthetic.amd.handheld", "synthetic", "synthetic.handheld", "Synthetic AMD",
+        L"SYNTHETIC-AMD", L"Synthetic", true, kSyntheticAmdCapabilities};
+    ok &= Check(!SupportsIntelVrrFix(&kSyntheticAmd),
+        "an admitted synthetic AMD model without the capability cannot schedule Intel VRR work");
 
     constexpr HudDeviceCapabilities kSyntheticVendorCapabilities{
         HudGpuVendor::Nvidia, {}, false };
