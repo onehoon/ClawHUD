@@ -134,6 +134,22 @@ std::optional<std::uint8_t> FromIntelVrrStatus(IntelVrrRunStatus status)
     return std::nullopt;
 }
 
+std::optional<std::uint8_t> FromGpuVendor(HudGpuVendor vendor)
+{
+    switch (vendor)
+    {
+    case HudGpuVendor::Unknown:
+        return static_cast<std::uint8_t>(ctl::WireGpuVendor::Unknown);
+    case HudGpuVendor::Intel:
+        return static_cast<std::uint8_t>(ctl::WireGpuVendor::Intel);
+    case HudGpuVendor::Amd:
+        return static_cast<std::uint8_t>(ctl::WireGpuVendor::Amd);
+    case HudGpuVendor::Nvidia:
+        return static_cast<std::uint8_t>(ctl::WireGpuVendor::Nvidia);
+    }
+    return std::nullopt;
+}
+
 // ---- semantic snapshot -> wire snapshot ------------------------------
 
 std::optional<ctl::WireSettingsSnapshot> ToWireSnapshot(const RuntimeSettingsSnapshot& snapshot)
@@ -176,6 +192,23 @@ std::optional<ctl::WireSettingsSnapshot> ToWireSnapshot(const RuntimeSettingsSna
     return wire;
 }
 
+std::optional<ctl::WireDeviceInfo> ToWireDeviceInfo(const RuntimeDeviceInfo& info)
+{
+    const auto vendor = FromGpuVendor(info.expectedGpuVendor);
+    if (!vendor || info.modelId.empty() || info.familyId.empty() || info.displayName.empty() ||
+        !ctl::IsValidWireString(info.modelId) || !ctl::IsValidWireString(info.familyId) ||
+        !ctl::IsValidWireString(info.displayName))
+        return std::nullopt;
+
+    ctl::WireDeviceInfo wire;
+    wire.modelId = info.modelId;
+    wire.familyId = info.familyId;
+    wire.displayName = info.displayName;
+    wire.expectedGpuVendor = *vendor;
+    wire.supportsIntelVrrFix = info.supportsIntelVrrFix;
+    return wire;
+}
+
 // A fresh authoritative snapshot response after a successful mutation.
 ctl::ControlResponse SnapshotResponse(const ctl::ControlRequest& request, IRuntimeControl& rc)
 {
@@ -215,6 +248,19 @@ ctl::ControlResponse ExecuteControlResponse(
     }
     case Operation::GetSettingsSnapshot:
         return SnapshotResponse(request, rc);
+
+    case Operation::GetDeviceInfo:
+    {
+        const auto semanticInfo = rc.GetDeviceInfo();
+        if (!semanticInfo)
+            return StatusResponse(request, ControlStatus::OperationFailed);
+        auto wireInfo = ToWireDeviceInfo(*semanticInfo);
+        if (!wireInfo)
+            return StatusResponse(request, ControlStatus::OperationFailed);
+        auto response = StatusResponse(request, ControlStatus::Ok);
+        response.deviceInfo = std::move(*wireInfo);
+        return response;
+    }
 
     case Operation::SetStartWithWindows:
         if (!rc.SetStartWithWindows(request.flag))
@@ -275,7 +321,8 @@ ctl::ControlResponse ExecuteControlResponse(
         return SnapshotResponse(request, rc);
 
     case Operation::SetIntelVrrRangeFixEnabled:
-        rc.SetIntelVrrRangeFixEnabled(request.flag);
+        if (!rc.SetIntelVrrRangeFixEnabled(request.flag))
+            return StatusResponse(request, ControlStatus::OperationFailed);
         return SnapshotResponse(request, rc);
 
     case Operation::RequestShutdown:

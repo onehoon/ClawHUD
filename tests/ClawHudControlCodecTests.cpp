@@ -530,6 +530,151 @@ void RuntimeInfoRoundTrip()
     }
 }
 
+void DeviceInfoRoundTripAndValidation()
+{
+    const auto request = EmptyRequest(Operation::GetDeviceInfo, 0x11223344);
+    const Bytes requestFrame = Encode(request);
+    const Bytes requestGolden{
+        'C','H','U','D', 1,0, 24,0, 1,0, 3,0,
+        0x44,0x33,0x22,0x11, 0,0,0,0, 0,0,0,0};
+    Check(requestFrame == requestGolden, "GetDeviceInfo request has exact v1 empty-frame bytes");
+    Check(DecodeControlRequest(requestFrame).ok, "GetDeviceInfo empty request round-trips");
+
+    Bytes nonemptyRequest = requestFrame;
+    nonemptyRequest.push_back(0);
+    nonemptyRequest[20] = 1;
+    Check(DecodeControlRequest(nonemptyRequest).error == ControlStatus::InvalidPayload,
+        "GetDeviceInfo rejects a nonempty request payload");
+
+    const auto makeResponse = [](std::uint8_t vendor, bool supports)
+    {
+        ControlResponse response;
+        response.operationId = static_cast<std::uint16_t>(Operation::GetDeviceInfo);
+        response.requestId = 0x01020304;
+        response.status = ControlStatus::Ok;
+        response.deviceInfo = WireDeviceInfo{"m", "f", "D", vendor, supports};
+        return response;
+    };
+
+    for (std::uint8_t vendor : {std::uint8_t{0}, std::uint8_t{1}, std::uint8_t{2}, std::uint8_t{3}})
+    {
+        for (bool supported : {false, true})
+        {
+            const auto decoded = DecodeControlResponse(Encode(makeResponse(vendor, supported)));
+            Check(decoded.ok && decoded.value.deviceInfo.has_value(),
+                "valid DeviceInfo GPU enum and support flag round-trip");
+            if (decoded.value.deviceInfo)
+                Check(decoded.value.deviceInfo->expectedGpuVendor == vendor &&
+                    decoded.value.deviceInfo->supportsIntelVrrFix == supported,
+                    "DeviceInfo preserves GPU vendor and support flag");
+        }
+    }
+
+    const Bytes golden = Encode(makeResponse(1, true));
+    const Bytes responseGolden{
+        'C','H','U','D', 1,0, 24,0, 2,0, 3,0,
+        4,3,2,1, 0,0,0,0, 11,0,0,0,
+        1,0,'m', 1,0,'f', 1,0,'D', 1,1};
+    Check(golden == responseGolden, "DeviceInfo response matches exact cross-language golden bytes");
+    const auto valid = DecodeControlResponse(golden);
+    Check(valid.ok && valid.value.deviceInfo && valid.value.deviceInfo->modelId == "m",
+        "DeviceInfo DTO decodes independently from the settings snapshot");
+
+    const auto rejects = [](Bytes frame, const char* message)
+    {
+        Check(!DecodeControlResponse(frame).ok, message);
+    };
+    {
+        Bytes bad = golden; bad[26] = 0xFF;
+        rejects(std::move(bad), "DeviceInfo rejects malformed UTF-8");
+    }
+    {
+        Bytes bad = golden; bad[26] = 0;
+        rejects(std::move(bad), "DeviceInfo rejects embedded NUL");
+    }
+    {
+        // Keep the frame structurally complete so this specifically exercises
+        // the 4096-byte string bound instead of failing on truncation.
+        Bytes bad = golden;
+        bad.insert(bad.begin() + 27, 4096, static_cast<std::uint8_t>('x'));
+        bad[24] = 1;
+        bad[25] = 0x10; // modelId length = 4097
+        const std::uint32_t payloadSize = static_cast<std::uint32_t>(bad.size() - 24);
+        bad[20] = static_cast<std::uint8_t>(payloadSize & 0xFF);
+        bad[21] = static_cast<std::uint8_t>((payloadSize >> 8) & 0xFF);
+        bad[22] = static_cast<std::uint8_t>((payloadSize >> 16) & 0xFF);
+        bad[23] = static_cast<std::uint8_t>((payloadSize >> 24) & 0xFF);
+        rejects(std::move(bad), "DeviceInfo rejects a string length above 4096 bytes");
+    }
+    {
+        Bytes bad = golden; bad[33] = 4;
+        rejects(std::move(bad), "DeviceInfo rejects an unknown GPU vendor enum");
+    }
+    {
+        Bytes bad = golden; bad[34] = 2;
+        rejects(std::move(bad), "DeviceInfo rejects a non-boolean support byte");
+    }
+    {
+        Bytes bad = golden; bad.pop_back();
+        rejects(std::move(bad), "DeviceInfo rejects a truncated payload");
+    }
+    {
+        Bytes bad = golden; bad.push_back(0); bad[20] = 12;
+        rejects(std::move(bad), "DeviceInfo rejects trailing payload bytes");
+    }
+
+    // Simulate the deployed old v1 server's operation table (1, 2, and 10..20).
+    // It rejects operation 3 while preserving the request identity; the new
+    // client then decodes the correlated payload-free error.
+    const auto oldServerDispatch = [](const Bytes& requestBytes)
+    {
+        const std::uint16_t operationId = static_cast<std::uint16_t>(requestBytes[10]) |
+            static_cast<std::uint16_t>(requestBytes[11] << 8);
+        const bool knownToOldServer = operationId == 1 || operationId == 2 ||
+            (operationId >= 10 && operationId <= 20);
+        ControlResponse response;
+        response.operationId = operationId;
+        response.requestId = static_cast<std::uint32_t>(requestBytes[12]) |
+            (static_cast<std::uint32_t>(requestBytes[13]) << 8) |
+            (static_cast<std::uint32_t>(requestBytes[14]) << 16) |
+            (static_cast<std::uint32_t>(requestBytes[15]) << 24);
+        response.status = knownToOldServer ? ControlStatus::OperationFailed :
+            ControlStatus::UnknownOperation;
+        return EncodeControlResponse(response);
+    };
+    const auto oldServerFrame = oldServerDispatch(requestFrame);
+    const auto oldServer = DecodeControlResponse(oldServerFrame.value_or(Bytes{}));
+    Check(oldServer.ok && oldServer.value.status == ControlStatus::UnknownOperation &&
+        oldServer.value.operationId == 3 && oldServer.value.requestId == request.requestId &&
+        !oldServer.value.deviceInfo && !oldServer.value.snapshot && !oldServer.value.runtimeInfo,
+        "old-server UnknownOperation remains correlated and payload-free");
+
+    ControlResponse stray;
+    stray.operationId = static_cast<std::uint16_t>(Operation::GetDeviceInfo);
+    stray.requestId = 5;
+    stray.status = ControlStatus::Ok;
+    stray.deviceInfo = WireDeviceInfo{"m", "f", "D", 1, true};
+    stray.snapshot = SampleSnapshot();
+    Check(!EncodeControlResponse(stray), "DeviceInfo plus snapshot DTO is rejected");
+    stray.snapshot.reset();
+    stray.runtimeInfo = WireRuntimeInfo{"1", 1, 1,
+        static_cast<std::uint8_t>(WireLaunchMode::Standalone),
+        static_cast<std::uint8_t>(WireRuntimeState::Ready)};
+    Check(!EncodeControlResponse(stray), "DeviceInfo plus runtime-info DTO is rejected");
+    stray.runtimeInfo.reset();
+    stray.deviceInfo->displayName.clear();
+    Check(!EncodeControlResponse(stray), "empty DeviceInfo identity cannot be encoded");
+
+    ControlResponse missing;
+    missing.operationId = static_cast<std::uint16_t>(Operation::GetDeviceInfo);
+    missing.requestId = 6;
+    missing.status = ControlStatus::Ok;
+    Check(!EncodeControlResponse(missing), "successful DeviceInfo response requires its DTO");
+    missing.status = ControlStatus::OperationFailed;
+    missing.deviceInfo = WireDeviceInfo{"m", "f", "D", 0, false};
+    Check(!EncodeControlResponse(missing), "error DeviceInfo response cannot carry a DTO");
+}
+
 // ---- version skew: header-valid request with an unknown operation --------
 
 void VersionSkewCorrelation()
@@ -598,6 +743,7 @@ void EncoderRejectsInvalidResponseDtos()
 {
     const auto snapshotOp = static_cast<std::uint16_t>(Operation::GetSettingsSnapshot);
     const auto runtimeInfoOp = static_cast<std::uint16_t>(Operation::GetRuntimeInfo);
+    const auto deviceInfoOp = static_cast<std::uint16_t>(Operation::GetDeviceInfo);
     const auto shutdownOp = static_cast<std::uint16_t>(Operation::RequestShutdown);
 
     WireRuntimeInfo info;
@@ -639,6 +785,18 @@ void EncoderRejectsInvalidResponseDtos()
         r.snapshot = SampleSnapshot();
         Check(!EncodeControlResponse(r).has_value(),
             "Ok runtime-info response with a stray snapshot is refused");
+    }
+
+    // DeviceInfo response with an unrelated DTO.
+    {
+        ControlResponse r;
+        r.operationId = deviceInfoOp;
+        r.requestId = 1;
+        r.status = ControlStatus::Ok;
+        r.deviceInfo = WireDeviceInfo{"m", "f", "D", 1, true};
+        r.snapshot = SampleSnapshot();
+        Check(!EncodeControlResponse(r).has_value(),
+            "Ok DeviceInfo response with a stray snapshot is refused");
     }
 
     // Error response carrying a payload optional.
@@ -705,6 +863,14 @@ void EveryEncodedResponseRoundTrips()
         r.requestId = 1;
         r.status = ControlStatus::Ok;
         r.runtimeInfo = info;
+        matrix.push_back(r);
+    }
+    {
+        ControlResponse r;
+        r.operationId = static_cast<std::uint16_t>(Operation::GetDeviceInfo);
+        r.requestId = 4;
+        r.status = ControlStatus::Ok;
+        r.deviceInfo = WireDeviceInfo{"m", "f", "D", 0, false};
         matrix.push_back(r);
     }
     // Every snapshot-carrying Ok response.
@@ -774,6 +940,7 @@ int main()
     SnapshotRoundTrip();
     StringRejection();
     RuntimeInfoRoundTrip();
+    DeviceInfoRoundTripAndValidation();
     VersionSkewCorrelation();
     EncoderRejectsInvalidResponseDtos();
     EveryEncodedResponseRoundTrips();

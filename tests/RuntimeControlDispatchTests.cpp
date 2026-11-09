@@ -30,12 +30,15 @@ class FakeRuntimeControl : public clawhud::IRuntimeControl
 public:
     // Effective state the fake reports back through GetSettingsSnapshot().
     clawhud::RuntimeSettingsSnapshot state;
+    std::optional<clawhud::RuntimeDeviceInfo> deviceInfo;
 
     std::thread::id lastCallThread;
     int snapshotCalls{};
     bool hudEnableResult{true};
     bool startWithWindowsResult{true};
     bool opacityResult{true};
+    bool intelVrrMutationResult{true};
+    int intelVrrMutationCalls{};
     std::optional<float> lastPreviewOpacity;
     std::optional<float> lastCommitOpacity;
     std::optional<bool> lastStartWithWindowsRequest;
@@ -45,6 +48,11 @@ public:
         const_cast<FakeRuntimeControl*>(this)->lastCallThread = std::this_thread::get_id();
         const_cast<FakeRuntimeControl*>(this)->snapshotCalls++;
         return state;
+    }
+    std::optional<clawhud::RuntimeDeviceInfo> GetDeviceInfo() const override
+    {
+        const_cast<FakeRuntimeControl*>(this)->lastCallThread = std::this_thread::get_id();
+        return deviceInfo;
     }
     bool SetStartWithWindows(bool enabled) override
     {
@@ -99,10 +107,14 @@ public:
         if (opacityResult) state.hudOptions.backgroundOpacity = opacity;
         return opacityResult;
     }
-    void SetIntelVrrRangeFixEnabled(bool enabled) override
+    bool SetIntelVrrRangeFixEnabled(bool enabled) override
     {
         lastCallThread = std::this_thread::get_id();
+        ++intelVrrMutationCalls;
+        if (!intelVrrMutationResult)
+            return false;
         state.intelVrrRangeFixEnabled = enabled;
+        return true;
     }
 };
 
@@ -383,6 +395,48 @@ void RuntimeInfo()
     }
 }
 
+void DeviceInfoAndVrrRefusal()
+{
+    Harness h;
+    h.fake.deviceInfo = clawhud::RuntimeDeviceInfo{
+        "msi.claw.a2vm.7", "msi.claw", "MSI Claw A2VM 7",
+        clawhud::HudGpuVendor::Intel, true};
+    const auto info = h.FromWorker(Request(ctl::Operation::GetDeviceInfo, 41));
+    Check(info.status == ctl::ControlStatus::Ok && info.deviceInfo.has_value(),
+        "GetDeviceInfo returns its independent success DTO");
+    if (info.deviceInfo)
+    {
+        Check(info.deviceInfo->modelId == "msi.claw.a2vm.7" &&
+            info.deviceInfo->familyId == "msi.claw" &&
+            info.deviceInfo->displayName == "MSI Claw A2VM 7" &&
+            info.deviceInfo->expectedGpuVendor == static_cast<std::uint8_t>(ctl::WireGpuVendor::Intel) &&
+            info.deviceInfo->supportsIntelVrrFix,
+            "GetDeviceInfo returns the trusted model identity and static Intel capability");
+    }
+
+    auto acceptedRequest = Request(ctl::Operation::SetIntelVrrRangeFixEnabled, 44);
+    acceptedRequest.flag = true;
+    const auto accepted = h.FromWorker(acceptedRequest);
+    Check(accepted.status == ctl::ControlStatus::Ok && accepted.snapshot &&
+        accepted.snapshot->intelVrrRangeFixEnabled,
+        "supported Intel VRR mutation keeps the authoritative snapshot response");
+
+    h.fake.state.intelVrrRangeFixEnabled = true;
+    h.fake.intelVrrMutationResult = false;
+    auto request = Request(ctl::Operation::SetIntelVrrRangeFixEnabled, 42);
+    request.flag = false;
+    const auto refused = h.FromWorker(request);
+    Check(refused.status == ctl::ControlStatus::OperationFailed && !refused.snapshot,
+        "rejected direct VRR mutation returns OperationFailed without a snapshot");
+    Check(h.fake.intelVrrMutationCalls == 2 && h.fake.state.intelVrrRangeFixEnabled,
+        "rejected direct VRR mutation leaves the effective setting unchanged");
+
+    h.fake.deviceInfo.reset();
+    const auto missing = h.FromWorker(Request(ctl::Operation::GetDeviceInfo, 43));
+    Check(missing.status == ctl::ControlStatus::OperationFailed && !missing.deviceInfo,
+        "missing admitted identity fails closed without a DeviceInfo payload");
+}
+
 // ---- 17.1 RequestShutdown approval (Ok + shutdownAfterResponse) --------
 
 void RequestShutdownApproval()
@@ -484,6 +538,7 @@ int main()
     OpacityPreviewCommit();
     HudEnableFailure();
     RuntimeInfo();
+    DeviceInfoAndVrrRefusal();
     RequestShutdownApproval();
     ShutdownCancellation();
     SubmissionAfterStop();
