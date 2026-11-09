@@ -19,6 +19,25 @@ DebugLoggingEnabled=true
 the app. Change it and restart ClawHUD to take effect. Logs are written to `%LOCALAPPDATA%\ClawHUD\logs`,
 the shared directory for runtime, EC, and Intel VRR Range Fix logs.
 
+## MSI Claw A8 baseline telemetry evidence
+
+For the exact admitted MSI Claw A8 BZ2EM model, concise `[A8Telemetry]` INFO/WARN
+events are written to the normal `clawhud.log` even when
+`DebugLoggingEnabled=false`. This model-gated evidence reports the existing
+PresentMon query bindings and the first valid raw samples from PresentMon and
+Windows. It does not enable verbose debug observation, access EC sensors, add a
+data reader, or change telemetry collection. Missing samples are reported once
+per metric after active sampling attempts; a later first valid sample is still
+logged.
+
+To collect a baseline, leave the HUD set to **Always** and visible for at least
+30 seconds, then launch a game and allow FPS/GPU-load samples to arrive. Send
+`%LOCALAPPDATA%\ClawHUD\logs\clawhud.log` and, if present,
+`clawhud.1.log` / `clawhud.2.log` because the normal logger rotates at 2 MiB.
+The `[A8Telemetry]` events and existing default PresentMon status/query-plan
+lines are sufficient; no debug switch or additional diagnostic tool is needed.
+These software logs do not constitute physical A8 hardware certification.
+
 There is no in-app developer diagnostic. Production PresentMon usage
 (`PresentMonApi2Client`, `PresentMonTelemetryProvider`, FPS / system / frame /
 debug-frame telemetry, `PresentMonRuntimeBootstrap`) is the only PresentMon

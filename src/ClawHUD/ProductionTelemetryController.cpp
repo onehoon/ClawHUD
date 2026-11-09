@@ -5,7 +5,10 @@
 #include "RuntimeLogger.h"
 #include "WindowsMemoryTelemetry.h"
 
+#include <algorithm>
 #include <iomanip>
+#include <array>
+#include <chrono>
 #include <sstream>
 #include <string>
 
@@ -44,6 +47,44 @@ bool ProductionTelemetryController::ConfigureDeviceSensors(
     sensorSupport_ = sensors;
     sensorSupportConfigured_ = true;
     return true;
+}
+
+bool ProductionTelemetryController::ConfigureA8TelemetryEvidence(bool enabled) noexcept
+{
+    return a8TelemetryEvidence_.Configure(enabled);
+}
+
+void ProductionTelemetryController::InitializeA8TelemetryEvidence()
+{
+    if (!a8TelemetryEvidence_.Enabled())
+        return;
+
+    A8TelemetryStartupState startup;
+    startup.providerReady = provider_.Ready();
+    startup.systemReady = provider_.SystemReady();
+    startup.processReady = provider_.ProcessReady();
+    if (startup.providerReady)
+    {
+        const auto plan = BuildPresentMonSystemQueryPlan(
+            provider_.Capabilities(), HudGpuVendor::Amd);
+        startup.gpuTargetStatus = plan.gpuTargetStatus;
+        startup.gpuTargetMatchCount = plan.gpuTargetMatchCount;
+        startup.gpuDeviceId = plan.gpuDeviceId;
+        startup.systemMetricBound.fill(false);
+        const auto setBound = [&](SystemMetricSlot slot, std::size_t index)
+        {
+            startup.systemMetricBound[index] = std::any_of(
+                plan.bindings.begin(), plan.bindings.end(),
+                [slot](const auto& binding) { return binding.slot == slot; });
+        };
+        setBound(SystemMetricSlot::CpuUsage, 0);
+        setBound(SystemMetricSlot::CpuFrequency, 1);
+        setBound(SystemMetricSlot::GpuUsage, 2);
+        setBound(SystemMetricSlot::GpuFrequency, 3);
+        setBound(SystemMetricSlot::GpuPower, 4);
+        setBound(SystemMetricSlot::GpuMemoryUsed, 5);
+    }
+    LogA8TelemetryEvidence(a8TelemetryEvidence_.Start(startup));
 }
 
 void ProductionTelemetryController::FillSnapshot(HudTelemetrySnapshot& snapshot) const
@@ -116,9 +157,21 @@ void ProductionTelemetryController::SampleSystemEc()
     }
     batteryEcOnDc_ = onBattery;
     aggregator_.IngestEc(freshEcTelemetry);
+    const bool systemPollAttempted = a8TelemetryEvidence_.Enabled() &&
+        provider_.SystemReady();
     const auto system = provider_.ReadSystem();
+    const auto rawSystemMemoryUsedBytes = ReadSystemMemoryUsedBytes();
+    if (a8TelemetryEvidence_.Enabled())
+    {
+        LogA8TelemetryEvidence(a8TelemetryEvidence_.ObserveSystem(
+            system, systemPollAttempted,
+            std::chrono::milliseconds(kUsageSamplingIntervalMs)));
+        LogA8TelemetryEvidence(a8TelemetryEvidence_.ObserveSystemMemory(
+            rawSystemMemoryUsedBytes,
+            std::chrono::milliseconds(kUsageSamplingIntervalMs)));
+    }
     HudSystemTelemetryInput systemInput = MakeHudSystemTelemetryInput(
-        system, ReadSystemMemoryUsedBytes());
+        system, rawSystemMemoryUsedBytes);
     aggregator_.IngestSystem(systemInput);
     if (requestRender_)
         requestRender_();
@@ -127,6 +180,9 @@ void ProductionTelemetryController::SampleSystemEc()
 void ProductionTelemetryController::SampleBattery()
 {
     latestPower_ = ReadWindowsPowerTelemetry();
+    if (a8TelemetryEvidence_.Enabled())
+        LogA8TelemetryEvidence(a8TelemetryEvidence_.ObserveBattery(latestPower_,
+            std::chrono::milliseconds(kBatteryHudTimerIntervalMs)));
     if (!latestPower_)
     {
         batteryEstimator_.Reset();
@@ -186,6 +242,10 @@ void ProductionTelemetryController::SampleFps()
     const auto snapshot = provider_.ReadProcess(processId);
     const std::optional<double> freshFps =
         snapshot ? snapshot->displayedFps : std::nullopt;
+    if (a8TelemetryEvidence_.Enabled())
+        LogA8TelemetryEvidence(a8TelemetryEvidence_.ObserveFps(processId,
+            freshFps, provider_.ProcessReady(),
+            std::chrono::milliseconds(kPresentMonFpsSamplingIntervalMs)));
     std::optional<double> targetFps;
     if (alwaysMode)
     {
