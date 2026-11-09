@@ -1,8 +1,10 @@
 #pragma once
 
 #include <optional>
+#include <string>
 
 #include "HudModel.h"
+#include "SupportedHardware.h"
 #include "Tweaks/IntelVrr/IntelVrrRunResult.h"
 
 namespace clawhud
@@ -24,6 +26,18 @@ struct RuntimeSettingsSnapshot
     std::optional<IntelVrrRunResult> intelVrrLastResult;
 };
 
+// Read-only projection of the already-admitted startup model. This semantic
+// value is serialized explicitly by the Control IPC codec; no catalog pointer
+// or hardware identifier crosses the process boundary.
+struct RuntimeDeviceInfo
+{
+    std::string modelId;
+    std::string familyId;
+    std::string displayName;
+    HudGpuVendor expectedGpuVendor{HudGpuVendor::Unknown};
+    bool supportsIntelVrrFix{};
+};
+
 // The semantic control boundary every ClawHUD frontend uses. Implemented by the
 // runtime composition root (App); callers never touch HudController,
 // HudPresentation, telemetry, game detection, or HudSettingsStore directly and
@@ -34,6 +48,7 @@ public:
     virtual ~IRuntimeControl() = default;
 
     virtual RuntimeSettingsSnapshot GetSettingsSnapshot() const = 0;
+    virtual std::optional<RuntimeDeviceInfo> GetDeviceInfo() const = 0;
 
     // Returns false when the runtime rejects the mutation (for example, in
     // SteamAddon-owned Managed mode).
@@ -50,6 +65,7 @@ public:
     virtual bool PreviewHudOpacity(float opacity) = 0;
     virtual bool CommitHudOpacity(float opacity) = 0;
 
-    virtual void SetIntelVrrRangeFixEnabled(bool enabled) = 0;
+    // Returns false when this selected device does not support the Intel VRR Fix.
+    virtual bool SetIntelVrrRangeFixEnabled(bool enabled) = 0;
 };
 }

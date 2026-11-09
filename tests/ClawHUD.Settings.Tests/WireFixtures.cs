@@ -38,6 +38,18 @@ internal static class WireFixtures
         return w.ToArray();
     }
 
+    internal static byte[] DeviceInfoPayload(string modelId = "m", string familyId = "f",
+        string displayName = "D", byte gpuVendor = 1, byte supportsIntelVrrFix = 1)
+    {
+        var w = new PayloadWriter();
+        w.String(modelId);
+        w.String(familyId);
+        w.String(displayName);
+        w.U8(gpuVendor);
+        w.U8(supportsIntelVrrFix);
+        return w.ToArray();
+    }
+
     internal static byte[] SnapshotPayload(
         bool startWithWindows = false,
         bool hudEnabled = true,

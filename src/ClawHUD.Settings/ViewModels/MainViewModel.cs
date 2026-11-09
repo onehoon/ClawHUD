@@ -18,6 +18,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly IRuntimeControlClient _client;
     private readonly OpacityInteractionCoordinator _opacity;
     private SettingsSnapshot? _snapshot;
+    private bool _supportsIntelVrrFix;
     private bool _mutationInFlight;
     private bool _refreshInFlight;
     private bool _runtimeLostRaised;
@@ -44,6 +45,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         _snapshot = snapshot;
         RaiseAllChanged();
+    }
+
+    internal void ApplyDeviceInfo(DeviceInfo deviceInfo)
+    {
+        _supportsIntelVrrFix = deviceInfo.SupportsIntelVrrFix;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsIntelVrrFixSupported)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IntelVrrRangeFixEnabled)));
     }
 
     public bool IsMutationInFlight
@@ -106,7 +114,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ? $"{_opacity.GestureValue}%"
         : _snapshot is null ? string.Empty : $"{_snapshot.BackgroundOpacityPercent}%";
 
-    public bool IntelVrrRangeFixEnabled => _snapshot?.IntelVrrRangeFixEnabled ?? false;
+    public bool IsIntelVrrFixSupported => _supportsIntelVrrFix;
+    public bool IntelVrrRangeFixEnabled => IsIntelVrrFixSupported &&
+        (_snapshot?.IntelVrrRangeFixEnabled ?? false);
     public bool StartWithWindows => _snapshot?.StartWithWindows ?? false;
 
     // ---- Discrete mutation intents -----------------------------------
@@ -191,7 +201,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
             : Mutate(c => c.SetHudSizeOffsetAsync(value));
 
     internal Task ToggleIntelVrrRangeFixAsync() =>
-        Mutate(c => c.SetIntelVrrRangeFixEnabledAsync(!IntelVrrRangeFixEnabled));
+        !IsIntelVrrFixSupported
+            ? ReassertProjection()
+            : Mutate(c => c.SetIntelVrrRangeFixEnabledAsync(!IntelVrrRangeFixEnabled));
 
     internal Task ToggleStartWithWindowsAsync() =>
         Mutate(c => c.SetStartWithWindowsAsync(!StartWithWindows));

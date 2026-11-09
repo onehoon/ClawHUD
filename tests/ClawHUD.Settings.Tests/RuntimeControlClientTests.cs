@@ -52,6 +52,50 @@ public class RuntimeControlClientTests
     }
 
     [Fact]
+    public async Task GetDeviceInfoAsync_SendsOperationThreeAndReturnsTypedValue()
+    {
+        string pipeName = $"ClawHUD.Control.Test.{Guid.NewGuid():N}";
+        await using var server = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 1,
+            PipeTransmissionMode.Message, PipeOptions.Asynchronous);
+
+        Task serverTask = Task.Run(async () =>
+        {
+            await server.WaitForConnectionAsync();
+            var buffer = new byte[ControlProtocol.MaxFrameBytes];
+            int total = 0;
+            do
+            {
+                int read = await server.ReadAsync(buffer.AsMemory(total));
+                if (read == 0) break;
+                total += read;
+            }
+            while (!server.IsMessageComplete);
+
+            ushort operation = BinaryPrimitives.ReadUInt16LittleEndian(buffer.AsSpan(10));
+            uint requestId = BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(12));
+            uint payloadSize = BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(20));
+            Assert.Equal((ushort)ControlOperation.GetDeviceInfo, operation);
+            Assert.Equal(0u, payloadSize);
+
+            byte[] response = WireFixtures.ResponseFrame(ControlOperation.GetDeviceInfo, requestId,
+                ControlStatus.Ok, WireFixtures.DeviceInfoPayload("msi.claw.a2vm.7", "msi.claw",
+                    "MSI Claw 🦀", (byte)WireGpuVendor.Intel, 1));
+            await server.WriteAsync(response);
+            await server.FlushAsync();
+            server.WaitForPipeDrain();
+        });
+
+        var client = new RuntimeControlClient(pipeName, TimeSpan.FromSeconds(5));
+        ControlClientResult<DeviceInfo> result = await client.GetDeviceInfoAsync();
+        await serverTask;
+
+        Assert.Equal(ControlClientOutcome.Success, result.Outcome);
+        Assert.Equal("msi.claw.a2vm.7", result.Value!.ModelId);
+        Assert.Equal("MSI Claw 🦀", result.Value.DisplayName);
+        Assert.True(result.Value.SupportsIntelVrrFix);
+    }
+
+    [Fact]
     public async Task GetSettingsSnapshotAsync_SurfacesTypedProtocolError()
     {
         string pipeName = $"ClawHUD.Control.Test.{Guid.NewGuid():N}";

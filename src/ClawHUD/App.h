@@ -70,6 +70,7 @@ public:
     // use over Control IPC. App stays the implementation authority; these delegate
     // to the existing product methods below.
     clawhud::RuntimeSettingsSnapshot GetSettingsSnapshot() const override;
+    std::optional<clawhud::RuntimeDeviceInfo> GetDeviceInfo() const override;
     bool SetStartWithWindows(bool enabled) override;
     bool SetHudEnabled(bool enabled) override;
     void SetHudVisibilityMode(clawhud::HudVisibilityMode mode) override;
@@ -79,7 +80,7 @@ public:
     void SetHudBackgroundMode(clawhud::HudBackgroundMode mode) override;
     bool PreviewHudOpacity(float opacity) override;
     bool CommitHudOpacity(float opacity) override;
-    void SetIntelVrrRangeFixEnabled(bool enabled) override;
+    bool SetIntelVrrRangeFixEnabled(bool enabled) override;
 
 private:
     std::optional<clawhud::IntelVrrRunResult> IntelVrrLastResult() const;

@@ -68,6 +68,9 @@ HudDeviceSelection ResolveHudDevice(
     std::span<const HudDeviceModel> models) noexcept;
 HudDeviceSelection ResolveHudDevice(HudDeviceIdentity identity) noexcept;
 bool IsHudDeviceSelectionAdmitted(const HudDeviceSelection& selection) noexcept;
+// The selected model is the sole authority for production Intel VRR Fix. The
+// admission bit is included so an unadmitted catalog candidate cannot grant it.
+bool SupportsIntelVrrFix(const HudDeviceModel* model) noexcept;
 }
 
 HardwareSupport ClassifyBaseBoardProduct(std::wstring_view boardProduct);

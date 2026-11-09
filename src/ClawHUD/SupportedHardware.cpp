@@ -221,6 +221,12 @@ bool IsHudDeviceSelectionAdmitted(const HudDeviceSelection& selection) noexcept
     return selection.status == HardwareSupport::Supported && selection.model != nullptr &&
         selection.model->admittedToProduction;
 }
+
+bool SupportsIntelVrrFix(const HudDeviceModel* model) noexcept
+{
+    return model != nullptr && model->admittedToProduction &&
+        model->capabilities.intelVrrFix;
+}
 }
 
 HardwareSupport ClassifyBaseBoardProduct(std::wstring_view boardProduct)
