@@ -149,7 +149,15 @@ int App::Run()
     else
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Info,
             L"ClawHUD self-update skipped launchMode=Managed");
-    const auto hardware = CheckSupportedHardware();
+    const auto deviceSelection = DetectSupportedHudDevice();
+    auto hardware = deviceSelection.status;
+    if (hardware == HardwareSupport::Supported &&
+        !clawhud::IsHudDeviceSelectionAdmitted(deviceSelection))
+    {
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
+            L"Supported hardware decision did not include an admitted device model");
+        hardware = HardwareSupport::Indeterminate;
+    }
     if (hardware == HardwareSupport::Unsupported)
     {
         if (!clawhud::ShouldShowStartupFailureUi(launchMode_))
@@ -169,6 +177,7 @@ int App::Run()
             L"ClawHUD", MB_OK | MB_ICONWARNING);
         return 0;
     }
+    selectedHudDeviceModel_ = deviceSelection.model;
     // PresentMon shared-runtime prerequisite. Gated here so an unsupported device
     // or a losing second instance never reaches the elevated MSI path, and so a
     // fatal result stops startup before any runtime side effect below.
