@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AmdAdlxPowerTelemetry.h"
 #include "PresentMonSystemTelemetry.h"
 #include "PresentMonTelemetryTypes.h"
 #include "MsiEcHudTelemetry.h"
@@ -34,6 +35,7 @@ struct A8TelemetryStartupState
     bool providerReady{};
     bool systemReady{};
     bool processReady{};
+    bool apuPowerConfigured{};
     std::optional<PresentMonGpuTargetStatus> gpuTargetStatus;
     std::size_t gpuTargetMatchCount{};
     std::optional<std::uint32_t> gpuDeviceId;
@@ -62,6 +64,9 @@ public:
     std::vector<A8TelemetryEvidenceEvent> ObserveEc(
         const MsiEcHudTelemetry& telemetry,
         std::chrono::milliseconds attemptPeriod);
+    std::vector<A8TelemetryEvidenceEvent> ObserveApuPower(
+        const AdlxPowerReadResult& result, bool readAttempted,
+        std::chrono::milliseconds attemptPeriod);
     std::vector<A8TelemetryEvidenceEvent> ObserveSystemMemory(
         const std::optional<std::uint64_t>& usedBytes,
         std::chrono::milliseconds attemptPeriod);
@@ -79,6 +84,7 @@ private:
     {
         CpuTemp,
         FanRpm,
+        ApuPower,
         CpuUsage,
         CpuClock,
         GpuUsage,

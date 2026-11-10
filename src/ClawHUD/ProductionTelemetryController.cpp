@@ -55,6 +55,13 @@ bool ProductionTelemetryController::ConfigureA8TelemetryEvidence(bool enabled) n
     return a8TelemetryEvidence_.Configure(enabled);
 }
 
+bool ProductionTelemetryController::ConfigureA8AdlxPower(bool enabled) noexcept
+{
+    if (samplingActive_ || a8AdlxPowerReader_)
+        return false;
+    return a8AdlxPowerSession_.Configure(enabled);
+}
+
 void ProductionTelemetryController::InitializeA8TelemetryEvidence()
 {
     if (!a8TelemetryEvidence_.Enabled())
@@ -65,6 +72,7 @@ void ProductionTelemetryController::InitializeA8TelemetryEvidence()
     startup.systemReady = provider_.SystemReady();
     startup.processReady = provider_.ProcessReady();
     startup.ecSensors = sensorSupport_;
+    startup.apuPowerConfigured = a8AdlxPowerSession_.Enabled();
     if (startup.providerReady)
     {
         const auto plan = BuildPresentMonSystemQueryPlan(
@@ -124,6 +132,29 @@ MsiEcHudTelemetry ProductionTelemetryController::ReadEcTelemetry()
 
 void ProductionTelemetryController::SampleSystemEc()
 {
+    if (a8AdlxPowerSession_.Enabled())
+    {
+        AdlxPowerReadResult result;
+        bool readAttempted = false;
+        if (a8AdlxPowerSession_.NeedsInitialization())
+        {
+            if (!a8AdlxPowerReader_)
+                a8AdlxPowerReader_ = std::make_unique<AmdAdlxPowerTelemetry>();
+            const auto status = a8AdlxPowerReader_->Initialize();
+            a8AdlxPowerSession_.RecordInitialization(status);
+            result.status = status;
+        }
+        if (a8AdlxPowerSession_.Ready())
+        {
+            result = a8AdlxPowerReader_->ReadPowerW();
+            readAttempted = true;
+        }
+        aggregator_.IngestApuPower(result.status == AdlxPowerStatus::Ok && result.watts &&
+            *result.watts >= 0 ? result.watts : std::nullopt);
+        if (a8TelemetryEvidence_.Enabled())
+            LogA8TelemetryEvidence(a8TelemetryEvidence_.ObserveApuPower(result,
+                readAttempted, std::chrono::milliseconds(kUsageSamplingIntervalMs)));
+    }
     const auto freshEcTelemetry = ReadEcTelemetry();
     if (a8TelemetryEvidence_.Enabled())
         LogA8TelemetryEvidence(a8TelemetryEvidence_.ObserveEc(freshEcTelemetry,
@@ -365,6 +396,16 @@ void ProductionTelemetryController::ReleaseEcHelper()
         return;
     ecClient_->Close();
     ecClient_.reset();
+}
+
+void ProductionTelemetryController::ReleaseA8AdlxPower()
+{
+    if (a8AdlxPowerReader_)
+    {
+        a8AdlxPowerReader_->Shutdown();
+        a8AdlxPowerReader_.reset();
+    }
+    a8AdlxPowerSession_.EndLifetime();
 }
 
 void ProductionTelemetryController::SetVisibilityMode(HudVisibilityMode mode,

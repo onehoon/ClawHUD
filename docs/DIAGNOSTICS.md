@@ -24,14 +24,19 @@ the shared directory for runtime, EC, and Intel VRR Range Fix logs.
 For the exact admitted MSI Claw A8 BZ2EM model, concise `[A8Telemetry]` INFO/WARN
 events are written to the normal `clawhud.log` even when
 `DebugLoggingEnabled=false`. This model-gated evidence reports the existing
-PresentMon query bindings and the first valid raw samples from PresentMon and
-Windows. It does not enable verbose debug observation, access EC sensors, add a
-data reader, or change telemetry collection. Missing samples are reported once
-per metric after active sampling attempts; a later first valid sample is still
-logged.
+PresentMon query bindings and first valid raw samples from PresentMon,
+Windows, the existing A8 EC temperature/fan reads, and ADLX APU power. ADLX
+power is read only while the HUD is visible and not suspended, on the existing
+one-second sample cadence. The startup line reports configuration only, not
+successful ADLX initialization or a power read. Missing samples are reported
+once per metric after active sampling attempts; a later first valid sample is
+still logged.
 
 To collect a baseline, leave the HUD set to **Always** and visible for at least
-30 seconds, then launch a game and allow FPS/GPU-load samples to arrive. Send
+30 seconds, then launch a game and allow FPS/GPU-load samples to arrive. An
+ADLX first value is logged once; a terminal initialization failure is warned
+once immediately, or unsuccessful eligible reads produce one warning after 30
+seconds of actual attempts. Send
 `%LOCALAPPDATA%\ClawHUD\logs\clawhud.log` and, if present,
 `clawhud.1.log` / `clawhud.2.log` because the normal logger rotates at 2 MiB.
 The `[A8Telemetry]` events and existing default PresentMon status/query-plan
@@ -71,11 +76,16 @@ CPU temperature byte meaning and fan RPM accuracy remain unverified on physical
 hardware. A8 `Get_Data(221)` power and EC battery-discharge telemetry are not
 enabled.
 
-The `[A8Telemetry]` startup summary reports configured EC sensors. The first
-valid temperature and fan values each produce one INFO line; a getter with no
-valid sample produces one WARN after 30 seconds of actual attempts. These lines
-are written to the ordinary `clawhud.log` at INFO/WARN even when
-`DebugLoggingEnabled=false`. To collect evidence, select **Always**, keep the
-HUD visible for at least 30 seconds, then send `clawhud.log` and rotated logs.
-The first EC read may show the existing elevation prompt; failed reads do not
-relaunch the helper or repeat the prompt.
+The `[A8Telemetry]` startup summary reports configured EC sensors and whether
+ADLX sampling is enabled. The first valid temperature and fan values each
+produce one INFO line; a getter with no valid sample produces one WARN after 30
+seconds of actual attempts. A8 power uses ADLX `GPUPower()` in the existing
+`TDP` slot; this is not evidence that the value represents total APU package
+power. Its first valid integer-watt result produces one INFO line, or an
+initialization failure produces one reason-specific WARN immediately. When
+initialization succeeds but reads remain invalid, one WARN follows 30 seconds
+of eligible read attempts. All these lines use the ordinary `clawhud.log` at
+INFO/WARN even when `DebugLoggingEnabled=false`; hidden and suspended time does
+not count. Select **Always**, keep the HUD visible for at least 30 seconds, and
+send `clawhud.log` plus rotated logs. The first EC read may show the existing
+elevation prompt; failed reads do not relaunch the helper or repeat the prompt.

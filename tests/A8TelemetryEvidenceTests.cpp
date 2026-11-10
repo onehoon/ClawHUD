@@ -12,6 +12,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace
@@ -104,6 +105,74 @@ void TestEcMetricConfigurationAndIndependentFirstResults()
     Require(configuredEvidence.ObserveEc(sample,
             std::chrono::seconds(1)).empty(),
         "resolved EC metrics must not repeat their first-success logs");
+}
+
+void TestApuPowerEvidenceAndTimeouts()
+{
+    auto startup = ReadyStartup();
+    startup.apuPowerConfigured = true;
+    A8TelemetryEvidence startupEvidence;
+    Require(startupEvidence.Configure(true), "A8 evidence configuration failed");
+    Require(Contains(startupEvidence.Start(startup), L"apuPowerConfigured=enabled"),
+        "A8 startup metadata must report configured ADLX without claiming a sample");
+    auto evidence = StartedEvidence(startup);
+    clawhud::PresentMonSystemSnapshot presentMon;
+    presentMon.gpuPowerW = 12.0;
+    const auto gpu = evidence.ObserveSystem(presentMon, true, std::chrono::seconds(1));
+    const auto apu = evidence.ObserveApuPower(
+        { 24, clawhud::AdlxPowerStatus::Ok }, true, std::chrono::seconds(1));
+    Require(Contains(gpu, L"metric=gpuPower source=PresentMon") &&
+        Contains(apu, L"metric=apuPower source=ADLX result=first-success value=24W") &&
+        evidence.ObserveApuPower({ 25, clawhud::AdlxPowerStatus::Ok }, true,
+            std::chrono::seconds(1)).empty(),
+        "ADLX and PresentMon power evidence must be independent and first-success only");
+
+    auto zero = StartedEvidence(startup);
+    Require(Contains(zero.ObserveApuPower(
+            { 0, clawhud::AdlxPowerStatus::Ok }, true, std::chrono::seconds(1)),
+            L"metric=apuPower source=ADLX result=first-success value=0W"),
+        "zero ADLX watts must count as a valid first result");
+
+    const std::pair<clawhud::AdlxPowerStatus, const wchar_t*> initFailures[]{
+        { clawhud::AdlxPowerStatus::RuntimeUnavailable, L"runtime-unavailable" },
+        { clawhud::AdlxPowerStatus::ExportUnavailable, L"export-unavailable" },
+        { clawhud::AdlxPowerStatus::InitializationFailed, L"initialization-failed" },
+        { clawhud::AdlxPowerStatus::NoGpu, L"no-gpu" },
+        { clawhud::AdlxPowerStatus::PerformanceUnavailable, L"performance-unavailable" },
+        { clawhud::AdlxPowerStatus::MetricUnsupported, L"metric-unsupported" },
+    };
+    for (const auto& [status, reason] : initFailures)
+    {
+        auto failed = StartedEvidence(startup);
+        const auto warning = failed.ObserveApuPower(
+            { std::nullopt, status }, false, std::chrono::seconds(1));
+        Require(Contains(warning, std::wstring(L"metric=apuPower source=ADLX result=unavailable reason=") + reason,
+                A8TelemetryEvidenceLevel::Warn) &&
+            failed.ObserveApuPower({ std::nullopt, status }, false,
+                std::chrono::seconds(1)).empty(),
+            "terminal ADLX initialization reason must warn immediately exactly once");
+        Require(Contains(failed.ObserveApuPower(
+                { 24, clawhud::AdlxPowerStatus::Ok }, true, std::chrono::seconds(1)),
+                L"metric=apuPower source=ADLX result=first-success value=24W"),
+            "a late ADLX sample must still report after an initialization warning");
+    }
+
+    auto missing = StartedEvidence(startup);
+    for (int i = 0; i < 50; ++i)
+        Require(missing.ObserveApuPower({ std::nullopt,
+                clawhud::AdlxPowerStatus::SampleFailed }, false,
+                std::chrono::seconds(1)).empty(),
+            "skipped ADLX reads must not count toward the timeout");
+    for (int i = 0; i < 29; ++i)
+        Require(missing.ObserveApuPower({ std::nullopt,
+                clawhud::AdlxPowerStatus::SampleFailed }, true,
+                std::chrono::seconds(1)).empty(),
+            "ADLX timeout must wait for 30 attempted reads");
+    Require(Contains(missing.ObserveApuPower({ std::nullopt,
+            clawhud::AdlxPowerStatus::InvalidValue }, true, std::chrono::seconds(1)),
+            L"metric=apuPower source=ADLX result=unavailable reason=no-valid-sample attempts=30",
+            A8TelemetryEvidenceLevel::Warn),
+        "30 actual unsuccessful ADLX reads must produce one bounded warning");
 }
 
 void TestEcAttemptTimeoutsIgnoreSkippedGettersAndRecover()
@@ -390,6 +459,7 @@ void TestInfoAndWarnReachNormalLogWithDebugDisabled()
 
     auto startup = ReadyStartup();
     startup.ecSensors = { true, true, false, false };
+    startup.apuPowerConfigured = true;
     startup.systemMetricBound[4] = false;
     A8TelemetryEvidence evidence;
     Require(evidence.Configure(true), "A8 evidence configuration failed");
@@ -404,9 +474,17 @@ void TestInfoAndWarnReachNormalLogWithDebugDisabled()
     ecSample.fanRpmAttempted = true;
     clawhud::LogA8TelemetryEvidence(evidence.ObserveEc(ecSample,
         std::chrono::seconds(1)));
+    clawhud::LogA8TelemetryEvidence(evidence.ObserveApuPower(
+        { 0, clawhud::AdlxPowerStatus::Ok }, true, std::chrono::seconds(1)));
     for (int attempt = 0; attempt < 30; ++attempt)
         clawhud::LogA8TelemetryEvidence(evidence.ObserveEc(ecSample,
             std::chrono::seconds(1)));
+    A8TelemetryEvidence failedApuEvidence;
+    (void)failedApuEvidence.Configure(true);
+    clawhud::LogA8TelemetryEvidence(failedApuEvidence.Start(startup));
+    clawhud::LogA8TelemetryEvidence(failedApuEvidence.ObserveApuPower(
+        { std::nullopt, clawhud::AdlxPowerStatus::MetricUnsupported }, false,
+        std::chrono::seconds(1)));
     clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
         L"debug-only-entry");
 
@@ -417,6 +495,10 @@ void TestInfoAndWarnReachNormalLogWithDebugDisabled()
         log.find("[WARN] [A8Telemetry] metric=fanRpm source=MSI_EC result=unavailable reason=no-valid-sample attempts=30") != std::string::npos &&
         log.find("[WARN] [A8Telemetry] metric=gpuPower source=PresentMon result=unavailable reason=not-bound") != std::string::npos,
         "A8 INFO/WARN evidence did not reach the ordinary log with Debug disabled");
+    Require(log.find("apuPowerConfigured=enabled") != std::string::npos &&
+        log.find("[INFO] [A8Telemetry] metric=apuPower source=ADLX result=first-success value=0W") != std::string::npos &&
+        log.find("[WARN] [A8Telemetry] metric=apuPower source=ADLX result=unavailable reason=metric-unsupported") != std::string::npos,
+        "ADLX startup, zero success and failure warning must reach the ordinary log");
     Require(log.find("debug-only-entry") == std::string::npos,
         "A8 evidence changed the existing Debug log filter");
 
@@ -428,6 +510,7 @@ void TestInfoAndWarnReachNormalLogWithDebugDisabled()
 int main()
 {
     TestEcMetricConfigurationAndIndependentFirstResults();
+    TestApuPowerEvidenceAndTimeouts();
     TestEcAttemptTimeoutsIgnoreSkippedGettersAndRecover();
     TestExactModelGateAndStartupReasons();
     TestIndependentRawSuccessAndZeroValues();

@@ -200,12 +200,21 @@ int App::Run()
                 clawhud::ManagedStartupExitCode::RuntimeInitializationFailed);
         return 1;
     }
-    if (!productionTelemetry_.ConfigureA8TelemetryEvidence(
-            clawhud::A8TelemetryEvidence::IsEnabledForModel(
-                selectedHudDeviceModel_->modelId)))
+    const bool isA8Model = clawhud::A8TelemetryEvidence::IsEnabledForModel(
+        selectedHudDeviceModel_->modelId);
+    if (!productionTelemetry_.ConfigureA8TelemetryEvidence(isA8Model))
     {
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
             L"A8 telemetry evidence policy could not be configured before sampling");
+        if (launchMode_ == clawhud::LaunchMode::Managed)
+            return ReportManagedStartupFailure(
+                clawhud::ManagedStartupExitCode::RuntimeInitializationFailed);
+        return 1;
+    }
+    if (!productionTelemetry_.ConfigureA8AdlxPower(isA8Model))
+    {
+        clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
+            L"A8 ADLX power policy could not be configured before sampling");
         if (launchMode_ == clawhud::LaunchMode::Managed)
             return ReportManagedStartupFailure(
                 clawhud::ManagedStartupExitCode::RuntimeInitializationFailed);
@@ -695,7 +704,10 @@ void App::StopProductionSampling(clawhud::SamplingStopCause cause,
         gameSession_.StopRenderVerification();
     productionTelemetry_.ResetSamplingState(clawhud::SamplingStopCauseReason(cause));
     if (clawhud::EcHelperLifetimeForStop(cause) == clawhud::EcHelperLifetime::Release)
+    {
         productionTelemetry_.ReleaseEcHelper();
+        productionTelemetry_.ReleaseA8AdlxPower();
+    }
 }
 
 void App::SetHudVisibilityMode(clawhud::HudVisibilityMode mode)

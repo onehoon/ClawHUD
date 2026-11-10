@@ -292,14 +292,16 @@ int main()
     a8AllSystemMetrics.gpuUsagePercent = 75.0;
     a8AllSystemMetrics.gpuClockMHz = 2200.0;
     a8AllSystemMetrics.gpuPowerW = 12.6;
+    a8AllSystemMetrics.cpuPackagePowerW = 18.0;
+    a8AllSystemMetrics.apuPowerW = 24;
     a8AllSystemMetrics.systemMemoryUsedBytes = 8ULL * 1024 * 1024 * 1024;
     a8AllSystemMetrics.gpuMemoryUsedBytes = 4ULL * 1024 * 1024 * 1024;
     a8AllSystemMetrics.onBattery = true;
     a8AllSystemMetrics.batteryPercent = 75;
     a8AllSystemMetrics.remainingMinutes = 90;
     ok &= Check(JoinHudRuns(FormatHud(a8AllSystemMetrics)) ==
-        L"120FPS | CPU 42% 4200MHz --\u00B0C | GPU 75% 2200MHz 13W | TDP --W | RAM 8.0GB | VRAM 4.0GB | FAN --RPM | BAT 75% 1.5h",
-        "A8 formats available system telemetry and marks disabled EC metrics unavailable");
+        L"120FPS | CPU 42% 4200MHz --\u00B0C | GPU 75% 2200MHz 13W | TDP 24W | RAM 8.0GB | VRAM 4.0GB | FAN --RPM | BAT 75% 1.5h",
+        "A8 TDP uses ADLX power independently of EC package and PresentMon GPU power");
 
     HudTelemetrySnapshot a8Unavailable{};
     a8Unavailable.showUnavailableMetrics = true;
@@ -328,6 +330,7 @@ int main()
     a8EcUnavailable.gpuUsagePercent = 60.0;
     a8EcUnavailable.gpuClockMHz = 2000.0;
     a8EcUnavailable.gpuPowerW = 10.0;
+    a8EcUnavailable.cpuPackagePowerW = 18.0;
     ok &= Check(JoinHudRuns(FormatHud(a8EcUnavailable)).find(
             L"CPU 50% 3600MHz --\u00B0C | GPU 60% 2000MHz 10W | TDP --W") == 0 &&
         JoinHudRuns(FormatHud(a8EcUnavailable)).find(L"FAN --RPM") != std::wstring::npos,
@@ -340,7 +343,8 @@ int main()
     a8ZeroValues.gpuUsagePercent = 0.0;
     a8ZeroValues.gpuClockMHz = 0.0;
     a8ZeroValues.gpuPowerW = 0.0;
-    a8ZeroValues.cpuPackagePowerW = 0.0;
+    a8ZeroValues.cpuPackagePowerW = 18.0;
+    a8ZeroValues.apuPowerW = 0;
     a8ZeroValues.systemMemoryUsedBytes = 0;
     a8ZeroValues.gpuMemoryUsedBytes = 0;
     a8ZeroValues.fan1Rpm = 0;
