@@ -4,6 +4,10 @@ ClawHUD is a lightweight performance HUD for supported **MSI Claw** handhelds on
 
 It displays FPS, CPU/GPU telemetry, memory usage, fan speed, power, and battery information without injecting into games or hooking their rendering pipeline. The production HUD is designed around preserving **VRR** compatibility.
 
+<img width="1800" height="1200" alt="111020051792593" src="https://github.com/user-attachments/assets/11702ed8-436b-404d-a8ad-5278421ffdd7" />
+
+
+
 ---
 
 ## Supported devices
