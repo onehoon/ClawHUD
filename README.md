@@ -3,6 +3,7 @@
 ClawHUD is a lightweight performance HUD for supported **MSI Claw** handhelds on **Windows 11**.
 
 It displays FPS, CPU/GPU telemetry, memory usage, fan speed, power, and battery information without injecting into games or hooking their rendering pipeline. The production HUD is designed around preserving **VRR** compatibility.
+<img width="1800" height="1200" alt="1110200223499967" src="https://github.com/user-attachments/assets/3f097990-c8eb-447d-95b7-7adde6a627ce" />
 
 ---
 
