@@ -52,13 +52,13 @@ ClawHUD combines PresentMon API2, Windows telemetry, and MSI-specific EC telemet
 | **FPS** | Displayed FPS for the active FPS target | [PresentMon API2](https://github.com/GameTechDev/PresentMon) |
 | **CPU** | CPU usage + clock + temperature | PresentMon API2 + MSI EC |
 | **GPU** | GPU usage + clock + power | PresentMon API2 |
-| **TDP** | CPU package power | MSI EC |
+| **TDP** | Intel CPU package power / A8 ADLX `GPUPower()` (legacy label) | MSI EC / AMD ADLX |
 | **RAM** | System memory usage | Windows |
 | **VRAM** | GPU memory usage | PresentMon API2 |
 | **FAN** | Fan speed | MSI EC |
 | **BAT** | Battery level + estimated remaining time while on battery | Windows + MSI EC |
 
-MSI EC telemetry is read through ClawHUD's narrowly scoped read-only EC helper. On the MSI Claw A8 BZ2EM, EC access is limited to CPU temperature and the first fan tachometer; CPU package power and the battery-discharge remaining-time estimate remain unavailable and are shown as `--`. The standalone ADLX `GPUPower()` reader is implemented for later integration but is not yet connected to HUD telemetry, so A8 power remains unavailable in this release. See [MSI EC Telemetry Reference](docs/MSI_EC_TELEMETRY_REFERENCE.md) for implementation details.
+MSI EC telemetry is read through ClawHUD's narrowly scoped read-only EC helper. On the MSI Claw A8 BZ2EM, EC access is limited to CPU temperature and the first fan tachometer; EC CPU package power and battery-discharge remaining-time remain unavailable. The first-GPU ADLX `GPUPower()` value now fills the existing `TDP` slot on the exact A8 model. The legacy label does not establish whole-APU package-power semantics, and the reader has not been validated on physical A8 hardware. See [MSI EC Telemetry Reference](docs/MSI_EC_TELEMETRY_REFERENCE.md) for implementation details.
 
 Missing telemetry is never reported as a synthetic numeric zero. Most devices omit unavailable metric groups; the A8 HUD marks unavailable metrics with `--` placeholders.
 

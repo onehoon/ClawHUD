@@ -118,6 +118,13 @@ include("${CMAKE_CURRENT_LIST_DIR}/Tma2027VrrTests.cmake")
     add_test(NAME ClawHUD.AmdAdlxPowerTelemetryTests
         COMMAND ClawHUD.AmdAdlxPowerTelemetryTests)
 
+    add_executable(ClawHUD.A8AdlxPowerSessionStateTests
+        tests/A8AdlxPowerSessionStateTests.cpp)
+    target_compile_features(ClawHUD.A8AdlxPowerSessionStateTests PRIVATE cxx_std_20)
+    target_include_directories(ClawHUD.A8AdlxPowerSessionStateTests PRIVATE src/ClawHUD)
+    set_target_properties(ClawHUD.A8AdlxPowerSessionStateTests PROPERTIES CXX_EXTENSIONS OFF)
+    add_test(NAME ClawHUD.A8AdlxPowerSessionStateTests COMMAND ClawHUD.A8AdlxPowerSessionStateTests)
+
     add_executable(ClawHUD.EcHelperClientRuntimeLoggingTests
         tests/EcHelperClientRuntimeLoggingTests.cpp
         src/ClawHUD/EcHelperClient.cpp
@@ -362,6 +369,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/Tma2027VrrTests.cmake")
 
     add_executable(ClawHUD.SupportedHardwareTests
         tests/SupportedHardwareTests.cpp
+        src/ClawHUD/A8TelemetryEvidence.cpp
         src/ClawHUD/SupportedHardware.cpp
         src/ClawHUD/RuntimeLogger.cpp)
     target_compile_features(ClawHUD.SupportedHardwareTests PRIVATE cxx_std_20)

@@ -1190,9 +1190,10 @@ no-repeated-`runas` behavior after failure.
 These changes only enable the existing read-only EC transport. A8 CPU-temperature
 byte semantics and RPM values remain unverified on physical A8 hardware.
 A8 `Get_Data(221)` CPU-package power and EC battery-discharge telemetry remain
-disabled. The standalone ADLX `GPUPower()` reader is implemented separately in
-PR2 but is not connected to HUD telemetry or logging; it is not physical A8
-validation. Battery work remains outside PR2.
+disabled. PR2's standalone ADLX `GPUPower()` reader is now connected by PR3 to
+the existing legacy `TDP` slot and first-result logging; this does not establish
+whole-APU package-power semantics or physical A8 validation. Battery work
+remains outside PR3 and is assigned to PR4.
 
 Diagnostics should reuse the helper/client transport and the same reader/decoders, not a second WMI implementation.
 

@@ -9,6 +9,8 @@
 #include <string>
 
 #include "A8TelemetryEvidence.h"
+#include "A8AdlxPowerSessionState.h"
+#include "AmdAdlxPowerTelemetry.h"
 #include "AlwaysModeFpsTarget.h"
 #include "BatteryPowerEstimator.h"
 #include "EcHelperClient.h"
@@ -50,6 +52,7 @@ public:
     bool ConfigureDeviceSensors(HudSensorSupport sensors,
         MsiEcFanLayout fanLayout = MsiEcFanLayout::DualTach) noexcept;
     bool ConfigureA8TelemetryEvidence(bool enabled) noexcept;
+    bool ConfigureA8AdlxPower(bool enabled) noexcept;
     void InitializeA8TelemetryEvidence();
 
     // --- snapshot ---------------------------------------------------------
@@ -94,6 +97,7 @@ public:
     // exits) and drops ownership. Call only at explicit boundaries -- user HUD
     // disable, app / update shutdown -- never for transient hide/suspend.
     void ReleaseEcHelper();
+    void ReleaseA8AdlxPower();
 
     // ReadHudEcTelemetry moved verbatim.
     MsiEcHudTelemetry ReadEcTelemetry();
@@ -101,6 +105,8 @@ public:
 private:
     PresentMonTelemetryProvider& provider_;
     A8TelemetryEvidence a8TelemetryEvidence_;
+    A8AdlxPowerSessionState a8AdlxPowerSession_;
+    std::unique_ptr<AmdAdlxPowerTelemetry> a8AdlxPowerReader_;
     HWND messageWindow_{};
     std::function<void()> requestRender_;
 

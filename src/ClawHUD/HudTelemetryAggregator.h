@@ -41,13 +41,16 @@ public:
 
     // Folds one poll of system telemetry into the retained system fields.
     void IngestSystem(const HudSystemTelemetryInput& input) noexcept;
+    void IngestApuPower(std::optional<int> fresh) noexcept;
 
     void ResetEc() noexcept;
     void ResetSystem() noexcept;
+    void ResetApuPower() noexcept;
     void Reset() noexcept
     {
         ResetEc();
         ResetSystem();
+        ResetApuPower();
     }
 
     // Copies its EC fields and system metrics, including GPU power, into `snapshot`.
@@ -69,6 +72,7 @@ private:
     std::optional<std::uint64_t> gpuMemoryUsedBytes_;
     std::optional<std::uint64_t> systemMemoryUsedBytes_;
     std::optional<double> gpuPowerW_;
+    std::optional<int> apuPowerW_;
     unsigned cpuUsageMissing_{};
     unsigned cpuClockMissing_{};
     unsigned gpuUsageMissing_{};
@@ -76,5 +80,6 @@ private:
     unsigned gpuMemoryMissing_{};
     unsigned systemMemoryMissing_{};
     unsigned gpuPowerMissing_{};
+    unsigned apuPowerMissing_{};
 };
 }

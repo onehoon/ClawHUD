@@ -1,4 +1,5 @@
 #include "SupportedHardware.h"
+#include "A8TelemetryEvidence.h"
 
 #include <iostream>
 
@@ -49,6 +50,14 @@ int main()
         !a8Candidate->capabilities.intelVrrFix &&
         a8Candidate->capabilities.msiEcFanLayout == clawhud::MsiEcFanLayout::SingleTach,
         "A8 exact model permits only CPU temperature and single-tach EC reads without Intel VRR");
+    ok &= Check(a8Candidate && clawhud::A8TelemetryEvidence::IsEnabledForModel(
+            a8Candidate->modelId) &&
+        !clawhud::A8TelemetryEvidence::IsEnabledForModel("msi.claw.a2vm.7") &&
+        !clawhud::A8TelemetryEvidence::IsEnabledForModel("msi.claw.a2vm.8") &&
+        !clawhud::A8TelemetryEvidence::IsEnabledForModel("msi.claw.cg3em") &&
+        !clawhud::A8TelemetryEvidence::IsEnabledForModel("synthetic.amd.handheld") &&
+        !clawhud::A8TelemetryEvidence::IsEnabledForModel("unknown.model"),
+        "only the exact A8 model enables ADLX telemetry");
 
     ok &= Check(ClassifyBaseBoardProduct(L"MS-1T42") == HardwareSupport::Supported, "MS-1T42 supported");
     ok &= Check(ClassifyBaseBoardProduct(L"MS-1T52") == HardwareSupport::Supported, "MS-1T52 supported");

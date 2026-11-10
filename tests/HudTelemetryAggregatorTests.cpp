@@ -251,6 +251,36 @@ void ResetClearsTheMissStreak(bool& ok)
     ok &= Check(s.cpuTemperatureC == 70 && s.cpuClockMHz == 4300.0,
         "EC and CPU clock miss counters restart from zero after Reset");
 }
+
+void A8ApuPowerIsIndependentAndRetained(bool& ok)
+{
+    HudTelemetryAggregator agg;
+    agg.IngestEc(Ec(58, 0, std::nullopt, 13));
+    agg.IngestApuPower(24);
+    agg.IngestSystem(Sys(40.0, 60.0, 1800.0, 4000u, 9000u, 4200.0, 12.0));
+    auto s = SnapshotOf(agg);
+    ok &= Check(s.apuPowerW == 24 && s.cpuPackagePowerW == 13.0 && s.gpuPowerW == 12.0,
+        "A8 ADLX, Intel EC package, and PresentMon GPU power remain separate");
+
+    agg.IngestApuPower(std::nullopt);
+    agg.IngestApuPower(std::nullopt);
+    ok &= Check(SnapshotOf(agg).apuPowerW == 24,
+        "A8 power is retained through two missing samples");
+    agg.IngestApuPower(std::nullopt);
+    ok &= Check(!SnapshotOf(agg).apuPowerW,
+        "A8 power clears on the third missing sample");
+    agg.IngestApuPower(0);
+    ok &= Check(SnapshotOf(agg).apuPowerW == 0,
+        "zero watts is a valid A8 power sample");
+
+    agg.IngestApuPower(18);
+    agg.IngestApuPower(std::nullopt);
+    agg.IngestApuPower(std::nullopt);
+    agg.Reset();
+    agg.IngestApuPower(std::nullopt);
+    ok &= Check(!SnapshotOf(agg).apuPowerW,
+        "sampling reset clears A8 power and its prior miss streak");
+}
 }
 
 int main()
@@ -267,5 +297,6 @@ int main()
     FillSnapshotLeavesUnownedFieldsAlone(ok);
     ResetScopes(ok);
     ResetClearsTheMissStreak(ok);
+    A8ApuPowerIsIndependentAndRetained(ok);
     return ok ? 0 : 1;
 }

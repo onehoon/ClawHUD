@@ -1,6 +1,6 @@
 # MSI Claw A8 ADLX power reader provenance
 
-The standalone, read-only reader returns the first GPU's ADLX `GPUPower()` value used by MSI Center M's A8 OSD, truncating watts toward zero. It adds no CPU, SoC, board-power or EC metric and is not connected to the HUD, timer or log.
+The read-only reader returns the first GPU's ADLX `GPUPower()` value used by MSI Center M's A8 OSD, truncating watts toward zero. On exact model `msi.claw.bz2em`, it is sampled through the existing visible-HUD system cadence and displayed in the legacy `TDP` slot; A8 power remains separate from Intel EC CPU package power and PresentMon GPU power. It adds no CPU, SoC, board-power or EC metric. The HUD label does not establish whole-APU package-power semantics.
 
 ## ABI and source evidence
 
@@ -24,4 +24,4 @@ The binding was independently authored. [MIT LibGPUDriverInteract](https://githu
 
 Compatibility of AMD's ADLX SDK agreement with ClawHUD GPLv3 remains unresolved. SDK-free declarations and other projects' precedent establish neither a license exception nor release clearance. No GPL change or AMD approval is claimed.
 
-Fake-table tests need no AMD device. No physical A8/MSI Center M comparison was performed; this PR does not expose power in the HUD.
+Fake-table tests need no AMD device. The reader is wired to the HUD, but no physical A8/MSI Center M comparison was performed. Compatibility of AMD's ADLX SDK agreement with ClawHUD GPLv3 remains unresolved; this integration is not legal or release clearance.

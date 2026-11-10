@@ -248,8 +248,8 @@ std::vector<HudTextRun> FormatHud(const HudTelemetrySnapshot& snapshot)
 
     if (snapshot.showUnavailableMetrics)
         Add(runs, HudSegmentKind::Tdp, L"TDP",
-            IsValidNonnegativeMetric(snapshot.cpuPackagePowerW)
-                ? Integer(*snapshot.cpuPackagePowerW) + L"W" : L"--W");
+            snapshot.apuPowerW && *snapshot.apuPowerW >= 0
+                ? std::to_wstring(*snapshot.apuPowerW) + L"W" : L"--W");
     else if (snapshot.cpuPackagePowerW)
         Add(runs, HudSegmentKind::Tdp, L"TDP", Integer(*snapshot.cpuPackagePowerW) + L"W");
 

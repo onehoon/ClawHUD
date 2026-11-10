@@ -92,7 +92,8 @@ std::vector<A8TelemetryEvidenceEvent> A8TelemetryEvidence::Start(
         EnabledDisabled(sensors.msiFanRpm) + L",cpuPackagePower:" +
         EnabledDisabled(sensors.msiCpuPackagePower) + L",batteryDischarge:" +
         EnabledDisabled(sensors.msiBatteryDischarge) + L" "
-        L"intelVrrFix=unsupported" });
+        L"intelVrrFix=unsupported apuPowerConfigured=" +
+        std::wstring(EnabledDisabled(startup.apuPowerConfigured)) });
 
     const auto gpuTarget = startup.providerReady && startup.gpuTargetStatus
         ? GpuTargetName(*startup.gpuTargetStatus) :
@@ -232,6 +233,43 @@ std::vector<A8TelemetryEvidenceEvent> A8TelemetryEvidence::ObserveEc(
     return events;
 }
 
+std::vector<A8TelemetryEvidenceEvent> A8TelemetryEvidence::ObserveApuPower(
+    const AdlxPowerReadResult& result, bool readAttempted,
+    std::chrono::milliseconds attemptPeriod)
+{
+    if (!enabled_ || !started_)
+        return {};
+    const auto metric = Metric::ApuPower;
+    const auto statusReason = [&]() -> const wchar_t*
+    {
+        switch (result.status)
+        {
+        case AdlxPowerStatus::RuntimeUnavailable: return L"runtime-unavailable";
+        case AdlxPowerStatus::ExportUnavailable: return L"export-unavailable";
+        case AdlxPowerStatus::InitializationFailed: return L"initialization-failed";
+        case AdlxPowerStatus::NoGpu: return L"no-gpu";
+        case AdlxPowerStatus::PerformanceUnavailable: return L"performance-unavailable";
+        case AdlxPowerStatus::MetricUnsupported: return L"metric-unsupported";
+        default: return nullptr;
+        }
+    };
+    if (!readAttempted)
+    {
+        const auto* reason = statusReason();
+        auto& state = metrics_[static_cast<std::size_t>(metric)];
+        if (!reason || state.warningLogged)
+            return {};
+        state.warningLogged = true;
+        return { { A8TelemetryEvidenceLevel::Warn,
+            std::wstring(L"[A8Telemetry] metric=apuPower source=ADLX result=unavailable reason=") + reason } };
+    }
+    const bool valid = result.status == AdlxPowerStatus::Ok && result.watts &&
+        *result.watts >= 0;
+    return ObserveMetric(metric, valid,
+        valid ? std::to_wstring(*result.watts) + L"W" : std::wstring{},
+        true, attemptPeriod);
+}
+
 std::vector<A8TelemetryEvidenceEvent> A8TelemetryEvidence::ObserveSystemMemory(
     const std::optional<std::uint64_t>& usedBytes,
     std::chrono::milliseconds attemptPeriod)
@@ -321,6 +359,7 @@ const wchar_t* A8TelemetryEvidence::MetricName(Metric metric) noexcept
     {
     case Metric::CpuTemp: return L"cpuTemp";
     case Metric::FanRpm: return L"fanRpm";
+    case Metric::ApuPower: return L"apuPower";
     case Metric::CpuUsage: return L"cpuUsage";
     case Metric::CpuClock: return L"cpuClock";
     case Metric::GpuUsage: return L"gpuUsage";
@@ -342,6 +381,7 @@ const wchar_t* A8TelemetryEvidence::SourceName(Metric metric) noexcept
     {
     case Metric::CpuTemp:
     case Metric::FanRpm: return L"MSI_EC";
+    case Metric::ApuPower: return L"ADLX";
     case Metric::RamUsed:
     case Metric::BatteryPercent:
     case Metric::AcDc: return L"Windows";

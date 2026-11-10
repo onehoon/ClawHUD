@@ -59,6 +59,12 @@ void HudTelemetryAggregator::IngestSystem(const HudSystemTelemetryInput& input) 
         gpuPowerW_, input.gpuPowerW, gpuPowerMissing_, kSystemTelemetryMissingThreshold);
 }
 
+void HudTelemetryAggregator::IngestApuPower(std::optional<int> fresh) noexcept
+{
+    UpdateRetainedTelemetryField(apuPowerW_, fresh, apuPowerMissing_,
+        kSystemTelemetryMissingThreshold);
+}
+
 void HudTelemetryAggregator::ResetEc() noexcept
 {
     ec_ = {};
@@ -86,6 +92,12 @@ void HudTelemetryAggregator::ResetSystem() noexcept
     gpuPowerMissing_ = 0;
 }
 
+void HudTelemetryAggregator::ResetApuPower() noexcept
+{
+    apuPowerW_.reset();
+    apuPowerMissing_ = 0;
+}
+
 void HudTelemetryAggregator::FillSnapshot(HudTelemetrySnapshot& snapshot) const
 {
     snapshot.cpuTemperatureC = ec_.cpuTempC;
@@ -100,5 +112,6 @@ void HudTelemetryAggregator::FillSnapshot(HudTelemetrySnapshot& snapshot) const
     snapshot.gpuUsagePercent = gpuUsagePercent_;
     snapshot.gpuClockMHz = gpuClockMHz_;
     snapshot.gpuPowerW = gpuPowerW_;
+    snapshot.apuPowerW = apuPowerW_;
 }
 }
