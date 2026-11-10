@@ -64,6 +64,12 @@ public:
     std::vector<A8TelemetryEvidenceEvent> ObserveEc(
         const MsiEcHudTelemetry& telemetry,
         std::chrono::milliseconds attemptPeriod);
+    std::vector<A8TelemetryEvidenceEvent> ObserveBatteryDischarge(
+        const MsiEcHudTelemetry& telemetry,
+        std::chrono::milliseconds attemptPeriod);
+    std::vector<A8TelemetryEvidenceEvent> ObserveRemainingTime(
+        const std::optional<int>& remainingMinutes, bool eligible,
+        std::chrono::milliseconds attemptPeriod);
     std::vector<A8TelemetryEvidenceEvent> ObserveApuPower(
         const AdlxPowerReadResult& result, bool readAttempted,
         std::chrono::milliseconds attemptPeriod);
@@ -84,6 +90,8 @@ private:
     {
         CpuTemp,
         FanRpm,
+        BatteryDischarge,
+        RemainingTime,
         ApuPower,
         CpuUsage,
         CpuClock,

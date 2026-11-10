@@ -1169,7 +1169,7 @@ src/ClawHUD/
 
 If the project is still small, keeping decode helpers in `MsiEcReader.cpp` is also acceptable. Do not split files merely to satisfy the diagram.
 
-## 25. Current ClawHUD MSI Claw A8 PR1 scope
+## 25. Current ClawHUD MSI Claw A8 PR1–PR4 scope
 
 The exact `msi.claw.bz2em` / `MS-1T8K` capability enables read-only
 `Get_Temperature(0)` and `Get_Fan(0)` attempts. CPU temperature uses the
@@ -1189,11 +1189,16 @@ no-repeated-`runas` behavior after failure.
 
 These changes only enable the existing read-only EC transport. A8 CPU-temperature
 byte semantics and RPM values remain unverified on physical A8 hardware.
-A8 `Get_Data(221)` CPU-package power and EC battery-discharge telemetry remain
-disabled. PR2's standalone ADLX `GPUPower()` reader is now connected by PR3 to
-the existing legacy `TDP` slot and first-result logging; this does not establish
-whole-APU package-power semantics or physical A8 validation. Battery work
-remains outside PR3 and is assigned to PR4.
+A8 `Get_Data(221)` CPU-package power remains disabled. PR4 enables only
+DC-gated battery-system discharge reads using selectors 70, 71, 74, and 75;
+the separate one's-complement decoder sends fractional watts to the existing
+20-second estimator and the resulting time to the existing BAT field. The first
+raw discharge-power value and first remaining-time estimate are normal-log
+evidence, independent of ADLX and PresentMon. The A8 legacy `TDP` slot remains
+ADLX GPU `GPUPower()`; battery-system discharge is not an APU-power metric and
+is not summed with it. Static RE supports the selector/formula path, but A8
+current semantics, scale, and physical accuracy remain unverified. No battery
+power HUD segment or hardware-validation claim is added.
 
 Diagnostics should reuse the helper/client transport and the same reader/decoders, not a second WMI implementation.
 

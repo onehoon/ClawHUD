@@ -71,4 +71,28 @@ std::optional<MsiEcBatteryPowerSample> DecodeBatteryPower(
         return std::nullopt;
     return MsiEcBatteryPowerSample{ currentMa, voltageMv, powerW };
 }
+
+std::optional<MsiEcA8BatteryPowerSample> DecodeA8BatteryPower(
+    std::uint8_t currentLow, std::uint8_t currentHigh,
+    std::uint8_t voltageLow, std::uint8_t voltageHigh) noexcept
+{
+    const auto rawCurrent = static_cast<std::uint16_t>(
+        static_cast<std::uint16_t>(currentLow) |
+        (static_cast<std::uint16_t>(currentHigh) << 8));
+    // Conservative validity gate for the statically reconstructed A8 format.
+    if ((rawCurrent & 0x8000u) == 0)
+        return std::nullopt;
+
+    const auto dischargeCurrentMa = static_cast<std::uint16_t>(~rawCurrent);
+    const auto voltageMv = DecodeBatteryVoltageMv(voltageLow, voltageHigh);
+    if (dischargeCurrentMa == 0 || voltageMv == 0)
+        return std::nullopt;
+
+    const double powerW = static_cast<double>(dischargeCurrentMa) *
+        static_cast<double>(voltageMv) / 1'000'000.0;
+    if (!(powerW > 0.0) || !std::isfinite(powerW))
+        return std::nullopt;
+    return MsiEcA8BatteryPowerSample{
+        rawCurrent, voltageMv, dischargeCurrentMa, powerW };
+}
 }

@@ -16,7 +16,9 @@ template<class ReaderFactory>
 MsiEcHudTelemetry ReadMsiEcHudTelemetry(
     const HudSensorSupport& sensors, bool onBattery,
     ReaderFactory&& getReader,
-    MsiEcFanLayout fanLayout = MsiEcFanLayout::DualTach)
+    MsiEcFanLayout fanLayout = MsiEcFanLayout::DualTach,
+    MsiEcBatteryCurrentEncoding batteryEncoding =
+        MsiEcBatteryCurrentEncoding::SignedTwosComplement)
 {
     MsiEcHudTelemetry result{};
     const bool readBatteryDischarge = sensors.msiBatteryDischarge && onBattery;
@@ -74,6 +76,7 @@ MsiEcHudTelemetry ReadMsiEcHudTelemetry(
     std::vector<std::uint8_t> currentHigh;
     std::vector<std::uint8_t> voltageLow;
     std::vector<std::uint8_t> voltageHigh;
+    result.batteryDischargeAttempted = true;
     const bool c0 = reader.ReadData(70, currentLow);
     if (!c0 || currentLow.empty())
         return result;
@@ -86,8 +89,17 @@ MsiEcHudTelemetry ReadMsiEcHudTelemetry(
     const bool v1 = reader.ReadData(75, voltageHigh);
     if (!v1 || voltageHigh.empty())
         return result;
-    if (c0 && c1 && v0 && v1 && !currentLow.empty() && !currentHigh.empty() &&
-        !voltageLow.empty() && !voltageHigh.empty())
+    if (batteryEncoding == MsiEcBatteryCurrentEncoding::OnesComplement)
+    {
+        const auto battery = DecodeA8BatteryPower(
+            currentLow[0], currentHigh[0], voltageLow[0], voltageHigh[0]);
+        if (battery)
+        {
+            result.batteryDischargePowerW = battery->powerW;
+            result.a8BatterySample = battery;
+        }
+    }
+    else
     {
         const auto battery = DecodeBatteryPower(
             currentLow[0], currentHigh[0], voltageLow[0], voltageHigh[0]);

@@ -46,10 +46,12 @@ int main()
         a8Candidate->capabilities.sensors.msiCpuTemperature &&
         a8Candidate->capabilities.sensors.msiFanRpm &&
         !a8Candidate->capabilities.sensors.msiCpuPackagePower &&
-        !a8Candidate->capabilities.sensors.msiBatteryDischarge &&
+        a8Candidate->capabilities.sensors.msiBatteryDischarge &&
         !a8Candidate->capabilities.intelVrrFix &&
-        a8Candidate->capabilities.msiEcFanLayout == clawhud::MsiEcFanLayout::SingleTach,
-        "A8 exact model permits only CPU temperature and single-tach EC reads without Intel VRR");
+        a8Candidate->capabilities.msiEcFanLayout == clawhud::MsiEcFanLayout::SingleTach &&
+        a8Candidate->capabilities.msiEcBatteryCurrentEncoding ==
+            clawhud::MsiEcBatteryCurrentEncoding::OnesComplement,
+        "A8 exact model permits CPU temperature, single-tach, and its DC battery decoder without Intel VRR");
     ok &= Check(a8Candidate && clawhud::A8TelemetryEvidence::IsEnabledForModel(
             a8Candidate->modelId) &&
         !clawhud::A8TelemetryEvidence::IsEnabledForModel("msi.claw.a2vm.7") &&
@@ -94,7 +96,9 @@ int main()
             model->capabilities.sensors.msiCpuPackagePower &&
             model->capabilities.sensors.msiBatteryDischarge &&
             model->capabilities.intelVrrFix &&
-            model->capabilities.msiEcFanLayout == clawhud::MsiEcFanLayout::DualTach;
+            model->capabilities.msiEcFanLayout == clawhud::MsiEcFanLayout::DualTach &&
+            model->capabilities.msiEcBatteryCurrentEncoding ==
+                clawhud::MsiEcBatteryCurrentEncoding::SignedTwosComplement;
     };
     ok &= Check(hasExistingIntelPermissions(claw7.model) &&
         hasExistingIntelPermissions(claw8.model) &&

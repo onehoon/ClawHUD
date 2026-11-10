@@ -233,6 +233,48 @@ std::vector<A8TelemetryEvidenceEvent> A8TelemetryEvidence::ObserveEc(
     return events;
 }
 
+std::vector<A8TelemetryEvidenceEvent> A8TelemetryEvidence::ObserveBatteryDischarge(
+    const MsiEcHudTelemetry& telemetry,
+    std::chrono::milliseconds attemptPeriod)
+{
+    if (!enabled_ || !started_)
+        return {};
+
+    const auto metric = Metric::BatteryDischarge;
+    if (telemetry.batteryDischargeAttempted && telemetry.a8BatterySample &&
+        !metrics_[static_cast<std::size_t>(metric)].successLogged)
+    {
+        const auto& sample = *telemetry.a8BatterySample;
+        auto& state = metrics_[static_cast<std::size_t>(metric)];
+        state.successLogged = true;
+        std::wostringstream value;
+        value << L"[A8Telemetry] metric=" << MetricName(metric)
+            << L" source=" << SourceName(metric)
+            << L" result=first-success rawCurrent=0x" << std::uppercase
+            << std::hex << std::setw(4) << std::setfill(L'0') << sample.rawCurrent
+            << std::dec << L" voltageMv=" << sample.voltageMv
+            << L" currentMa=" << sample.dischargeCurrentMa
+            << L" value=" << std::fixed << std::setprecision(2)
+            << sample.powerW << L"W";
+        return { { A8TelemetryEvidenceLevel::Info, value.str() } };
+    }
+
+    return ObserveMetric(metric, false, {}, telemetry.batteryDischargeAttempted,
+        attemptPeriod);
+}
+
+std::vector<A8TelemetryEvidenceEvent> A8TelemetryEvidence::ObserveRemainingTime(
+    const std::optional<int>& remainingMinutes, bool eligible,
+    std::chrono::milliseconds attemptPeriod)
+{
+    if (!enabled_ || !started_)
+        return {};
+    const bool valid = eligible && remainingMinutes && *remainingMinutes >= 0;
+    return ObserveMetric(Metric::RemainingTime, valid,
+        valid ? std::to_wstring(*remainingMinutes) + L"m" : std::wstring{},
+        eligible, attemptPeriod);
+}
+
 std::vector<A8TelemetryEvidenceEvent> A8TelemetryEvidence::ObserveApuPower(
     const AdlxPowerReadResult& result, bool readAttempted,
     std::chrono::milliseconds attemptPeriod)
@@ -359,6 +401,8 @@ const wchar_t* A8TelemetryEvidence::MetricName(Metric metric) noexcept
     {
     case Metric::CpuTemp: return L"cpuTemp";
     case Metric::FanRpm: return L"fanRpm";
+    case Metric::BatteryDischarge: return L"batteryDischarge";
+    case Metric::RemainingTime: return L"remainingTime";
     case Metric::ApuPower: return L"apuPower";
     case Metric::CpuUsage: return L"cpuUsage";
     case Metric::CpuClock: return L"cpuClock";
@@ -380,7 +424,9 @@ const wchar_t* A8TelemetryEvidence::SourceName(Metric metric) noexcept
     switch (metric)
     {
     case Metric::CpuTemp:
-    case Metric::FanRpm: return L"MSI_EC";
+    case Metric::FanRpm:
+    case Metric::BatteryDischarge: return L"MSI_EC";
+    case Metric::RemainingTime: return L"BatteryPowerEstimator";
     case Metric::ApuPower: return L"ADLX";
     case Metric::RamUsed:
     case Metric::BatteryPercent:

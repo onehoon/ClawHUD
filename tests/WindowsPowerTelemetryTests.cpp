@@ -24,6 +24,9 @@ BatteryPowerEstimator::TimePoint At(int seconds)
 void CheckBatteryPowerEstimator(bool& ok)
 {
     BatteryPowerEstimator estimator;
+    ok &= Check(estimator.SampleCount() == 0 && !estimator.Ready() &&
+        !estimator.EstimateRemainingMinutes(60000),
+        "battery estimator starts empty");
     for (int seconds = 1; seconds <= 9; ++seconds)
         estimator.Observe(true, 40.0, At(seconds));
     ok &= Check(!estimator.Ready() &&
@@ -42,13 +45,18 @@ void CheckBatteryPowerEstimator(bool& ok)
         std::abs(estimator.AveragePowerW().value() -
             (40.0 * 9.0 + 42.0 + 44.0) / 11.0) < 0.001,
         "EC estimate retains only the rolling twenty seconds");
+    ok &= Check(!estimator.EstimateRemainingMinutes(std::nullopt),
+        "missing Windows capacity does not fabricate an estimate");
+    ok &= Check(estimator.EstimateRemainingMinutes(0).value_or(-1) == 0,
+        "zero remaining capacity is a valid zero-minute estimate");
     estimator.Observe(true, std::nullopt, At(22));
-    ok &= Check(estimator.SampleCount() == 11 && estimator.Ready(),
-        "invalid EC sample does not poison valid history");
-    estimator.Reset();
+    ok &= Check(estimator.SampleCount() == 0 && !estimator.Ready(),
+        "invalid EC sample resets stale estimate history");
+    for (int seconds = 1; seconds <= 10; ++seconds)
+        estimator.Observe(true, 40.0, At(seconds));
     estimator.Observe(false, 40.0, At(23));
     ok &= Check(estimator.SampleCount() == 0 && !estimator.Ready(),
-        "AC resets EC history");
+        "AC or unknown power state resets DC history");
 }
 
 void CheckBatteryDiagnostics(bool& ok)

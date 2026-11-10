@@ -4,6 +4,7 @@
 #include <iostream>
 #include <cmath>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace clawhud;
@@ -25,6 +26,7 @@ struct FakeEcReader
     ec::EcFailureStage failureStageOnFail{ ec::EcFailureStage::Pipe };
     std::vector<std::uint8_t> temperaturePayload{ 67 };
     std::vector<std::uint8_t> fanPayload{ 0x00, 0x70, 0x00, 0x6F };
+    std::string emptyPayloadCall;
 
     bool Fail(const std::string& call)
     {
@@ -56,6 +58,11 @@ struct FakeEcReader
         const auto call = "data:" + std::to_string(selector);
         if (Fail(call))
             return false;
+        if (call == emptyPayloadCall)
+        {
+            payload.clear();
+            return true;
+        }
         switch (selector)
         {
         case 221: payload = { 13 }; break;
@@ -78,13 +85,15 @@ bool CheckSensorGating()
     FakeEcReader unusedReader;
     const auto read = [&](HudSensorSupport sensors, bool onBattery,
         FakeEcReader& reader,
-        MsiEcFanLayout fanLayout = MsiEcFanLayout::DualTach)
+        MsiEcFanLayout fanLayout = MsiEcFanLayout::DualTach,
+        MsiEcBatteryCurrentEncoding batteryEncoding =
+            MsiEcBatteryCurrentEncoding::SignedTwosComplement)
     {
         return ReadMsiEcHudTelemetry(sensors, onBattery, [&]() -> FakeEcReader&
         {
             ++constructions;
             return reader;
-        }, fanLayout);
+        }, fanLayout, batteryEncoding);
     };
 
     (void)read({}, true, unusedReader);
@@ -174,9 +183,25 @@ bool CheckSensorGating()
     const auto discharge = read(dischargeOnly, true, dischargeReader);
     ok &= Check(constructions == 1 && dischargeReader.calls ==
         (std::vector<std::string>{ "data:70", "data:71", "data:74", "data:75" }) &&
+        discharge.batteryDischargeAttempted &&
         discharge.batteryDischargePowerW &&
         std::abs(*discharge.batteryDischargePowerW - 40.710713) < 0.001,
         "battery discharge permission invokes only its ordered four-selector DC sequence");
+
+    FakeEcReader a8BatteryReader;
+    const auto a8Battery = read({ true, true, false, true }, true,
+        a8BatteryReader, MsiEcFanLayout::SingleTach,
+        MsiEcBatteryCurrentEncoding::OnesComplement);
+    ok &= Check(a8Battery.batteryDischargeAttempted &&
+        a8Battery.a8BatterySample &&
+        a8Battery.a8BatterySample->rawCurrent == 0xF5F9 &&
+        a8Battery.a8BatterySample->dischargeCurrentMa == 2566 &&
+        a8Battery.a8BatterySample->voltageMv == 15859 &&
+        a8Battery.batteryDischargePowerW &&
+        std::abs(*a8Battery.batteryDischargePowerW - 40.694194) < 0.000001 &&
+        a8BatteryReader.calls == (std::vector<std::string>{ "temperature", "fan",
+            "data:70", "data:71", "data:74", "data:75" }),
+        "A8 uses its independent ones-complement decoder and preserves the raw sample");
 
     FakeEcReader intelReader;
     constructions = 0;
@@ -194,6 +219,13 @@ bool CheckSensorGating()
     ok &= Check(constructions == 1 && acReader.calls ==
         (std::vector<std::string>{ "temperature", "fan", "data:221" }),
         "AC sampling keeps allowed sensors and suppresses only the discharge quartet");
+
+    FakeEcReader a8AcReader;
+    const auto a8Ac = read({ true, true, false, true }, false, a8AcReader,
+        MsiEcFanLayout::SingleTach, MsiEcBatteryCurrentEncoding::OnesComplement);
+    ok &= Check(!a8Ac.batteryDischargeAttempted && a8AcReader.calls ==
+        (std::vector<std::string>{ "temperature", "fan" }),
+        "A8 AC or unknown power state skips battery selectors and attempt counting");
 
     FakeEcReader failedReader;
     failedReader.failCall = "fan";
@@ -213,6 +245,15 @@ bool CheckSensorGating()
         std::vector<std::string>{ "temperature" },
         "session-fatal temperature failure records its attempt and leaves skipped fan unattempted");
 
+    FakeEcReader skippedA8Battery;
+    skippedA8Battery.failCall = "temperature";
+    const auto skippedBattery = read({ true, true, false, true }, true,
+        skippedA8Battery, MsiEcFanLayout::SingleTach,
+        MsiEcBatteryCurrentEncoding::OnesComplement);
+    ok &= Check(!skippedBattery.batteryDischargeAttempted &&
+        skippedA8Battery.calls == std::vector<std::string>{ "temperature" },
+        "fatal temperature failure skips A8 battery attempt accounting");
+
     FakeEcReader nonSessionFailureReader;
     nonSessionFailureReader.failCall = "fan";
     nonSessionFailureReader.failureStageOnFail = ec::EcFailureStage::ExecMethod;
@@ -227,10 +268,32 @@ bool CheckSensorGating()
     failedBatteryReader.failCall = "data:71";
     failedBatteryReader.failureStageOnFail = ec::EcFailureStage::ExecMethod;
     constructions = 0;
-    (void)read(dischargeOnly, true, failedBatteryReader);
-    ok &= Check(constructions == 1 && failedBatteryReader.calls ==
+    const auto failedBattery = read(dischargeOnly, true, failedBatteryReader);
+    ok &= Check(constructions == 1 && failedBattery.batteryDischargeAttempted &&
+        failedBatteryReader.calls ==
         (std::vector<std::string>{ "data:70", "data:71" }),
         "incomplete battery selector quartet remains unavailable and stops immediately");
+
+    for (const auto& [selector, calls] : std::vector<std::pair<std::string,
+            std::vector<std::string>>>{
+        { "data:70", { "data:70" } },
+        { "data:71", { "data:70", "data:71" } },
+        { "data:74", { "data:70", "data:71", "data:74" } },
+        { "data:75", { "data:70", "data:71", "data:74", "data:75" } } })
+    {
+        FakeEcReader failedSelector;
+        failedSelector.failCall = selector;
+        const auto failure = read(dischargeOnly, true, failedSelector);
+        ok &= Check(failure.batteryDischargeAttempted &&
+            failedSelector.calls == calls,
+            "battery quartet stops on its first failed selector and counts the attempted read");
+    }
+    FakeEcReader missingFirstByte;
+    missingFirstByte.emptyPayloadCall = "data:74";
+    const auto missingPayload = read(dischargeOnly, true, missingFirstByte);
+    ok &= Check(missingPayload.batteryDischargeAttempted &&
+        missingFirstByte.calls == std::vector<std::string>{ "data:70", "data:71", "data:74" },
+        "missing voltage payload stops the quartet after the actual attempted getter");
 
     return ok;
 }
@@ -276,8 +339,19 @@ int main()
     const auto battery = DecodeBatteryPower(0xF9, 0xF5, 0xF3, 0x3D);
     ok &= Check(battery && std::abs(battery->powerW - 40.710713) < 0.001,
         "battery discharge power calculation");
+    const auto a8Battery = DecodeA8BatteryPower(0xF9, 0xF5, 0xF3, 0x3D);
+    ok &= Check(a8Battery && a8Battery->rawCurrent == 0xF5F9 &&
+        a8Battery->dischargeCurrentMa == 2566 && a8Battery->voltageMv == 15859 &&
+        std::abs(a8Battery->powerW - 40.694194) < 0.000001 &&
+        battery && battery->currentMa == -2567 &&
+        std::abs(battery->powerW - 40.710053) < 0.000001,
+        "A8 ones-complement vector stays separate from the Intel signed decoder");
     ok &= Check(!DecodeBatteryPower(0x01, 0x00, 0xF3, 0x3D) &&
-        !DecodeBatteryPower(0xF9, 0xF5, 0x00, 0x00),
+        !DecodeBatteryPower(0xF9, 0xF5, 0x00, 0x00) &&
+        !DecodeA8BatteryPower(0xFF, 0xFF, 0xF3, 0x3D) &&
+        !DecodeA8BatteryPower(0x00, 0x00, 0xF3, 0x3D) &&
+        !DecodeA8BatteryPower(0x00, 0x70, 0xF3, 0x3D) &&
+        !DecodeA8BatteryPower(0xF9, 0xF5, 0x00, 0x00),
         "invalid battery power rejected");
 
     std::optional<int> temperature;

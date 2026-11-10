@@ -16,13 +16,11 @@ constexpr auto kRollingWindow = std::chrono::seconds(20);
 void BatteryPowerEstimator::Observe(bool onBattery, std::optional<double> powerW,
     TimePoint now)
 {
-    if (!onBattery)
+    if (!onBattery || !powerW || !(*powerW > 0.0) || !std::isfinite(*powerW))
     {
         Reset();
         return;
     }
-    if (!powerW || !(*powerW > 0.0) || !std::isfinite(*powerW))
-        return;
     samples_.push_back({ now, *powerW });
     while (!samples_.empty() && now - samples_.front().timestamp > kRollingWindow)
         samples_.pop_front();

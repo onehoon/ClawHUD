@@ -40,12 +40,14 @@ void ProductionTelemetryController::Bind(HWND messageWindow,
 }
 
 bool ProductionTelemetryController::ConfigureDeviceSensors(
-    HudSensorSupport sensors, MsiEcFanLayout fanLayout) noexcept
+    HudSensorSupport sensors, MsiEcFanLayout fanLayout,
+    MsiEcBatteryCurrentEncoding batteryEncoding) noexcept
 {
     if (samplingActive_ || sensorSupportConfigured_ || ecClient_)
         return false;
     sensorSupport_ = sensors;
     fanLayout_ = fanLayout;
+    batteryEncoding_ = batteryEncoding;
     sensorSupportConfigured_ = true;
     return true;
 }
@@ -127,7 +129,7 @@ MsiEcHudTelemetry ProductionTelemetryController::ReadEcTelemetry()
         if (!ecClient_)
             ecClient_ = std::make_unique<EcHelperClient>();
         return *ecClient_;
-    }, fanLayout_);
+    }, fanLayout_, batteryEncoding_);
 }
 
 void ProductionTelemetryController::SampleSystemEc()
@@ -157,8 +159,12 @@ void ProductionTelemetryController::SampleSystemEc()
     }
     const auto freshEcTelemetry = ReadEcTelemetry();
     if (a8TelemetryEvidence_.Enabled())
+    {
         LogA8TelemetryEvidence(a8TelemetryEvidence_.ObserveEc(freshEcTelemetry,
             std::chrono::milliseconds(kUsageSamplingIntervalMs)));
+        LogA8TelemetryEvidence(a8TelemetryEvidence_.ObserveBatteryDischarge(
+            freshEcTelemetry, std::chrono::milliseconds(kUsageSamplingIntervalMs)));
+    }
     const bool onBattery = latestPower_ &&
         latestPower_->onBattery.value_or(false);
     const auto historyBefore = batteryEstimator_.SampleCount();
@@ -228,6 +234,14 @@ void ProductionTelemetryController::SampleBattery()
         const auto ecEstimate = batteryEstimator_.EstimateRemainingMinutes(
             latestPower_->remainingCapacityMWh);
         latestPower_->remainingMinutes = ecEstimate;
+        if (a8TelemetryEvidence_.Enabled())
+        {
+            const bool dc = latestPower_->onBattery == std::optional<bool>{ true };
+            const bool eligible = dc && batteryEstimator_.Ready();
+            LogA8TelemetryEvidence(a8TelemetryEvidence_.ObserveRemainingTime(
+                ecEstimate, eligible,
+                std::chrono::milliseconds(kBatteryHudTimerIntervalMs)));
+        }
         std::wostringstream batteryLog;
         batteryLog << L"[BatteryEC] source="
             << (ecEstimate ? L"EC" : L"none")

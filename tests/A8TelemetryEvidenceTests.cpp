@@ -441,6 +441,80 @@ void TestAttemptBasedTimeoutsAndInvalidValues()
         "a raw value without a target must remain ignored");
 }
 
+void TestBatteryDischargeAndRemainingTimeEvidence()
+{
+    auto evidence = StartedEvidence();
+    clawhud::MsiEcHudTelemetry failed;
+    failed.batteryDischargeAttempted = true;
+    for (int attempt = 0; attempt < 29; ++attempt)
+        Require(evidence.ObserveBatteryDischarge(failed,
+                std::chrono::seconds(1)).empty(),
+            "battery discharge warning occurred before 30 actual DC attempts");
+    const auto timeout = evidence.ObserveBatteryDischarge(failed,
+        std::chrono::seconds(1));
+    Require(Contains(timeout,
+            L"metric=batteryDischarge source=MSI_EC result=unavailable reason=no-valid-sample attempts=30",
+            A8TelemetryEvidenceLevel::Warn),
+        "battery discharge warning did not follow 30 actual attempts");
+    Require(evidence.ObserveBatteryDischarge(failed,
+            std::chrono::seconds(1)).empty(),
+        "battery discharge timeout warning must be one-time");
+
+    auto success = failed;
+    success.a8BatterySample = clawhud::MsiEcA8BatteryPowerSample{
+        0xF5F9, 15859, 2566, 40.694194 };
+    const auto firstSuccess = evidence.ObserveBatteryDischarge(success,
+        std::chrono::seconds(1));
+    Require(Contains(firstSuccess,
+            L"metric=batteryDischarge source=MSI_EC result=first-success rawCurrent=0xF5F9 voltageMv=15859 currentMa=2566 value=40.69W",
+            A8TelemetryEvidenceLevel::Info) &&
+        Count(firstSuccess, L"metric=batteryDischarge") == 1,
+        "first A8 battery sample must log its raw EC quartet result exactly once");
+    Require(evidence.ObserveBatteryDischarge(success,
+            std::chrono::seconds(1)).empty(),
+        "successful battery discharge evidence must not repeat");
+
+    auto skippedEvidence = StartedEvidence();
+    clawhud::MsiEcHudTelemetry skipped;
+    for (int attempt = 0; attempt < 100; ++attempt)
+        Require(skippedEvidence.ObserveBatteryDischarge(skipped,
+                std::chrono::seconds(1)).empty(),
+            "skipped AC/unknown or pre-selector EC failures must not count");
+    for (int attempt = 0; attempt < 29; ++attempt)
+        Require(skippedEvidence.ObserveBatteryDischarge(failed,
+                std::chrono::seconds(1)).empty(),
+            "skipped samples incorrectly advanced the battery attempt timeout");
+    Require(Contains(skippedEvidence.ObserveBatteryDischarge(failed,
+                std::chrono::seconds(1)), L"attempts=30",
+            A8TelemetryEvidenceLevel::Warn),
+        "only actual selector-70 calls count toward battery timeout");
+
+    auto timeEvidence = StartedEvidence();
+    for (int attempt = 0; attempt < 100; ++attempt)
+        Require(timeEvidence.ObserveRemainingTime(std::nullopt, false,
+                std::chrono::seconds(5)).empty(),
+            "AC/unknown or estimator warm-up must not count as a failed ETA attempt");
+    for (int attempt = 0; attempt < 5; ++attempt)
+        Require(timeEvidence.ObserveRemainingTime(std::nullopt, true,
+                std::chrono::seconds(5)).empty(),
+            "remaining-time warning occurred before 30 eligible seconds");
+    const auto timeTimeout = timeEvidence.ObserveRemainingTime(std::nullopt, true,
+        std::chrono::seconds(5));
+    Require(Contains(timeTimeout,
+            L"metric=remainingTime source=BatteryPowerEstimator result=unavailable reason=no-valid-sample attempts=6",
+            A8TelemetryEvidenceLevel::Warn),
+        "remaining-time warning must count six actual five-second attempts");
+    const std::optional<int> zeroMinutes = 0;
+    const auto recoveredTime = timeEvidence.ObserveRemainingTime(zeroMinutes,
+        true, std::chrono::seconds(5));
+    Require(Contains(recoveredTime,
+            L"metric=remainingTime source=BatteryPowerEstimator result=first-success value=0m",
+            A8TelemetryEvidenceLevel::Info) &&
+        timeEvidence.ObserveRemainingTime(zeroMinutes, true,
+            std::chrono::seconds(5)).empty(),
+        "a valid zero-minute estimate recovers after warning and logs once");
+}
+
 std::string ReadFile(const std::filesystem::path& path)
 {
     std::ifstream input(path, std::ios::binary);
@@ -458,7 +532,7 @@ void TestInfoAndWarnReachNormalLogWithDebugDisabled()
     clawhud::RuntimeLogger::SetDebugLogging(false);
 
     auto startup = ReadyStartup();
-    startup.ecSensors = { true, true, false, false };
+    startup.ecSensors = { true, true, false, true };
     startup.apuPowerConfigured = true;
     startup.systemMetricBound[4] = false;
     A8TelemetryEvidence evidence;
@@ -476,6 +550,27 @@ void TestInfoAndWarnReachNormalLogWithDebugDisabled()
         std::chrono::seconds(1)));
     clawhud::LogA8TelemetryEvidence(evidence.ObserveApuPower(
         { 0, clawhud::AdlxPowerStatus::Ok }, true, std::chrono::seconds(1)));
+    clawhud::MsiEcHudTelemetry batterySample;
+    batterySample.batteryDischargeAttempted = true;
+    batterySample.a8BatterySample = clawhud::MsiEcA8BatteryPowerSample{
+        0xF5F9, 15859, 2566, 40.694194 };
+    clawhud::LogA8TelemetryEvidence(evidence.ObserveBatteryDischarge(
+        batterySample, std::chrono::seconds(1)));
+    const std::optional<int> remainingTime = 125;
+    clawhud::LogA8TelemetryEvidence(evidence.ObserveRemainingTime(
+        remainingTime, true, std::chrono::seconds(5)));
+    A8TelemetryEvidence batteryFailureEvidence;
+    Require(batteryFailureEvidence.Configure(true),
+        "battery failure evidence configuration failed");
+    clawhud::LogA8TelemetryEvidence(batteryFailureEvidence.Start(startup));
+    clawhud::MsiEcHudTelemetry failedBatterySample;
+    failedBatterySample.batteryDischargeAttempted = true;
+    for (int attempt = 0; attempt < 30; ++attempt)
+        clawhud::LogA8TelemetryEvidence(batteryFailureEvidence.ObserveBatteryDischarge(
+            failedBatterySample, std::chrono::seconds(1)));
+    for (int attempt = 0; attempt < 6; ++attempt)
+        clawhud::LogA8TelemetryEvidence(batteryFailureEvidence.ObserveRemainingTime(
+            std::nullopt, true, std::chrono::seconds(5)));
     for (int attempt = 0; attempt < 30; ++attempt)
         clawhud::LogA8TelemetryEvidence(evidence.ObserveEc(ecSample,
             std::chrono::seconds(1)));
@@ -492,6 +587,10 @@ void TestInfoAndWarnReachNormalLogWithDebugDisabled()
     Require(log.find("[INFO] [A8Telemetry] model=msi.claw.bz2em") != std::string::npos &&
         log.find("[INFO] [A8Telemetry] metric=cpuUsage source=PresentMon result=first-success") != std::string::npos &&
         log.find("[INFO] [A8Telemetry] metric=cpuTemp source=MSI_EC result=first-success value=58C") != std::string::npos &&
+        log.find("[INFO] [A8Telemetry] metric=batteryDischarge source=MSI_EC result=first-success rawCurrent=0xF5F9 voltageMv=15859 currentMa=2566 value=40.69W") != std::string::npos &&
+        log.find("[INFO] [A8Telemetry] metric=remainingTime source=BatteryPowerEstimator result=first-success value=125m") != std::string::npos &&
+        log.find("[WARN] [A8Telemetry] metric=batteryDischarge source=MSI_EC result=unavailable reason=no-valid-sample attempts=30") != std::string::npos &&
+        log.find("[WARN] [A8Telemetry] metric=remainingTime source=BatteryPowerEstimator result=unavailable reason=no-valid-sample attempts=6") != std::string::npos &&
         log.find("[WARN] [A8Telemetry] metric=fanRpm source=MSI_EC result=unavailable reason=no-valid-sample attempts=30") != std::string::npos &&
         log.find("[WARN] [A8Telemetry] metric=gpuPower source=PresentMon result=unavailable reason=not-bound") != std::string::npos,
         "A8 INFO/WARN evidence did not reach the ordinary log with Debug disabled");
@@ -516,5 +615,6 @@ int main()
     TestIndependentRawSuccessAndZeroValues();
     TestSystemMetricTimeoutAndLateSuccess();
     TestAttemptBasedTimeoutsAndInvalidValues();
+    TestBatteryDischargeAndRemainingTimeEvidence();
     TestInfoAndWarnReachNormalLogWithDebugDisabled();
 }

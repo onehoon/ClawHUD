@@ -43,6 +43,17 @@ The `[A8Telemetry]` events and existing default PresentMon status/query-plan
 lines are sufficient; no debug switch or additional diagnostic tool is needed.
 These software logs do not constitute physical A8 hardware certification.
 
+The exact A8 model also reads EC battery current/voltage only when Windows' last
+known power state is DC. The first decoded battery-system discharge sample and
+the first remaining-time value from the existing estimator are logged once at
+INFO; missing battery samples warn only after 30 seconds of actual selector-70
+attempts, and estimator failures count only after normal warm-up while DC and
+the estimator is ready. These logs use the ordinary `clawhud.log` with debug
+logging disabled as well. Battery-system discharge power is not ADLX
+`GPUPower()` and is used only for BAT remaining time; the A8 legacy `TDP` value
+remains ADLX GPU power. The A8 one's-complement decode and scale are static-RE
+supported but hardware-unverified.
+
 There is no in-app developer diagnostic. Production PresentMon usage
 (`PresentMonApi2Client`, `PresentMonTelemetryProvider`, FPS / system / frame /
 debug-frame telemetry, `PresentMonRuntimeBootstrap`) is the only PresentMon
@@ -73,8 +84,11 @@ read-only `Get_Temperature(0)` CPU-temperature getter and the first tach pair
 from `Get_Fan(0)`. The A8 reader ignores any fan bytes after the first pair;
 the existing Intel dual-fan decoder and sensor permissions are unchanged. A8
 CPU temperature byte meaning and fan RPM accuracy remain unverified on physical
-hardware. A8 `Get_Data(221)` power and EC battery-discharge telemetry are not
-enabled.
+hardware. A8 `Get_Data(221)` CPU-package power remains disabled. The A8-only
+DC battery selectors `Get_Data(70)`, `(71)`, `(74)`, and `(75)` feed the
+existing remaining-time estimator; no battery-power HUD field is added. The
+one's-complement current decode follows static RE and remains unverified on a
+physical A8.
 
 The `[A8Telemetry]` startup summary reports configured EC sensors and whether
 ADLX sampling is enabled. The first valid temperature and fan values each

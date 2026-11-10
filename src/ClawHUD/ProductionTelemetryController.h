@@ -50,7 +50,9 @@ public:
     // exists and before any sampling starts.
     void Bind(HWND messageWindow, std::function<void()> requestRender);
     bool ConfigureDeviceSensors(HudSensorSupport sensors,
-        MsiEcFanLayout fanLayout = MsiEcFanLayout::DualTach) noexcept;
+        MsiEcFanLayout fanLayout = MsiEcFanLayout::DualTach,
+        MsiEcBatteryCurrentEncoding batteryEncoding =
+            MsiEcBatteryCurrentEncoding::SignedTwosComplement) noexcept;
     bool ConfigureA8TelemetryEvidence(bool enabled) noexcept;
     bool ConfigureA8AdlxPower(bool enabled) noexcept;
     void InitializeA8TelemetryEvidence();
@@ -113,6 +115,8 @@ private:
     std::unique_ptr<EcHelperClient> ecClient_;
     HudSensorSupport sensorSupport_{};
     MsiEcFanLayout fanLayout_{ MsiEcFanLayout::DualTach };
+    MsiEcBatteryCurrentEncoding batteryEncoding_{
+        MsiEcBatteryCurrentEncoding::SignedTwosComplement };
     bool sensorSupportConfigured_{};
     HudTelemetryAggregator aggregator_;
     std::optional<WindowsPowerTelemetry> latestPower_;
