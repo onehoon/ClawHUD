@@ -58,7 +58,7 @@ ClawHUD combines PresentMon API2, Windows telemetry, and MSI-specific EC telemet
 | **FAN** | Fan speed | MSI EC |
 | **BAT** | Battery level + estimated remaining time while on battery | Windows + MSI EC |
 
-MSI EC telemetry is read through ClawHUD's narrowly scoped read-only EC helper. On the MSI Claw A8 BZ2EM, EC access is disabled in this phase: CPU temperature, CPU package power, fan speed, and the battery-discharge remaining-time estimate are unavailable and shown as `--` placeholders. See [MSI EC Telemetry Reference](docs/MSI_EC_TELEMETRY_REFERENCE.md) for implementation details.
+MSI EC telemetry is read through ClawHUD's narrowly scoped read-only EC helper. On the MSI Claw A8 BZ2EM, EC access is limited to CPU temperature and the first fan tachometer; CPU package power and the battery-discharge remaining-time estimate remain unavailable and are shown as `--`. The standalone ADLX `GPUPower()` reader is implemented for later integration but is not yet connected to HUD telemetry, so A8 power remains unavailable in this release. See [MSI EC Telemetry Reference](docs/MSI_EC_TELEMETRY_REFERENCE.md) for implementation details.
 
 Missing telemetry is never reported as a synthetic numeric zero. Most devices omit unavailable metric groups; the A8 HUD marks unavailable metrics with `--` placeholders.
 

@@ -2,6 +2,7 @@
 set(CLAWHUD_RUNTIME_SOURCES
 src/ClawHUD/main.cpp
     src/ClawHUD/A8TelemetryEvidence.cpp
+    src/ClawHUD/AmdAdlxPowerTelemetry.cpp
     src/resources/ClawHUD.rc
     src/ClawHUD/App.cpp
     src/ClawHUD/ClawHudUpdateUrl.cpp

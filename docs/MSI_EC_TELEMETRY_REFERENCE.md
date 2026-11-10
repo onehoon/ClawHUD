@@ -1187,10 +1187,12 @@ Always mode and visible for at least 30 seconds when collecting
 lazy helper may request elevation on the first A8 read and retains its
 no-repeated-`runas` behavior after failure.
 
-These changes only enable the existing read-only transport. A8 CPU-temperature
+These changes only enable the existing read-only EC transport. A8 CPU-temperature
 byte semantics and RPM values remain unverified on physical A8 hardware.
 A8 `Get_Data(221)` CPU-package power and EC battery-discharge telemetry remain
-disabled; A8 ADLX power and battery work are outside this PR.
+disabled. The standalone ADLX `GPUPower()` reader is implemented separately in
+PR2 but is not connected to HUD telemetry or logging; it is not physical A8
+validation. Battery work remains outside PR2.
 
 Diagnostics should reuse the helper/client transport and the same reader/decoders, not a second WMI implementation.
 
