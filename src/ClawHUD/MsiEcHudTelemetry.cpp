@@ -19,6 +19,13 @@ std::optional<int> DecodeFanRpm(std::uint8_t first, std::uint8_t second)
     return static_cast<int>(std::abs(480000.0 / static_cast<double>(delta)));
 }
 
+std::optional<int> DecodeFirstFanRpm(std::span<const std::uint8_t> payload)
+{
+    if (payload.size() < 2)
+        return std::nullopt;
+    return DecodeFanRpm(payload[0], payload[1]);
+}
+
 std::optional<FanTelemetry> DecodeFanTelemetry(std::span<const std::uint8_t> payload)
 {
     if (payload.size() < 4)

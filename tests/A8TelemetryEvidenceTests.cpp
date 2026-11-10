@@ -69,6 +69,88 @@ A8TelemetryEvidence StartedEvidence(
     return evidence;
 }
 
+void TestEcMetricConfigurationAndIndependentFirstResults()
+{
+    auto startup = ReadyStartup();
+    startup.ecSensors = { true, true, false, false };
+    clawhud::A8TelemetryEvidence configuredEvidence;
+    Require(configuredEvidence.Configure(true), "A8 evidence configuration failed");
+    const auto startupEvents = configuredEvidence.Start(startup);
+    Require(Contains(startupEvents,
+            L"ec=enabled ecMetrics=cpuTemp:enabled,fanRpm:enabled,cpuPackagePower:disabled,batteryDischarge:disabled") &&
+        !Contains(startupEvents, L"ecMetrics=unsupported"),
+        "startup EC summary must reflect configured A8 capabilities without claiming unsupported sensors");
+
+    clawhud::MsiEcHudTelemetry sample;
+    sample.cpuTemperatureAttempted = true;
+    sample.cpuTempC = 58;
+    const auto temperature = configuredEvidence.ObserveEc(sample,
+        std::chrono::seconds(1));
+    Require(Contains(temperature,
+            L"metric=cpuTemp source=MSI_EC result=first-success value=58C",
+            A8TelemetryEvidenceLevel::Info) && !Contains(temperature, L"fanRpm"),
+        "CPU temperature first-success must be independent of the fan getter");
+
+    sample.cpuTemperatureAttempted = false;
+    sample.cpuTempC.reset();
+    sample.fanRpmAttempted = true;
+    sample.fan1Rpm = 0;
+    const auto fan = configuredEvidence.ObserveEc(sample,
+        std::chrono::seconds(1));
+    Require(Contains(fan,
+            L"metric=fanRpm source=MSI_EC result=first-success value=0RPM",
+            A8TelemetryEvidenceLevel::Info),
+        "zero RPM must be a valid independent first-success");
+    Require(configuredEvidence.ObserveEc(sample,
+            std::chrono::seconds(1)).empty(),
+        "resolved EC metrics must not repeat their first-success logs");
+}
+
+void TestEcAttemptTimeoutsIgnoreSkippedGettersAndRecover()
+{
+    auto evidence = StartedEvidence();
+    clawhud::MsiEcHudTelemetry sample;
+    sample.cpuTemperatureAttempted = true;
+    sample.fanRpmAttempted = false;
+    for (int attempt = 0; attempt < 29; ++attempt)
+    {
+        const auto events = evidence.ObserveEc(sample,
+            std::chrono::seconds(1));
+        Require(!Contains(events, L"result=unavailable"),
+            "EC timeout warning occurred before 30 seconds of actual attempts");
+    }
+    const auto timeout = evidence.ObserveEc(sample, std::chrono::seconds(1));
+    Require(Contains(timeout,
+            L"metric=cpuTemp source=MSI_EC result=unavailable reason=no-valid-sample attempts=30",
+            A8TelemetryEvidenceLevel::Warn) && !Contains(timeout, L"fanRpm"),
+        "skipped fan getter must not advance its timeout while temperature warns after 30 attempts");
+    Require(evidence.ObserveEc(sample, std::chrono::seconds(1)).empty(),
+        "EC timeout warnings must be one-time");
+
+    sample.cpuTemperatureAttempted = false;
+    sample.fanRpmAttempted = true;
+    std::vector<A8TelemetryEvidenceEvent> fanTimeout;
+    for (int attempt = 0; attempt < 30; ++attempt)
+    {
+        const auto events = evidence.ObserveEc(sample,
+            std::chrono::seconds(1));
+        if (attempt == 29)
+            fanTimeout = events;
+        if (attempt < 29)
+            Require(!Contains(events, L"metric=fanRpm"),
+                "fan warning occurred before 30 actual getter attempts");
+    }
+    Require(Contains(fanTimeout,
+            L"metric=fanRpm source=MSI_EC result=unavailable reason=no-valid-sample attempts=30",
+            A8TelemetryEvidenceLevel::Warn),
+        "independent fan attempts must receive their own bounded timeout");
+    sample.fan1Rpm = 3200;
+    Require(Contains(evidence.ObserveEc(sample, std::chrono::seconds(1)),
+            L"metric=fanRpm source=MSI_EC result=first-success value=3200RPM",
+            A8TelemetryEvidenceLevel::Info),
+        "late EC first-success must remain observable after its timeout warning");
+}
+
 void TestExactModelGateAndStartupReasons()
 {
     Require(A8TelemetryEvidence::IsEnabledForModel("msi.claw.bz2em"),
@@ -307,6 +389,7 @@ void TestInfoAndWarnReachNormalLogWithDebugDisabled()
     clawhud::RuntimeLogger::SetDebugLogging(false);
 
     auto startup = ReadyStartup();
+    startup.ecSensors = { true, true, false, false };
     startup.systemMetricBound[4] = false;
     A8TelemetryEvidence evidence;
     Require(evidence.Configure(true), "A8 evidence configuration failed");
@@ -315,12 +398,23 @@ void TestInfoAndWarnReachNormalLogWithDebugDisabled()
     system.cpuUsagePercent = 42.5;
     clawhud::LogA8TelemetryEvidence(evidence.ObserveSystem(system, true,
         std::chrono::seconds(1)));
+    clawhud::MsiEcHudTelemetry ecSample;
+    ecSample.cpuTempC = 58;
+    ecSample.cpuTemperatureAttempted = true;
+    ecSample.fanRpmAttempted = true;
+    clawhud::LogA8TelemetryEvidence(evidence.ObserveEc(ecSample,
+        std::chrono::seconds(1)));
+    for (int attempt = 0; attempt < 30; ++attempt)
+        clawhud::LogA8TelemetryEvidence(evidence.ObserveEc(ecSample,
+            std::chrono::seconds(1)));
     clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Debug,
         L"debug-only-entry");
 
     const auto log = ReadFile(directory / L"clawhud.log");
     Require(log.find("[INFO] [A8Telemetry] model=msi.claw.bz2em") != std::string::npos &&
         log.find("[INFO] [A8Telemetry] metric=cpuUsage source=PresentMon result=first-success") != std::string::npos &&
+        log.find("[INFO] [A8Telemetry] metric=cpuTemp source=MSI_EC result=first-success value=58C") != std::string::npos &&
+        log.find("[WARN] [A8Telemetry] metric=fanRpm source=MSI_EC result=unavailable reason=no-valid-sample attempts=30") != std::string::npos &&
         log.find("[WARN] [A8Telemetry] metric=gpuPower source=PresentMon result=unavailable reason=not-bound") != std::string::npos,
         "A8 INFO/WARN evidence did not reach the ordinary log with Debug disabled");
     Require(log.find("debug-only-entry") == std::string::npos,
@@ -333,6 +427,8 @@ void TestInfoAndWarnReachNormalLogWithDebugDisabled()
 
 int main()
 {
+    TestEcMetricConfigurationAndIndependentFirstResults();
+    TestEcAttemptTimeoutsIgnoreSkippedGettersAndRecover();
     TestExactModelGateAndStartupReasons();
     TestIndependentRawSuccessAndZeroValues();
     TestSystemMetricTimeoutAndLateSuccess();

@@ -47,6 +47,11 @@ std::wstring BindingName(const std::optional<bool>& bound)
     return *bound ? L"bound" : L"not-bound";
 }
 
+const wchar_t* EnabledDisabled(bool enabled) noexcept
+{
+    return enabled ? L"enabled" : L"disabled";
+}
+
 void Append(std::vector<A8TelemetryEvidenceEvent>& destination,
     std::vector<A8TelemetryEvidenceEvent> source)
 {
@@ -77,9 +82,16 @@ std::vector<A8TelemetryEvidenceEvent> A8TelemetryEvidence::Start(
     started_ = true;
 
     std::vector<A8TelemetryEvidenceEvent> events;
+    const auto& sensors = startup.ecSensors;
+    const bool ecEnabled = sensors.msiCpuTemperature || sensors.msiFanRpm ||
+        sensors.msiCpuPackagePower || sensors.msiBatteryDischarge;
     events.push_back({ A8TelemetryEvidenceLevel::Info,
-        L"[A8Telemetry] model=msi.claw.bz2em gpuVendor=AMD ec=disabled "
-        L"ecMetrics=unsupported(cpuTemp,fanRpm,cpuPackagePower,batteryEstimate) "
+        L"[A8Telemetry] model=msi.claw.bz2em gpuVendor=AMD ec=" +
+        std::wstring(EnabledDisabled(ecEnabled)) + L" ecMetrics=cpuTemp:" +
+        EnabledDisabled(sensors.msiCpuTemperature) + L",fanRpm:" +
+        EnabledDisabled(sensors.msiFanRpm) + L",cpuPackagePower:" +
+        EnabledDisabled(sensors.msiCpuPackagePower) + L",batteryDischarge:" +
+        EnabledDisabled(sensors.msiBatteryDischarge) + L" "
         L"intelVrrFix=unsupported" });
 
     const auto gpuTarget = startup.providerReady && startup.gpuTargetStatus
@@ -202,6 +214,24 @@ std::vector<A8TelemetryEvidenceEvent> A8TelemetryEvidence::ObserveSystem(
     return events;
 }
 
+std::vector<A8TelemetryEvidenceEvent> A8TelemetryEvidence::ObserveEc(
+    const MsiEcHudTelemetry& telemetry,
+    std::chrono::milliseconds attemptPeriod)
+{
+    if (!enabled_ || !started_)
+        return {};
+    std::vector<A8TelemetryEvidenceEvent> events;
+    const bool temperatureValid = telemetry.cpuTempC && *telemetry.cpuTempC >= 0;
+    Append(events, ObserveMetric(Metric::CpuTemp, temperatureValid,
+        temperatureValid ? std::to_wstring(*telemetry.cpuTempC) + L"C" : std::wstring{},
+        telemetry.cpuTemperatureAttempted, attemptPeriod));
+    const bool fanValid = telemetry.fan1Rpm && *telemetry.fan1Rpm >= 0;
+    Append(events, ObserveMetric(Metric::FanRpm, fanValid,
+        fanValid ? std::to_wstring(*telemetry.fan1Rpm) + L"RPM" : std::wstring{},
+        telemetry.fanRpmAttempted, attemptPeriod));
+    return events;
+}
+
 std::vector<A8TelemetryEvidenceEvent> A8TelemetryEvidence::ObserveSystemMemory(
     const std::optional<std::uint64_t>& usedBytes,
     std::chrono::milliseconds attemptPeriod)
@@ -289,6 +319,8 @@ const wchar_t* A8TelemetryEvidence::MetricName(Metric metric) noexcept
 {
     switch (metric)
     {
+    case Metric::CpuTemp: return L"cpuTemp";
+    case Metric::FanRpm: return L"fanRpm";
     case Metric::CpuUsage: return L"cpuUsage";
     case Metric::CpuClock: return L"cpuClock";
     case Metric::GpuUsage: return L"gpuUsage";
@@ -308,6 +340,8 @@ const wchar_t* A8TelemetryEvidence::SourceName(Metric metric) noexcept
 {
     switch (metric)
     {
+    case Metric::CpuTemp:
+    case Metric::FanRpm: return L"MSI_EC";
     case Metric::RamUsed:
     case Metric::BatteryPercent:
     case Metric::AcDc: return L"Windows";

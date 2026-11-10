@@ -20,6 +20,12 @@ enum class HudGpuVendor
     Nvidia,
 };
 
+enum class MsiEcFanLayout
+{
+    DualTach,
+    SingleTach,
+};
+
 struct HudSensorSupport
 {
     bool msiCpuTemperature{};
@@ -33,6 +39,7 @@ struct HudDeviceCapabilities
     HudGpuVendor expectedGpuVendor{ HudGpuVendor::Unknown };
     HudSensorSupport sensors{};
     bool intelVrrFix{};
+    MsiEcFanLayout msiEcFanLayout{ MsiEcFanLayout::DualTach };
 };
 
 struct HudDeviceIdentity

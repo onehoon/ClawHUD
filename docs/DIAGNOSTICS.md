@@ -57,5 +57,25 @@ live under `archive/diagnostics/` and are not part of the build:
   the HUD, or production sampling.
 
 A future standalone `ClawHUD.Diag.exe` console tool will be designed separately.
-Production EC telemetry (`ClawHUD.EcHelper`, `MsiEcHudTelemetry`, EC HUD
-sampling) and the Intel VRR Range Fix tweak are unrelated and unchanged.
+Production EC telemetry uses `ClawHUD.EcHelper` and the normal HUD sampling
+loop; the MSI Claw A8 exact-model read scope and ordinary log evidence are
+documented below. The Intel VRR Range Fix remains separate.
+
+## MSI Claw A8 EC sampling
+
+On exact model `msi.claw.bz2em` / board `MS-1T8K`, ClawHUD attempts the existing
+read-only `Get_Temperature(0)` CPU-temperature getter and the first tach pair
+from `Get_Fan(0)`. The A8 reader ignores any fan bytes after the first pair;
+the existing Intel dual-fan decoder and sensor permissions are unchanged. A8
+CPU temperature byte meaning and fan RPM accuracy remain unverified on physical
+hardware. A8 `Get_Data(221)` power and EC battery-discharge telemetry are not
+enabled.
+
+The `[A8Telemetry]` startup summary reports configured EC sensors. The first
+valid temperature and fan values each produce one INFO line; a getter with no
+valid sample produces one WARN after 30 seconds of actual attempts. These lines
+are written to the ordinary `clawhud.log` at INFO/WARN even when
+`DebugLoggingEnabled=false`. To collect evidence, select **Always**, keep the
+HUD visible for at least 30 seconds, then send `clawhud.log` and rotated logs.
+The first EC read may show the existing elevation prompt; failed reads do not
+relaunch the helper or repeat the prompt.

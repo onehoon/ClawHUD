@@ -40,11 +40,12 @@ void ProductionTelemetryController::Bind(HWND messageWindow,
 }
 
 bool ProductionTelemetryController::ConfigureDeviceSensors(
-    HudSensorSupport sensors) noexcept
+    HudSensorSupport sensors, MsiEcFanLayout fanLayout) noexcept
 {
     if (samplingActive_ || sensorSupportConfigured_ || ecClient_)
         return false;
     sensorSupport_ = sensors;
+    fanLayout_ = fanLayout;
     sensorSupportConfigured_ = true;
     return true;
 }
@@ -63,6 +64,7 @@ void ProductionTelemetryController::InitializeA8TelemetryEvidence()
     startup.providerReady = provider_.Ready();
     startup.systemReady = provider_.SystemReady();
     startup.processReady = provider_.ProcessReady();
+    startup.ecSensors = sensorSupport_;
     if (startup.providerReady)
     {
         const auto plan = BuildPresentMonSystemQueryPlan(
@@ -117,12 +119,15 @@ MsiEcHudTelemetry ProductionTelemetryController::ReadEcTelemetry()
         if (!ecClient_)
             ecClient_ = std::make_unique<EcHelperClient>();
         return *ecClient_;
-    });
+    }, fanLayout_);
 }
 
 void ProductionTelemetryController::SampleSystemEc()
 {
     const auto freshEcTelemetry = ReadEcTelemetry();
+    if (a8TelemetryEvidence_.Enabled())
+        LogA8TelemetryEvidence(a8TelemetryEvidence_.ObserveEc(freshEcTelemetry,
+            std::chrono::milliseconds(kUsageSamplingIntervalMs)));
     const bool onBattery = latestPower_ &&
         latestPower_->onBattery.value_or(false);
     const auto historyBefore = batteryEstimator_.SampleCount();

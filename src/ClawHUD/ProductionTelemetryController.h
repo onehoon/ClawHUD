@@ -47,7 +47,8 @@ public:
     // render-request callback. Must be called once, after the tray window
     // exists and before any sampling starts.
     void Bind(HWND messageWindow, std::function<void()> requestRender);
-    bool ConfigureDeviceSensors(HudSensorSupport sensors) noexcept;
+    bool ConfigureDeviceSensors(HudSensorSupport sensors,
+        MsiEcFanLayout fanLayout = MsiEcFanLayout::DualTach) noexcept;
     bool ConfigureA8TelemetryEvidence(bool enabled) noexcept;
     void InitializeA8TelemetryEvidence();
 
@@ -105,6 +106,7 @@ private:
 
     std::unique_ptr<EcHelperClient> ecClient_;
     HudSensorSupport sensorSupport_{};
+    MsiEcFanLayout fanLayout_{ MsiEcFanLayout::DualTach };
     bool sensorSupportConfigured_{};
     HudTelemetryAggregator aggregator_;
     std::optional<WindowsPowerTelemetry> latestPower_;

@@ -42,12 +42,13 @@ int main()
     ok &= Check(a8Candidate && a8Candidate->modelId == "msi.claw.bz2em" &&
         a8Candidate->capabilities.expectedGpuVendor == HudGpuVendor::Amd &&
         a8Candidate->admittedToProduction &&
-        !a8Candidate->capabilities.sensors.msiCpuTemperature &&
-        !a8Candidate->capabilities.sensors.msiFanRpm &&
+        a8Candidate->capabilities.sensors.msiCpuTemperature &&
+        a8Candidate->capabilities.sensors.msiFanRpm &&
         !a8Candidate->capabilities.sensors.msiCpuPackagePower &&
         !a8Candidate->capabilities.sensors.msiBatteryDischarge &&
-        !a8Candidate->capabilities.intelVrrFix,
-        "A8 exact model is admitted with AMD GPU and no EC or Intel VRR permissions");
+        !a8Candidate->capabilities.intelVrrFix &&
+        a8Candidate->capabilities.msiEcFanLayout == clawhud::MsiEcFanLayout::SingleTach,
+        "A8 exact model permits only CPU temperature and single-tach EC reads without Intel VRR");
 
     ok &= Check(ClassifyBaseBoardProduct(L"MS-1T42") == HardwareSupport::Supported, "MS-1T42 supported");
     ok &= Check(ClassifyBaseBoardProduct(L"MS-1T52") == HardwareSupport::Supported, "MS-1T52 supported");
@@ -83,7 +84,8 @@ int main()
             model->capabilities.sensors.msiFanRpm &&
             model->capabilities.sensors.msiCpuPackagePower &&
             model->capabilities.sensors.msiBatteryDischarge &&
-            model->capabilities.intelVrrFix;
+            model->capabilities.intelVrrFix &&
+            model->capabilities.msiEcFanLayout == clawhud::MsiEcFanLayout::DualTach;
     };
     ok &= Check(hasExistingIntelPermissions(claw7.model) &&
         hasExistingIntelPermissions(claw8.model) &&

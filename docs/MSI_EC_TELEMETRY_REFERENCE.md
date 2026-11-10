@@ -1169,6 +1169,29 @@ src/ClawHUD/
 
 If the project is still small, keeping decode helpers in `MsiEcReader.cpp` is also acceptable. Do not split files merely to satisfy the diagram.
 
+## 25. Current ClawHUD MSI Claw A8 PR1 scope
+
+The exact `msi.claw.bz2em` / `MS-1T8K` capability enables read-only
+`Get_Temperature(0)` and `Get_Fan(0)` attempts. CPU temperature uses the
+existing first-byte decoder. Fan RPM uses only `payload[0]` and `payload[1]`
+with `abs(480000 / (byte0-byte1))`; a zero delta is a valid `0 RPM`. The A8
+path leaves the second fan field unavailable for both two-byte and longer
+payloads. The existing four-byte, two-tach Intel decoder is unchanged.
+
+The startup `[A8Telemetry]` INFO line reports configured sensor permissions.
+The first valid fresh EC sample for each metric is logged once at INFO, and a
+metric with 30 seconds of actual getter attempts but no valid response is
+logged once at WARN. A skipped getter does not accrue attempts. Keep the HUD in
+Always mode and visible for at least 30 seconds when collecting
+`%LOCALAPPDATA%\ClawHUD\logs\clawhud.log` and rotated logs. The existing
+lazy helper may request elevation on the first A8 read and retains its
+no-repeated-`runas` behavior after failure.
+
+These changes only enable the existing read-only transport. A8 CPU-temperature
+byte semantics and RPM values remain unverified on physical A8 hardware.
+A8 `Get_Data(221)` CPU-package power and EC battery-discharge telemetry remain
+disabled; A8 ADLX power and battery work are outside this PR.
+
 Diagnostics should reuse the helper/client transport and the same reader/decoders, not a second WMI implementation.
 
 ---

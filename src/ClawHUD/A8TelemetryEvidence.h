@@ -2,6 +2,8 @@
 
 #include "PresentMonSystemTelemetry.h"
 #include "PresentMonTelemetryTypes.h"
+#include "MsiEcHudTelemetry.h"
+#include "SupportedHardware.h"
 #include "WindowsPowerTelemetry.h"
 
 #include <array>
@@ -35,6 +37,7 @@ struct A8TelemetryStartupState
     std::optional<PresentMonGpuTargetStatus> gpuTargetStatus;
     std::size_t gpuTargetMatchCount{};
     std::optional<std::uint32_t> gpuDeviceId;
+    HudSensorSupport ecSensors{};
     // nullopt means capability metadata was unavailable, not that the metric
     // was unbound.
     std::array<std::optional<bool>, 6> systemMetricBound{};
@@ -56,6 +59,9 @@ public:
         const std::optional<PresentMonSystemSnapshot>& snapshot,
         bool systemPollAttempted,
         std::chrono::milliseconds systemAttemptPeriod);
+    std::vector<A8TelemetryEvidenceEvent> ObserveEc(
+        const MsiEcHudTelemetry& telemetry,
+        std::chrono::milliseconds attemptPeriod);
     std::vector<A8TelemetryEvidenceEvent> ObserveSystemMemory(
         const std::optional<std::uint64_t>& usedBytes,
         std::chrono::milliseconds attemptPeriod);
@@ -71,6 +77,8 @@ public:
 private:
     enum class Metric : std::size_t
     {
+        CpuTemp,
+        FanRpm,
         CpuUsage,
         CpuClock,
         GpuUsage,
