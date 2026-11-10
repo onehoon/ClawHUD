@@ -19,6 +19,8 @@ struct MsiEcHudTelemetry
     std::optional<int> fan2Rpm;
     std::optional<int> cpuPackagePowerW;
     std::optional<double> batteryDischargePowerW;
+    bool cpuTemperatureAttempted{};
+    bool fanRpmAttempted{};
 };
 
 struct MsiEcBatteryPowerSample
@@ -30,6 +32,7 @@ struct MsiEcBatteryPowerSample
 
 std::optional<int> DecodeCpuTempC(std::span<const std::uint8_t> payload);
 std::optional<int> DecodeFanRpm(std::uint8_t first, std::uint8_t second);
+std::optional<int> DecodeFirstFanRpm(std::span<const std::uint8_t> payload);
 std::optional<FanTelemetry> DecodeFanTelemetry(std::span<const std::uint8_t> payload);
 std::optional<int> DecodeCpuPackagePowerW(
     std::span<const std::uint8_t> payload);

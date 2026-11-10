@@ -51,6 +51,16 @@ void FreshEcValuesAppearInSnapshot(bool& ok)
         "tdp mapped to double");
 }
 
+void A8TemperatureAndSingleFanMapWithoutASecondTach(bool& ok)
+{
+    HudTelemetryAggregator agg;
+    agg.IngestEc(Ec(58, 0, std::nullopt, std::nullopt));
+    const auto snapshot = SnapshotOf(agg);
+    ok &= Check(snapshot.cpuTemperatureC == 58 && snapshot.fan1Rpm == 0 &&
+        !snapshot.fan2Rpm,
+        "A8 CPU temperature and valid zero-RPM single fan map without a second tach");
+}
+
 void EcFieldRetainedForTwoMissesThenCleared(bool& ok)
 {
     HudTelemetryAggregator agg;
@@ -247,6 +257,7 @@ int main()
 {
     bool ok = true;
     FreshEcValuesAppearInSnapshot(ok);
+    A8TemperatureAndSingleFanMapWithoutASecondTach(ok);
     EcFieldRetainedForTwoMissesThenCleared(ok);
     FreshEcValueResetsTheMissStreak(ok);
     SystemFieldRetentionMatchesThreshold(ok);

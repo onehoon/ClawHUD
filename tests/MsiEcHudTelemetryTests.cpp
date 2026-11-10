@@ -23,6 +23,8 @@ struct FakeEcReader
     std::string failCall;
     ec::EcFailureStage failureStage{ ec::EcFailureStage::None };
     ec::EcFailureStage failureStageOnFail{ ec::EcFailureStage::Pipe };
+    std::vector<std::uint8_t> temperaturePayload{ 67 };
+    std::vector<std::uint8_t> fanPayload{ 0x00, 0x70, 0x00, 0x6F };
 
     bool Fail(const std::string& call)
     {
@@ -37,7 +39,7 @@ struct FakeEcReader
     {
         if (Fail("temperature"))
             return false;
-        payload = { 67 };
+        payload = temperaturePayload;
         return true;
     }
 
@@ -45,7 +47,7 @@ struct FakeEcReader
     {
         if (Fail("fan"))
             return false;
-        payload = { 0x00, 0x70, 0x00, 0x6F };
+        payload = fanPayload;
         return true;
     }
 
@@ -75,13 +77,14 @@ bool CheckSensorGating()
     int constructions = 0;
     FakeEcReader unusedReader;
     const auto read = [&](HudSensorSupport sensors, bool onBattery,
-        FakeEcReader& reader)
+        FakeEcReader& reader,
+        MsiEcFanLayout fanLayout = MsiEcFanLayout::DualTach)
     {
         return ReadMsiEcHudTelemetry(sensors, onBattery, [&]() -> FakeEcReader&
         {
             ++constructions;
             return reader;
-        });
+        }, fanLayout);
     };
 
     (void)read({}, true, unusedReader);
@@ -110,6 +113,53 @@ bool CheckSensorGating()
         fanReader.calls == std::vector<std::string>{ "fan" } &&
         fan.fan1Rpm == 4285 && fan.fan2Rpm == 4324 && !fan.cpuTempC,
         "fan permission invokes only the fan operation and keeps existing decoding");
+
+    const HudSensorSupport a8Sensors{ true, true, false, false };
+    FakeEcReader a8Reader;
+    a8Reader.fanPayload = { 0x00, 0x70 };
+    constructions = 0;
+    const auto a8 = read(a8Sensors, true, a8Reader, MsiEcFanLayout::SingleTach);
+    ok &= Check(constructions == 1 && a8Reader.calls ==
+        (std::vector<std::string>{ "temperature", "fan" }) &&
+        a8.cpuTempC == 67 && a8.fan1Rpm == 4285 && !a8.fan2Rpm &&
+        a8.cpuTemperatureAttempted && a8.fanRpmAttempted,
+        "A8 reads temperature and a two-byte first tach pair only on AC or DC");
+
+    FakeEcReader a8FourByteReader;
+    a8FourByteReader.fanPayload = { 0x00, 0x70, 0x70, 0x70 };
+    const auto a8FourByte = read(a8Sensors, false, a8FourByteReader,
+        MsiEcFanLayout::SingleTach);
+    ok &= Check(a8FourByteReader.calls ==
+        (std::vector<std::string>{ "temperature", "fan" }) &&
+        a8FourByte.fan1Rpm == 4285 && !a8FourByte.fan2Rpm,
+        "A8 AC four-byte payload reads no power or battery selectors and decodes only the first tach pair");
+
+    FakeEcReader a8MalformedTemperature;
+    a8MalformedTemperature.temperaturePayload = {};
+    const auto a8Partial = read(a8Sensors, true, a8MalformedTemperature,
+        MsiEcFanLayout::SingleTach);
+    ok &= Check(!a8Partial.cpuTempC && a8Partial.fan1Rpm == 4285 &&
+        !a8Partial.fan2Rpm && a8Partial.cpuTemperatureAttempted &&
+        a8Partial.fanRpmAttempted,
+        "malformed A8 temperature does not suppress an otherwise permitted fan read");
+
+    FakeEcReader a8ZeroFanReader;
+    a8ZeroFanReader.fanPayload = { 0x70, 0x70, 0x00, 0x70 };
+    const auto a8ZeroFan = read({ false, true, false, false }, false,
+        a8ZeroFanReader, MsiEcFanLayout::SingleTach);
+    ok &= Check(a8ZeroFan.fan1Rpm == 0 && !a8ZeroFan.fan2Rpm,
+        "A8 equal first-pair bytes are a valid zero RPM and ignore the second pair");
+
+    FakeEcReader a8EmptyFanReader;
+    a8EmptyFanReader.fanPayload = {};
+    const auto a8EmptyFan = read({ false, true, false, false }, false,
+        a8EmptyFanReader, MsiEcFanLayout::SingleTach);
+    a8EmptyFanReader.fanPayload = { 0x00 };
+    const auto a8OneByteFan = read({ false, true, false, false }, false,
+        a8EmptyFanReader, MsiEcFanLayout::SingleTach);
+    ok &= Check(!a8EmptyFan.fan1Rpm && !a8EmptyFan.fan2Rpm &&
+        !a8OneByteFan.fan1Rpm && !a8OneByteFan.fan2Rpm,
+        "A8 zero- and one-byte fan payloads are unavailable");
 
     FakeEcReader packageReader;
     constructions = 0;
@@ -153,6 +203,16 @@ bool CheckSensorGating()
         (std::vector<std::string>{ "temperature", "fan" }),
         "session failure aborts remaining reads without constructing another reader");
 
+    FakeEcReader a8TemperatureSessionFailure;
+    a8TemperatureSessionFailure.failCall = "temperature";
+    constructions = 0;
+    const auto skippedA8Fan = read(a8Sensors, false,
+        a8TemperatureSessionFailure, MsiEcFanLayout::SingleTach);
+    ok &= Check(constructions == 1 && skippedA8Fan.cpuTemperatureAttempted &&
+        !skippedA8Fan.fanRpmAttempted && a8TemperatureSessionFailure.calls ==
+        std::vector<std::string>{ "temperature" },
+        "session-fatal temperature failure records its attempt and leaves skipped fan unattempted");
+
     FakeEcReader nonSessionFailureReader;
     nonSessionFailureReader.failCall = "fan";
     nonSessionFailureReader.failureStageOnFail = ec::EcFailureStage::ExecMethod;
@@ -190,6 +250,10 @@ int main()
     ok &= Check(DecodeFanRpm(0x00, 0x70).value() == 4285, "fan 4285 RPM");
     ok &= Check(DecodeFanRpm(0x00, 0x71).value() == 4247, "fan signed delta");
     ok &= Check(DecodeFanRpm(0x70, 0x70).value() == 0, "fan zero RPM");
+    ok &= Check(DecodeFirstFanRpm(std::vector<std::uint8_t>{0x00, 0x70}).value() == 4285 &&
+        !DecodeFirstFanRpm(std::vector<std::uint8_t>{}) &&
+        !DecodeFirstFanRpm(std::vector<std::uint8_t>{0x00}),
+        "single-tach decoder requires only the first two bytes");
     ok &= Check(!DecodeFanTelemetry(std::vector<std::uint8_t>{0x00, 0x6F, 0x00}), "short fan payload");
     const auto fans = DecodeFanTelemetry(std::vector<std::uint8_t>{0x00, 0x70, 0x00, 0x6F});
     ok &= Check(fans && fans->fan1Rpm.value() == 4285 && fans->fan2Rpm.value() == 4324,

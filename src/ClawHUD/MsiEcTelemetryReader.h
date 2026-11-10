@@ -15,7 +15,8 @@ namespace clawhud
 template<class ReaderFactory>
 MsiEcHudTelemetry ReadMsiEcHudTelemetry(
     const HudSensorSupport& sensors, bool onBattery,
-    ReaderFactory&& getReader)
+    ReaderFactory&& getReader,
+    MsiEcFanLayout fanLayout = MsiEcFanLayout::DualTach)
 {
     MsiEcHudTelemetry result{};
     const bool readBatteryDischarge = sensors.msiBatteryDischarge && onBattery;
@@ -32,6 +33,7 @@ MsiEcHudTelemetry ReadMsiEcHudTelemetry(
     std::vector<std::uint8_t> payload;
     if (sensors.msiCpuTemperature)
     {
+        result.cpuTemperatureAttempted = true;
         if (reader.ReadTemperature(payload))
             result.cpuTempC = DecodeCpuTempC(payload);
         else if (abortAfterFailure())
@@ -40,10 +42,13 @@ MsiEcHudTelemetry ReadMsiEcHudTelemetry(
 
     if (sensors.msiFanRpm)
     {
+        result.fanRpmAttempted = true;
         payload.clear();
         if (reader.ReadFan(payload))
         {
-            if (const auto fans = DecodeFanTelemetry(payload))
+            if (fanLayout == MsiEcFanLayout::SingleTach)
+                result.fan1Rpm = DecodeFirstFanRpm(payload);
+            else if (const auto fans = DecodeFanTelemetry(payload))
             {
                 result.fan1Rpm = fans->fan1Rpm;
                 result.fan2Rpm = fans->fan2Rpm;
