@@ -21,9 +21,10 @@ constexpr clawhud::HudDeviceCapabilities kMsiIntelCapabilities{
 
 constexpr clawhud::HudDeviceCapabilities kMsiAmdCandidateCapabilities{
     clawhud::HudGpuVendor::Amd,
-    { true, true, false, false },
+    { true, true, false, true },
     false,
     clawhud::MsiEcFanLayout::SingleTach,
+    clawhud::MsiEcBatteryCurrentEncoding::OnesComplement,
 };
 
 constexpr clawhud::HudDeviceModel kHudDeviceModels[] =

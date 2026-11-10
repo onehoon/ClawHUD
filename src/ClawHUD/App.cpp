@@ -191,7 +191,8 @@ int App::Run()
     }
     if (!productionTelemetry_.ConfigureDeviceSensors(
             selectedHudDeviceModel_->capabilities.sensors,
-            selectedHudDeviceModel_->capabilities.msiEcFanLayout))
+            selectedHudDeviceModel_->capabilities.msiEcFanLayout,
+            selectedHudDeviceModel_->capabilities.msiEcBatteryCurrentEncoding))
     {
         clawhud::RuntimeLogger::Log(clawhud::RuntimeLogLevel::Error,
             L"EC sensor policy could not be configured before sampling");

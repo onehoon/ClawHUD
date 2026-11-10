@@ -26,6 +26,12 @@ enum class MsiEcFanLayout
     SingleTach,
 };
 
+enum class MsiEcBatteryCurrentEncoding
+{
+    SignedTwosComplement,
+    OnesComplement,
+};
+
 struct HudSensorSupport
 {
     bool msiCpuTemperature{};
@@ -40,6 +46,8 @@ struct HudDeviceCapabilities
     HudSensorSupport sensors{};
     bool intelVrrFix{};
     MsiEcFanLayout msiEcFanLayout{ MsiEcFanLayout::DualTach };
+    MsiEcBatteryCurrentEncoding msiEcBatteryCurrentEncoding{
+        MsiEcBatteryCurrentEncoding::SignedTwosComplement };
 };
 
 struct HudDeviceIdentity
